@@ -1,0 +1,123 @@
+############################################
+# ROOT / GLOBAL
+############################################
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs
+*.log
+
+
+############################################
+# BACKEND (Node.js)
+############################################
+
+# Node modules
+backend/node_modules/
+
+# Build output
+backend/dist/
+
+# Environment variables
+backend/.env
+backend/.env.*
+
+
+############################################
+# FRONTEND (React Native)
+############################################
+
+# Node modules
+frontend/node_modules/
+
+# Node logs
+frontend/npm-debug.log
+frontend/yarn-error.log
+
+# Metro temporary files
+frontend/.metro-health-check*
+
+# Test coverage
+frontend/coverage/
+
+# JS bundle artifacts
+frontend/*.jsbundle
+
+
+############################################
+# IOS (React Native)
+############################################
+
+frontend/ios/build/
+frontend/ios/*.pbxuser
+!frontend/ios/default.pbxuser
+
+frontend/ios/*.mode1v3
+!frontend/ios/default.mode1v3
+
+frontend/ios/*.mode2v3
+!frontend/ios/default.mode2v3
+
+frontend/ios/*.perspectivev3
+!frontend/ios/default.perspectivev3
+
+frontend/ios/xcuserdata
+frontend/ios/*.xccheckout
+frontend/ios/*.moved-aside
+frontend/ios/DerivedData
+frontend/ios/*.hmap
+frontend/ios/*.ipa
+frontend/ios/*.xcuserstate
+
+**/.xcode.env.local
+
+
+############################################
+# ANDROID
+############################################
+
+frontend/android/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/*.iml
+frontend/android/*.hprof
+frontend/android/.cxx/
+frontend/android/*.keystore
+!frontend/android/debug.keystore
+frontend/android/.kotlin/
+
+
+############################################
+# COCOAPODS / RUBY
+############################################
+
+frontend/**/Pods/
+frontend/vendor/bundle/
+
+
+############################################
+# FASTLANE
+############################################
+
+frontend/**/fastlane/report.xml
+frontend/**/fastlane/Preview.html
+frontend/**/fastlane/screenshots
+frontend/**/fastlane/test_output
+
+
+############################################
+# YARN
+############################################
+
+frontend/.yarn/*
+!frontend/.yarn/patches
+!frontend/.yarn/plugins
+!frontend/.yarn/releases
+!frontend/.yarn/sdks
+!frontend/.yarn/versions

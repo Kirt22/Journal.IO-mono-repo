@@ -1,34 +1,64 @@
-import mongoose, { Model, Document } from "mongoose";
+import mongoose, { Document, Model } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 
 export interface IUser extends Document {
-  toObject(): any;
+  toObject(): Record<string, unknown>;
   _id: mongoose.Types.ObjectId;
   name: string;
-  phone_no: string;
+  phoneNumber?: string | null;
   email?: string | null;
-  user_type: number;
-  profile_pic?: string | null;
+  googleUserId?: string | null;
+  authProviders: string[];
+  profilePic?: string | null;
+  refreshTokenHash?: string | null;
+  refreshTokenExpiresAt?: Date | null;
+  lastLoginAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const userSchema = new mongoose.Schema<IUser>(
   {
-    name: { type: String, required: true },
-    phone_no: { type: String, required: true },
-    user_type: { type: Number, default: 1, required: true },
-    profile_pic: { type: String, default: null },
-    email: { type: String, default: null },
+    name: { type: String, required: true, trim: true },
+    phoneNumber: { type: String, default: null, trim: true },
+    email: { type: String, default: null, trim: true, lowercase: true },
+    googleUserId: { type: String, default: null },
+    authProviders: {
+      type: [String],
+      enum: ["phone", "google"],
+      default: [],
+      required: true,
+    },
+    profilePic: { type: String, default: null },
+    refreshTokenHash: { type: String, default: null },
+    refreshTokenExpiresAt: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-// ✅ Indexes
-userSchema.index({ phone_no: 1 }, { unique: true });
-userSchema.index({ user_type: 1 });
+userSchema.index(
+  { phoneNumber: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phoneNumber: { $type: "string" } },
+  }
+);
+userSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { email: { $type: "string" } },
+  }
+);
+userSchema.index(
+  { googleUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { googleUserId: { $type: "string" } },
+  }
+);
 userSchema.index({ createdAt: -1 });
-userSchema.index({ _id: 1, name: 1, profile_pic: 1 });
 
 export const userModel: Model<IUser> = connectMongoDB.model<IUser>(
   "users",

@@ -1,6 +1,6 @@
 import express, { Express, Request, Response } from "express";
 import { apiResponse } from "../helpers/commonHelper.helpers";
-import userRouter from "../services/user/user.routes";
+import authRouter from "../services/auth/auth.routes";
 import journalRouter from "../services/journal/journal.routes";
 
 console.log("Initializing routes...");
@@ -30,7 +30,7 @@ export const initializeRoutes = (app: Express): void => {
   });
 
   // Routes
-  apiRouter.use("/user", userRouter);
+  apiRouter.use("/auth", authRouter);
   apiRouter.use("/journal", journalRouter);
 
   // Attach the global prefix

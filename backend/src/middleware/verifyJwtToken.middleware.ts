@@ -14,7 +14,14 @@ export const verifyJwtToken = async (
       .json(apiResponse(false, "Unauthorized: No token provided", {}));
   }
 
-  const jwtSecret = process.env.JWT_SECRET || "";
+  const jwtSecret = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || "";
+
+  if (!jwtSecret) {
+    console.error("JWT access secret is not configured.");
+    return res
+      .status(500)
+      .json(apiResponse(false, "Server misconfiguration", {}));
+  }
 
   try {
     const token = req.headers.authorization.split(" ")[1];
@@ -25,22 +32,22 @@ export const verifyJwtToken = async (
         .json(apiResponse(false, "Unauthorized: No token provided", {}));
     }
 
-    const data: any = jwt.verify(token, jwtSecret);
-    const number = data.phone_no;
+    const data = jwt.verify(token, jwtSecret) as jwt.JwtPayload;
+    const userId = data.sub || data.userId;
 
-    // Check cache for user data
+    if (!userId) {
+      return res
+        .status(401)
+        .json(apiResponse(false, "Unauthorized: Invalid token", {}));
+    }
 
-    const existingUser = await userModel.findOne({
-      phone_no: number,
-    });
+    const existingUser = await userModel.findById(userId);
 
     if (!existingUser) {
       return res
         .status(401)
         .json(apiResponse(false, "Unauthorized: User not found", {}));
     }
-
-    // Set cache here
 
     req.user = existingUser;
     next();

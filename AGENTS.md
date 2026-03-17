@@ -649,3 +649,32 @@ Otherwise, make the most reasonable repo-consistent assumption and state it in t
 If the same mistake happens more than once, update `AGENTS.md` with a concrete rule that would have prevented it.
 
 Keep this file practical, short enough to be usable, and based on real repo needs.
+
+---
+
+## 23) Skills
+
+A skill is a set of local instructions stored in a `SKILL.md` file.
+
+### Available skills
+
+Project-local skills (preferred for this repo):
+
+- `context-sync-on-change`: Keep root context/spec markdown files synchronized with feature/API/UX/security changes. (file: `/Users/kirtansolanki/Desktop/Journal.IO/.agents/skills/context-sync-on-change/SKILL.md`)
+- `figma-screen-build`: Translate Figma designs into Journal.IO React Native screens/components aligned with this repo. (file: `/Users/kirtansolanki/Desktop/Journal.IO/.agents/skills/figma-screen-build/SKILL.md`)
+- `frontend-feature-implementation`: Implement Journal.IO frontend feature slices under `frontend/src` with proper UI states and service integration. (file: `/Users/kirtansolanki/Desktop/Journal.IO/.agents/skills/frontend-feature-implementation/SKILL.md`)
+- `backend-feature-slice`: Implement Journal.IO backend slices under `backend/src` using route/controller/validator/service patterns. (file: `/Users/kirtansolanki/Desktop/Journal.IO/.agents/skills/backend-feature-slice/SKILL.md`)
+- `bug-fix-and-verification`: Diagnose root cause and apply minimal, verified fixes across frontend/backend. (file: `/Users/kirtansolanki/Desktop/Journal.IO/.agents/skills/bug-fix-and-verification/SKILL.md`)
+
+Global skills (fallback/utility):
+
+- `figma`: Use Figma MCP tools for design context and implementation support. (file: `/Users/kirtansolanki/.codex/skills/figma/SKILL.md`)
+- `skill-creator`: Create or update skills with proper metadata and concise instruction design. (file: `/Users/kirtansolanki/.codex/skills/.system/skill-creator/SKILL.md`)
+- `skill-installer`: Install curated skills into Codex global skills. (file: `/Users/kirtansolanki/.codex/skills/.system/skill-installer/SKILL.md`)
+
+### How to use skills
+
+- Trigger by skill name (`$skill-name`) or plain-text mention.
+- When both local and global skills overlap, prefer project-local skills for Journal.IO tasks.
+- Read only the triggered skill body and any directly needed references.
+- Keep skill usage focused; do not load unrelated skills.

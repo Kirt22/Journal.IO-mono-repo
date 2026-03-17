@@ -1,8 +1,8 @@
-# journal.io Product Blueprint
+# Journal.IO Product Blueprint
 
-journal.io is a behavioral journaling platform.
+Journal.IO is a behavioral journaling app focused on reflection, pattern awareness, and practical weekly improvement.
 
-The product helps users understand their mental patterns through reflection.
+The product is supportive, non-clinical, and privacy-conscious.
 
 ---
 
@@ -10,51 +10,74 @@ The product helps users understand their mental patterns through reflection.
 
 Enable users to:
 
-journal daily
-detect behavioral patterns
-understand emotional trends
-receive actionable improvement plans
+- journal consistently
+- quickly log mood and context
+- identify recurring behavioral patterns
+- track trends over time
+- follow realistic weekly action steps
 
 ---
 
-# Non-Goal
+# Non-Goals
 
-journal.io does not diagnose mental health conditions.
+Journal.IO does not:
 
-All insights must be presented as:
+- diagnose mental health conditions
+- present medical conclusions
+- position AI output as clinical advice
 
-"journal-indicated tendencies"
+Insight language must remain uncertainty-aware, for example:
+
+- "journal entries suggest"
+- "a recurring pattern may be"
+- "appears associated with"
 
 ---
 
-# Core Features
+# Current Experience Flow
 
-Daily journaling
-Mood tracking
-Stress tracking
-Behavior pattern detection
-Insight dashboards
-Weekly action plans
-Habit streak tracking
-Safety monitoring
+Primary user journey represented by the latest design context:
+
+1. Onboarding (3 steps)
+2. Phone auth or Google auth
+3. OTP verification (phone path)
+4. Profile setup
+5. Home dashboard
+6. Core journaling loops (new entry, history/calendar, insights, profile/settings/privacy)
+
+---
+
+# Core Product Areas
+
+- onboarding and trust education
+- authentication and profile setup
+- quick mood check-in
+- daily journaling and history
+- AI-assisted insights
+- streak and habit reinforcement
+- reminders and weekly action plans
+- privacy and safety controls
 
 ---
 
 # Product Philosophy
 
-Insights should be:
+The UX should feel:
 
-practical
-actionable
-easy to understand
+- calm
+- reflective
+- emotionally safe
+- practical
+- easy to understand
 
-The product focuses on **behavior improvement rather than diagnosis**.
+The app should help users take small, repeatable actions instead of overwhelming them.
 
 ---
 
-# Success Metrics
+# MVP Success Signals
 
-daily journaling rate
-weekly retention
-plan completion rate
-user helpfulness feedback
+- daily journaling rate
+- 7-day and 30-day retention
+- mood check-in completion rate
+- weekly action plan completion rate
+- user-rated helpfulness of insights

@@ -1,96 +1,119 @@
 # AI Insights Pipeline
 
-journal.io uses a simple AI architecture for MVP.
+Journal.IO uses an asynchronous, structured AI pipeline for behavioral insight generation.
 
-The system analyzes journal entries using OpenAI.
-
-No vector database or RAG is required initially.
+The primary journaling flow must remain available even when AI processing fails.
 
 ---
 
-# Journal Analysis Flow
+# 1) Pipeline Flow
 
-User writes journal
-↓
-POST /journals
-↓
-Journal stored in database
-↓
-AI analysis job triggered
-↓
-OpenAI API extracts structured insights
-↓
-Insights stored in entry_features collection
+1. User submits a journal entry.
+2. Entry is stored in the journal collection.
+3. Analysis job is triggered asynchronously.
+4. OpenAI extracts structured behavioral features.
+5. Output is validated and normalized.
+6. Features are stored in `entry_features`.
+7. Insights endpoints aggregate trends over time.
+8. Weekly plans are generated from aggregated trends, not ad hoc single-entry output.
 
 ---
 
-# AI Features Extracted
+# 2) Extracted Feature Scope
 
-For each journal entry the AI extracts:
+Per-entry extraction includes:
 
-sentiment
-primary emotions
-themes
-stress level
-behavior markers
-social context
+- sentiment
+- primary emotions
+- themes
+- stress level
+- behavior markers
+- social context
+
+Optional derived fields can be added when validators and schemas are updated together.
 
 ---
 
-# Example Feature Object
+# 3) Structured Feature Shape (Example)
 
+```json
 {
-entry_id: ObjectId,
-sentiment: "negative",
-emotions: ["anxiety","frustration"],
-themes: ["work"],
-stress_level: 7,
-behavior_markers: ["rumination"]
+  "entryId": "ObjectId",
+  "sentiment": "negative",
+  "emotions": ["anxiety", "frustration"],
+  "themes": ["work"],
+  "stressLevel": 7,
+  "behaviorMarkers": ["rumination"],
+  "socialContext": ["team conflict"]
 }
+```
 
 ---
 
-# Insights Aggregation
+# 4) Aggregation Outputs
 
-Insights APIs aggregate patterns over time.
+Insights endpoints should compute:
 
-Example metrics
+- mood trend
+- stress trend
+- dominant emotions
+- recurring themes
+- frequency-based behavior markers
 
-average mood
-stress trends
-top emotions
-most frequent themes
-
-These metrics power the insights dashboard.
-
----
-
-# Weekly Action Plan
-
-The system generates weekly improvement steps using OpenAI.
-
-Input
-
-recent behavioral trends
-
-Output
-
-3–5 actionable suggestions
-
-Example
-
-take short breaks during work stress
-walk outside for 10 minutes
-schedule focused work sessions
+These support home insight cards, insights dashboards, and weekly planning flows.
 
 ---
 
-# Future AI Architecture
+# 5) Weekly Plan Generation
 
-Future versions may include:
+Weekly plans consume recent aggregated trend summaries and produce 3-5 action steps.
 
-vector database
-coping strategy corpus
-retrieval augmented generation
+Output requirements:
 
-These are not required for MVP.
+- practical
+- specific
+- behavior-focused
+- low cognitive load
+
+---
+
+# 6) Safety and Language Constraints
+
+All AI-derived user-facing insight text must be:
+
+- non-clinical
+- uncertainty-aware
+- supportive
+
+Allowed phrases:
+
+- "journal entries suggest"
+- "appears associated with"
+- "a recurring pattern may be"
+
+Disallowed:
+
+- diagnosis language
+- medical certainty
+- psychiatric labeling
+
+---
+
+# 7) Failure Handling
+
+If analysis fails:
+
+- journal entry remains saved
+- analysis status is persisted
+- retries are possible
+- user-facing messaging stays calm and non-technical
+
+---
+
+# 8) MVP Boundaries
+
+Not required for this pipeline in MVP:
+
+- vector database
+- RAG
+- complex intervention knowledge retrieval layers

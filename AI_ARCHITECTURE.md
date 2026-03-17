@@ -1,144 +1,166 @@
-# AI_ARCHITECTURE.md
+# AI Architecture
 
-## Backend and AI Architecture
+## 1) Overview
 
-journal.io backend is built using:
+Journal.IO uses a modular backend + mobile frontend architecture:
 
-* Node.js
-* Express
-* MongoDB
-* OpenAI API
+- Backend: Node.js, Express, MongoDB (Mongoose)
+- Frontend: React Native + TypeScript
+- AI Layer: OpenAI-driven asynchronous analysis jobs
 
-The system follows a modular service-based architecture.
-
----
-
-# Backend Folder Structure
-
-backend/src
-
-config
-helpers
-middleware
-routes
-schema
-types
-
-services
-
-auth
-user
-journal
-prompts
-insights
-plans
-safety
-reminders
-streaks
-privacy
-admin
-
-Each service module contains:
-
-* feature.routes.ts
-* feature.controllers.ts
-* feature.validators.ts
+The architecture is intentionally MVP-friendly: simple services, clear contracts, and vertical feature slices.
 
 ---
 
-# Request Flow
+## 2) Backend Module Structure
 
-Client Request
-↓
-Route Handler
-↓
-Controller
-↓
-Service Logic
-↓
-Database
-↓
-Response
+`backend/src`:
 
----
+- `config`
+- `helpers`
+- `middleware`
+- `routes`
+- `schema`
+- `types`
+- `services/{feature}`
 
-# AI Processing Overview
+Expected feature services:
 
-AI analysis runs after a journal entry is saved.
+- `auth`
+- `user`
+- `journal`
+- `prompts`
+- `insights`
+- `plans`
+- `safety`
+- `reminders`
+- `streaks`
+- `privacy`
+- `admin`
 
-Workflow:
+Service file pattern:
 
-User submits journal
-↓
-Entry saved to database
-↓
-AI analysis job triggered
-↓
-OpenAI analyzes journal text
-↓
-Structured behavioral features extracted
-↓
-Features stored in database
-↓
-Insights API aggregates trends
+- `feature.routes.ts`
+- `feature.controllers.ts`
+- `feature.validators.ts`
+- `feature.service.ts` (when business logic is non-trivial)
 
 ---
 
-# AI Model Usage (MVP)
+## 3) Request Lifecycle
 
-The system uses OpenAI to extract:
+Request flow:
 
-* sentiment
-* emotions
-* themes
-* stress indicators
-* behavior markers
+1. Route
+2. Validator middleware
+3. Controller
+4. Service orchestration
+5. Database interaction
+6. Standard response formatting
 
----
-
-# AI Output Format
-
-Example structured output:
-
-{
-sentiment: "negative",
-emotions: ["anxiety","frustration"],
-themes: ["work"],
-stress_level: 7,
-behavior_markers: ["rumination"]
-}
+Controllers remain thin. Services contain domain logic.
 
 ---
 
-# Insights Aggregation
+## 4) Frontend Architecture Context
 
-Insights APIs compute:
+Current design flow represented in architecture decisions:
 
-* average mood
-* stress trend
-* most common emotions
-* recurring themes
+1. Onboarding
+2. Auth (phone / Google)
+3. OTP verification
+4. Profile setup
+5. Home dashboard
+6. Core journaling and insights surfaces
+
+Frontend structure:
+
+- `frontend/src/screens`
+- `frontend/src/components`
+- `frontend/src/services`
+- `frontend/src/hooks`
+- `frontend/src/store`
+- `frontend/src/navigation`
+
+API calls must remain in `frontend/src/services`.
 
 ---
 
-# Weekly Plan Generation
+## 5) AI Processing Architecture
 
-Weekly plans are generated using OpenAI based on recent patterns.
+Journal analysis is asynchronous and non-blocking:
 
-Example plan:
+1. User submits journal entry.
+2. Journal entry is persisted immediately.
+3. Analysis job is queued/triggered.
+4. OpenAI extracts structured behavioral features.
+5. Structured output is validated.
+6. Features are persisted.
+7. Insights and weekly plans aggregate from stored feature data.
 
-* take short breaks during work
-* schedule focused work sessions
-* walk outside daily
+Primary flow must not fail if AI analysis fails.
 
 ---
 
-# Future Architecture
+## 6) AI Output Contracts
 
-Future improvements may include:
+AI outputs should be:
 
-* vector databases
-* retrieval augmented generation
-* intervention knowledge base
+- structured
+- deterministic in shape
+- parseable
+- safe and non-clinical
 
-These are **not required for the MVP.**
+Typical extracted fields:
+
+- sentiment
+- primary emotions
+- themes
+- stress indicators
+- behavior markers
+- social context
+
+---
+
+## 7) Safety and Privacy Architecture
+
+Safety and general insights must remain separated in logic and presentation.
+
+Core requirements:
+
+- never diagnose or label users with psychiatric conditions
+- route elevated-risk signals through dedicated safety handling
+- preserve user dignity in all messaging
+- enforce auth and data ownership checks
+- avoid logging secrets or sensitive raw journal text
+
+---
+
+## 8) Current vs Target Surface
+
+Current implemented backend modules are centered around:
+
+- `auth`
+- `journal`
+
+Design-aligned target modules include:
+
+- prompts
+- insights
+- plans
+- reminders
+- streaks
+- privacy
+
+Architecture should evolve incrementally through vertical slices, not broad refactors.
+
+---
+
+## 9) Non-Goals for MVP
+
+Not required for current MVP:
+
+- vector databases
+- RAG orchestration
+- complex multi-model infrastructure
+- premature microservices

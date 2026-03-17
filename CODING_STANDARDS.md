@@ -1,199 +1,131 @@
 # Coding Standards
 
-This document defines the coding conventions used in journal.io.
+This document defines coding conventions for Journal.IO.
 
-The goal is to maintain a clean, scalable, and consistent codebase.
+Goals:
 
----
-
-# Backend Standards
-
-Backend uses Node.js with Express and MongoDB.
+- consistency
+- maintainability
+- predictable feature delivery
 
 ---
 
-# Feature-Based Structure
+# 1) Backend Standards
 
-Each feature lives in its own module.
+Stack:
 
-Example
+- Node.js
+- Express
+- MongoDB (Mongoose)
 
-src/services/auth
+Structure:
 
-auth.routes.ts
-auth.controllers.ts
-auth.validators.ts
+- feature-based modules under `backend/src/services/{feature}`
+- validators, controllers, routes, and service logic separated
 
----
+Flow:
 
-# Controller Responsibilities
+- route -> validator -> controller -> service -> DB -> response
 
-Controllers must:
+Rules:
 
-validate input
-call service logic
-return formatted response
-
-Controllers should not contain heavy business logic.
-
----
-
-# Validation
-
-All incoming requests must be validated.
-
-Validation should use schema validation libraries.
-
-Example
-
-Zod
-Joi
+- validate all request body/params/query input
+- keep controllers thin
+- move business logic to services
+- preserve response contract:
+  - success: `{ success: true, message, data }`
+  - error: `{ success: false, message, error }`
+- enforce auth and ownership checks on protected resources
+- avoid logging secrets, tokens, and raw sensitive journal text
 
 ---
 
-# Error Handling
+# 2) Frontend Standards
 
-All errors must follow standard format.
+Stack:
 
-{
-success: false,
-message: string
-}
+- React Native
+- TypeScript
+- React Navigation
+- TanStack Query (server state)
+- Zustand (app/client state)
 
----
+Do not introduce Redux Toolkit for this repo unless explicitly requested.
 
-# Logging
+Structure:
 
-All server errors must be logged.
+- `frontend/src/screens`
+- `frontend/src/components`
+- `frontend/src/services`
+- `frontend/src/hooks`
+- `frontend/src/store`
+- `frontend/src/navigation`
 
-Important logs include
+Rules:
 
-authentication events
-security events
-AI analysis failures
-
----
-
-# Database Standards
-
-MongoDB used with Mongoose.
-
-Schemas stored in
-
-src/schema
-
-Example
-
-user.schema.ts
-journal.schema.ts
-entry_features.schema.ts
+- place API calls in `frontend/src/services`
+- keep screens focused on composition and state display
+- extract reusable UI into components
+- include loading, empty, success, and error states
+- avoid direct API contract logic embedded in JSX
 
 ---
 
-# Naming Conventions
+# 3) Naming and Files
 
-Variables
+- variables/functions: `camelCase`
+- React components: `PascalCase`
+- constants: `UPPER_SNAKE_CASE` where meaningful
+- files: `feature.type.ts` or `FeatureScreen.tsx`
 
-camelCase
-
-Files
-
-featureName.type.ts
-
-Examples
-
-journal.routes.ts
-journal.controllers.ts
+Use existing naming patterns first when extending current modules.
 
 ---
 
-# Frontend Standards
+# 4) Code Quality Rules
 
-React Native + TypeScript.
-
----
-
-# Frontend Structure
-
-frontend/src
-
-screens
-components
-services
-hooks
-store
-navigation
+- keep functions small and readable
+- avoid deep nested branching
+- extract helpers when logic grows
+- add comments only where logic is non-obvious
+- do not leave dead code or commented-out legacy blocks
 
 ---
 
-# Screen Organization
+# 5) UI and Content Rules
 
-Each screen lives in
+UI should remain:
 
-src/screens
+- calm
+- minimal
+- reflective
+- emotionally safe
 
-Example
+For user-facing AI insight copy:
 
-LoginScreen.tsx
-JournalScreen.tsx
-InsightsScreen.tsx
-
----
-
-# API Services
-
-All API calls live in
-
-src/services
-
-Example
-
-authService.ts
-journalService.ts
+- use non-clinical, uncertainty-aware language
+- do not use diagnostic or medical-certainty wording
 
 ---
 
-# State Management
+# 6) Testing and Verification
 
-Use Zustand or Redux Toolkit.
+For meaningful changes, run relevant checks:
 
-State should not be tightly coupled to UI components.
+- backend tests
+- frontend tests
+- type checks
+- lint
 
----
-
-# Reusable Components
-
-Components live in
-
-src/components
-
-Example
-
-Button
-Card
-Slider
-Chart
+If no tests exist for touched logic, add focused tests when practical.
 
 ---
 
-# Code Quality Rules
-
-Avoid large functions.
-
-Prefer small reusable functions.
-
-Use clear variable names.
-
-Add comments where logic is complex.
-
----
-
-# AI Development Guidelines
+# 7) AI-Assisted Development Rules
 
 When generating code with AI tools:
 
-follow existing structure
-do not introduce new architecture patterns
-keep feature modules consistent
-
-All AI-generated code must be reviewed before merging.
+- follow repo structure
+- do not invent parallel architecture
+- keep diffs scoped to the requested change
+- align implementation with `AGENTS.md` and `AI_API_SPEC.md`

@@ -1,89 +1,143 @@
 # Feature Development Roadmap
 
-Features must be implemented sequentially.
+This roadmap is aligned to the current design flow and MVP priorities.
+
+Implement features sequentially as complete vertical slices.
 
 ---
 
-# Feature 1 — Authentication
+# 1) Onboarding and Trust Setup
 
-Backend APIs
+Scope:
 
-POST /auth/signup
-POST /auth/login
-POST /auth/logout
-POST /auth/refresh
+- multi-step onboarding
+- goal selection capture
+- privacy agreement capture
 
-Frontend
+Includes:
 
-Signup screen
-Login screen
-
-Goal
-
-User can create account and login.
+- frontend onboarding screens
+- backend persistence for onboarding preferences (if required)
+- validation and tests
 
 ---
 
-# Feature 2 — User Profile
+# 2) Authentication Flow (Phone + Google)
 
-GET /users/profile
-PATCH /users/profile
-DELETE /users/profile
+Scope:
 
-Frontend
+- phone OTP request
+- OTP verification
+- Google OAuth registration/login
+- token refresh and logout
 
-Profile screen
-Account settings
+Includes:
 
----
-
-# Feature 3 — Journaling
-
-POST /journals
-GET /journals
-GET /journals/{journalId}
-PATCH /journals/{journalId}
-DELETE /journals/{journalId}
-
-Frontend
-
-Journal editor
-Journal history
+- auth routes/controllers/validators/services
+- auth frontend service integration
+- auth UI states and error handling
 
 ---
 
-# Feature 4 — Daily Check-In
+# 3) Profile Setup Flow
 
-Mood slider
-Stress slider
-Energy slider
-Sleep input
+Scope:
 
----
+- post-auth display name setup
+- optional avatar/profile preferences
+- profile fetch/update support
 
-# Feature 5 — AI Analysis
+Includes:
 
-Extract sentiment
-emotions
-themes
-behavior markers
+- profile endpoints
+- profile screen integration
+- validation and ownership checks
 
 ---
 
-# Feature 6 — Insights Dashboard
+# 4) Home Dashboard Slice
 
-Trend charts
-pattern cards
+Scope:
+
+- greeting and date context
+- streak summary
+- quick mood check-in
+- quick note capture
+- short AI insight card
+- recent entries preview
+
+Includes:
+
+- backend support for summary payloads where needed
+- frontend loading/empty/error states
 
 ---
 
-# Feature 7 — Weekly Plans
+# 5) Journal Lifecycle
 
-AI generated action plans
+Scope:
+
+- create entry
+- list entries
+- view detail
+- edit entry
+- delete entry
+- tagging support
 
 ---
 
-# Feature 8 — Safety Monitoring
+# 6) Insights and Trends
 
-Distress detection
-support resources
+Scope:
+
+- insights overview
+- trends
+- recurring patterns
+- explanation drill-down
+
+Depends on:
+
+- stable AI extraction + aggregation pipeline
+
+---
+
+# 7) Weekly Action Plans
+
+Scope:
+
+- weekly plan generation
+- plan retrieval/update
+- completion tracking
+
+---
+
+# 8) Reminders and Streaks
+
+Scope:
+
+- reminders CRUD
+- streak calculations
+- streak history surfaces
+
+---
+
+# 9) Privacy and Safety
+
+Scope:
+
+- data export
+- delete request
+- AI opt-out
+- safety escalation pathways
+
+---
+
+# Execution Rule
+
+Do not start the next item until the current item is fully integrated:
+
+- backend
+- frontend
+- validation
+- tests
+- verification notes

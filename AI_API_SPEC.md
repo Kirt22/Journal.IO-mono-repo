@@ -1,462 +1,268 @@
-# journal.io API Specification
+# Journal.IO API Specification
 
-This document defines the REST API contract for the journal.io backend.
+This document is the API contract source for the current Journal.IO backend and near-term design-aligned endpoints.
 
-All endpoints follow REST principles and return JSON responses.
+Base URL:
 
----
+- `/api/v1`
 
-# Base URL
-
-/api/v1
+All APIs return JSON.
 
 ---
 
-# Standard Response Format
+# 1) Standard Response Contract
 
-All responses must follow this structure.
+Success:
 
-Success Response
-
+```json
 {
-success: true,
-message: string,
-data: object | array
+  "success": true,
+  "message": "Human readable success message",
+  "data": {}
 }
+```
 
-Error Response
+Error:
 
+```json
 {
-success: false,
-message: string,
-error?: object
+  "success": false,
+  "message": "Human readable error message",
+  "error": {}
 }
+```
 
 ---
 
-# Authentication
+# 2) Auth and Authorization
 
-Authentication uses JWT tokens.
-
-Authorization header format
-
-Authorization: Bearer {access_token}
+- Access token sent as `Authorization: Bearer {accessToken}`
+- Refresh tokens used for access-token renewal
+- Protected endpoints must enforce user ownership
 
 ---
 
-# AUTH MODULE
+# 3) Implemented Endpoints (Current Backend)
 
-## POST /auth/signup
+## 3.1 Auth Module (`/auth`)
 
-Creates a new user account.
+### `POST /auth/send_otp`
 
-Request Body
+Send a one-time passcode for phone login/signup.
 
+Request:
+
+```json
 {
-email: string,
-password: string,
-name: string
+  "phoneNumber": "+15551234567"
 }
+```
 
-Response
+Success `data`:
 
+```json
 {
-success: true,
-message: "User created",
-data: {
-userId,
-email,
-name
+  "phoneNumber": "+15551234567",
+  "expiresInSeconds": 300,
+  "debugOtp": "123456"
 }
-}
+```
 
----
+`debugOtp` is for safe local development/test workflows only.
 
-## POST /auth/login
+### `POST /auth/verify_otp`
 
-Authenticates a user.
+Verify OTP and create/login account.
 
-Request Body
+Request:
 
+```json
 {
-email: string,
-password: string
+  "phoneNumber": "+15551234567",
+  "otp": "123456",
+  "name": "Alex"
 }
+```
 
-Response
+`name` is optional and typically passed for new-user onboarding completion.
 
+Success `data`:
+
+```json
 {
-success: true,
-message: "Login successful",
-data: {
-accessToken,
-refreshToken,
-user
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Alex",
+    "phoneNumber": "+15551234567",
+    "email": null,
+    "profilePic": null
+  },
+  "isNewUser": true
 }
-}
+```
 
----
+### `POST /auth/register_from_googleOAuth`
 
-## POST /auth/refresh
+Google OAuth-based login/signup.
 
-Generates a new access token.
+Request:
 
-Request Body
-
+```json
 {
-refreshToken: string
+  "googleIdToken": "token",
+  "googleUserId": "optional_google_sub",
+  "email": "alex@gmail.com",
+  "name": "Alex",
+  "profilePic": "https://..."
 }
+```
 
----
+Success `data`:
 
-## POST /auth/logout
-
-Invalidates user session.
-
-Requires authentication.
-
----
-
-# USER MODULE
-
-## GET /users/profile
-
-Returns current user profile.
-
-Response
-
+```json
 {
-success: true,
-data: {
-userId,
-name,
-email,
-createdAt
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Alex",
+    "phoneNumber": null,
+    "email": "alex@gmail.com",
+    "profilePic": "https://..."
+  }
 }
-}
+```
 
----
+### `POST /auth/refresh`
 
-## PATCH /users/profile
+Refresh access token.
 
-Updates user profile.
+Request:
 
-Request Body
-
+```json
 {
-name?: string
+  "refreshToken": "jwt"
 }
+```
+
+### `POST /auth/logout`
+
+Invalidate active refresh token for current authenticated user.
+
+Requires `Authorization` header.
 
 ---
 
-## DELETE /users/profile
+## 3.2 Journal Module (`/journal`)
 
-Deletes user account permanently.
+### `GET /journal/get_journals`
+
+Get authenticated user journals.
+
+### `POST /journal/create_journal`
+
+Create journal entry.
+
+### `GET /journal/get_journal_details`
+
+Get details for one journal entry.
+
+### `POST /journal/edit_journal`
+
+Edit one journal entry.
+
+### `DELETE /journal/delete_journal`
+
+Delete one journal entry.
+
+All journal module routes require authentication.
 
 ---
 
-# JOURNAL MODULE
+# 4) Design-Aligned Target Endpoints (Planned Contract)
 
-## POST /journals
+These endpoints are expected by the current design context and should be treated as target modules for upcoming slices.
 
-Creates a new journal entry.
+## 4.1 User Profile
 
-Request Body
+- `GET /users/profile`
+- `PATCH /users/profile`
+- `DELETE /users/profile`
 
+## 4.2 Prompting
+
+- `GET /prompts/daily`
+- `GET /prompts/history`
+- `POST /prompts/answer`
+
+## 4.3 Insights
+
+- `GET /insights/overview`
+- `GET /insights/trends`
+- `GET /insights/patterns`
+- `GET /insights/traits`
+- `GET /insights/explain/{insightId}`
+
+## 4.4 Plans and Reminders
+
+- `POST /plans/generate`
+- `GET /plans/current`
+- `PATCH /plans/current`
+- `GET /reminders`
+- `POST /reminders`
+- `PATCH /reminders/{reminderId}`
+- `DELETE /reminders/{reminderId}`
+
+## 4.5 Streaks
+
+- `GET /streaks/current`
+- `GET /streaks/history`
+
+## 4.6 Privacy
+
+- `POST /privacy/export`
+- `POST /privacy/delete-request`
+- `PATCH /privacy/ai-opt-out`
+
+---
+
+# 5) Behavioral Data Shapes (Contract Guidance)
+
+Journal creation and updates should support the behavioral fields used by current designs:
+
+```json
 {
-entry_text: string,
-entry_mode: "free" | "guided" | "mixed",
-mood_score: number,
-stress_score: number,
-energy_score: number,
-sleep_hours: number,
-sleep_quality: number,
-tags: string[],
-client_created_at: date,
-timezone: string
+  "entryText": "string",
+  "entryMode": "free|guided|mixed",
+  "moodScore": 1,
+  "stressScore": 1,
+  "energyScore": 1,
+  "sleepHours": 7.5,
+  "sleepQuality": 1,
+  "tags": ["work", "gratitude"],
+  "clientCreatedAt": "ISO-8601",
+  "timezone": "Asia/Kolkata"
 }
+```
 
-Response
-
-{
-success: true,
-message: "Journal entry created",
-data: {
-journalId
-}
-}
+Field naming should remain consistent across request validators, controllers, services, and frontend services.
 
 ---
 
-## GET /journals
+# 6) Insight Safety and Language Requirements
 
-Returns paginated journal list.
+Any endpoint returning AI-generated insight summaries must avoid diagnostic language and remain uncertainty-aware.
 
-Query Params
+Allowed tone examples:
 
-from
-to
-cursor
-limit
+- "journal entries suggest"
+- "appears associated with"
+- "a recurring pattern may be"
 
----
+Not allowed:
 
-## GET /journals/{journalId}
-
-Returns a single journal entry.
-
----
-
-## PATCH /journals/{journalId}
-
-Updates a journal entry.
-
----
-
-## DELETE /journals/{journalId}
-
-Deletes a journal entry.
-
----
-
-# PROMPTS MODULE
-
-## GET /prompts/daily
-
-Returns daily reflection prompts.
-
-Response
-
-{
-prompts: [
-"What happened today?",
-"How did you feel?",
-"What challenged you?"
-]
-}
-
----
-
-## POST /prompts/answer
-
-Stores answer to guided prompt.
-
----
-
-## GET /prompts/history
-
-Returns previous prompt responses.
-
----
-
-# INSIGHTS MODULE
-
-## GET /insights/overview
-
-Returns behavioral insight summary.
-
-Example
-
-{
-averageMood,
-stressTrend,
-topEmotions,
-topThemes
-}
-
----
-
-## GET /insights/trends
-
-Returns time-series metrics.
-
-Query
-
-metric
-from
-to
-
-Metrics
-
-mood
-stress
-energy
-
----
-
-## GET /insights/patterns
-
-Returns detected behavioral patterns.
-
-Example
-
-{
-pattern: "Work stress",
-frequency: 6,
-confidence: "medium"
-}
-
----
-
-## GET /insights/traits
-
-Returns personality tendency indicators.
-
-These are non-clinical signals derived from journal language.
-
----
-
-## GET /insights/explain/{insightId}
-
-Returns explanation of a generated insight.
-
----
-
-# PLANS MODULE
-
-## POST /plans/generate
-
-Generates weekly action plan.
-
-Input
-
-date range
-
-Output
-
-3–5 improvement steps.
-
----
-
-## GET /plans/latest
-
-Returns most recent action plan.
-
----
-
-## GET /plans/{planId}
-
-Returns specific plan.
-
----
-
-## POST /plans/{planId}/feedback
-
-User feedback on plan usefulness.
-
----
-
-## POST /plans/{planId}/mark-step
-
-Marks action step as completed.
-
----
-
-# REMINDERS MODULE
-
-## POST /reminders
-
-Creates reminder.
-
-Example
-
-Daily journaling reminder.
-
----
-
-## GET /reminders
-
-Returns user reminders.
-
----
-
-## PATCH /reminders/{id}
-
-Updates reminder.
-
----
-
-## DELETE /reminders/{id}
-
-Deletes reminder.
-
----
-
-# STREAK MODULE
-
-## GET /streaks
-
-Returns journaling streak information.
-
-Example
-
-{
-currentStreak,
-longestStreak
-}
-
----
-
-# SAFETY MODULE
-
-## GET /safety/status
-
-Returns safety risk status.
-
----
-
-## POST /safety/check
-
-Runs manual safety check.
-
----
-
-## GET /resources/crisis
-
-Returns country-specific crisis resources.
-
-Example
-
-country=IN
-
----
-
-# PRIVACY MODULE
-
-## POST /privacy/export
-
-Exports user data.
-
----
-
-## POST /privacy/delete-request
-
-Deletes all user data.
-
----
-
-# ADMIN MODULE
-
-Internal monitoring APIs.
-
-## GET /admin/queues
-
-Queue health status.
-
----
-
-## GET /admin/model-evals
-
-AI model evaluation logs.
-
----
-
-## GET /admin/safety-flags
-
-Entries flagged for risk signals.
-
----
-
-## POST /admin/interventions/reindex
-
-Reindex intervention database.
+- medical certainty
+- psychiatric labeling
+- diagnosis wording

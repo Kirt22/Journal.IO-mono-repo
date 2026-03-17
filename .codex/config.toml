@@ -1,0 +1,34 @@
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+
+[features]
+rmcp_client = true
+
+[projects."/Users/kirtansolanki/Desktop/Journal.IO"]
+trust_level = "trusted"
+
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+
+# Project-local MCP starter config for Journal.IO.
+# Keep committed config free of secrets. Prefer bearer_token_env_var when possible.
+# If a server requires fixed API keys or auth headers, add them only in a developer-local
+# override that is not committed to git.
+
+# Example: remote HTTP MCP server with explicit env-backed auth details.
+# bearer_token_env_var = "FIGMA_OAUTH_TOKEN"
+# http_headers = { "X-Figma-Region" = "us-east-1" }
+
+# Example: remote HTTP MCP server with developer-supplied headers.
+# [mcp_servers.stitch]
+# url = "https://stitch.googleapis.com/mcp"
+# startup_timeout_sec = 20
+# tool_timeout_sec = 120
+#
+# [mcp_servers.stitch.http_headers]
+# "X-Goog-Api-Key" = "set-in-local-only-config"
+
+# Example: local process MCP server.
+# [mcp_servers.local_filesystem]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "."]

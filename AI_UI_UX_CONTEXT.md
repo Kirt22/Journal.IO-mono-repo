@@ -1,207 +1,228 @@
-# journal.io UI / UX Context
+# Journal.IO UI / UX Context
 
-This document defines the UI principles for the mobile application.
+This document defines the current design direction for Journal.IO mobile implementation.
 
-The design should feel calm, minimal, and reflective.
-
-Users should focus on writing and self-reflection.
+It is intended for React Native + TypeScript implementation in this repository.
 
 ---
 
-# Design Philosophy
+# 1) Experience Goals
 
-The interface should be:
+The app should feel:
 
-calm
-distraction-free
-emotionally safe
-data informative
+- calm
+- private
+- reflective
+- supportive
+- modern without being noisy
 
----
-
-# Typography
-
-Headline Font
-
-Manrope Semibold
-
-Body Font
-
-DM Sans Regular
+The interface should never feel clinical, gamified, or visually overwhelming.
 
 ---
 
-# Color System
+# 2) Screen Flow (Current Design Context)
 
-Background
+The current design flow is:
 
-bg.primary #F6F7F2
-
-Cards
-
-bg.surface #FFFFFF
-
-Primary text
-
-text.primary #1C221B
-
-Secondary text
-
-text.secondary #556055
-
-Accent colors
-
-growth #2F7A5D
-alert #C05A4A
-info #2D6FA3
+1. Onboarding
+2. Auth (phone or Google)
+3. OTP verification (phone path)
+4. Profile setup
+5. Home dashboard
+6. Supporting flows:
+   - new entry
+   - entry detail
+   - calendar/history
+   - search
+   - insights
+   - streaks
+   - reminders
+   - profile
+   - settings
+   - privacy
 
 ---
 
-# Spacing System
+# 3) Onboarding Experience
 
-4px
-8px
-12px
-16px
-24px
-32px
+The onboarding sequence uses 3 steps:
 
----
+1. Value introduction:
+   - AI-powered insights
+   - track your journey
+   - private and secure
+2. Goal selection:
+   - daily reflection
+   - mindfulness practice
+   - personal growth
+   - gratitude journaling
+3. Privacy and trust:
+   - user data control
+   - no data selling
+   - export/delete controls
+   - explicit agreement checkbox
 
-# UI Components
+Implementation notes:
 
-Reusable components include
-
-JournalCard
-InsightCard
-ActionStepItem
-MetricSlider
-ConfidenceBadge
-TraitBar
-
----
-
-# Core Screens
-
-## Welcome Screen
-
-Hero message
-
-"Understand your mind through journaling."
-
-CTA
-
-Start journaling
+- use a clear progress indicator
+- keep content readable and lightweight
+- include back/continue actions where appropriate
 
 ---
 
-## Authentication Screens
+# 4) Authentication and Setup UX
 
-Signup screen
-Login screen
+Auth should prioritize low-friction entry:
 
----
+- phone number + country code
+- OTP verification with resend timer
+- Google sign-in path
 
-## Home Dashboard
+Post-auth setup:
 
-Greeting
-Current streak
-Quick mood slider
-Write journal button
+- display name entry
+- avatar color selection
+- optional lightweight profile customization
 
----
+Behavioral requirements:
 
-## Journal Entry Screen
-
-Large distraction-free text area
-
-Prompt suggestions
-
-"What happened today?"
-
-Sticky footer
-
-Next: Daily Check-in
+- clear form validation
+- loading states on async actions
+- recoverable error states
+- no dead-end screens
 
 ---
 
-## Daily Check-In
+# 5) Home Dashboard UX
 
-Mood slider
-Stress slider
-Energy slider
-Sleep input
+Home should support quick daily engagement:
 
----
+- greeting + date context
+- streak summary
+- quick mood check-in
+- quick note capture
+- AI insight card (short and actionable)
+- daily prompt card
+- recent entries preview
 
-## Entry Success Screen
-
-Confirmation animation
-
-"Entry logged. Analysis in progress."
-
----
-
-## Insights Dashboard
-
-Trend charts
-
-Metrics
-
-Mood trend
-Stress trend
-Energy trend
-
-Pattern cards
-
-Example
-
-"Work-related stress appears frequently."
+The first screen after setup should make journaling and check-in easy within one scroll.
 
 ---
 
-## Weekly Action Plan Screen
+# 6) Visual System
 
-3–5 suggested steps.
+Use a warm, low-contrast-safe palette aligned with current design direction.
 
-Example
+Core surface tokens:
 
-Take short breaks during work
-Walk outside daily
-Practice breathing exercises
+- `bg.primary`: `#F6F7F2`
+- `bg.surface`: `#FFFFFF`
+- `text.primary`: `#1C221B`
+- `text.secondary`: `#556055`
 
-Users can mark steps complete.
+Semantic accents:
 
----
+- growth/success: `#2F7A5D`
+- alert/destructive: `#C05A4A`
+- info: `#2D6FA3`
+- primary CTA accent (current design direction): warm coral/peach family
 
-## History Screen
+Rules:
 
-List of previous journals.
-
-Search and filter.
-
----
-
-## Safety Screen
-
-Crisis resources
-
-Trusted contact options
+- keep accent usage intentional
+- avoid overly saturated highlight combinations
+- preserve readability over style density
 
 ---
 
-## Privacy Screen
+# 7) Typography and Rhythm
 
-Export data
-Delete account
-AI insights toggle
+Preferred type direction:
+
+- headline: Manrope Semibold
+- body: DM Sans Regular
+
+Spacing rhythm:
+
+- 4, 8, 12, 16, 20, 24, 32, 40
+
+Border radius guidance:
+
+- controls: 10-12
+- cards: 16-20
+- pill elements: full round
 
 ---
 
-# Interaction Design
+# 8) Interaction Guidelines
 
-Animations should be subtle.
+- keep animations subtle and meaningful
+- use short transitions for taps, selection, and step changes
+- prioritize touch clarity over visual flair
+- provide immediate feedback for save, verify, and submit actions
 
-Card reveal animation
-Chart draw animation
-Haptic feedback on journal save
+Required state handling:
+
+- loading
+- success
+- empty
+- validation error
+- network/server error
+
+---
+
+# 9) Reusable Component Expectations
+
+Preferred reusable components include:
+
+- primary and secondary button
+- text field / input controls
+- onboarding progress indicator
+- mood selector / mood check-in card
+- entry preview card
+- insight card
+- action list item
+- section header row
+
+Implementation rule:
+
+- put reusable components in `frontend/src/components`
+- keep screen composition in `frontend/src/screens`
+- keep API requests in `frontend/src/services`
+
+---
+
+# 10) Content Tone Rules
+
+All emotionally sensitive content must remain:
+
+- non-clinical
+- uncertainty-aware
+- behavior-focused
+
+Avoid diagnostic wording or medical claims in UI text and insights.
+
+---
+
+# 11) Accessibility and Usability
+
+Minimum expectations:
+
+- clear text contrast
+- readable input labels
+- touch targets sized for mobile interaction
+- safe-area-aware layouts
+- keyboard-safe behavior for forms
+- no critical information hidden behind animation timing
+
+---
+
+# 12) Design-to-Code Guardrails
+
+When converting Figma to code:
+
+1. Implement the smallest complete slice first.
+2. Reuse existing repo components and patterns.
+3. Do not import a parallel web UI architecture.
+4. Match the screen hierarchy and states before polishing visuals.
+5. Keep behavior aligned with API contracts and existing backend capabilities.

@@ -1,104 +1,80 @@
 # Feature Development Workflow
 
-journal.io development follows **vertical feature slices**.
+Journal.IO development follows vertical feature slices.
 
-Each feature must be implemented completely before moving to the next feature.
-
----
-
-# Implementation Steps For Each Feature
-
-Step 1
-Design backend API endpoints.
-
-Step 2
-Create database schemas.
-
-Step 3
-Implement backend routes.
-
-Step 4
-Implement controllers.
-
-Step 5
-Implement validators.
-
-Step 6
-Test backend endpoints.
-
-Step 7
-Create frontend screens.
-
-Step 8
-Create frontend API service functions.
-
-Step 9
-Integrate frontend with backend.
-
-Step 10
-Test full feature end-to-end.
-
-Only after completing these steps should development proceed to the next feature.
+Each slice must be implemented end-to-end before moving to the next.
 
 ---
 
-# Example Feature Workflow
+# 1) Required Slice Order
 
-Example: Authentication
-
-Backend APIs
-
-POST /auth/signup
-POST /auth/login
-POST /auth/logout
-POST /auth/refresh
-
-Frontend screens
-
-Signup screen
-Login screen
-Authentication state management
-
-After integration and testing, development proceeds to the next feature.
+1. Understand request and design target.
+2. Read relevant docs (`AGENTS.md`, `AI_API_SPEC.md`, `CODING_STANDARDS.md`, and feature-specific docs).
+3. Inspect current code in both backend and frontend areas affected.
+4. Define smallest complete vertical slice.
+5. Implement backend contracts and validation.
+6. Implement frontend integration and UI states.
+7. Add/update tests.
+8. Run verification commands.
+9. Update docs/specs if contract or behavior changed.
 
 ---
 
-# Development Rules
+# 2) Design-Driven Slice Rule
 
-Work on only **one feature at a time**.
+When work starts from Figma/design:
 
-Avoid partially implemented features.
-
-Each feature must include:
-
-backend
-frontend
-integration
-testing
+1. Identify exact screen flow and required states.
+2. Map screens to existing services and contracts.
+3. If API is missing, implement the minimal backend support first.
+4. Implement UI with loading, empty, success, and error states.
+5. Verify interaction flow end-to-end.
 
 ---
 
-# Backend Feature Modules
+# 3) Backend Checklist (Per Slice)
 
-Backend modules live in:
-
-src/services/{feature}
-
-Example modules
-
-src/services/auth
-src/services/journal
-src/services/insights
+- routes
+- validators
+- controllers
+- service logic
+- schema updates (if needed)
+- auth/ownership checks
+- standard response format
 
 ---
 
-# Frontend Modules
+# 4) Frontend Checklist (Per Slice)
 
-frontend/src
+- screens
+- reusable components
+- service-layer API calls
+- navigation integration
+- loading/empty/error states
+- UX alignment to `AI_UI_UX_CONTEXT.md`
 
-screens
-components
-services
-hooks
-store
-navigation
+---
+
+# 5) Verification Checklist
+
+At minimum run relevant:
+
+- backend tests (if available)
+- frontend tests (if available)
+- type checks
+- lint checks
+
+If test coverage is missing in touched areas, add focused tests where practical.
+
+---
+
+# 6) Completion Rule
+
+A feature slice is complete only when:
+
+- implementation matches the request
+- backend and frontend are connected
+- validation is present
+- contracts are respected
+- tests/checks are run and reported
+- no unrelated refactor is bundled

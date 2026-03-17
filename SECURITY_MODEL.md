@@ -1,89 +1,95 @@
 # Security Model
 
-journal.io uses **Model A security architecture**.
-
-This allows AI analysis while maintaining strong encryption.
+Journal.IO handles sensitive personal journaling content and must enforce strong privacy defaults.
 
 ---
 
-# Encryption In Transit
+# 1) Core Security Posture
 
-All network communication uses:
-
-HTTPS
-TLS 1.3
-
-This protects data between device and server.
+- encryption in transit: HTTPS + TLS 1.3
+- encryption at rest: AES-256-capable storage controls
+- strict authentication and data ownership checks
+- no cross-user data leakage
 
 ---
 
-# Encryption At Rest
+# 2) Why E2EE Is Not Default in AI Mode
 
-All sensitive data is encrypted at rest.
-
-Database encryption uses:
-
-AES-256
-
-MongoDB encryption features may be used where available.
-
----
-
-# Why End-To-End Encryption Is Not Used In MVP
-
-True end-to-end encryption prevents the server from reading journal content.
-
-AI insights require access to journal text.
+Server-side AI analysis requires server access to journal text.
 
 Therefore:
 
-E2EE cannot be used in the MVP version.
+- end-to-end encryption is not compatible with AI-enabled journaling in current MVP
+
+Future optional mode may support private E2EE with AI disabled.
 
 ---
 
-# Future Optional E2EE Mode
+# 3) Authentication and Session Security
 
-Future versions may support optional E2EE.
+Minimum requirements:
 
-In this mode:
-
-journals encrypted on device
-server stores encrypted data
-AI insights disabled
-
-Users may choose between:
-
-AI insights mode
-private E2EE mode
+- JWT-based auth for protected routes
+- refresh-token lifecycle management
+- token invalidation on logout
+- authorization checks before read/update/delete operations
 
 ---
 
-# Privacy Controls
+# 4) Privacy Controls in Product Flow
 
-Users can control their data.
+The current product context includes privacy controls that must be implemented and enforced:
 
-Features include:
+- data export
+- delete account / delete request
+- AI analysis opt-out path
 
-data export
-account deletion
-AI analysis opt-out
+Related APIs:
 
----
-
-# Privacy APIs
-
-POST /privacy/export
-POST /privacy/delete-request
-
-These allow users to control their stored data.
+- `POST /privacy/export`
+- `POST /privacy/delete-request`
+- `PATCH /privacy/ai-opt-out`
 
 ---
 
-# Trust Principles
+# 5) Logging Rules
 
-User data must always be:
+Never log:
 
-private
-secure
-transparent
-user-controlled
+- access tokens
+- refresh tokens
+- passwords or OAuth secrets
+- raw sensitive journal text (except explicitly approved local debug workflow)
+
+Log operational failures safely:
+
+- auth failures
+- permission denials
+- AI processing failures
+- unexpected server exceptions
+
+---
+
+# 6) Safety and Sensitive Content
+
+Journal.IO may contain emotionally sensitive user content.
+
+System behavior must:
+
+- avoid harmful instruction output
+- keep insight language non-clinical
+- route elevated-risk signals to safety handling
+- preserve user dignity and privacy in messaging
+
+---
+
+# 7) Trust Principles
+
+User data must remain:
+
+- private
+- secure
+- transparent
+- user-controlled
+
+Security decisions should favor user safety over convenience shortcuts.

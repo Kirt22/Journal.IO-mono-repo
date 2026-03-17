@@ -61,10 +61,18 @@ Structure:
 - `frontend/src/store`
 - `frontend/src/navigation`
 
+Frontend architecture pattern:
+
+- MVVM
+- View: `frontend/src/screens` and `frontend/src/components`
+- ViewModel: `frontend/src/hooks` and `frontend/src/store`
+- Model: `frontend/src/services` and feature/domain data structures
+
 Rules:
 
 - place API calls in `frontend/src/services`
 - keep screens focused on composition and state display
+- keep MVVM boundaries explicit (no data-access logic directly in views)
 - extract reusable UI into components
 - include loading, empty, success, and error states
 - avoid direct API contract logic embedded in JSX

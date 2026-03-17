@@ -82,7 +82,20 @@ Frontend structure:
 - `frontend/src/store`
 - `frontend/src/navigation`
 
+Frontend architectural pattern: MVVM.
+
+- View: screens and reusable UI components
+- ViewModel: hooks/store state and UI orchestration
+- Model: service-layer data access and feature/domain data structures
+
 API calls must remain in `frontend/src/services`.
+
+Frontend state management split:
+
+- server state: TanStack Query
+- app/client global state: Zustand
+
+Redux/Redux Toolkit is not part of the default frontend architecture.
 
 ---
 

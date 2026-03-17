@@ -25,6 +25,7 @@ Open in this order:
    - `AI_TASKS.md`
    - `FEATURE_DEVELOPMENT_WORKFLOW.md`
    - `SECURITY_MODEL.md`
+   - `SCREEN_IMPLEMENTATION_STATUS.md`
 
 ## Trigger conditions
 
@@ -60,6 +61,7 @@ If a change is purely internal and does not alter context, record that no doc up
   - update `AI_UI_UX_CONTEXT.md`
   - update `AI_PRODUCT.md` if user journey or product scope changed
   - update `AI_TASKS.md` if implementation order changed
+  - update `SCREEN_IMPLEMENTATION_STATUS.md` when screen inventory or completion state changed
 
 - AI behavior changes:
   - update `AI_INSIGHTS_PIPELINE.md`
@@ -83,6 +85,7 @@ If a change is purely internal and does not alter context, record that no doc up
 - Separate "implemented now" vs "target/planned" when needed.
 - Keep edits concise and practical.
 - Do not touch unrelated app code while running this skill.
+- For screen work, preserve the default Figma Make source recorded in repo docs unless the user explicitly overrides it.
 
 ## Output expectations
 

@@ -652,7 +652,22 @@ Keep this file practical, short enough to be usable, and based on real repo need
 
 ---
 
-## 23) Skills
+## 23) Screen Source And Tracking
+
+For screen implementation work, the default design source of truth is:
+
+- `https://www.figma.com/make/TwIHpnGcuQiWooDwPDbOER/Design-Journal.IO-Mobile-App?p=f&t=g4PDg1lIppYHD3Sh-0`
+
+Rules:
+
+- when implementing or updating a screen, Codex must fetch the latest relevant screen data from this Figma Make project first
+- do not switch to a different Figma file or project unless the user explicitly asks
+- after every screen implementation task, update `SCREEN_IMPLEMENTATION_STATUS.md`
+- the tracker must record the latest known completion state and any relevant notes/blockers for the touched screens
+
+---
+
+## 24) Skills
 
 A skill is a set of local instructions stored in a `SKILL.md` file.
 

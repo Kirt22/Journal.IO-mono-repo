@@ -57,7 +57,7 @@ For every screen task:
 
 | Screen | Figma Route | Planned React Native Target | Status | Notes | Last Updated |
 | --- | --- | --- | --- | --- | --- |
-| Onboarding | `/onboarding` | `frontend/src/screens/OnboardingScreen.tsx` | not_started | No dedicated onboarding screen exists in the current React Native app. | 2026-03-17 |
+| Onboarding | `/onboarding` | `frontend/src/screens/OnboardingScreen.tsx` | implemented | Full 3-step onboarding flow implemented: value introduction, goal selection, and privacy/trust agreement gate with back/continue actions. | 2026-03-17 |
 | Auth | `/auth` | `frontend/src/screens/AuthScreen.tsx` | partial | Current auth screens exist, but they are legacy and not yet aligned to the fixed Figma Make source. | 2026-03-17 |
 | Verify OTP | `/verify-otp` | `frontend/src/screens/VerifyOtpScreen.tsx` | not_started | OTP verification is part of current flow logic, but no Figma-aligned screen exists yet. | 2026-03-17 |
 | Setup Profile | `/setup-profile` | `frontend/src/screens/SetupProfileScreen.tsx` | not_started | No profile-setup screen exists in the React Native app yet. | 2026-03-17 |

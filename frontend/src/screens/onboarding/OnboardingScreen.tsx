@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {
@@ -18,15 +19,17 @@ import {
   TrendingUp,
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { OnboardingProgressIndicator } from '../components/OnboardingProgressIndicator';
-import { OnboardingValueCard } from '../components/OnboardingValueCard';
+import { OnboardingProgressIndicator } from '../../components/OnboardingProgressIndicator';
+import { OnboardingValueCard } from '../../components/OnboardingValueCard';
+import { useTheme } from '../../theme/provider';
 
 type OnboardingScreenProps = {
   isCompleting: boolean;
-  onComplete: () => void;
+  onContinue: (selectedGoals: string[]) => void;
 };
 
 const totalSteps = 3;
+const isTestEnvironment = process.env.NODE_ENV === 'test';
 
 const valueCards = [
   {
@@ -55,8 +58,10 @@ const goalChoices = [
 
 export function OnboardingScreen({
   isCompleting,
-  onComplete,
+  onContinue,
 }: OnboardingScreenProps) {
+  const theme = useTheme();
+  const { width } = useWindowDimensions();
   const [step, setStep] = useState(1);
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
@@ -70,10 +75,24 @@ export function OnboardingScreen({
   const canProceed = step === 3 ? agreedToPrivacy : true;
   const primaryButtonBackgroundColor = continueActive.interpolate({
     inputRange: [0, 1],
-    outputRange: ['#D7B7AB', '#E88B73'],
+    outputRange: [theme.colors.border, theme.colors.primary],
   });
+  const isCompact = width < 360;
+  const isWide = width >= 430;
+  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
+  const titleSize = isCompact ? 26 : isWide ? 34 : 30;
+  const sectionTitleSize = isCompact ? 24 : isWide ? 30 : 28;
+  const heroCircleSize = isCompact ? 82 : isWide ? 104 : 94;
+  const layoutMaxWidth = isWide ? 460 : 420;
 
   useEffect(() => {
+    if (isTestEnvironment) {
+      stepOpacity.setValue(1);
+      stepTranslateX.setValue(0);
+      revealAnims.forEach(value => value.setValue(1));
+      return;
+    }
+
     stepOpacity.setValue(0);
     stepTranslateX.setValue(18);
     revealAnims.forEach(value => value.setValue(0));
@@ -104,6 +123,11 @@ export function OnboardingScreen({
   }, [step, revealAnims, stepOpacity, stepTranslateX]);
 
   useEffect(() => {
+    if (isTestEnvironment) {
+      continueActive.setValue(canProceed ? 1 : 0);
+      return;
+    }
+
     Animated.timing(continueActive, {
       duration: 180,
       toValue: canProceed ? 1 : 0,
@@ -154,7 +178,7 @@ export function OnboardingScreen({
       return;
     }
 
-    onComplete();
+    onContinue(selectedGoals);
   };
 
   const renderStepContent = () => {
@@ -162,12 +186,19 @@ export function OnboardingScreen({
       return (
         <>
           <Animated.View style={[styles.headerSection, animatedRevealStyle(0)]}>
-            <Text style={styles.title}>Welcome to Journal.IO</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title, { fontSize: titleSize, color: theme.colors.foreground }]}>
+              Welcome to Journal.IO
+            </Text>
+            <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>
               Your personal space for reflection, growth, and mindful daily check-ins.
             </Text>
-            <View style={styles.heroCircle}>
-              <BookHeart color="#8E4636" size={40} strokeWidth={2} />
+            <View
+              style={[
+                styles.heroCircle,
+                { width: heroCircleSize, height: heroCircleSize, backgroundColor: theme.colors.accent },
+              ]}
+            >
+              <BookHeart color={theme.colors.primary} size={40} strokeWidth={2} />
             </View>
           </Animated.View>
 
@@ -189,8 +220,10 @@ export function OnboardingScreen({
     if (step === 2) {
       return (
         <View style={styles.stepSection}>
-          <Text style={styles.titleLeft}>What brings you here?</Text>
-          <Text style={styles.subtitleLeft}>
+          <Text style={[styles.titleLeft, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
+            What brings you here?
+          </Text>
+          <Text style={[styles.subtitleLeft, { color: theme.colors.mutedForeground }]}>
             Select your journaling goals. You can change these anytime.
           </Text>
 
@@ -205,6 +238,10 @@ export function OnboardingScreen({
                   onPress={() => handleGoalToggle(goal.label)}
                   style={({ pressed }) => [
                     styles.goalOption,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
                     selected && styles.goalOptionSelected,
                     pressed && styles.goalOptionPressed,
                     pressed && styles.goalOptionScaled,
@@ -212,12 +249,20 @@ export function OnboardingScreen({
                 >
                   <View style={[styles.goalIconWrap, selected && styles.goalIconWrapSelected]}>
                     <goal.Icon
-                      color={selected ? '#8E4636' : '#70786D'}
+                      color={selected ? theme.colors.primary : theme.colors.mutedForeground}
                       size={18}
                       strokeWidth={2}
                     />
                   </View>
-                  <Text style={[styles.goalText, selected && styles.goalTextSelected]}>{goal.label}</Text>
+                  <Text
+                    style={[
+                      styles.goalText,
+                      { color: selected ? theme.colors.primary : theme.colors.foreground },
+                      selected && styles.goalTextSelected,
+                    ]}
+                  >
+                    {goal.label}
+                  </Text>
                   <View
                     style={[
                       styles.goalCheck,
@@ -236,41 +281,64 @@ export function OnboardingScreen({
 
     return (
       <View style={styles.stepSection}>
-        <Text style={styles.titleLeft}>Privacy and Security</Text>
-        <Text style={styles.subtitleLeft}>
+        <Text style={[styles.titleLeft, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
+          Privacy and Security
+        </Text>
+        <Text style={[styles.subtitleLeft, { color: theme.colors.mutedForeground }]}>
           You control your data. We keep Journal.IO supportive and privacy-first.
         </Text>
 
         <View style={styles.privacyInfoList}>
           <Animated.View style={animatedRevealStyle(1)}>
-            <View style={styles.privacyInfoCard}>
+            <View
+              style={[
+                styles.privacyInfoCard,
+                { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+              ]}
+            >
               <View style={styles.privacyHeaderRow}>
-                <Shield color="#8E4636" size={16} strokeWidth={2} />
-                <Text style={styles.privacyInfoTitle}>Your Data, Your Control</Text>
+                <Shield color={theme.colors.primary} size={16} strokeWidth={2} />
+                <Text style={[styles.privacyInfoTitle, { color: theme.colors.foreground }]}>
+                  Your Data, Your Control
+                </Text>
               </View>
-              <Text style={styles.privacyInfoDescription}>
+              <Text style={[styles.privacyInfoDescription, { color: theme.colors.mutedForeground }]}>
                 Export or delete your journal data from settings whenever you want.
               </Text>
             </View>
           </Animated.View>
           <Animated.View style={animatedRevealStyle(2)}>
-            <View style={styles.privacyInfoCard}>
+            <View
+              style={[
+                styles.privacyInfoCard,
+                { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+              ]}
+            >
               <View style={styles.privacyHeaderRow}>
-                <ShieldOff color="#8E4636" size={16} strokeWidth={2} />
-                <Text style={styles.privacyInfoTitle}>No Data Selling</Text>
+                <ShieldOff color={theme.colors.primary} size={16} strokeWidth={2} />
+                <Text style={[styles.privacyInfoTitle, { color: theme.colors.foreground }]}>
+                  No Data Selling
+                </Text>
               </View>
-              <Text style={styles.privacyInfoDescription}>
+              <Text style={[styles.privacyInfoDescription, { color: theme.colors.mutedForeground }]}>
                 Your journal content and personal data are never sold to third parties.
               </Text>
             </View>
           </Animated.View>
           <Animated.View style={animatedRevealStyle(3)}>
-            <View style={styles.privacyInfoCard}>
+            <View
+              style={[
+                styles.privacyInfoCard,
+                { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+              ]}
+            >
               <View style={styles.privacyHeaderRow}>
-                <Download color="#8E4636" size={16} strokeWidth={2} />
-                <Text style={styles.privacyInfoTitle}>Export Anytime</Text>
+                <Download color={theme.colors.primary} size={16} strokeWidth={2} />
+                <Text style={[styles.privacyInfoTitle, { color: theme.colors.foreground }]}>
+                  Export Anytime
+                </Text>
               </View>
-              <Text style={styles.privacyInfoDescription}>
+              <Text style={[styles.privacyInfoDescription, { color: theme.colors.mutedForeground }]}>
                 Download your data whenever you need a personal backup.
               </Text>
             </View>
@@ -284,14 +352,21 @@ export function OnboardingScreen({
             setStepError(null);
             setAgreedToPrivacy(previous => !previous);
           }}
-          style={styles.checkboxRow}
+          style={[
+            styles.checkboxRow,
+            { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+          ]}
         >
           <View
-            style={[styles.checkbox, agreedToPrivacy && styles.checkboxChecked]}
+            style={[
+              styles.checkbox,
+              { borderColor: theme.colors.border },
+              agreedToPrivacy && [styles.checkboxChecked, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }],
+            ]}
           >
             {agreedToPrivacy ? <Text style={styles.checkboxMark}>✓</Text> : null}
           </View>
-          <Text style={styles.checkboxLabel}>
+          <Text style={[styles.checkboxLabel, { color: theme.colors.foreground }]}>
             I understand and agree to the privacy policy and terms of service.
           </Text>
         </Pressable>
@@ -300,27 +375,45 @@ export function OnboardingScreen({
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.safeArea}>
+    <SafeAreaView
+      edges={['top', 'left', 'right', 'bottom']}
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
       <View style={styles.screenContent}>
         <ScrollView
           bounces={false}
-          contentContainerStyle={styles.contentContainer}
+          contentContainerStyle={[
+            styles.contentContainer,
+            { paddingHorizontal: horizontalPadding },
+          ]}
           showsVerticalScrollIndicator={false}
         >
-          <OnboardingProgressIndicator currentStep={step} totalSteps={totalSteps} />
+          <View style={[styles.sheet, { maxWidth: layoutMaxWidth }]}>
+            <OnboardingProgressIndicator currentStep={step} totalSteps={totalSteps} />
 
-          <Animated.View
-            style={{
-              opacity: stepOpacity,
-              transform: [{ translateX: stepTranslateX }],
-            }}
-          >
-            {renderStepContent()}
-          </Animated.View>
+            <Animated.View
+              style={{
+                opacity: stepOpacity,
+                transform: [{ translateX: stepTranslateX }],
+              }}
+            >
+              {renderStepContent()}
+            </Animated.View>
+          </View>
         </ScrollView>
 
-        <View style={styles.actionsContainer}>
-          {stepError ? <Text style={styles.errorText}>{stepError}</Text> : null}
+        <View
+          style={[
+            styles.actionsContainer,
+            {
+              paddingHorizontal: horizontalPadding,
+              maxWidth: layoutMaxWidth,
+            },
+          ]}
+        >
+          {stepError ? (
+            <Text style={[styles.errorText, { color: theme.colors.destructive }]}>{stepError}</Text>
+          ) : null}
 
           <View style={styles.actionsRow}>
             {step > 1 ? (
@@ -330,10 +423,16 @@ export function OnboardingScreen({
                   onPress={goBack}
                   style={({ pressed }) => [
                     styles.secondaryButton,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
                     pressed && styles.secondaryButtonPressed,
                   ]}
                 >
-                  <Text style={styles.secondaryButtonText}>Back</Text>
+                  <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
+                    Back
+                  </Text>
                 </Pressable>
               </View>
             ) : null}
@@ -372,14 +471,16 @@ export function OnboardingScreen({
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: '#F6F7F2',
     flex: 1,
   },
   contentContainer: {
     flexGrow: 1,
     paddingBottom: 18,
-    paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  sheet: {
+    width: '100%',
+    alignSelf: 'center',
   },
   screenContent: {
     flex: 1,
@@ -390,7 +491,6 @@ const styles = StyleSheet.create({
   },
   heroCircle: {
     alignItems: 'center',
-    backgroundColor: '#F3D8D0',
     borderRadius: 999,
     height: 94,
     justifyContent: 'center',
@@ -398,13 +498,11 @@ const styles = StyleSheet.create({
     width: 94,
   },
   title: {
-    color: '#1C221B',
     fontSize: 30,
     fontWeight: '600',
     textAlign: 'center',
   },
   subtitle: {
-    color: '#556055',
     fontSize: 15,
     lineHeight: 22,
     marginTop: 10,
@@ -420,12 +518,10 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   titleLeft: {
-    color: '#1C221B',
     fontSize: 28,
     fontWeight: '600',
   },
   subtitleLeft: {
-    color: '#556055',
     fontSize: 15,
     lineHeight: 22,
     marginTop: 8,
@@ -436,8 +532,6 @@ const styles = StyleSheet.create({
   },
   goalOption: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E8DF',
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
@@ -446,39 +540,37 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   goalOptionSelected: {
-    backgroundColor: '#F9ECE8',
-    borderColor: '#E88B73',
+    backgroundColor: '#FFF5F2',
+    borderColor: '#E87461',
   },
   goalOptionPressed: {
-    borderColor: '#E88B73',
+    borderColor: '#E87461',
   },
   goalOptionScaled: {
     transform: [{ scale: 0.985 }],
   },
   goalText: {
-    color: '#1C221B',
     fontSize: 15,
     fontWeight: '500',
     flex: 1,
   },
   goalTextSelected: {
-    color: '#8E4636',
     fontWeight: '600',
   },
   goalIconWrap: {
     alignItems: 'center',
-    backgroundColor: '#EEF0EA',
+    backgroundColor: '#EBE7E3',
     borderRadius: 10,
     height: 32,
     justifyContent: 'center',
     width: 32,
   },
   goalIconWrapSelected: {
-    backgroundColor: '#F3D8D0',
+    backgroundColor: '#FFF5F2',
   },
   goalCheck: {
     alignItems: 'center',
-    borderColor: '#C6CCC0',
+    borderColor: '#E5DFD9',
     borderRadius: 999,
     borderWidth: 1.5,
     height: 20,
@@ -486,8 +578,8 @@ const styles = StyleSheet.create({
     width: 20,
   },
   goalCheckSelected: {
-    backgroundColor: '#E88B73',
-    borderColor: '#E88B73',
+    backgroundColor: '#E87461',
+    borderColor: '#E87461',
   },
   goalCheckInner: {
     backgroundColor: '#FFFFFF',
@@ -500,15 +592,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   privacyInfoCard: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E8DF',
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   privacyInfoTitle: {
-    color: '#1C221B',
     fontSize: 15,
     fontWeight: '600',
   },
@@ -519,14 +608,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   privacyInfoDescription: {
-    color: '#556055',
     fontSize: 13,
     lineHeight: 19,
   },
   checkboxRow: {
     alignItems: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E8DF',
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
@@ -535,7 +621,6 @@ const styles = StyleSheet.create({
   },
   checkbox: {
     alignItems: 'center',
-    borderColor: '#B6BDAF',
     borderRadius: 6,
     borderWidth: 1,
     height: 20,
@@ -543,8 +628,8 @@ const styles = StyleSheet.create({
     width: 20,
   },
   checkboxChecked: {
-    backgroundColor: '#E88B73',
-    borderColor: '#E88B73',
+    backgroundColor: '#E87461',
+    borderColor: '#E87461',
   },
   checkboxMark: {
     color: '#FFFFFF',
@@ -552,19 +637,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   checkboxLabel: {
-    color: '#2E332D',
     flex: 1,
     fontSize: 13,
     lineHeight: 19,
   },
   errorText: {
-    color: '#C05A4A',
     fontSize: 13,
     marginBottom: 12,
   },
   actionsContainer: {
+    width: '100%',
+    alignSelf: 'center',
     paddingBottom: 8,
-    paddingHorizontal: 20,
     paddingTop: 8,
   },
   actionsRow: {
@@ -576,8 +660,6 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#D3D9CB',
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 18,
@@ -587,7 +669,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F3EA',
   },
   secondaryButtonText: {
-    color: '#2E332D',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -609,6 +690,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   primaryButtonTextDisabled: {
-    color: '#F6ECE8',
+    color: '#FFE0D9',
   },
 });

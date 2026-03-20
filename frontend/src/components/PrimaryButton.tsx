@@ -4,7 +4,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  View,
 } from "../infrastructure/reactNative";
+import { useTheme } from "../theme/provider";
+import type { ReactNode } from "react";
 
 type PrimaryButtonProps = {
   label: string;
@@ -12,6 +15,8 @@ type PrimaryButtonProps = {
   disabled?: boolean;
   loading?: boolean;
   variant?: "solid" | "outline" | "ghost";
+  tone?: "default" | "accent";
+  icon?: ReactNode;
 };
 
 const PrimaryButton = ({
@@ -20,10 +25,22 @@ const PrimaryButton = ({
   disabled,
   loading,
   variant = "solid",
+  tone = "default",
+  icon,
 }: PrimaryButtonProps) => {
+  const theme = useTheme();
   const isDisabled = disabled || loading;
   const isOutline = variant === "outline";
   const isGhost = variant === "ghost";
+  const isAccent = tone === "accent";
+  const solidBackground = isAccent ? theme.colors.primary : theme.colors.success;
+  const solidText = isAccent
+    ? theme.colors.primaryForeground
+    : theme.colors.successForeground;
+  const outlineBackground = theme.colors.secondary;
+  const outlineBorder = theme.colors.border;
+  const outlineText = theme.colors.foreground;
+  const ghostText = theme.colors.mutedForeground;
 
   return (
     <Pressable
@@ -35,24 +52,36 @@ const PrimaryButton = ({
         isGhost
           ? styles.buttonGhost
           : isOutline
-            ? styles.buttonOutline
-            : styles.buttonSolid,
+            ? [
+                styles.buttonOutline,
+                {
+                  backgroundColor: outlineBackground,
+                  borderColor: outlineBorder,
+                },
+              ]
+            : isAccent
+              ? [styles.buttonSolid, { backgroundColor: solidBackground, borderColor: solidBackground }]
+              : [styles.buttonSolid, { backgroundColor: solidBackground, borderColor: solidBackground }],
         isDisabled && styles.buttonDisabled,
         pressed && !isDisabled && styles.buttonPressed,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isGhost || isOutline ? "#1C221B" : "#FFFFFF"} />
+        <ActivityIndicator color={isGhost || isOutline ? outlineText : solidText} />
       ) : (
-        <Text
-          style={[
-            styles.label,
-            (isOutline || isGhost) && styles.labelOutline,
-            isGhost && styles.labelGhost,
-          ]}
-        >
-          {label}
-        </Text>
+        <View style={styles.content}>
+          {icon ? <View style={styles.iconWrap}>{icon}</View> : null}
+          <Text
+            style={[
+              styles.labelBase,
+              !isOutline && !isGhost && { color: solidText },
+              isOutline && { color: outlineText },
+              isGhost && { color: ghostText },
+            ]}
+          >
+            {label}
+          </Text>
+        </View>
       )}
     </Pressable>
   );
@@ -65,13 +94,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
   },
-  buttonSolid: {
-    backgroundColor: "#2F7A5D",
-    borderColor: "#2F7A5D",
-  },
+  buttonSolid: {},
   buttonOutline: {
-    backgroundColor: "#F1F2EC",
-    borderColor: "#D7DCD2",
   },
   buttonGhost: {
     backgroundColor: "transparent",
@@ -84,17 +108,19 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.9,
   },
-  label: {
-    color: "#FFFFFF",
+  content: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  iconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  labelBase: {
     fontSize: 16,
     fontWeight: "600",
-  },
-  labelOutline: {
-    color: "#1C221B",
-  },
-  labelGhost: {
-    color: "#556055",
-    fontSize: 15,
   },
 });
 

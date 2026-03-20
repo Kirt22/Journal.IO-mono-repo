@@ -80,11 +80,13 @@ Request:
 {
   "phoneNumber": "+15551234567",
   "otp": "123456",
-  "name": "Alex"
+  "name": "Alex",
+  "goals": ["Daily Reflection", "Personal Growth"]
 }
 ```
 
 `name` is optional and typically passed for new-user onboarding completion.
+`goals` is optional and carries the selected onboarding goals into the authenticated session.
 
 Success `data`:
 
@@ -97,6 +99,9 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": "+15551234567",
     "email": null,
+    "journalingGoals": ["Daily Reflection"],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
     "profilePic": null
   },
   "isNewUser": true
@@ -155,7 +160,46 @@ Requires `Authorization` header.
 
 ---
 
-## 3.2 Journal Module (`/journal`)
+## 3.2 User Profile Module (`/users`)
+
+### `GET /users/profile`
+
+Get the authenticated user's profile.
+
+### `PATCH /users/profile`
+
+Update the authenticated user's profile setup fields.
+
+Request:
+
+```json
+{
+  "name": "Alex",
+  "avatarColor": "#8E4636",
+  "goals": ["Daily Reflection", "Personal Growth"]
+}
+```
+
+Success `data`:
+
+```json
+{
+  "userId": "string",
+  "name": "Alex",
+  "phoneNumber": "+15551234567",
+  "email": null,
+  "avatarColor": "#8E4636",
+  "journalingGoals": ["Daily Reflection", "Personal Growth"],
+  "profileSetupCompleted": true,
+  "profilePic": null
+}
+```
+
+Both routes require authentication.
+
+---
+
+## 3.3 Journal Module (`/journal`)
 
 ### `GET /journal/get_journals`
 

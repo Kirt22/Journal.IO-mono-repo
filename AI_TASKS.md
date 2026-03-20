@@ -20,6 +20,10 @@ Includes:
 - backend persistence for onboarding preferences (if required)
 - validation and tests
 
+Current slice note:
+
+- onboarding goal selections are now passed forward into the phone auth and profile setup flow
+
 ---
 
 # 2) Authentication Flow (Phone + Google)
@@ -37,6 +41,10 @@ Includes:
 - auth frontend service integration
 - auth UI states and error handling
 
+Current slice note:
+
+- phone OTP verification now carries onboarding goals into the authenticated session before profile setup
+
 ---
 
 # 3) Profile Setup Flow
@@ -52,6 +60,10 @@ Includes:
 - profile endpoints
 - profile screen integration
 - validation and ownership checks
+
+Current slice note:
+
+- profile setup is implemented through `PATCH /users/profile` with name, avatar color, and goal persistence
 
 ---
 

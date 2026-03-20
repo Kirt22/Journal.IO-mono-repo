@@ -47,6 +47,8 @@ When work starts from Figma/design:
 # 4) Frontend Checklist (Per Slice)
 
 - screens
+- screens grouped by flow folder (`onboarding`, `auth`, `profile`, etc.)
+- shared helpers in `frontend/src/utils`
 - reusable components
 - service-layer API calls
 - navigation integration

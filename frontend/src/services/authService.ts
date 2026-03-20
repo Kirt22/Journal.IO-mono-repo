@@ -1,10 +1,13 @@
-import { request } from "./apiClient";
+import { request } from "../utils/apiClient";
 
 type AuthUser = {
   userId: string;
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  journalingGoals: string[];
+  avatarColor: string | null;
+  profileSetupCompleted: boolean;
   profilePic: string | null;
 };
 
@@ -33,10 +36,25 @@ const sendOtp = async (payload: { phoneNumber: string }) => {
   return response.data;
 };
 
+const resendOtp = async (payload: { phoneNumber: string }) => {
+  try {
+    const response = await request<SendOtpResponse>("/auth/resend_otp", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return response.data;
+  } catch {
+    // Frontend is prepared for /auth/resend_otp, but backend may not expose it yet.
+    return sendOtp(payload);
+  }
+};
+
 const verifyOtp = async (payload: {
   phoneNumber: string;
   otp: string;
   name?: string;
+  goals?: string[];
 }) => {
   const response = await request<VerifyOtpResponse>("/auth/verify_otp", {
     method: "POST",
@@ -61,5 +79,5 @@ const signInWithGoogle = async (payload: {
   return response.data;
 };
 
-export { sendOtp, signInWithGoogle, verifyOtp };
+export { resendOtp, sendOtp, signInWithGoogle, verifyOtp };
 export type { AuthSession, AuthUser, SendOtpResponse, VerifyOtpResponse };

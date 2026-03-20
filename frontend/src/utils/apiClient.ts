@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { getAccessToken } from "./tokenStorage";
 
 const getBaseUrl = () => {
   if (Platform.OS === "android") {
@@ -19,12 +20,23 @@ const request = async <T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> => {
+  const headers = new Headers(options.headers);
+
+  if (!headers.has("Authorization")) {
+    const accessToken = await getAccessToken();
+
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    }
+  }
+
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(`${getBaseUrl()}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   const payload = (await response.json()) as ApiResponse<T>;

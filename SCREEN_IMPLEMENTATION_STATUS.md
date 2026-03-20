@@ -48,8 +48,8 @@ For every screen task:
 
 ## Latest Figma Inventory Sync
 
-- Last synced from Figma Make routes: `2026-03-17`
-- Source used: `src/app/routes.tsx`
+- Last synced from Figma Make routes: `2026-03-20`
+- Source used: `src/styles/theme.css`, `src/app/screens/SetupProfile.tsx`, `src/app/screens/Home.tsx`
 
 ---
 
@@ -57,11 +57,11 @@ For every screen task:
 
 | Screen | Figma Route | Planned React Native Target | Status | Notes | Last Updated |
 | --- | --- | --- | --- | --- | --- |
-| Onboarding | `/onboarding` | `frontend/src/screens/OnboardingScreen.tsx` | not_started | No dedicated onboarding screen exists in the current React Native app. | 2026-03-17 |
-| Auth | `/auth` | `frontend/src/screens/AuthScreen.tsx` | partial | Current auth screens exist, but they are legacy and not yet aligned to the fixed Figma Make source. | 2026-03-17 |
-| Verify OTP | `/verify-otp` | `frontend/src/screens/VerifyOtpScreen.tsx` | not_started | OTP verification is part of current flow logic, but no Figma-aligned screen exists yet. | 2026-03-17 |
-| Setup Profile | `/setup-profile` | `frontend/src/screens/SetupProfileScreen.tsx` | not_started | No profile-setup screen exists in the React Native app yet. | 2026-03-17 |
-| Home | `/` | `frontend/src/screens/HomeScreen.tsx` | not_started | No Figma-aligned home dashboard exists yet. | 2026-03-17 |
+| Onboarding | `/onboarding` | `frontend/src/screens/onboarding/OnboardingScreen.tsx` | implemented | 3-step onboarding remains in place and now forwards the selected goals into the auth flow; responsive width scaling now adjusts paddings, title sizing, and max content width for compact and large phones; screen now uses centralized theme tokens for system light/dark behavior. | 2026-03-20 |
+| Auth | `/auth` | `frontend/src/screens/auth/EnterPhoneScreen.tsx` | in_progress | Phone auth screen now follows the fixed Figma layout more closely, removes the onboarding back path and visible goals, uses the open page layout instead of a white card, shows phone/Google icons in the primary actions, and now makes the Terms and Privacy text tappable; responsive sizing now adapts spacing and input-row width across compact/large devices; screen now uses centralized theme tokens for system light/dark behavior; Google auth is still a placeholder slice. | 2026-03-20 |
+| Verify OTP | `/verify-otp` | `frontend/src/screens/auth/VerifyOtpScreen.tsx` | implemented | Screen now matches the Figma Verify OTP structure more closely: top change-number action, centered icon/title/subtitle, direct 6-digit input row, CTA, and centered resend state; includes Figma-like success behavior (logo transitions to green check) and frontend resend flow wired to `/auth/resend_otp` with temporary fallback to `send_otp`; screen now uses centralized theme tokens for system light/dark behavior. | 2026-03-20 |
+| Setup Profile | `/setup-profile` | `frontend/src/screens/profile/SetupProfileScreen.tsx` | implemented | Screen matches the Figma setup-profile composition closely: back/header, avatar preview with camera icon anchored at bottom-right, centered avatar color selector with selected check state, display-name field with character count and inline validation, light accent phone-verified row with icons, Start Journaling CTA icon treatment, and skip action; avatar/camera tap opens photo library selection using `react-native-image-picker`; screen now uses centralized theme tokens for system light/dark behavior. | 2026-03-20 |
+| Home | `/` | `frontend/src/screens/HomeScreen.tsx` | implemented | Home dashboard now mirrors the Make source structure: greeting/date header, current streak card, quick mood check-in, quick note composer, AI insight tip card, today prompt card, quick actions grid, recent entries empty state, and the fixed bottom navigation bar with Home/Calendar/New/Insights/Profile. Theme toggle is wired through the existing theme provider override so the header control works in the app shell. | 2026-03-20 |
 | New Entry | `/new-entry` | `frontend/src/screens/NewEntryScreen.tsx` | not_started | Planned journaling screen. | 2026-03-17 |
 | Entry Detail | `/entry/:id` | `frontend/src/screens/EntryDetailScreen.tsx` | not_started | Planned detail screen for one journal entry. | 2026-03-17 |
 | Calendar | `/calendar` | `frontend/src/screens/CalendarScreen.tsx` | not_started | Planned history/calendar surface. | 2026-03-17 |

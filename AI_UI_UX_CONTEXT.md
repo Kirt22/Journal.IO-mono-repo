@@ -77,12 +77,15 @@ Auth should prioritize low-friction entry:
 - phone number + country code
 - OTP verification with resend timer
 - Google sign-in path
+- onboarding goals should remain available as hidden flow context during auth and setup steps
+- the auth screen is a one-way entry point from onboarding and does not show a back affordance
 
 Post-auth setup:
 
 - display name entry
 - avatar color selection
 - optional lightweight profile customization
+- authenticated profile setup should persist the user’s name, avatar color, and selected goals
 
 Behavioral requirements:
 
@@ -132,6 +135,11 @@ Rules:
 - keep accent usage intentional
 - avoid overly saturated highlight combinations
 - preserve readability over style density
+
+Theme mode rule:
+
+- the app must support both light and dark themes via system theme detection by default
+- use centralized theme tokens (background, foreground, card, accent, border, semantic colors) instead of per-screen ad hoc color definitions
 
 ---
 
@@ -214,6 +222,13 @@ Minimum expectations:
 - safe-area-aware layouts
 - keyboard-safe behavior for forms
 - no critical information hidden behind animation timing
+
+Responsive implementation expectations:
+
+- every screen should adapt to compact (`320-359`), standard (`360-429`), and large (`430+`) phone widths
+- scale horizontal padding, major title sizing, and key control dimensions by width class
+- cap content with a reasonable max width on large phones to preserve readability
+- avoid hardcoding one-device-only spacing assumptions
 
 ---
 

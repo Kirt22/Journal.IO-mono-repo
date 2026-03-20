@@ -24,6 +24,7 @@ const verifyOtpSchema = z.object({
     phoneNumber: phoneNumberSchema,
     otp: otpSchema,
     name: z.string().min(1, "Name is required").optional(),
+    goals: z.array(z.string().min(1)).max(8).optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),

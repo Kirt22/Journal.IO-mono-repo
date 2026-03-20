@@ -22,6 +22,7 @@ type VerifyOtpInput = {
   phoneNumber: string;
   otp: string;
   name?: string;
+  goals?: string[];
 };
 
 type GoogleOAuthInput = {
@@ -101,10 +102,13 @@ const hashRefreshToken = (token: string): string => {
 
 const buildUserPayload = (user: IUser) => {
   return {
-    userId: user._id,
+    userId: user._id.toString(),
     name: user.name,
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
+    journalingGoals: user.journalingGoals || [],
+    avatarColor: user.avatarColor || null,
+    profileSetupCompleted: Boolean(user.profileSetupCompleted),
     profilePic: user.profilePic || null,
   };
 };
@@ -148,15 +152,19 @@ const issueTokens = async (user: IUser): Promise<AuthTokens> => {
 const createPhoneUser = async ({
   phoneNumber,
   name,
+  goals,
 }: {
   phoneNumber: string;
   name: string;
+  goals?: string[];
 }) => {
   try {
     return await userModel.create({
       name,
       phoneNumber,
       authProviders: ["phone"],
+      journalingGoals: goals || [],
+      profileSetupCompleted: false,
     });
   } catch (error) {
     if (
@@ -194,7 +202,7 @@ const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
   };
 };
 
-const verifyOtp = async ({ phoneNumber, otp, name }: VerifyOtpInput) => {
+const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
   const otpRecord = otpStore.get(normalizedPhoneNumber);
 
@@ -237,19 +245,25 @@ const verifyOtp = async ({ phoneNumber, otp, name }: VerifyOtpInput) => {
   otpStore.delete(normalizedPhoneNumber);
 
   let user = await userModel.findOne({ phoneNumber: normalizedPhoneNumber });
+  const normalizedGoals = Array.from(
+    new Set((goals || []).map(goal => goal.trim()).filter(Boolean))
+  );
+  const trimmedName = name?.trim();
+  const isNewUser = !user;
 
-  if (!user && !name) {
-    return {
-      ok: false as const,
-      code: "NAME_REQUIRED",
-      message: "A name is required to create a new account.",
-    };
-  }
-
-  if (!user && name) {
+  if (!user && !trimmedName) {
     user = await createPhoneUser({
       phoneNumber: normalizedPhoneNumber,
-      name,
+      name: "Journal User",
+      goals: normalizedGoals,
+    });
+  }
+
+  if (!user && trimmedName) {
+    user = await createPhoneUser({
+      phoneNumber: normalizedPhoneNumber,
+      name: trimmedName,
+      goals: normalizedGoals,
     });
   }
 
@@ -263,8 +277,13 @@ const verifyOtp = async ({ phoneNumber, otp, name }: VerifyOtpInput) => {
 
   if (!user.authProviders.includes("phone")) {
     user.authProviders = [...user.authProviders, "phone"];
-    await user.save();
   }
+
+  if (normalizedGoals.length > 0) {
+    user.journalingGoals = normalizedGoals;
+  }
+
+  await user.save();
 
   const tokens = await issueTokens(user);
 
@@ -272,7 +291,7 @@ const verifyOtp = async ({ phoneNumber, otp, name }: VerifyOtpInput) => {
     ok: true as const,
     tokens,
     user: buildUserPayload(user),
-    isNewUser: Boolean(name && !user.lastLoginAt),
+    isNewUser,
   };
 };
 

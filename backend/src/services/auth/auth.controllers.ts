@@ -26,8 +26,8 @@ const sendOtpController = async (req: Request, res: Response) => {
 
 const verifyOtpController = async (req: Request, res: Response) => {
   try {
-    const { phoneNumber, otp, name } = req.body;
-    const result = await verifyOtp({ phoneNumber, otp, name });
+    const { phoneNumber, otp, name, goals } = req.body;
+    const result = await verifyOtp({ phoneNumber, otp, name, goals });
 
     if (!result.ok) {
       return res.status(400).json(

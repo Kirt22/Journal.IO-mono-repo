@@ -9,6 +9,9 @@ export interface IUser extends Document {
   email?: string | null;
   googleUserId?: string | null;
   authProviders: string[];
+  journalingGoals: string[];
+  avatarColor?: string | null;
+  profileSetupCompleted: boolean;
   profilePic?: string | null;
   refreshTokenHash?: string | null;
   refreshTokenExpiresAt?: Date | null;
@@ -29,6 +32,13 @@ const userSchema = new mongoose.Schema<IUser>(
       default: [],
       required: true,
     },
+    journalingGoals: {
+      type: [String],
+      default: [],
+      required: true,
+    },
+    avatarColor: { type: String, default: null },
+    profileSetupCompleted: { type: Boolean, default: false, required: true },
     profilePic: { type: String, default: null },
     refreshTokenHash: { type: String, default: null },
     refreshTokenExpiresAt: { type: Date, default: null },

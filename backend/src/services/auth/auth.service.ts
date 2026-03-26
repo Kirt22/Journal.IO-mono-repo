@@ -1,6 +1,12 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { IUser, userModel } from "../../schema/user.schema";
+import {
+  isMsg91SmsConfigured,
+  resendOtpSmsViaMsg91,
+  sendOtpSmsViaMsg91,
+  verifyOtpSmsViaMsg91,
+} from "./msg91Sms.service";
 
 const otpStore = new Map<
   string,
@@ -186,6 +192,7 @@ const createPhoneUser = async ({
 const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
   const code = generateOtp();
+  const providerManaged = isMsg91SmsConfigured();
 
   otpStore.set(normalizedPhoneNumber, {
     code,
@@ -193,13 +200,55 @@ const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
     attempts: 0,
   });
 
-  console.log(`OTP generated for ${normalizedPhoneNumber}: ${code}`);
+  try {
+    if (providerManaged) {
+      await sendOtpSmsViaMsg91({
+        phoneNumber: normalizedPhoneNumber,
+      });
+    } else if (process.env.NODE_ENV === "production") {
+      otpStore.delete(normalizedPhoneNumber);
+      throw new Error("MSG91 SMS service is not configured.");
+    } else {
+      console.warn(
+        `MSG91 SMS service is not configured. OTP generated locally for ${normalizedPhoneNumber}.`
+      );
+    }
+  } catch (error) {
+    otpStore.delete(normalizedPhoneNumber);
+    console.error("Failed to deliver OTP SMS via MSG91:", error);
+    throw error;
+  }
 
   return {
     phoneNumber: normalizedPhoneNumber,
     expiresInSeconds: Math.floor(getOtpExpiryMs() / 1000),
-    debugOtp: process.env.NODE_ENV === "production" ? undefined : code,
+    debugOtp:
+      !providerManaged && process.env.NODE_ENV !== "production" ? code : undefined,
   };
+};
+
+const resendOtp = async ({ phoneNumber }: SendOtpInput) => {
+  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+  const providerManaged = isMsg91SmsConfigured();
+
+  if (providerManaged) {
+    try {
+      await resendOtpSmsViaMsg91({
+        phoneNumber: normalizedPhoneNumber,
+      });
+    } catch (error) {
+      console.error("Failed to resend OTP SMS via MSG91:", error);
+      throw error;
+    }
+
+    return {
+      phoneNumber: normalizedPhoneNumber,
+      expiresInSeconds: Math.floor(getOtpExpiryMs() / 1000),
+      debugOtp: undefined,
+    };
+  }
+
+  return sendOtp({ phoneNumber });
 };
 
 const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
@@ -223,23 +272,50 @@ const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
     };
   }
 
-  otpRecord.attempts += 1;
+  if (isMsg91SmsConfigured()) {
+    try {
+      await verifyOtpSmsViaMsg91({
+        phoneNumber: normalizedPhoneNumber,
+        otp,
+      });
+    } catch (error) {
+      otpRecord.attempts += 1;
 
-  if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
-    otpStore.delete(normalizedPhoneNumber);
-    return {
-      ok: false as const,
-      code: "OTP_LOCKED",
-      message: "Too many incorrect attempts. Please request a new code.",
-    };
-  }
+      if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
+        otpStore.delete(normalizedPhoneNumber);
+        return {
+          ok: false as const,
+          code: "OTP_LOCKED",
+          message: "Too many incorrect attempts. Please request a new code.",
+        };
+      }
 
-  if (otpRecord.code !== otp) {
-    return {
-      ok: false as const,
-      code: "OTP_INVALID",
-      message: "The verification code is incorrect.",
-    };
+      console.error("MSG91 OTP verification failed:", error);
+      return {
+        ok: false as const,
+        code: "OTP_INVALID",
+        message: "The verification code is incorrect.",
+      };
+    }
+  } else {
+    otpRecord.attempts += 1;
+
+    if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
+      otpStore.delete(normalizedPhoneNumber);
+      return {
+        ok: false as const,
+        code: "OTP_LOCKED",
+        message: "Too many incorrect attempts. Please request a new code.",
+      };
+    }
+
+    if (otpRecord.code !== otp) {
+      return {
+        ok: false as const,
+        code: "OTP_INVALID",
+        message: "The verification code is incorrect.",
+      };
+    }
   }
 
   otpStore.delete(normalizedPhoneNumber);
@@ -379,6 +455,7 @@ const invalidateRefreshToken = async (userId: string): Promise<void> => {
 export {
   invalidateRefreshToken,
   refreshAccessToken,
+  resendOtp,
   sendOtp,
   signInWithGoogle,
   verifyOtp,

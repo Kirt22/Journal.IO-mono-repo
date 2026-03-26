@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,13 +14,15 @@ import {
   BookHeart,
   Camera,
   Check,
+  Mail,
   User,
 } from "lucide-react-native";
 import { useWindowDimensions } from "react-native";
-import { launchImageLibrary } from "react-native-image-picker";
+import { Alert, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Path, Svg } from "react-native-svg";
 import PrimaryButton from "../../components/PrimaryButton";
+import type { OnboardingCompletionData } from "../onboarding/OnboardingScreen";
 import { useTheme } from "../../theme/provider";
 
 type SetupProfilePayload = {
@@ -31,8 +31,9 @@ type SetupProfilePayload = {
 };
 
 type SetupProfileScreenProps = {
-  phoneNumber: string;
-  selectedGoals: string[];
+  authEmail: string;
+  authSource: "email" | "google";
+  onboardingContext: OnboardingCompletionData | null;
   initialName?: string;
   onComplete: (payload: SetupProfilePayload) => Promise<void>;
   onBack: () => void;
@@ -55,8 +56,9 @@ const avatarColors = [
 ];
 
 export default function SetupProfileScreen({
-  phoneNumber,
-  selectedGoals: _selectedGoals,
+  authEmail,
+  authSource,
+  onboardingContext,
   initialName = "",
   onComplete,
   onBack,
@@ -78,6 +80,8 @@ export default function SetupProfileScreen({
   const avatarInitialSize = isCompact ? 24 : isWide ? 30 : 28;
   const colorSwatchSize = isCompact ? 30 : isWide ? 38 : 34;
   const titleBottomSpacing = isCompact ? 6 : 8;
+  const onboardingGoals = onboardingContext?.goals || [];
+  const onboardingFocus = onboardingContext?.supportFocusAreas || [];
 
   const initials = useMemo(() => {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -137,10 +141,20 @@ export default function SetupProfileScreen({
   };
 
   const handlePickAvatar = async () => {
+    const imagePickerModule = require("react-native-image-picker") as
+      | { launchImageLibrary?: typeof import("react-native-image-picker").launchImageLibrary }
+      | null;
+    const launchImageLibrary = imagePickerModule?.launchImageLibrary;
+
+    if (!launchImageLibrary) {
+      Alert.alert("Photo selection", "Photo picking is not available on this device.");
+      return;
+    }
+
     const result = await launchImageLibrary({
       mediaType: "photo",
       selectionLimit: 1,
-      quality: 0.85,
+      quality: 1,
       includeBase64: false,
     });
 
@@ -186,7 +200,9 @@ export default function SetupProfileScreen({
                   { marginTop: titleBottomSpacing, color: theme.colors.mutedForeground },
                 ]}
               >
-                Let&apos;s get to know you a little.
+                {authSource === "google"
+                  ? "Almost there. Confirm your details."
+                  : "Let's get to know you a little."}
               </Text>
             </View>
 
@@ -236,6 +252,42 @@ export default function SetupProfileScreen({
               </Pressable>
             </View>
 
+            {onboardingGoals.length || onboardingFocus.length ? (
+              <View style={[styles.contextCard, { backgroundColor: theme.colors.accent }]}>
+                <Text style={[styles.contextTitle, { color: theme.colors.foreground }]}>
+                  From onboarding
+                </Text>
+                <Text style={[styles.contextSubtitle, { color: theme.colors.mutedForeground }]}>
+                  We'll keep these preferences in mind as you finish setup.
+                </Text>
+                <View style={styles.goalStrip}>
+                  {(onboardingGoals.length ? onboardingGoals : ["Personalized setup"]).map(
+                    goal => (
+                      <View
+                        key={goal}
+                        style={[
+                          styles.goalPill,
+                          {
+                            backgroundColor: theme.colors.card,
+                            borderColor: theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.goalText, { color: theme.colors.mutedForeground }]}>
+                          {goal}
+                        </Text>
+                      </View>
+                    )
+                  )}
+                </View>
+                {onboardingFocus.length ? (
+                  <Text style={[styles.contextMeta, { color: theme.colors.mutedForeground }]}>
+                    Focus: {onboardingFocus.join(", ")}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.colorSection}>
               <Text style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}>
                 Avatar color
@@ -254,7 +306,7 @@ export default function SetupProfileScreen({
                           setError(null);
                         }
                       }}
-                      style={[
+                      style={({ pressed }: { pressed: boolean }) => [
                         styles.colorSwatch,
                         {
                           backgroundColor: color,
@@ -262,6 +314,7 @@ export default function SetupProfileScreen({
                           height: colorSwatchSize,
                         },
                         selected && styles.colorSwatchSelected,
+                        pressed && styles.pressed,
                       ]}
                     >
                       {selected ? <Check color="#FFFFFF" size={14} /> : null}
@@ -277,7 +330,7 @@ export default function SetupProfileScreen({
               </Text>
               <TextInput
                 value={name}
-                onChangeText={value => {
+                onChangeText={(value: string) => {
                   setName(value.slice(0, 30));
                   if (error) {
                     setError(null);
@@ -311,16 +364,20 @@ export default function SetupProfileScreen({
                 </Text>
               </View>
 
-              <View style={[styles.phoneCard, { backgroundColor: theme.colors.accent }]}>
-                <View style={styles.phoneIconWrap}>
-                  <PhoneVerifiedIcon color={theme.colors.mutedForeground} />
+              <View style={[styles.connectionCard, { backgroundColor: theme.colors.accent }]}>
+                <View style={styles.connectionIconWrap}>
+                  {authSource === "google" ? (
+                    <GoogleMark />
+                  ) : (
+                    <Mail color={theme.colors.primary} size={16} />
+                  )}
                 </View>
-                <View style={styles.phoneCopyWrap}>
-                  <Text style={[styles.phoneCardLabel, { color: theme.colors.mutedForeground }]}>
-                    Phone verified
+                <View style={styles.connectionCopyWrap}>
+                  <Text style={[styles.connectionLabel, { color: theme.colors.mutedForeground }]}>
+                    {authSource === "google" ? "Google connected" : "Email verified"}
                   </Text>
-                  <Text style={[styles.phoneCardValue, { color: theme.colors.foreground }]}>
-                    {phoneNumber}
+                  <Text style={[styles.connectionValue, { color: theme.colors.foreground }]}>
+                    {authEmail}
                   </Text>
                 </View>
                 <Check color={theme.colors.success} size={16} />
@@ -339,7 +396,7 @@ export default function SetupProfileScreen({
             <View style={styles.skipWrap}>
               <Pressable
                 onPress={handleSkip}
-                style={({ pressed }) => [
+                style={({ pressed }: { pressed: boolean }) => [
                   styles.skipButton,
                   pressed && styles.pressed,
                 ]}
@@ -490,7 +547,41 @@ const styles = StyleSheet.create({
     borderColor: "#1C221B",
     transform: [{ scale: 1.08 }],
   },
-  phoneCard: {
+  contextCard: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+    marginBottom: 8,
+  },
+  contextTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  contextSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  contextMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  goalStrip: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  goalPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  goalText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  connectionCard: {
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -499,20 +590,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  phoneIconWrap: {
+  connectionIconWrap: {
     width: 20,
     alignItems: "center",
     justifyContent: "center",
   },
-  phoneCopyWrap: {
+  connectionCopyWrap: {
     flex: 1,
   },
-  phoneCardLabel: {
+  connectionLabel: {
     fontSize: 12,
     fontWeight: "600",
     marginBottom: 4,
   },
-  phoneCardValue: {
+  connectionValue: {
     fontSize: 15,
     fontWeight: "600",
   },
@@ -533,22 +624,24 @@ const styles = StyleSheet.create({
   },
 });
 
-function PhoneVerifiedIcon({ color }: { color: string }) {
+function GoogleMark() {
   return (
     <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M9 3.8h6c1.22 0 2.2.98 2.2 2.2v12c0 1.22-.98 2.2-2.2 2.2H9c-1.22 0-2.2-.98-2.2-2.2V6c0-1.22.98-2.2 2.2-2.2Z"
-        stroke={color}
-        strokeWidth={1.8}
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z"
+        fill="#4285F4"
       />
-      <Path d="M10.6 6.8h2.8" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-      <Path d="M11.2 17.2h1.6" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
       <Path
-        d="m16.9 9.8 1.1 1.1 2.1-2.1"
-        stroke="#6BAA75"
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z"
+        fill="#34A853"
+      />
+      <Path
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.78.43 3.45 1.18 4.93l2.85-2.22.81-.62Z"
+        fill="#FBBC05"
+      />
+      <Path
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z"
+        fill="#EA4335"
       />
     </Svg>
   );

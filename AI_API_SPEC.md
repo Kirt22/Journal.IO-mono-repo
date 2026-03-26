@@ -46,9 +46,39 @@ Error:
 
 ## 3.1 Auth Module (`/auth`)
 
+Current backend reality:
+
+- the implemented backend still uses phone OTP plus Google OAuth
+- the latest Figma design has moved to email-first auth
+- the email auth contract is documented in the design-aligned target section below and should not be treated as already implemented until the backend/frontend migration lands
+
 ### `POST /auth/send_otp`
 
 Send a one-time passcode for phone login/signup.
+
+Request:
+
+```json
+{
+  "phoneNumber": "+15551234567"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "phoneNumber": "+15551234567",
+  "expiresInSeconds": 300,
+  "debugOtp": "123456"
+}
+```
+
+`debugOtp` is for safe local development/test workflows only.
+
+### `POST /auth/resend_otp`
+
+Resend a one-time passcode for phone login/signup.
 
 Request:
 
@@ -229,19 +259,145 @@ All journal module routes require authentication.
 
 These endpoints are expected by the current design context and should be treated as target modules for upcoming slices.
 
-## 4.1 User Profile
+## 4.1 Auth Migration (Email + Google)
+
+The latest design context replaces phone-first signup with email-first auth.
+
+### `POST /auth/sign_up_with_email`
+
+Create a pending account and trigger email verification.
+
+Request:
+
+```json
+{
+  "email": "alex@example.com",
+  "password": "strong-password",
+  "onboardingContext": {
+    "ageRange": "25-34",
+    "journalingExperience": "regular",
+    "goals": ["Daily Reflection", "Personal Growth"],
+    "supportFocus": ["Managing Stress", "Better Sleep"],
+    "reminderPreference": "evening",
+    "aiOptIn": true,
+    "privacyConsentAccepted": true
+  }
+}
+```
+
+Success `data`:
+
+```json
+{
+  "email": "alex@example.com",
+  "verificationRequired": true,
+  "expiresInSeconds": 1800
+}
+```
+
+### `POST /auth/resend_email_verification`
+
+Resend the email verification code/message for a pending account.
+
+Request:
+
+```json
+{
+  "email": "alex@example.com"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "email": "alex@example.com",
+  "expiresInSeconds": 1800
+}
+```
+
+### `POST /auth/verify_email`
+
+Verify the user's email with the code shown in the design flow and start an authenticated session.
+
+Request:
+
+```json
+{
+  "email": "alex@example.com",
+  "code": "123456"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Journal User",
+    "phoneNumber": null,
+    "email": "alex@example.com",
+    "journalingGoals": ["Daily Reflection"],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
+    "profilePic": null
+  },
+  "isNewUser": true
+}
+```
+
+### `POST /auth/sign_in_with_email`
+
+Sign in an existing email/password user.
+
+Request:
+
+```json
+{
+  "email": "alex@example.com",
+  "password": "strong-password"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Alex",
+    "phoneNumber": null,
+    "email": "alex@example.com",
+    "journalingGoals": ["Daily Reflection"],
+    "avatarColor": "#8E4636",
+    "profileSetupCompleted": true,
+    "profilePic": null
+  }
+}
+```
+
+### `POST /auth/register_from_googleOAuth`
+
+Google OAuth remains a supported alternate auth path and should continue to return the same session payload shape as other sign-in flows.
+
+## 4.2 User Profile
 
 - `GET /users/profile`
 - `PATCH /users/profile`
 - `DELETE /users/profile`
 
-## 4.2 Prompting
+## 4.3 Prompting
 
 - `GET /prompts/daily`
 - `GET /prompts/history`
 - `POST /prompts/answer`
 
-## 4.3 Insights
+## 4.4 Insights
 
 - `GET /insights/overview`
 - `GET /insights/trends`
@@ -249,7 +405,7 @@ These endpoints are expected by the current design context and should be treated
 - `GET /insights/traits`
 - `GET /insights/explain/{insightId}`
 
-## 4.4 Plans and Reminders
+## 4.5 Plans and Reminders
 
 - `POST /plans/generate`
 - `GET /plans/current`
@@ -259,12 +415,12 @@ These endpoints are expected by the current design context and should be treated
 - `PATCH /reminders/{reminderId}`
 - `DELETE /reminders/{reminderId}`
 
-## 4.5 Streaks
+## 4.6 Streaks
 
 - `GET /streaks/current`
 - `GET /streaks/history`
 
-## 4.6 Privacy
+## 4.7 Privacy
 
 - `POST /privacy/export`
 - `POST /privacy/delete-request`

@@ -1,106 +1,74 @@
 import { useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "../../infrastructure/reactNative";
-import { BookHeart, ChevronDown, Phone } from "lucide-react-native";
+import { Loader2, Mail } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Path, Svg } from "react-native-svg";
 import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
+import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
+import { Path, Svg } from "react-native-svg";
 
-type EnterPhoneScreenProps = {
-  onSendCode: (phoneNumber: string) => Promise<void>;
-  onGooglePress: () => void;
+type AuthLandingScreenProps = {
+  onContinueWithEmail: () => Promise<void>;
+  onContinueWithGoogle: () => Promise<void>;
+  onGoToSignIn: () => void;
 };
 
-type CountryCode = {
-  code: string;
-  country: string;
-  flag: string;
-};
-
-const countryCodes: CountryCode[] = [
-  { code: "+1", country: "US", flag: "🇺🇸" },
-  { code: "+44", country: "UK", flag: "🇬🇧" },
-  { code: "+91", country: "IN", flag: "🇮🇳" },
-  { code: "+61", country: "AU", flag: "🇦🇺" },
-  { code: "+81", country: "JP", flag: "🇯🇵" },
-  { code: "+49", country: "DE", flag: "🇩🇪" },
-  { code: "+33", country: "FR", flag: "🇫🇷" },
-  { code: "+55", country: "BR", flag: "🇧🇷" },
-];
-
-export function EnterPhoneScreen({
-  onSendCode,
-  onGooglePress,
-}: EnterPhoneScreenProps) {
+export default function EnterPhoneScreen({
+  onContinueWithEmail,
+  onContinueWithGoogle,
+  onGoToSignIn,
+}: AuthLandingScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [selectedCountry, setSelectedCountry] = useState(countryCodes[0]);
-  const [showPicker, setShowPicker] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 24;
   const sheetMaxWidth = isWide ? 460 : 420;
-  const sheetOffset = isCompact ? -16 : -40;
-  const heroTitleSize = isCompact ? 24 : isWide ? 30 : 27;
-  const heroIconSize = isCompact ? 64 : 72;
-  const heroIconRadius = isCompact ? 20 : 24;
-  const countryPickerWidth = isCompact ? 92 : isWide ? 112 : 104;
-  const phoneRowGap = isCompact ? 8 : 10;
 
-  const handleTermsPress = () => {
-    Alert.alert(
-      "Terms and Conditions",
-      "The Terms screen will be wired in a later slice."
-    );
-  };
-
-  const handlePrivacyPress = () => {
-    Alert.alert(
-      "Privacy Policy",
-      "The Privacy Policy screen will be wired in a later slice."
-    );
-  };
-
-  const handleSubmit = async () => {
-    const digits = phoneNumber.replace(/\D/g, "");
-
-    if (!digits.length) {
-      setError("Phone number is needed.");
-      return;
-    }
-
-    if (digits.length < 7) {
-      setError("Please enter a valid phone number.");
-      return;
-    }
-
-    setIsSubmitting(true);
+  const handleEmailPress = async () => {
+    setIsEmailLoading(true);
     setError(null);
 
     try {
-      await onSendCode(`${selectedCountry.code}${digits}`);
+      await onContinueWithEmail();
     } catch (submissionError) {
       setError(
         submissionError instanceof Error
           ? submissionError.message
-          : "Unable to send the verification code."
+          : "Unable to continue with email right now."
       );
     } finally {
-      setIsSubmitting(false);
+      setIsEmailLoading(false);
+    }
+  };
+
+  const handleGooglePress = async () => {
+    setIsGoogleLoading(true);
+    setError(null);
+
+    try {
+      await onContinueWithGoogle();
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to continue with Google right now."
+      );
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -111,193 +79,69 @@ export function EnterPhoneScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingHorizontal: horizontalPadding },
-          ]}
+          contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
           keyboardShouldPersistTaps="handled"
         >
-          <View
-            style={[
-              styles.sheet,
-              { maxWidth: sheetMaxWidth, marginTop: sheetOffset },
-            ]}
-          >
-            <View style={styles.hero}>
-              <View
-                style={[
-                  styles.heroIcon,
-                  { backgroundColor: theme.colors.accent },
-                  {
-                    width: heroIconSize,
-                    height: heroIconSize,
-                    borderRadius: heroIconRadius,
-                  },
-                ]}
-              >
-                <BookHeart color={theme.colors.primary} size={34} strokeWidth={2} />
-              </View>
-              <Text style={[styles.title, { fontSize: heroTitleSize, color: theme.colors.foreground }]}>
-                Journal.IO
-              </Text>
-              <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>
-                Your personal journaling companion.
-              </Text>
-            </View>
+          <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
+            <AuthHero
+              title="Journal.IO"
+              subtitle="Your personal journaling companion."
+            />
 
             <View style={styles.form}>
-              <Text style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}>
-                Phone number
-              </Text>
-
-              <View style={[styles.phoneRow, { gap: phoneRowGap }]}>
-                <View style={[styles.countryPickerWrap, { width: countryPickerWidth }]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setShowPicker(previous => !previous)}
-                    style={({ pressed }) => [
-                      styles.countryPicker,
-                      {
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.inputBackground,
-                      },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text style={styles.countryFlag}>
-                      {selectedCountry.flag}
-                    </Text>
-                    <Text style={[styles.countryCode, { color: theme.colors.foreground }]}>
-                      {selectedCountry.code}
-                    </Text>
-                    <ChevronDown color={theme.colors.mutedForeground} size={14} />
-                  </Pressable>
-
-                  {showPicker ? (
-                    <ScrollView
-                      style={[
-                        styles.countryPickerMenu,
-                        {
-                          backgroundColor: theme.colors.card,
-                          borderColor: theme.colors.border,
-                        },
-                      ]}
-                      contentContainerStyle={styles.countryPickerMenuContent}
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator={false}
-                    >
-                      {countryCodes.map(country => (
-                        <Pressable
-                          key={`${country.code}-${country.country}`}
-                          onPress={() => {
-                            setSelectedCountry(country);
-                            setShowPicker(false);
-                          }}
-                          style={({ pressed }) => [
-                            styles.countryPickerItem,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text style={styles.countryPickerItemFlag}>
-                            {country.flag}
-                          </Text>
-                          <Text style={[styles.countryPickerItemLabel, { color: theme.colors.foreground }]}>
-                            {country.country}
-                          </Text>
-                          <Text style={[styles.countryPickerItemCode, { color: theme.colors.mutedForeground }]}>
-                            {country.code}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                </View>
-
-                <View style={styles.phoneInputWrap}>
-                  <TextInput
-                    value={phoneNumber}
-                    onChangeText={value => {
-                      setPhoneNumber(value.replace(/\D/g, "").slice(0, 10));
-                      if (error) {
-                        setError(null);
-                      }
-                    }}
-                    placeholder="(555) 123-4567"
-                    placeholderTextColor={theme.colors.mutedForeground}
-                    keyboardType="phone-pad"
-                    textContentType="telephoneNumber"
-                    autoFocus
-                    style={[
-                      styles.phoneInput,
-                      {
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.card,
-                        color: theme.colors.foreground,
-                      },
-                    ]}
-                  />
-                </View>
-              </View>
-
-              {error ? (
-                <Text style={[styles.error, { color: theme.colors.destructive }]}>{error}</Text>
-              ) : null}
-
               <PrimaryButton
-                label={isSubmitting ? "Sending code..." : "Continue with Phone"}
-                onPress={handleSubmit}
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                icon={<Phone color="#FFFFFF" size={16} strokeWidth={2.1} />}
+                label={isEmailLoading ? "Loading..." : "Continue with Email"}
+                onPress={handleEmailPress}
+                loading={isEmailLoading}
+                disabled={isEmailLoading || isGoogleLoading}
+                icon={
+                  isEmailLoading ? (
+                    <Loader2 color="#FFFFFF" size={16} />
+                  ) : (
+                    <Mail color="#FFFFFF" size={16} strokeWidth={2} />
+                  )
+                }
                 tone="accent"
               />
 
+              <View style={styles.linkRow}>
+                <Text style={[styles.linkText, { color: theme.colors.mutedForeground }]}>
+                  Already have an account?
+                </Text>
+                <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
+                  <Text style={[styles.linkText, { color: theme.colors.primary }]}>
+                    Sign in
+                  </Text>
+                </Pressable>
+              </View>
+
               <View style={styles.divider}>
                 <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
-                <Text style={[styles.dividerText, { color: theme.colors.mutedForeground }]}>or</Text>
+                <Text style={[styles.dividerText, { color: theme.colors.mutedForeground }]}>
+                  or
+                </Text>
                 <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
               </View>
 
               <PrimaryButton
-                label="Continue with Google"
-                onPress={onGooglePress}
+                label={isGoogleLoading ? "Connecting..." : "Continue with Google"}
+                onPress={handleGooglePress}
+                loading={isGoogleLoading}
+                disabled={isEmailLoading || isGoogleLoading}
                 variant="outline"
                 icon={<GoogleMark />}
               />
 
-              <View style={styles.terms}>
-                <Text style={[styles.termsText, { color: theme.colors.mutedForeground }]}>
-                  By continuing, you agree to Journal.IO&apos;s{" "}
+              {error ? (
+                <Text style={[styles.error, { color: theme.colors.destructive }]}>
+                  {error}
                 </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleTermsPress}
-                  style={({ pressed }) => [
-                    styles.termsButton,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={[styles.termsLink, { color: theme.colors.primary }]}>
-                    Terms and Conditions
-                  </Text>
-                </Pressable>
-                <Text style={[styles.termsText, { color: theme.colors.mutedForeground }]}>
-                  {" "}
-                  and{" "}
+              ) : null}
+
+              <View style={[styles.infoCard, { backgroundColor: theme.colors.accent }]}>
+                <Text style={[styles.infoText, { color: theme.colors.mutedForeground }]}>
+                  Private, calm, and designed to stay out of your way.
                 </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handlePrivacyPress}
-                  style={({ pressed }) => [
-                    styles.termsButton,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={[styles.termsLink, { color: theme.colors.primary }]}>
-                    Privacy Policy
-                  </Text>
-                </Pressable>
               </View>
             </View>
           </View>
@@ -306,182 +150,6 @@ export function EnterPhoneScreen({
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  content: {
-    paddingVertical: 24,
-    flexGrow: 1,
-    justifyContent: "center",
-  },
-  sheet: {
-    width: "100%",
-    alignSelf: "center",
-  },
-  hero: {
-    alignItems: "center",
-    marginBottom: 28,
-  },
-  heroIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    backgroundColor: "#F3D8D0",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 27,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  form: {
-    width: "100%",
-  },
-  sectionLabel: {
-    fontSize: 13,
-    color: "#556055",
-    marginBottom: 10,
-    fontWeight: "600",
-  },
-  phoneRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  countryPickerWrap: {
-    width: 104,
-    position: "relative",
-  },
-  countryPicker: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: "#D7DCD2",
-    borderRadius: 12,
-    backgroundColor: "#F8F9F5",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-  },
-  countryFlag: {
-    fontSize: 16,
-  },
-  countryCode: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  countryPickerMenu: {
-    position: "absolute",
-    top: 56,
-    left: 0,
-    right: 0,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E8DF",
-    borderRadius: 16,
-    maxHeight: 280,
-    zIndex: 20,
-    overflow: "hidden",
-    elevation: 6,
-    shadowColor: "#000000",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-  },
-  countryPickerMenuContent: {
-    paddingVertical: 6,
-  },
-  countryPickerItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  countryPickerItemFlag: {
-    width: 28,
-  },
-  countryPickerItemLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  countryPickerItemCode: {
-    fontSize: 13,
-  },
-  phoneInputWrap: {
-    flex: 1,
-  },
-  phoneInput: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: "#D7DCD2",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 16,
-  },
-  divider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginVertical: 14,
-  },
-  rule: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5E8DF",
-  },
-  dividerText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  terms: {
-    marginTop: 14,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 4,
-  },
-  termsText: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  termsButton: {
-    paddingVertical: 2,
-  },
-  termsLink: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
-    textDecorationLine: "underline",
-  },
-  error: {
-    marginBottom: 12,
-    fontSize: 13,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-});
 
 function GoogleMark() {
   return (
@@ -506,4 +174,64 @@ function GoogleMark() {
   );
 }
 
-export default EnterPhoneScreen;
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+  },
+  content: {
+    paddingVertical: 24,
+    flexGrow: 1,
+    justifyContent: "center",
+  },
+  sheet: {
+    width: "100%",
+    alignSelf: "center",
+  },
+  form: {
+    width: "100%",
+    marginTop: 20,
+    gap: 16,
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  rule: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  linkButton: {
+    paddingVertical: 2,
+  },
+  linkText: {
+    fontSize: 13,
+  },
+  infoCard: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  infoText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  error: {
+    fontSize: 12,
+    textAlign: "center",
+  },
+});

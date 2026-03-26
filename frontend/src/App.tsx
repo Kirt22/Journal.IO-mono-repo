@@ -1,38 +1,72 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  Animated,
-  Easing,
-  StatusBar,
-  StyleSheet,
-} from "react-native";
+import { Animated, Easing, StatusBar, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { AppFlowRoutes, type FlowStage } from "./navigation/routes";
-import { resendOtp, sendOtp, verifyOtp } from "./services/authService";
-import type { AuthUser } from "./services/authService";
+import {
+  AppFlowRoutes,
+  type AuthEntrySource,
+  type FlowStage,
+} from "./navigation/routes";
+import {
+  resendEmailVerification,
+  signInWithEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+  verifyEmail,
+  type AuthSession,
+  type AuthUser,
+  type AuthOnboardingContext,
+} from "./services/authService";
 import { updateProfile } from "./services/userService";
+import type { OnboardingCompletionData } from "./screens/onboarding/OnboardingScreen";
 import { ThemeProvider, useTheme } from "./theme/provider";
 import type { ThemeMode } from "./theme/theme";
 import { saveTokens } from "./utils/tokenStorage";
-import type { AuthSession } from "./services/authService";
+import devLaunchConfig from "./utils/devLaunchConfig.json";
 
 const SCREEN_TRANSITION_OUT_MS = 130;
 const SCREEN_TRANSITION_IN_MS = 240;
+const FALLBACK_EMAIL_VERIFICATION_CODE = "123456";
+
+function buildOnboardingContext(
+  data: OnboardingCompletionData | null
+): AuthOnboardingContext | undefined {
+  if (!data) {
+    return undefined;
+  }
+
+  return {
+    ageRange: data.ageRange,
+    journalingExperience: data.journalingExperience,
+    goals: data.goals,
+    supportFocus: data.supportFocusAreas,
+    reminderPreference: data.reminderPreference,
+    aiOptIn: data.aiComfort,
+    privacyConsentAccepted: data.privacyConsent,
+  };
+}
 
 function AppContent() {
   const theme = useTheme();
-  const [stage, setStage] = useState<FlowStage>("onboarding");
-  const [displayStage, setDisplayStage] = useState<FlowStage>("onboarding");
+  const initialStage: FlowStage =
+    __DEV__ && devLaunchConfig.stage ? devLaunchConfig.stage : "onboarding";
+  const [stage, setStage] = useState<FlowStage>(initialStage);
+  const [displayStage, setDisplayStage] = useState<FlowStage>(initialStage);
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
-  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [debugOtp, setDebugOtp] = useState<string | null>(null);
+  const [onboardingData, setOnboardingData] = useState<OnboardingCompletionData | null>(null);
+  const [pendingEmail, setPendingEmail] = useState(
+    __DEV__ && devLaunchConfig.stage === "profile" ? devLaunchConfig.email || "debug@example.com" : ""
+  );
+  const [pendingVerificationCode, setPendingVerificationCode] = useState(FALLBACK_EMAIL_VERIFICATION_CODE);
+  const [authSource, setAuthSource] = useState<AuthEntrySource | null>(
+    __DEV__ && devLaunchConfig.stage === "profile" ? "email" : null
+  );
   const [session, setSession] = useState<AuthSession | null>(null);
   const [initialProfileName, setInitialProfileName] = useState("");
-  const [isResendingCode, setIsResendingCode] = useState(false);
   const [themeModeOverride, setThemeModeOverride] = useState<ThemeMode | null>(null);
   const transitionOpacity = useRef(new Animated.Value(1)).current;
   const transitionTranslateY = useRef(new Animated.Value(0)).current;
+
+  const selectedGoals = onboardingData?.goals || [];
 
   const enterHomeWithProfile = (updatedProfile: AuthUser) => {
     if (session) {
@@ -49,8 +83,8 @@ function AppContent() {
   const buildLocalProfile = (name: string, avatarColor: string): AuthUser => ({
     userId: session?.user.userId || "debug-user",
     name,
-    phoneNumber: session?.user.phoneNumber || phoneNumber || null,
-    email: session?.user.email || null,
+    phoneNumber: null,
+    email: session?.user.email || pendingEmail || null,
     journalingGoals: selectedGoals,
     avatarColor,
     profileSetupCompleted: true,
@@ -101,9 +135,9 @@ function AppContent() {
     });
   }, [displayStage, stage, transitionOpacity, transitionTranslateY]);
 
-  const handleOnboardingContinue = (goals: string[]) => {
+  const handleOnboardingContinue = (data: OnboardingCompletionData) => {
     setIsCompletingOnboarding(true);
-    setSelectedGoals(goals);
+    setOnboardingData(data);
 
     setTimeout(() => {
       setIsCompletingOnboarding(false);
@@ -111,62 +145,16 @@ function AppContent() {
     }, 220);
   };
 
-  const handleGooglePress = () => {
-    Alert.alert(
-      "Google sign-in",
-      "Google auth will be added in the next slice."
-    );
+  const handleContinueWithEmail = async () => {
+    setAuthSource("email");
+    setStage("create-account");
   };
 
-  const handleSendCode = async (submittedPhoneNumber: string) => {
-    const response = await sendOtp({ phoneNumber: submittedPhoneNumber });
-    setPhoneNumber(response.phoneNumber);
-    setDebugOtp(response.debugOtp || null);
-    setStage("otp");
-  };
-
-  const handleResendCode = async () => {
-    if (!phoneNumber) {
-      throw new Error("Please enter a phone number first.");
-    }
-
-    setIsResendingCode(true);
-
-    try {
-      const response = await resendOtp({ phoneNumber });
-      setPhoneNumber(response.phoneNumber);
-      setDebugOtp(response.debugOtp || null);
-    } finally {
-      setIsResendingCode(false);
-    }
-  };
-
-  const handleVerifyOtp = async (otp: string) => {
-    if (__DEV__) {
-      setSession({
-        accessToken: "debug-access-token",
-        refreshToken: "debug-refresh-token",
-        user: {
-          userId: "debug-user",
-          name: "Journal User",
-          phoneNumber,
-          email: null,
-          journalingGoals: selectedGoals,
-          avatarColor: "#8E4636",
-          profileSetupCompleted: false,
-          profilePic: null,
-        },
-      });
-      setInitialProfileName("");
-      return;
-    }
-
-    const response = await verifyOtp({
-      phoneNumber,
-      otp,
-      // Temporary frontend compatibility for current backend validation.
-      name: "Journal User",
-      goals: selectedGoals,
+  const handleContinueWithGoogle = async () => {
+    const response = await signInWithGoogle({
+      googleIdToken: "mock-google-token",
+      email: "alex.rivera@example.com",
+      name: "Alex Rivera",
     });
 
     await saveTokens({
@@ -174,13 +162,112 @@ function AppContent() {
       refreshToken: response.refreshToken,
     });
 
+    setAuthSource("google");
+    setPendingEmail(response.user.email || "alex.rivera@example.com");
+    setPendingVerificationCode(FALLBACK_EMAIL_VERIFICATION_CODE);
     setSession(response);
-    setInitialProfileName(
-      response.user.name === "Journal User" ? "" : response.user.name
+    setInitialProfileName(response.user.name || "Alex Rivera");
+    setStage("profile");
+  };
+
+  const handleGoToSignIn = () => {
+    setStage("sign-in");
+  };
+
+  const handleGoToCreateAccount = () => {
+    setStage("create-account");
+  };
+
+  const handleCreateAccount = async (payload: { email: string; password: string }) => {
+    const normalizedEmail = payload.email.trim();
+
+    setAuthSource("email");
+    setPendingEmail(normalizedEmail);
+    setPendingVerificationCode(FALLBACK_EMAIL_VERIFICATION_CODE);
+
+    const response = await signUpWithEmail({
+      email: normalizedEmail,
+      password: payload.password,
+      onboardingContext: buildOnboardingContext(onboardingData),
+    });
+
+    setPendingEmail(response.email);
+    setPendingVerificationCode(response.verificationCode || FALLBACK_EMAIL_VERIFICATION_CODE);
+  };
+
+  const handleCreateAccountSuccess = () => {
+    setStage("verify-email");
+  };
+
+  const handleResendCode = async () => {
+    if (!pendingEmail) {
+      throw new Error("Please create an account first.");
+    }
+
+    const response = await resendEmailVerification({
+      email: pendingEmail,
+    });
+
+    setPendingVerificationCode(
+      response.verificationCode || FALLBACK_EMAIL_VERIFICATION_CODE
     );
   };
 
-  const handleOtpVerificationSuccess = () => {
+  const handleVerifyEmail = async (code: string) => {
+    if (!pendingEmail) {
+      throw new Error("Please create an account first.");
+    }
+
+    const response = await verifyEmail(
+      {
+        email: pendingEmail,
+        code,
+      },
+      {
+        onboardingGoals: onboardingData?.goals,
+      }
+    );
+
+    const updatedSession: AuthSession = {
+      ...response,
+      user: {
+        ...response.user,
+        journalingGoals:
+          onboardingData?.goals?.length ? onboardingData.goals : response.user.journalingGoals,
+      },
+    };
+
+    await saveTokens({
+      accessToken: updatedSession.accessToken,
+      refreshToken: updatedSession.refreshToken,
+    });
+
+    setSession(updatedSession);
+    setInitialProfileName(updatedSession.user.name === "Journal User" ? "" : updatedSession.user.name);
+  };
+
+  const handleVerificationSuccess = () => {
+    setStage("profile");
+  };
+
+  const handleSignIn = async (payload: { email: string; password: string }) => {
+    const response = await signInWithEmail(payload);
+
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
+    setSession(response);
+    setPendingEmail(response.user.email || payload.email);
+    setAuthSource("email");
+
+    if (response.user.profileSetupCompleted) {
+      setStage("home");
+      return;
+    }
+
+    setInitialProfileName(response.user.name === "Journal User" ? "" : response.user.name);
     setStage("profile");
   };
 
@@ -228,6 +315,21 @@ function AppContent() {
     }
   };
 
+  const handleRestart = () => {
+    setStage("onboarding");
+    setPendingEmail("");
+    setPendingVerificationCode(FALLBACK_EMAIL_VERIFICATION_CODE);
+    setAuthSource(null);
+    setOnboardingData(null);
+    setSession(null);
+    setInitialProfileName("");
+    setThemeModeOverride(null);
+  };
+
+  const handleNavigate = (nextStage: Extract<FlowStage, "home" | "calendar">) => {
+    setStage(nextStage);
+  };
+
   return (
     <ThemeProvider modeOverride={themeModeOverride}>
       <SafeAreaProvider>
@@ -245,37 +347,38 @@ function AppContent() {
             },
           ]}
         >
-          <AppFlowRoutes
-            stage={displayStage}
-            isCompletingOnboarding={isCompletingOnboarding}
-            selectedGoals={selectedGoals}
-            phoneNumber={phoneNumber}
-            debugOtp={debugOtp}
-            isResendingCode={isResendingCode}
-            session={session}
-            initialProfileName={initialProfileName}
-            onOnboardingContinue={handleOnboardingContinue}
-            onGooglePress={handleGooglePress}
-            onSendCode={handleSendCode}
-            onVerifyOtp={handleVerifyOtp}
-            onVerificationSuccess={handleOtpVerificationSuccess}
+        <AppFlowRoutes
+          stage={displayStage}
+          isCompletingOnboarding={isCompletingOnboarding}
+          onboardingData={onboardingData}
+          pendingEmail={pendingEmail}
+          pendingVerificationCode={pendingVerificationCode}
+          authSource={authSource}
+          session={session}
+          initialProfileName={initialProfileName}
+          onOnboardingContinue={handleOnboardingContinue}
+          onContinueWithEmail={handleContinueWithEmail}
+          onContinueWithGoogle={handleContinueWithGoogle}
+          onGoToSignIn={handleGoToSignIn}
+          onGoToCreateAccount={handleGoToCreateAccount}
+          onSignIn={handleSignIn}
+          onCreateAccount={handleCreateAccount}
+          onCreateAccountSuccess={handleCreateAccountSuccess}
+          onVerifyEmail={handleVerifyEmail}
+            onVerificationSuccess={handleVerificationSuccess}
             onResendCode={handleResendCode}
             onBackToAuth={() => setStage("auth")}
+            onBackToCreateAccount={() => setStage("create-account")}
             onProfileComplete={handleProfileComplete}
-            onBackToOtp={() => setStage("otp")}
-            onSkipProfile={handleSkipProfile}
-            onRestart={() => {
-              setStage("onboarding");
-              setPhoneNumber("");
-              setDebugOtp(null);
-              setSelectedGoals([]);
-              setSession(null);
-              setInitialProfileName("");
-              setThemeModeOverride(null);
-            }}
-            onToggleTheme={nextMode => {
-              setThemeModeOverride(nextMode);
-            }}
+            onBackToVerifyEmail={() =>
+              setStage(authSource === "google" ? "auth" : "verify-email")
+            }
+          onSkipProfile={handleSkipProfile}
+          onRestart={handleRestart}
+          onNavigate={handleNavigate}
+          onToggleTheme={nextMode => {
+            setThemeModeOverride(nextMode);
+          }}
           />
         </Animated.View>
       </SafeAreaProvider>

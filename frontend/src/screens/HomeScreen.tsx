@@ -40,6 +40,7 @@ import { useTheme } from "../theme/provider";
 type HomeScreenProps = {
   userName?: string;
   onToggleTheme: (nextMode: "light" | "dark") => void;
+  onNavigate?: (key: "home" | "calendar" | "new" | "insights" | "profile") => void;
 };
 
 type MoodType = "amazing" | "good" | "okay" | "bad" | "terrible";
@@ -262,6 +263,7 @@ function EmptyState({
 export default function HomeScreen({
   userName,
   onToggleTheme,
+  onNavigate,
 }: HomeScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -1059,7 +1061,7 @@ export default function HomeScreen({
         </View>
       </ScrollView>
 
-      <BottomNav activeKey="home" />
+      <BottomNav activeKey="home" onPress={onNavigate} />
     </SafeAreaView>
   );
 }

@@ -1,60 +1,93 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import EnterPhoneScreen from "../screens/auth/EnterPhoneScreen";
+import SignInScreen from "../screens/auth/SignInScreen";
+import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
+import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
 import HomeScreen from "../screens/HomeScreen";
-import VerifyOtpScreen from "../screens/auth/VerifyOtpScreen";
-import { OnboardingScreen } from "../screens/onboarding/OnboardingScreen";
+import CalendarScreen from "../screens/calendar/CalendarScreen";
+import {
+  OnboardingScreen,
+  type OnboardingCompletionData,
+} from "../screens/onboarding/OnboardingScreen";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
 import type { AuthSession } from "../services/authService";
 
-export type FlowStage = "onboarding" | "auth" | "otp" | "profile" | "home" | "complete";
+export type FlowStage =
+  | "onboarding"
+  | "auth"
+  | "sign-in"
+  | "create-account"
+  | "verify-email"
+  | "profile"
+  | "calendar"
+  | "home"
+  | "complete";
+
+export type AuthEntrySource = "email" | "google";
 
 type AppFlowRoutesProps = {
   stage: FlowStage;
   isCompletingOnboarding: boolean;
-  selectedGoals: string[];
-  phoneNumber: string;
-  debugOtp: string | null;
-  isResendingCode: boolean;
+  onboardingData: OnboardingCompletionData | null;
+  pendingEmail: string;
+  pendingVerificationCode: string;
+  authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
-  onOnboardingContinue: (goals: string[]) => void;
-  onGooglePress: () => void;
-  onSendCode: (submittedPhoneNumber: string) => Promise<void>;
-  onVerifyOtp: (otp: string) => Promise<void>;
+  onOnboardingContinue: (data: OnboardingCompletionData) => void;
+  onContinueWithEmail: () => Promise<void>;
+  onContinueWithGoogle: () => Promise<void>;
+  onGoToSignIn: () => void;
+  onGoToCreateAccount: () => void;
+  onSignIn: (payload: { email: string; password: string }) => Promise<void>;
+  onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
+  onCreateAccountSuccess: () => void;
+  onVerifyEmail: (code: string) => Promise<void>;
   onVerificationSuccess: () => void;
   onResendCode: () => Promise<void>;
   onBackToAuth: () => void;
+  onBackToCreateAccount: () => void;
   onProfileComplete: (payload: { name: string; avatarColor: string }) => Promise<void>;
-  onBackToOtp: () => void;
+  onBackToVerifyEmail: () => void;
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onToggleTheme: (nextMode: ThemeMode) => void;
+  onNavigate: (nextStage: Extract<FlowStage, "home" | "calendar">) => void;
 };
 
 export function AppFlowRoutes({
   stage,
   isCompletingOnboarding,
-  selectedGoals,
-  phoneNumber,
-  debugOtp,
-  isResendingCode,
+  onboardingData,
+  pendingEmail,
+  pendingVerificationCode,
+  authSource,
   session,
   initialProfileName,
   onOnboardingContinue,
-  onGooglePress,
-  onSendCode,
-  onVerifyOtp,
+  onContinueWithEmail,
+  onContinueWithGoogle,
+  onGoToSignIn,
+  onGoToCreateAccount,
+  onSignIn,
+  onCreateAccount,
+  onCreateAccountSuccess,
+  onVerifyEmail,
   onVerificationSuccess,
   onResendCode,
   onBackToAuth,
+  onBackToCreateAccount,
   onProfileComplete,
-  onBackToOtp,
+  onBackToVerifyEmail,
   onSkipProfile,
   onRestart,
   onToggleTheme,
+  onNavigate,
 }: AppFlowRoutesProps) {
+  const selectedGoals = onboardingData?.goals || [];
+
   switch (stage) {
     case "onboarding":
       return (
@@ -66,30 +99,48 @@ export function AppFlowRoutes({
     case "auth":
       return (
         <EnterPhoneScreen
-          onSendCode={onSendCode}
-          onGooglePress={onGooglePress}
+          onContinueWithEmail={onContinueWithEmail}
+          onContinueWithGoogle={onContinueWithGoogle}
+          onGoToSignIn={onGoToSignIn}
         />
       );
-    case "otp":
+    case "sign-in":
       return (
-        <VerifyOtpScreen
-          phoneNumber={phoneNumber}
-          debugOtp={debugOtp}
-          isResending={isResendingCode}
-          onVerifyOtp={onVerifyOtp}
+        <SignInScreen
+          onSubmit={onSignIn}
+          onBackToAuth={onBackToAuth}
+          onGoToCreateAccount={onGoToCreateAccount}
+        />
+      );
+    case "create-account":
+      return (
+        <CreateAccountScreen
+          onSubmit={onCreateAccount}
+          onSuccess={onCreateAccountSuccess}
+          onBackToAuth={onBackToAuth}
+          onGoToSignIn={onGoToSignIn}
+        />
+      );
+    case "verify-email":
+      return (
+        <VerifyEmailScreen
+          email={pendingEmail}
+          debugCode={pendingVerificationCode}
+          onVerifyEmail={onVerifyEmail}
           onVerificationSuccess={onVerificationSuccess}
           onResendCode={onResendCode}
-          onBackToAuth={onBackToAuth}
+          onBackToCreateAccount={onBackToCreateAccount}
         />
       );
     case "profile":
       return (
         <SetupProfileScreen
-          phoneNumber={phoneNumber}
-          selectedGoals={selectedGoals}
+          authEmail={pendingEmail || session?.user.email || ""}
+          authSource={authSource || "email"}
+          onboardingContext={onboardingData}
           initialName={initialProfileName}
           onComplete={onProfileComplete}
-          onBack={onBackToOtp}
+          onBack={onBackToVerifyEmail}
           onSkip={onSkipProfile}
         />
       );
@@ -98,6 +149,13 @@ export function AppFlowRoutes({
         <HomeScreen
           userName={session?.user.name || "Journal User"}
           onToggleTheme={onToggleTheme}
+          onNavigate={onNavigate}
+        />
+      );
+    case "calendar":
+      return (
+        <CalendarScreen
+          onNavigate={onNavigate}
         />
       );
     case "complete":

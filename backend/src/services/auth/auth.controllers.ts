@@ -3,6 +3,7 @@ import { apiResponse } from "../../helpers/commonHelper.helpers";
 import {
   invalidateRefreshToken,
   refreshAccessToken,
+  resendOtp,
   sendOtp,
   signInWithGoogle,
   verifyOtp,
@@ -18,6 +19,22 @@ const sendOtpController = async (req: Request, res: Response) => {
       .json(apiResponse(true, "Verification code sent", result));
   } catch (error) {
     console.error("Error in sendOtp:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const resendOtpController = async (req: Request, res: Response) => {
+  try {
+    const { phoneNumber } = req.body;
+    const result = await resendOtp({ phoneNumber });
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Verification code resent", result));
+  } catch (error) {
+    console.error("Error in resendOtp:", error);
     return res
       .status(500)
       .json(apiResponse(false, "Internal Server Error", {}));
@@ -134,6 +151,7 @@ export {
   logoutController,
   refreshController,
   registerFromGoogleOAuthController,
+  resendOtpController,
   sendOtpController,
   verifyOtpController,
 };

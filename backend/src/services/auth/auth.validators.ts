@@ -19,6 +19,14 @@ const sendOtpSchema = z.object({
   params: z.object({}).optional(),
 });
 
+const resendOtpSchema = z.object({
+  body: z.object({
+    phoneNumber: phoneNumberSchema,
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 const verifyOtpSchema = z.object({
   body: z.object({
     phoneNumber: phoneNumberSchema,
@@ -58,6 +66,7 @@ const logoutSchema = z.object({
 
 export {
   logoutSchema,
+  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
   sendOtpSchema,

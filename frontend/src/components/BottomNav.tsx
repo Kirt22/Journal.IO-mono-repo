@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Calendar,
@@ -38,9 +38,9 @@ export default function BottomNav({
 }: BottomNavProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const shellPaddingBottom = Platform.OS === "ios" ? insets.bottom + 1 : 8;
-  const baseHeight = Platform.OS === "ios" ? insets.bottom + 28 : 0;
-  const shellHeight = Platform.OS === "ios" ? baseHeight + 86 : 86;
+  const lastLoggedKeyRef = useRef<BottomNavItem["key"] | null>(null);
+  const shellPaddingBottom = Platform.OS === "ios" ? insets.bottom + 2 : 8;
+  const shellHeight = Platform.OS === "ios" ? insets.bottom + 86 : 86;
 
   const barStyle = useMemo(
     () => ({
@@ -50,20 +50,43 @@ export default function BottomNav({
     [theme.colors.border, theme.colors.card]
   );
 
-  return (
-    <View style={[styles.wrapper, { height: shellHeight }]}>
-      <View
-        pointerEvents="none"
-        style={[
-          styles.bottomBase,
-          {
-            height: baseHeight,
-            backgroundColor: `${theme.colors.card}F2`,
-            borderTopColor: theme.colors.border,
-          },
-        ]}
-      />
+  useEffect(() => {
+    if (!__DEV__) {
+      return;
+    }
 
+    if (lastLoggedKeyRef.current === activeKey) {
+      return;
+    }
+
+    lastLoggedKeyRef.current = activeKey;
+    console.log("[BottomNav] activeKey changed", activeKey);
+  }, [activeKey]);
+
+  const handleLayout = (event: {
+    nativeEvent: { layout: { width: number; height: number } };
+  }) => {
+    if (!__DEV__) {
+      return;
+    }
+
+    const { width, height } = event.nativeEvent.layout;
+    console.log("[BottomNav] container size", { width, height });
+  };
+
+  const handlePress = (key: BottomNavItem["key"]) => {
+    if (__DEV__) {
+      console.log("[BottomNav] navigate", { from: activeKey, to: key });
+    }
+
+    onPress?.(key);
+  };
+
+  return (
+    <View
+      style={[styles.wrapper, { height: shellHeight }]}
+      onLayout={handleLayout}
+    >
       <View style={styles.controlsShell}>
         <Svg width="100%" height={24} style={styles.fade}>
           <Defs>
@@ -95,7 +118,7 @@ export default function BottomNav({
                     key={item.key}
                     accessibilityRole="button"
                     accessibilityLabel={item.label}
-                    onPress={() => onPress?.(item.key)}
+                    onPress={() => handlePress(item.key)}
                     style={({ pressed }) => [
                       styles.primaryButtonWrap,
                       pressed && styles.pressed,
@@ -118,7 +141,7 @@ export default function BottomNav({
                   key={item.key}
                   accessibilityRole="button"
                   accessibilityLabel={item.label}
-                  onPress={() => onPress?.(item.key)}
+                  onPress={() => handlePress(item.key)}
                   style={({ pressed }) => [
                     styles.tabButton,
                     pressed && styles.pressed,
@@ -167,13 +190,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 50,
   },
-  bottomBase: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopWidth: 1,
-  },
   controlsShell: {
     position: "absolute",
     left: 0,
@@ -204,11 +220,11 @@ const styles = StyleSheet.create({
   },
   activePill: {
     position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    borderRadius: 14,
+    top: 4,
+    right: 8,
+    bottom: 4,
+    left: 8,
+    borderRadius: 12,
   },
   tabIcon: {
     position: "relative",

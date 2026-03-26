@@ -17,6 +17,55 @@ type AuthSession = {
   user: AuthUser;
 };
 
+type AuthOnboardingContext = {
+  ageRange?: string;
+  journalingExperience?: string;
+  goals?: string[];
+  supportFocus?: string[];
+  reminderPreference?: string;
+  aiOptIn?: boolean;
+  privacyConsentAccepted?: boolean;
+};
+
+type EmailVerificationChallenge = {
+  email: string;
+  verificationRequired: boolean;
+  expiresInSeconds: number;
+  verificationCode?: string;
+};
+
+type SignUpWithEmailPayload = {
+  email: string;
+  password: string;
+  onboardingContext?: AuthOnboardingContext;
+};
+
+type ResendEmailVerificationPayload = {
+  email: string;
+};
+
+type VerifyEmailPayload = {
+  email: string;
+  code: string;
+};
+
+type VerifyEmailOptions = {
+  onboardingGoals?: string[];
+};
+
+type SignInWithEmailPayload = {
+  email: string;
+  password: string;
+};
+
+type GoogleSignInPayload = {
+  googleIdToken: string;
+  googleUserId?: string;
+  email: string;
+  name: string;
+  profilePic?: string;
+};
+
 type SendOtpResponse = {
   phoneNumber: string;
   expiresInSeconds: number;
@@ -25,6 +74,187 @@ type SendOtpResponse = {
 
 type VerifyOtpResponse = AuthSession & {
   isNewUser: boolean;
+};
+
+const EMAIL_VERIFICATION_CODE = "123456";
+const MOCK_LATENCY_MS = 650;
+
+const delay = (ms: number) =>
+  new Promise<void>(resolve => {
+    setTimeout(resolve, ms);
+  });
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
+const deriveDisplayNameFromEmail = (email: string) => {
+  const localPart = normalizeEmail(email).split("@")[0] || "Journal User";
+  const cleaned = localPart.replace(/[._-]+/g, " ").trim();
+
+  if (!cleaned) {
+    return "Journal User";
+  }
+
+  return cleaned
+    .split(/\s+/)
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+};
+
+const buildUserId = (email: string) => {
+  const slug = normalizeEmail(email)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug ? `user-${slug}` : "user-journal";
+};
+
+const buildMockTokens = (email: string) => {
+  const tokenSeed = normalizeEmail(email).replace(/[^a-z0-9]/g, "");
+
+  return {
+    accessToken: `mock-access-${tokenSeed || "journal"}`,
+    refreshToken: `mock-refresh-${tokenSeed || "journal"}`,
+  };
+};
+
+const createMockSession = (payload: {
+  email: string;
+  name?: string;
+  goals?: string[];
+  avatarColor?: string | null;
+  profileSetupCompleted?: boolean;
+  profilePic?: string | null;
+}): AuthSession => {
+  const email = normalizeEmail(payload.email);
+  const tokens = buildMockTokens(email);
+
+  return {
+    ...tokens,
+    user: {
+      userId: buildUserId(email),
+      name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
+      phoneNumber: null,
+      email,
+      journalingGoals: payload.goals || [],
+      avatarColor:
+        payload.avatarColor === undefined ? null : payload.avatarColor,
+      profileSetupCompleted: payload.profileSetupCompleted ?? false,
+      profilePic: payload.profilePic ?? null,
+    },
+  };
+};
+
+const buildVerificationChallenge = (
+  email: string
+): EmailVerificationChallenge => ({
+  email: normalizeEmail(email),
+  verificationRequired: true,
+  expiresInSeconds: 1800,
+  verificationCode: EMAIL_VERIFICATION_CODE,
+});
+
+const requestOrMock = async <T>(
+  path: string,
+  payload: Record<string, unknown>,
+  fallback: () => Promise<T> | T
+) => {
+  try {
+    const response = await request<T>(path, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return response.data;
+  } catch {
+    await delay(MOCK_LATENCY_MS);
+    return fallback();
+  }
+};
+
+const signUpWithEmail = async (payload: SignUpWithEmailPayload) =>
+  requestOrMock<EmailVerificationChallenge>(
+    "/auth/sign_up_with_email",
+    payload,
+    () => buildVerificationChallenge(payload.email)
+  );
+
+const resendEmailVerification = async (
+  payload: ResendEmailVerificationPayload
+) =>
+  requestOrMock<EmailVerificationChallenge>(
+    "/auth/resend_email_verification",
+    payload,
+    () => buildVerificationChallenge(payload.email)
+  );
+
+const verifyEmail = async (
+  payload: VerifyEmailPayload,
+  options: VerifyEmailOptions = {}
+) => {
+  try {
+    const response = await request<AuthSession>("/auth/verify_email", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return response.data;
+  } catch {
+    await delay(MOCK_LATENCY_MS);
+
+    if (payload.code !== EMAIL_VERIFICATION_CODE) {
+      throw new Error("The verification code does not match.");
+    }
+
+    return createMockSession({
+      email: payload.email,
+      name: deriveDisplayNameFromEmail(payload.email),
+      goals: options.onboardingGoals || [],
+      profileSetupCompleted: false,
+    });
+  }
+};
+
+const signInWithEmail = async (payload: SignInWithEmailPayload) => {
+  try {
+    const response = await request<AuthSession>("/auth/sign_in_with_email", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return response.data;
+  } catch {
+    await delay(MOCK_LATENCY_MS);
+
+    return createMockSession({
+      email: payload.email,
+      name: deriveDisplayNameFromEmail(payload.email),
+      goals: [],
+      avatarColor: "#8E4636",
+      profileSetupCompleted: true,
+    });
+  }
+};
+
+const signInWithGoogle = async (payload: GoogleSignInPayload) => {
+  try {
+    const response = await request<AuthSession>("/auth/register_from_googleOAuth", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    return response.data;
+  } catch {
+    await delay(MOCK_LATENCY_MS);
+
+    return createMockSession({
+      email: payload.email,
+      name: payload.name,
+      goals: [],
+      avatarColor: null,
+      profilePic: payload.profilePic || null,
+      profileSetupCompleted: false,
+    });
+  }
 };
 
 const sendOtp = async (payload: { phoneNumber: string }) => {
@@ -45,7 +275,6 @@ const resendOtp = async (payload: { phoneNumber: string }) => {
 
     return response.data;
   } catch {
-    // Frontend is prepared for /auth/resend_otp, but backend may not expose it yet.
     return sendOtp(payload);
   }
 };
@@ -64,20 +293,27 @@ const verifyOtp = async (payload: {
   return response.data;
 };
 
-const signInWithGoogle = async (payload: {
-  googleIdToken: string;
-  googleUserId?: string;
-  email: string;
-  name: string;
-  profilePic?: string;
-}) => {
-  const response = await request<AuthSession>("/auth/register_from_googleOAuth", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  return response.data;
+export {
+  resendEmailVerification,
+  resendOtp,
+  sendOtp,
+  signInWithEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+  verifyEmail,
+  verifyOtp,
 };
-
-export { resendOtp, sendOtp, signInWithGoogle, verifyOtp };
-export type { AuthSession, AuthUser, SendOtpResponse, VerifyOtpResponse };
+export type {
+  AuthOnboardingContext,
+  AuthSession,
+  AuthUser,
+  EmailVerificationChallenge,
+  GoogleSignInPayload,
+  ResendEmailVerificationPayload,
+  SendOtpResponse,
+  SignInWithEmailPayload,
+  SignUpWithEmailPayload,
+  VerifyEmailOptions,
+  VerifyEmailPayload,
+  VerifyOtpResponse,
+};

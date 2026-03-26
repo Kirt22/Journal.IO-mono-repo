@@ -5,11 +5,13 @@ import {
   logoutController,
   refreshController,
   registerFromGoogleOAuthController,
+  resendOtpController,
   sendOtpController,
   verifyOtpController,
 } from "./auth.controllers";
 import {
   logoutSchema,
+  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
   sendOtpSchema,
@@ -19,6 +21,11 @@ import {
 const authRouter: Router = Router();
 
 authRouter.post("/send_otp", validateRequest(sendOtpSchema), sendOtpController);
+authRouter.post(
+  "/resend_otp",
+  validateRequest(resendOtpSchema),
+  resendOtpController
+);
 authRouter.post(
   "/verify_otp",
   validateRequest(verifyOtpSchema),

@@ -331,6 +331,7 @@ Screens should:
 - delegate reusable UI into components
 - handle loading, empty, success, and error states
 - avoid embedding raw API details in the JSX layer
+- if a screen includes the bottom navigation bar, it must reuse the shared bottom-nav layout and spacing pattern so the bar position, height, opacity, and safe-area behavior stay identical across screens
 
 ### Architecture Pattern
 
@@ -680,7 +681,28 @@ Keep this file practical, short enough to be usable, and based on real repo need
 
 ---
 
-## 24) Screen Source And Tracking
+## 24) Branch Routing For Commit And Push
+
+When Codex is asked to commit and push changes, use this branch routing:
+
+- `frontend` branch for all changes under `frontend/`
+- `backend` branch for all changes under `backend/`
+- `global` branch for root-level `.md` documentation changes
+
+If a task touches multiple scopes, split the work into separate commits on the matching branches instead of mixing them into one branch.
+
+Push flow:
+
+1. switch to the target branch
+2. stage only the files that belong to that branch
+3. commit with a focused message
+4. push `origin <branch>`
+
+If the requested branch already exists remotely, update that branch instead of creating a new one.
+
+---
+
+## 25) Screen Source And Tracking
 
 For screen implementation work, the default design source of truth is:
 
@@ -695,7 +717,7 @@ Rules:
 
 ---
 
-## 25) Skills
+## 26) Skills
 
 A skill is a set of local instructions stored in a `SKILL.md` file.
 

@@ -58,7 +58,6 @@ const avatarColors = [
 export default function SetupProfileScreen({
   authEmail,
   authSource,
-  onboardingContext,
   initialName = "",
   onComplete,
   onBack,
@@ -80,8 +79,6 @@ export default function SetupProfileScreen({
   const avatarInitialSize = isCompact ? 24 : isWide ? 30 : 28;
   const colorSwatchSize = isCompact ? 30 : isWide ? 38 : 34;
   const titleBottomSpacing = isCompact ? 6 : 8;
-  const onboardingGoals = onboardingContext?.goals || [];
-  const onboardingFocus = onboardingContext?.supportFocusAreas || [];
 
   const initials = useMemo(() => {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -251,42 +248,6 @@ export default function SetupProfileScreen({
                 </Pressable>
               </Pressable>
             </View>
-
-            {onboardingGoals.length || onboardingFocus.length ? (
-              <View style={[styles.contextCard, { backgroundColor: theme.colors.accent }]}>
-                <Text style={[styles.contextTitle, { color: theme.colors.foreground }]}>
-                  From onboarding
-                </Text>
-                <Text style={[styles.contextSubtitle, { color: theme.colors.mutedForeground }]}>
-                  We'll keep these preferences in mind as you finish setup.
-                </Text>
-                <View style={styles.goalStrip}>
-                  {(onboardingGoals.length ? onboardingGoals : ["Personalized setup"]).map(
-                    goal => (
-                      <View
-                        key={goal}
-                        style={[
-                          styles.goalPill,
-                          {
-                            backgroundColor: theme.colors.card,
-                            borderColor: theme.colors.border,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.goalText, { color: theme.colors.mutedForeground }]}>
-                          {goal}
-                        </Text>
-                      </View>
-                    )
-                  )}
-                </View>
-                {onboardingFocus.length ? (
-                  <Text style={[styles.contextMeta, { color: theme.colors.mutedForeground }]}>
-                    Focus: {onboardingFocus.join(", ")}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
 
             <View style={styles.colorSection}>
               <Text style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}>
@@ -546,40 +507,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#1C221B",
     transform: [{ scale: 1.08 }],
-  },
-  contextCard: {
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 10,
-    marginBottom: 8,
-  },
-  contextTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  contextSubtitle: {
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  contextMeta: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  goalStrip: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  goalPill: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  goalText: {
-    fontSize: 12,
-    fontWeight: "600",
   },
   connectionCard: {
     borderRadius: 14,

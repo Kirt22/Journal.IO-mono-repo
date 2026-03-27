@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "../../infrastructure/reactNative";
-import { Loader2, Mail } from "lucide-react-native";
+import { Loader2, Mail, ArrowRight } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -16,17 +16,19 @@ import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
 import { Path, Svg } from "react-native-svg";
 
-type AuthLandingScreenProps = {
+type AuthChoiceScreenProps = {
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
+  onSkipToHome: () => void;
 };
 
-export default function EnterPhoneScreen({
+export default function AuthChoiceScreen({
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
-}: AuthLandingScreenProps) {
+  onSkipToHome,
+}: AuthChoiceScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [isEmailLoading, setIsEmailLoading] = useState(false);
@@ -132,6 +134,14 @@ export default function EnterPhoneScreen({
                 icon={<GoogleMark />}
               />
 
+              <PrimaryButton
+                label="Skip to Home"
+                onPress={onSkipToHome}
+                variant="ghost"
+                tone="default"
+                icon={<ArrowRight color={theme.colors.primary} size={16} />}
+              />
+
               {error ? (
                 <Text style={[styles.error, { color: theme.colors.destructive }]}>
                   {error}
@@ -218,20 +228,21 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   linkText: {
-    fontSize: 13,
+    fontSize: 14,
   },
-  infoCard: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  infoText: {
+  error: {
     fontSize: 12,
     lineHeight: 18,
     textAlign: "center",
   },
-  error: {
+  infoCard: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  infoText: {
     fontSize: 12,
+    lineHeight: 18,
     textAlign: "center",
   },
 });

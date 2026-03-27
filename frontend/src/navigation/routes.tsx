@@ -1,14 +1,15 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import EnterPhoneScreen from "../screens/auth/EnterPhoneScreen";
+import AuthChoiceScreen from "../screens/auth/AuthChoiceScreen";
 import SignInScreen from "../screens/auth/SignInScreen";
 import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
 import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
-import HomeScreen from "../screens/HomeScreen";
-import CalendarScreen from "../screens/calendar/CalendarScreen";
+import NewEntryScreen from "../screens/NewEntryScreen";
 import {
   OnboardingScreen,
   type OnboardingCompletionData,
 } from "../screens/onboarding/OnboardingScreen";
+import type { BottomNavKey } from "../components/BottomNav";
+import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
@@ -21,8 +22,8 @@ export type FlowStage =
   | "create-account"
   | "verify-email"
   | "profile"
-  | "calendar"
-  | "home"
+  | "main-app"
+  | "new-entry"
   | "complete";
 
 export type AuthEntrySource = "email" | "google";
@@ -36,10 +37,12 @@ type AppFlowRoutesProps = {
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
+  onboardingGoals: string[];
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
+  onSkipToHome: () => void;
   onGoToCreateAccount: () => void;
   onSignIn: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
@@ -53,8 +56,11 @@ type AppFlowRoutesProps = {
   onBackToVerifyEmail: () => void;
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
+  activeTab: BottomNavKey;
+  onTabChange: (nextTab: BottomNavKey) => void;
+  onOpenNewEntry: () => void;
+  onCloseNewEntry: () => void;
   onToggleTheme: (nextMode: ThemeMode) => void;
-  onNavigate: (nextStage: Extract<FlowStage, "home" | "calendar">) => void;
 };
 
 export function AppFlowRoutes({
@@ -66,10 +72,12 @@ export function AppFlowRoutes({
   authSource,
   session,
   initialProfileName,
+  onboardingGoals,
   onOnboardingContinue,
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
+  onSkipToHome,
   onGoToCreateAccount,
   onSignIn,
   onCreateAccount,
@@ -83,8 +91,11 @@ export function AppFlowRoutes({
   onBackToVerifyEmail,
   onSkipProfile,
   onRestart,
+  activeTab,
+  onTabChange,
+  onOpenNewEntry,
+  onCloseNewEntry,
   onToggleTheme,
-  onNavigate,
 }: AppFlowRoutesProps) {
   const selectedGoals = onboardingData?.goals || [];
 
@@ -98,10 +109,11 @@ export function AppFlowRoutes({
       );
     case "auth":
       return (
-        <EnterPhoneScreen
+        <AuthChoiceScreen
           onContinueWithEmail={onContinueWithEmail}
           onContinueWithGoogle={onContinueWithGoogle}
           onGoToSignIn={onGoToSignIn}
+          onSkipToHome={onSkipToHome}
         />
       );
     case "sign-in":
@@ -144,20 +156,23 @@ export function AppFlowRoutes({
           onSkip={onSkipProfile}
         />
       );
-    case "home":
+    case "main-app":
       return (
-        <HomeScreen
+        <MainAppShell
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          onOpenNewEntry={onOpenNewEntry}
           userName={session?.user.name || "Journal User"}
+          userEmail={session?.user.email}
+          userGoals={session?.user.journalingGoals}
+          onboardingGoals={onboardingGoals}
+          userAvatarColor={session?.user.avatarColor}
+          userProfilePic={session?.user.profilePic}
           onToggleTheme={onToggleTheme}
-          onNavigate={onNavigate}
         />
       );
-    case "calendar":
-      return (
-        <CalendarScreen
-          onNavigate={onNavigate}
-        />
-      );
+    case "new-entry":
+      return <NewEntryScreen onBack={onCloseNewEntry} />;
     case "complete":
       return (
         <CompletionScreen

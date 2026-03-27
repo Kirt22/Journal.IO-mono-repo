@@ -11,6 +11,7 @@ const allowedScreens = new Set([
   "verify-email",
   "profile",
   "home",
+  "calendar",
 ]);
 const allowedPlatforms = new Set(["ios", "android"]);
 
@@ -27,7 +28,13 @@ if (!allowedPlatforms.has(platform)) {
 const frontendRoot = fileURLToPath(new URL("..", import.meta.url));
 const configPath = fileURLToPath(new URL("../src/utils/devLaunchConfig.json", import.meta.url));
 const launchConfig = {
-  stage: screenName === "profile" ? "profile" : screenName,
+  stage:
+    screenName === "home" || screenName === "calendar"
+      ? "main-app"
+      : screenName === "profile"
+        ? "profile"
+        : screenName,
+  activeTab: screenName === "calendar" ? "calendar" : "home",
   email: screenName === "profile" ? "debug@example.com" : null,
 };
 

@@ -28,7 +28,7 @@ test("renders the calendar screen layout", async () => {
   await ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <CalendarScreen onNavigate={jest.fn()} />
+        <CalendarScreen />
       </SafeAreaProvider>
     );
   });

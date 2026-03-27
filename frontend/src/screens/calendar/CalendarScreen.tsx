@@ -1,7 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,17 +16,11 @@ import {
   Star,
   Tag,
 } from "lucide-react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useWindowDimensions } from "react-native";
-import BottomNav from "../../components/BottomNav";
+import { Animated, Easing, useWindowDimensions } from "react-native";
+import TabScreenLayout from "../../components/TabScreenLayout";
 import { useTheme } from "../../theme/provider";
 
-type BottomNavKey = "home" | "calendar" | "new" | "insights" | "profile";
 type ViewMode = "list" | "calendar";
-
-type CalendarScreenProps = {
-  onNavigate?: (key: BottomNavKey) => void;
-};
 
 type EntryTone = "warm" | "challenge" | "reflective" | "supportive";
 
@@ -210,6 +203,16 @@ function ModeToggle({
   onChange: (next: ViewMode) => void;
 }) {
   const theme = useTheme();
+  const translateX = useRef(new Animated.Value(value === "list" ? 0 : 35)).current;
+
+  useEffect(() => {
+    Animated.timing(translateX, {
+      toValue: value === "list" ? 0 : 35,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [translateX, value]);
 
   return (
     <View
@@ -221,6 +224,16 @@ function ModeToggle({
         },
       ]}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.toggleThumb,
+          {
+            backgroundColor: theme.colors.card,
+            transform: [{ translateX }],
+          },
+        ]}
+      />
       {[
         { key: "list" as const, icon: List, label: "List" },
         { key: "calendar" as const, icon: Grid3x3, label: "Calendar" },
@@ -234,14 +247,10 @@ function ModeToggle({
             accessibilityRole="button"
             accessibilityLabel={`Switch to ${item.label.toLowerCase()} view`}
             onPress={() => onChange(item.key)}
-            style={({ pressed }) => [
+            style={({ pressed }: { pressed: boolean }) => [
               styles.toggleButton,
               isActive && [
                 styles.toggleButtonActive,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                },
               ],
               pressed && styles.pressed,
             ]}
@@ -351,20 +360,21 @@ function EntryCard({
   );
 }
 
-export default function CalendarScreen({ onNavigate }: CalendarScreenProps) {
+export default function CalendarScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
   const [view, setView] = useState<ViewMode>("list");
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const viewTransition = useRef(new Animated.Value(1)).current;
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const layoutMaxWidth = isWide ? 460 : 420;
   const gridCellSize = isCompact ? 38 : isWide ? 48 : 44;
+  const gridGap = isCompact ? 6 : 8;
 
   const monthCells = useMemo(() => buildMonthCells(currentMonth), [currentMonth]);
   const monthEntries = useMemo(
@@ -391,197 +401,240 @@ export default function CalendarScreen({ onNavigate }: CalendarScreenProps) {
     setSelectedDate(null);
   };
 
+  useEffect(() => {
+    viewTransition.stopAnimation();
+    viewTransition.setValue(0);
+
+    Animated.timing(viewTransition, {
+      toValue: 1,
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [view, viewTransition]);
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
+    <TabScreenLayout
+      backgroundColor={theme.colors.background}
+      horizontalPadding={horizontalPadding}
+      layoutMaxWidth={layoutMaxWidth}
+      scrollContentStyle={styles.content}
+      shellStyle={styles.shell}
+    >
+      <View style={styles.header}>
+        <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
+          Calendar
+        </Text>
+        <ModeToggle value={view} onChange={setView} />
+      </View>
+
+      <View style={styles.statsRow}>
+        <StatCard value={totalCount} label="Total" />
+        <StatCard value={monthCount} label="This Month" />
+        <StatCard value={favoriteCount} label="Favorites" />
+      </View>
+
+      {view === "list" ? (
+        <Animated.View
+          key="list"
+          style={[
+            styles.viewTransition,
             {
-              paddingHorizontal: horizontalPadding,
-              paddingBottom: insets.bottom + 132,
+              opacity: viewTransition,
+              transform: [
+                {
+                  translateY: viewTransition.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [10, 0],
+                  }),
+                },
+              ],
             },
           ]}
-          showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
-            <View style={styles.header}>
-              <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
-                Calendar
+          <View style={styles.listStack}>
+            {sampleEntries.map(entry => (
+              <EntryCard key={entry.id} entry={entry} />
+            ))}
+          </View>
+        </Animated.View>
+      ) : (
+        <Animated.View
+          key="calendar"
+          style={[
+            styles.viewTransition,
+            {
+              opacity: viewTransition,
+              transform: [
+                {
+                  translateY: viewTransition.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [10, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+        <View style={styles.calendarStack}>
+          <View style={styles.monthHeader}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Previous month"
+              onPress={() => handleMonthShift(-1)}
+              style={({ pressed }: { pressed: boolean }) => [styles.monthNavButton, pressed && styles.pressed]}
+            >
+              <ChevronLeft size={20} color={theme.colors.foreground} />
+            </Pressable>
+
+            <Text style={[styles.monthLabel, { color: theme.colors.foreground }]}>
+              {formatMonthLabel(currentMonth)}
+            </Text>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Next month"
+              onPress={() => handleMonthShift(1)}
+              style={({ pressed }: { pressed: boolean }) => [styles.monthNavButton, pressed && styles.pressed]}
+            >
+              <ChevronRight size={20} color={theme.colors.foreground} />
+            </Pressable>
+          </View>
+
+          <View style={[styles.weekdayRow, { gap: gridGap }]}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+              <Text
+                key={`${day}-${index}`}
+                style={[
+                  styles.weekdayLabel,
+                  { color: theme.colors.mutedForeground, width: gridCellSize },
+                ]}
+              >
+                {day}
               </Text>
-              <ModeToggle value={view} onChange={setView} />
-            </View>
+            ))}
+          </View>
 
-            <View style={styles.statsRow}>
-              <StatCard value={totalCount} label="Total" />
-              <StatCard value={monthCount} label="This Month" />
-              <StatCard value={favoriteCount} label="Favorites" />
-            </View>
+          <View style={[styles.grid, { gap: gridGap }]}>
+            {monthCells.map((cell, index) => {
+              if (!cell) {
+                return (
+                  <View
+                    key={`empty-${index}`}
+                    style={[
+                      styles.dayCell,
+                      styles.gridPlaceholder,
+                      {
+                        width: gridCellSize,
+                        height: gridCellSize,
+                      },
+                    ]}
+                  />
+                );
+              }
 
-            {view === "list" ? (
-              <View style={styles.listStack}>
-                {sampleEntries.map(entry => (
-                  <EntryCard key={entry.id} entry={entry} />
-                ))}
-              </View>
-            ) : (
-              <View style={styles.calendarStack}>
-                <View style={styles.monthHeader}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Previous month"
-                    onPress={() => handleMonthShift(-1)}
-                    style={({ pressed }) => [styles.monthNavButton, pressed && styles.pressed]}
+              const isToday = isSameDay(cell, today);
+              const isSelected = selectedDate ? isSameDay(cell, selectedDate) : false;
+              const hasEntry = sampleEntries.some(entry => isSameDay(entry.date, cell));
+
+              return (
+                <Pressable
+                  key={cell.toISOString()}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${formatDateLabel(cell)}`}
+                  onPress={() =>
+                    setSelectedDate(previous =>
+                      previous && isSameDay(previous, cell) ? null : cell
+                    )
+                  }
+                  style={({ pressed }: { pressed: boolean }) => [
+                    styles.dayCell,
+                    {
+                      width: gridCellSize,
+                      height: gridCellSize,
+                      borderColor: isSelected ? theme.colors.primary : isToday ? theme.colors.primary : "transparent",
+                      backgroundColor: isSelected ? theme.colors.primary : "transparent",
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dayText,
+                      {
+                        color: isSelected
+                          ? theme.colors.primaryForeground
+                          : theme.colors.foreground,
+                      },
+                    ]}
                   >
-                    <ChevronLeft size={20} color={theme.colors.foreground} />
-                  </Pressable>
-
-                  <Text style={[styles.monthLabel, { color: theme.colors.foreground }]}>
-                    {formatMonthLabel(currentMonth)}
+                    {cell.getDate()}
                   </Text>
+                  {hasEntry ? (
+                    <View
+                      style={[
+                        styles.dayDot,
+                        {
+                          backgroundColor: isSelected
+                            ? theme.colors.primaryForeground
+                            : theme.colors.primary,
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
 
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Next month"
-                    onPress={() => handleMonthShift(1)}
-                    style={({ pressed }) => [styles.monthNavButton, pressed && styles.pressed]}
-                  >
-                    <ChevronRight size={20} color={theme.colors.foreground} />
-                  </Pressable>
-                </View>
+          {selectedDate ? (
+            <View style={styles.selectedSection}>
+              <Text style={[styles.selectedLabel, { color: theme.colors.foreground }]}>
+                {formatDateLabel(selectedDate)}
+              </Text>
 
-                <View style={styles.weekdayRow}>
-                  {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
-                    <Text
-                      key={`${day}-${index}`}
-                      style={[styles.weekdayLabel, { color: theme.colors.mutedForeground }]}
-                    >
-                      {day}
-                    </Text>
+              {selectedEntries.length > 0 ? (
+                <View style={styles.listStack}>
+                  {selectedEntries.map(entry => (
+                    <EntryCard key={entry.id} entry={entry} />
                   ))}
                 </View>
-
-                <View style={styles.grid}>
-                  {monthCells.map((cell, index) => {
-                    if (!cell) {
-                      return <View key={`empty-${index}`} style={{ width: gridCellSize }} />;
-                    }
-
-                    const isToday = isSameDay(cell, today);
-                    const isSelected = selectedDate ? isSameDay(cell, selectedDate) : false;
-                    const hasEntry = sampleEntries.some(entry => isSameDay(entry.date, cell));
-
-                    return (
-                      <Pressable
-                        key={cell.toISOString()}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Select ${formatDateLabel(cell)}`}
-                        onPress={() =>
-                          setSelectedDate(previous =>
-                            previous && isSameDay(previous, cell) ? null : cell
-                          )
-                        }
-                        style={({ pressed }) => [
-                          styles.dayCell,
-                          {
-                            width: gridCellSize,
-                            height: gridCellSize,
-                            borderColor: isSelected ? theme.colors.primary : isToday ? theme.colors.primary : "transparent",
-                            backgroundColor: isSelected ? theme.colors.primary : "transparent",
-                          },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dayText,
-                            {
-                              color: isSelected
-                                ? theme.colors.primaryForeground
-                                : theme.colors.foreground,
-                            },
-                          ]}
-                        >
-                          {cell.getDate()}
-                        </Text>
-                        {hasEntry ? (
-                          <View
-                            style={[
-                              styles.dayDot,
-                              {
-                                backgroundColor: isSelected
-                                  ? theme.colors.primaryForeground
-                                  : theme.colors.primary,
-                              },
-                            ]}
-                          />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
+              ) : (
+                <View
+                  style={[
+                    styles.emptyCalendarState,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.emptyCalendarTitle, { color: theme.colors.foreground }]}
+                  >
+                    No entries for this date
+                  </Text>
+                  <Text
+                    style={[styles.emptyCalendarText, { color: theme.colors.mutedForeground }]}
+                  >
+                    This is a calm placeholder until entry creation is connected.
+                  </Text>
                 </View>
-
-                {selectedDate ? (
-                  <View style={styles.selectedSection}>
-                    <Text style={[styles.selectedLabel, { color: theme.colors.foreground }]}>
-                      {formatDateLabel(selectedDate)}
-                    </Text>
-
-                    {selectedEntries.length > 0 ? (
-                      <View style={styles.listStack}>
-                        {selectedEntries.map(entry => (
-                          <EntryCard key={entry.id} entry={entry} />
-                        ))}
-                      </View>
-                    ) : (
-                      <View
-                        style={[
-                          styles.emptyCalendarState,
-                          {
-                            backgroundColor: theme.colors.card,
-                            borderColor: theme.colors.border,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[styles.emptyCalendarTitle, { color: theme.colors.foreground }]}
-                        >
-                          No entries for this date
-                        </Text>
-                        <Text
-                          style={[styles.emptyCalendarText, { color: theme.colors.mutedForeground }]}
-                        >
-                          This is a calm placeholder until entry creation is connected.
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </View>
-        </ScrollView>
-
-        <BottomNav activeKey="calendar" onPress={onNavigate} />
-      </View>
-    </SafeAreaView>
+              )}
+            </View>
+          ) : null}
+        </View>
+        </Animated.View>
+      )}
+    </TabScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
   content: {
     paddingTop: 14,
-    flexGrow: 1,
   },
   shell: {
-    width: "100%",
-    alignSelf: "center",
     gap: 18,
   },
   header: {
@@ -596,12 +649,29 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
   toggleShell: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     borderRadius: 999,
     padding: 3,
     gap: 3,
+    overflow: "hidden",
+  },
+  toggleThumb: {
+    position: "absolute",
+    left: 3,
+    top: 3,
+    bottom: 3,
+    width: 32,
+    borderRadius: 999,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    elevation: 1,
   },
   toggleButton: {
     width: 32,
@@ -611,15 +681,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   toggleButtonActive: {
-    borderWidth: 1,
-    shadowColor: "#000000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    elevation: 1,
   },
   statsRow: {
     flexDirection: "row",
@@ -652,6 +713,9 @@ const styles = StyleSheet.create({
   },
   listStack: {
     gap: 12,
+  },
+  viewTransition: {
+    width: "100%",
   },
   entryCard: {
     borderWidth: 1,
@@ -738,11 +802,12 @@ const styles = StyleSheet.create({
   },
   weekdayRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
+    justifyContent: "flex-start",
+    gap: 8,
+    paddingHorizontal: 0,
   },
   weekdayLabel: {
-    width: 32,
+    width: 44,
     textAlign: "center",
     fontSize: 12,
     lineHeight: 16,
@@ -750,8 +815,8 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    rowGap: 10,
-    justifyContent: "space-between",
+    gap: 8,
+    justifyContent: "flex-start",
   },
   dayCell: {
     borderWidth: 1,
@@ -794,6 +859,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
     maxWidth: 260,
+  },
+  gridPlaceholder: {
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   pressed: {
     opacity: 0.85,

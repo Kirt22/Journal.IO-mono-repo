@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
   useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import {
   Bell,
@@ -33,14 +34,13 @@ import {
   SmilePlus,
   RotateCcw,
 } from "lucide-react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import BottomNav from "../components/BottomNav";
+import TabScreenLayout from "../components/TabScreenLayout";
 import { useTheme } from "../theme/provider";
 
 type HomeScreenProps = {
   userName?: string;
+  onOpenNewEntry: () => void;
   onToggleTheme: (nextMode: "light" | "dark") => void;
-  onNavigate?: (key: "home" | "calendar" | "new" | "insights" | "profile") => void;
 };
 
 type MoodType = "amazing" | "good" | "okay" | "bad" | "terrible";
@@ -167,6 +167,8 @@ function HeaderIconButton({
 function ActionTile({
   icon,
   label,
+  onPress,
+  accessibilityLabel,
   iconColor,
   labelColor,
   borderColor,
@@ -174,6 +176,8 @@ function ActionTile({
 }: {
   icon: typeof Plus;
   label: string;
+  onPress: () => void;
+  accessibilityLabel: string;
   iconColor: string;
   labelColor: string;
   borderColor: string;
@@ -184,7 +188,8 @@ function ActionTile({
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={() => {}}
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.actionTile,
         {
@@ -205,11 +210,15 @@ function EmptyState({
   title,
   description,
   actionLabel,
+  onActionPress,
+  actionAccessibilityLabel,
 }: {
   theme: ReturnType<typeof useTheme>;
   title: string;
   description: string;
   actionLabel?: string;
+  onActionPress?: () => void;
+  actionAccessibilityLabel?: string;
 }) {
   return (
     <View style={styles.emptyState}>
@@ -237,7 +246,8 @@ function EmptyState({
       {actionLabel ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() => {}}
+          accessibilityLabel={actionAccessibilityLabel}
+          onPress={onActionPress}
           style={({ pressed }) => [
             styles.emptyStateAction,
             {
@@ -260,13 +270,22 @@ function EmptyState({
   );
 }
 
+function RevealBlock({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return <View style={style}>{children}</View>;
+}
+
 export default function HomeScreen({
   userName,
+  onOpenNewEntry,
   onToggleTheme,
-  onNavigate,
 }: HomeScreenProps) {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const noteInputRef = useRef<TextInput>(null);
   const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
@@ -323,7 +342,7 @@ export default function HomeScreen({
   const handleSelectMood = async (mood: MoodType) => {
     setSelectedMood(mood);
 
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise<void>(resolve => setTimeout(resolve, 300));
 
     setSavedMood(mood);
     setSelectedMood(null);
@@ -396,118 +415,107 @@ export default function HomeScreen({
     : theme.colors.border;
 
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    <TabScreenLayout
+      backgroundColor={theme.colors.background}
+      horizontalPadding={horizontalPadding}
+      layoutMaxWidth={layoutMaxWidth}
+      shellStyle={styles.content}
     >
-      <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingHorizontal: horizontalPadding,
-            paddingBottom: insets.bottom + 132,
-            backgroundColor: theme.colors.background,
-          },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[styles.content, { maxWidth: layoutMaxWidth }]}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text
-                style={[
-                  styles.greeting,
-                  { color: theme.colors.mutedForeground },
-                ]}
-              >
-                {greeting}
-              </Text>
-              <Text
-                style={[
-                  styles.title,
-                  { color: theme.colors.foreground, fontSize: titleSize },
-                ]}
-              >
-                {firstName} <Text style={styles.wave}>👋</Text>
-              </Text>
-              <Text
-                style={[
-                  styles.date,
-                  { color: theme.colors.mutedForeground },
-                ]}
-              >
-                {todayDate}
-              </Text>
-            </View>
-
-            <View style={styles.headerActions}>
-              <HeaderIconButton
-                icon={theme.mode === "dark" ? Sun : Moon}
-                onPress={() => onToggleTheme(theme.mode === "dark" ? "light" : "dark")}
-                label="Toggle theme"
-                borderColor={theme.colors.border}
-                backgroundColor={theme.colors.card}
-                iconColor={theme.colors.foreground}
-              />
-              <HeaderIconButton
-                icon={Search}
-                onPress={() => {}}
-                label="Search"
-                borderColor={theme.colors.border}
-                backgroundColor={theme.colors.card}
-                iconColor={theme.colors.foreground}
-              />
-              <HeaderIconButton
-                icon={Bell}
-                onPress={() => {}}
-                label="Reminders"
-                borderColor={theme.colors.border}
-                backgroundColor={theme.colors.card}
-                iconColor={theme.colors.foreground}
-              />
-            </View>
-          </View>
-
-          <View
+      <RevealBlock style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text
             style={[
-              styles.streakCard,
-              {
-                borderColor: theme.colors.primary,
-                backgroundColor: hexToRgba(theme.colors.primary, 0.08),
-              },
+              styles.greeting,
+              { color: theme.colors.mutedForeground },
             ]}
           >
-            <View style={styles.streakCopy}>
-              <Text
-                style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}
-              >
-                Current Streak
-              </Text>
-              <View style={styles.streakValueRow}>
-                <Text
-                  style={[styles.streakValue, { color: theme.colors.foreground }]}
-                >
-                  0
-                </Text>
-                <Text
-                  style={[
-                    styles.streakSuffix,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  days
-                </Text>
-              </View>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {}}
-              style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
+            {greeting}
+          </Text>
+          <Text
+            style={[
+              styles.title,
+              { color: theme.colors.foreground, fontSize: titleSize },
+            ]}
+          >
+            {firstName} <Text style={styles.wave}>👋</Text>
+          </Text>
+          <Text
+            style={[
+              styles.date,
+              { color: theme.colors.mutedForeground },
+            ]}
+          >
+            {todayDate}
+          </Text>
+        </View>
+
+        <View style={styles.headerActions}>
+          <HeaderIconButton
+            icon={theme.mode === "dark" ? Sun : Moon}
+            onPress={() => onToggleTheme(theme.mode === "dark" ? "light" : "dark")}
+            label="Toggle theme"
+            borderColor={theme.colors.border}
+            backgroundColor={theme.colors.card}
+            iconColor={theme.colors.foreground}
+          />
+          <HeaderIconButton
+            icon={Search}
+            onPress={() => {}}
+            label="Search"
+            borderColor={theme.colors.border}
+            backgroundColor={theme.colors.card}
+            iconColor={theme.colors.foreground}
+          />
+          <HeaderIconButton
+            icon={Bell}
+            onPress={() => {}}
+            label="Reminders"
+            borderColor={theme.colors.border}
+            backgroundColor={theme.colors.card}
+            iconColor={theme.colors.foreground}
+          />
+        </View>
+      </RevealBlock>
+
+      <RevealBlock style={[
+          styles.streakCard,
+          {
+            borderColor: theme.colors.primary,
+            backgroundColor: hexToRgba(theme.colors.primary, 0.08),
+          },
+        ]}>
+        <View style={styles.streakCopy}>
+          <Text
+            style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}
+          >
+            Current Streak
+          </Text>
+          <View style={styles.streakValueRow}>
+            <Text
+              style={[styles.streakValue, { color: theme.colors.foreground }]}
             >
-              <Text style={[styles.ghostButtonText, { color: theme.colors.foreground }]}>
-                View Details
-              </Text>
-            </Pressable>
+              0
+            </Text>
+            <Text
+              style={[
+                styles.streakSuffix,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              days
+            </Text>
           </View>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {}}
+          style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
+        >
+          <Text style={[styles.ghostButtonText, { color: theme.colors.foreground }]}>
+            View Details
+          </Text>
+        </Pressable>
+      </RevealBlock>
 
           <View style={styles.sectionSpacing}>
             <View
@@ -1012,6 +1020,8 @@ export default function HomeScreen({
               <ActionTile
                 icon={Plus}
                 label="New Entry"
+                accessibilityLabel="Create new entry"
+                onPress={onOpenNewEntry}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -1020,6 +1030,8 @@ export default function HomeScreen({
               <ActionTile
                 icon={CalendarDays}
                 label="Calendar"
+                accessibilityLabel="Open calendar"
+                onPress={() => {}}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -1028,6 +1040,8 @@ export default function HomeScreen({
               <ActionTile
                 icon={Sparkles}
                 label="Prompts"
+                accessibilityLabel="Open prompts"
+                onPress={() => {}}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -1036,46 +1050,36 @@ export default function HomeScreen({
             </View>
           </View>
 
-          <View style={styles.sectionSpacingBottom}>
-            <View style={styles.recentHeader}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  {
-                    color: theme.colors.foreground,
-                    fontSize: sectionTitleSize,
-                  },
-                ]}
-              >
-                Recent Entries
-              </Text>
-            </View>
-
-            <EmptyState
-              theme={theme}
-              title="No entries yet"
-              description="Start your journaling journey by creating your first entry"
-              actionLabel="Create Entry"
-            />
-          </View>
+      <View style={styles.sectionSpacingBottom}>
+        <View style={styles.recentHeader}>
+          <Text
+            style={[
+              styles.sectionTitle,
+              {
+                color: theme.colors.foreground,
+                fontSize: sectionTitleSize,
+              },
+            ]}
+          >
+            Recent Entries
+          </Text>
         </View>
-      </ScrollView>
 
-      <BottomNav activeKey="home" onPress={onNavigate} />
-    </SafeAreaView>
+        <EmptyState
+          theme={theme}
+          title="No entries yet"
+          description="Start your journaling journey by creating your first entry"
+          actionLabel="Create Entry"
+          actionAccessibilityLabel="Create a new entry"
+          onActionPress={onOpenNewEntry}
+        />
+          </View>
+    </TabScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: "center",
-  },
   content: {
-    width: "100%",
     paddingTop: 12,
     paddingBottom: 28,
   },

@@ -24,11 +24,16 @@ const safeAreaMetrics = {
 
 test("renders the home screen layout", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  const onOpenNewEntry = jest.fn();
 
   await ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <HomeScreen userName="Journal User" onToggleTheme={jest.fn()} />
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={onOpenNewEntry}
+          onToggleTheme={jest.fn()}
+        />
       </SafeAreaProvider>
     );
   });
@@ -41,9 +46,14 @@ test("renders the home screen layout", async () => {
   expect(tree).toContain("Today's Prompt");
   expect(tree).toContain("Recent Entries");
   expect(tree).toContain("No entries yet");
-  expect(tree).toContain("Home");
-  expect(tree).toContain("Calendar");
-  expect(tree).toContain("New");
-  expect(tree).toContain("Insights");
-  expect(tree).toContain("Profile");
+
+  const newEntryButton = root!.root.findAllByProps({
+    accessibilityLabel: "Create new entry",
+  })[0];
+
+  ReactTestRenderer.act(() => {
+    newEntryButton.props.onPress();
+  });
+
+  expect(onOpenNewEntry).toHaveBeenCalled();
 });

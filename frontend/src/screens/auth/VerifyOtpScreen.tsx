@@ -165,7 +165,7 @@ export default function VerifyOtpScreen({
       await onVerifyOtp(code);
       setIsVerified(true);
       setError(null);
-      await new Promise(resolve => {
+      await new Promise<void>(resolve => {
         setTimeout(resolve, SUCCESS_ICON_ANIMATION_MS);
       });
       onVerificationSuccess();
@@ -264,12 +264,16 @@ export default function VerifyOtpScreen({
               {otp.map((digit, index) => (
                 <TextInput
                   key={index}
-                  ref={el => {
+                  ref={(el: any) => {
                     inputRefs.current[index] = el;
                   }}
                   value={digit}
-                  onChangeText={text => updateOtp(index, text)}
-                  onKeyPress={({ nativeEvent }) =>
+                  onChangeText={(text: string) => updateOtp(index, text)}
+                  onKeyPress={({
+                    nativeEvent,
+                  }: {
+                    nativeEvent: { key: string };
+                  }) =>
                     handleKeyDown(index, nativeEvent.key)
                   }
                   keyboardType="number-pad"

@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, StatusBar, StyleSheet } from "react-native";
+import { useState, type ComponentProps } from "react";
+import { StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   AppFlowRoutes,
   type AuthEntrySource,
   type FlowStage,
 } from "./navigation/routes";
+import ScreenTransitionHost from "./components/ScreenTransition";
+import type { BottomNavKey } from "./components/BottomNav";
 import {
   resendEmailVerification,
   signInWithEmail,
@@ -23,8 +25,6 @@ import type { ThemeMode } from "./theme/theme";
 import { saveTokens } from "./utils/tokenStorage";
 import devLaunchConfig from "./utils/devLaunchConfig.json";
 
-const SCREEN_TRANSITION_OUT_MS = 130;
-const SCREEN_TRANSITION_IN_MS = 240;
 const FALLBACK_EMAIL_VERIFICATION_CODE = "123456";
 
 function buildOnboardingContext(
@@ -47,10 +47,35 @@ function buildOnboardingContext(
 
 function AppContent() {
   const theme = useTheme();
+  const launchStage = __DEV__ ? devLaunchConfig.stage : undefined;
+  const isFlowStage = (value: string): value is FlowStage =>
+    value === "onboarding" ||
+    value === "auth" ||
+    value === "sign-in" ||
+    value === "create-account" ||
+    value === "verify-email" ||
+    value === "profile" ||
+    value === "main-app" ||
+    value === "new-entry" ||
+    value === "complete";
   const initialStage: FlowStage =
-    __DEV__ && devLaunchConfig.stage ? devLaunchConfig.stage : "onboarding";
+    launchStage === "home" ||
+    launchStage === "calendar" ||
+    launchStage === "insights"
+      ? "main-app"
+      : launchStage && isFlowStage(launchStage)
+        ? launchStage
+        : "onboarding";
+  const initialTab: BottomNavKey =
+    __DEV__ &&
+    (launchStage === "calendar" || devLaunchConfig.activeTab === "calendar")
+      ? "calendar"
+      : launchStage === "insights" ||
+          devLaunchConfig.activeTab === "insights"
+        ? "insights"
+        : "home";
   const [stage, setStage] = useState<FlowStage>(initialStage);
-  const [displayStage, setDisplayStage] = useState<FlowStage>(initialStage);
+  const [activeTab, setActiveTab] = useState<BottomNavKey>(initialTab);
   const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingCompletionData | null>(null);
   const [pendingEmail, setPendingEmail] = useState(
@@ -63,9 +88,6 @@ function AppContent() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [initialProfileName, setInitialProfileName] = useState("");
   const [themeModeOverride, setThemeModeOverride] = useState<ThemeMode | null>(null);
-  const transitionOpacity = useRef(new Animated.Value(1)).current;
-  const transitionTranslateY = useRef(new Animated.Value(0)).current;
-
   const selectedGoals = onboardingData?.goals || [];
 
   const enterHomeWithProfile = (updatedProfile: AuthUser) => {
@@ -77,7 +99,8 @@ function AppContent() {
     }
 
     setInitialProfileName(updatedProfile.name);
-    setStage("home");
+    setActiveTab("home");
+    setStage("main-app");
   };
 
   const buildLocalProfile = (name: string, avatarColor: string): AuthUser => ({
@@ -90,50 +113,6 @@ function AppContent() {
     profileSetupCompleted: true,
     profilePic: session?.user.profilePic || null,
   });
-
-  useEffect(() => {
-    if (stage === displayStage) {
-      return;
-    }
-
-    Animated.parallel([
-      Animated.timing(transitionOpacity, {
-        toValue: 0,
-        duration: SCREEN_TRANSITION_OUT_MS,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.timing(transitionTranslateY, {
-        toValue: -6,
-        duration: SCREEN_TRANSITION_OUT_MS,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (!finished) {
-        return;
-      }
-
-      setDisplayStage(stage);
-      transitionOpacity.setValue(0);
-      transitionTranslateY.setValue(12);
-
-      Animated.parallel([
-        Animated.timing(transitionOpacity, {
-          toValue: 1,
-          duration: SCREEN_TRANSITION_IN_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(transitionTranslateY, {
-          toValue: 0,
-          duration: SCREEN_TRANSITION_IN_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    });
-  }, [displayStage, stage, transitionOpacity, transitionTranslateY]);
 
   const handleOnboardingContinue = (data: OnboardingCompletionData) => {
     setIsCompletingOnboarding(true);
@@ -176,6 +155,11 @@ function AppContent() {
 
   const handleGoToCreateAccount = () => {
     setStage("create-account");
+  };
+
+  const handleSkipToHome = () => {
+    setActiveTab("home");
+    setStage("main-app");
   };
 
   const handleCreateAccount = async (payload: { email: string; password: string }) => {
@@ -263,7 +247,8 @@ function AppContent() {
     setAuthSource("email");
 
     if (response.user.profileSetupCompleted) {
-      setStage("home");
+      setActiveTab("home");
+      setStage("main-app");
       return;
     }
 
@@ -317,6 +302,7 @@ function AppContent() {
 
   const handleRestart = () => {
     setStage("onboarding");
+    setActiveTab("home");
     setPendingEmail("");
     setPendingVerificationCode(FALLBACK_EMAIL_VERIFICATION_CODE);
     setAuthSource(null);
@@ -326,69 +312,93 @@ function AppContent() {
     setThemeModeOverride(null);
   };
 
-  const handleNavigate = (nextStage: Extract<FlowStage, "home" | "calendar">) => {
-    setStage(nextStage);
+  const handleTabChange = (nextTab: BottomNavKey) => {
+    setActiveTab(nextTab);
   };
+
+  const handleOpenNewEntry = () => {
+    setStage("new-entry");
+  };
+
+  const handleCloseNewEntry = () => {
+    setStage("main-app");
+  };
+
+  const routeProps = {
+    isCompletingOnboarding,
+    onboardingData,
+    pendingEmail,
+    pendingVerificationCode,
+    authSource,
+    session,
+    initialProfileName,
+    onboardingGoals: selectedGoals,
+    onOnboardingContinue: handleOnboardingContinue,
+    onContinueWithEmail: handleContinueWithEmail,
+    onContinueWithGoogle: handleContinueWithGoogle,
+    onGoToSignIn: handleGoToSignIn,
+    onSkipToHome: handleSkipToHome,
+    onGoToCreateAccount: handleGoToCreateAccount,
+    onSignIn: handleSignIn,
+    onCreateAccount: handleCreateAccount,
+    onCreateAccountSuccess: handleCreateAccountSuccess,
+    onVerifyEmail: handleVerifyEmail,
+    onVerificationSuccess: handleVerificationSuccess,
+    onResendCode: handleResendCode,
+    onBackToAuth: () => setStage("auth"),
+    onBackToCreateAccount: () => setStage("create-account"),
+    onProfileComplete: handleProfileComplete,
+    onBackToVerifyEmail: () =>
+      setStage(authSource === "google" ? "auth" : "verify-email"),
+    onSkipProfile: handleSkipProfile,
+    onRestart: handleRestart,
+    activeTab,
+    onTabChange: handleTabChange,
+    onOpenNewEntry: handleOpenNewEntry,
+    onCloseNewEntry: handleCloseNewEntry,
+    onToggleTheme: (nextMode: ThemeMode) => {
+      setThemeModeOverride(nextMode);
+    },
+  } satisfies Omit<ComponentProps<typeof AppFlowRoutes>, "stage">;
 
   return (
     <ThemeProvider modeOverride={themeModeOverride}>
-      <SafeAreaProvider>
-        <StatusBar
-          barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
-          backgroundColor={theme.colors.background}
-        />
-
-        <Animated.View
-          style={[
-            appStyles.stageContainer,
-            {
-              opacity: transitionOpacity,
-              transform: [{ translateY: transitionTranslateY }],
-            },
-          ]}
-        >
-        <AppFlowRoutes
-          stage={displayStage}
-          isCompletingOnboarding={isCompletingOnboarding}
-          onboardingData={onboardingData}
-          pendingEmail={pendingEmail}
-          pendingVerificationCode={pendingVerificationCode}
-          authSource={authSource}
-          session={session}
-          initialProfileName={initialProfileName}
-          onOnboardingContinue={handleOnboardingContinue}
-          onContinueWithEmail={handleContinueWithEmail}
-          onContinueWithGoogle={handleContinueWithGoogle}
-          onGoToSignIn={handleGoToSignIn}
-          onGoToCreateAccount={handleGoToCreateAccount}
-          onSignIn={handleSignIn}
-          onCreateAccount={handleCreateAccount}
-          onCreateAccountSuccess={handleCreateAccountSuccess}
-          onVerifyEmail={handleVerifyEmail}
-            onVerificationSuccess={handleVerificationSuccess}
-            onResendCode={handleResendCode}
-            onBackToAuth={() => setStage("auth")}
-            onBackToCreateAccount={() => setStage("create-account")}
-            onProfileComplete={handleProfileComplete}
-            onBackToVerifyEmail={() =>
-              setStage(authSource === "google" ? "auth" : "verify-email")
-            }
-          onSkipProfile={handleSkipProfile}
-          onRestart={handleRestart}
-          onNavigate={handleNavigate}
-          onToggleTheme={nextMode => {
-            setThemeModeOverride(nextMode);
-          }}
+      <View style={[appStyles.appRoot, { backgroundColor: theme.colors.background }]}>
+        <SafeAreaProvider>
+          <StatusBar
+            barStyle={theme.mode === "dark" ? "light-content" : "dark-content"}
+            backgroundColor={theme.colors.background}
           />
-        </Animated.View>
-      </SafeAreaProvider>
+
+          <View
+            style={[
+              appStyles.stageContainer,
+              { backgroundColor: theme.colors.background },
+            ]}
+          >
+            <ScreenTransitionHost
+              activeKey={stage}
+              renderContent={currentStage => (
+                <AppFlowRoutes
+                  stage={currentStage}
+                  {...routeProps}
+                />
+              )}
+            />
+          </View>
+        </SafeAreaProvider>
+      </View>
     </ThemeProvider>
   );
 }
 
 const appStyles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+  },
   stageContainer: {
     flex: 1,
+    overflow: "hidden",
   },
 });
 

@@ -7,9 +7,7 @@ import {
   TrendingUp,
   User,
 } from "lucide-react-native";
-import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Svg, Defs, LinearGradient, Stop, Rect } from "react-native-svg";
 import { useTheme } from "../theme/provider";
 
 type BottomNavItem = {
@@ -19,9 +17,11 @@ type BottomNavItem = {
   primary?: boolean;
 };
 
+export type BottomNavKey = BottomNavItem["key"];
+
 type BottomNavProps = {
-  activeKey?: BottomNavItem["key"];
-  onPress?: (key: BottomNavItem["key"]) => void;
+  activeKey?: BottomNavKey;
+  onPress?: (key: BottomNavKey) => void;
 };
 
 const navItems: BottomNavItem[] = [
@@ -32,19 +32,20 @@ const navItems: BottomNavItem[] = [
   { icon: User, label: "Profile", key: "profile" },
 ];
 
+export const BOTTOM_NAV_CONTENT_PADDING = 132;
+const NAV_INNER_PADDING_BOTTOM = 0;
+
 export default function BottomNav({
   activeKey = "home",
   onPress,
 }: BottomNavProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const lastLoggedKeyRef = useRef<BottomNavItem["key"] | null>(null);
-  const shellPaddingBottom = Platform.OS === "ios" ? insets.bottom + 2 : 8;
-  const shellHeight = Platform.OS === "ios" ? insets.bottom + 86 : 86;
+  const lastLoggedKeyRef = useRef<BottomNavKey | null>(null);
 
   const barStyle = useMemo(
     () => ({
-      backgroundColor: `${theme.colors.card}F2`,
+      backgroundColor: theme.colors.card,
       borderTopColor: theme.colors.border,
     }),
     [theme.colors.border, theme.colors.card]
@@ -74,7 +75,7 @@ export default function BottomNav({
     console.log("[BottomNav] container size", { width, height });
   };
 
-  const handlePress = (key: BottomNavItem["key"]) => {
+  const handlePress = (key: BottomNavKey) => {
     if (__DEV__) {
       console.log("[BottomNav] navigate", { from: activeKey, to: key });
     }
@@ -84,11 +85,12 @@ export default function BottomNav({
 
   return (
     <View
-      style={[styles.wrapper, { height: shellHeight }]}
+      style={styles.wrapper}
+      pointerEvents="box-none"
       onLayout={handleLayout}
     >
-      <View style={styles.controlsShell}>
-        <Svg width="100%" height={24} style={styles.fade}>
+      <View style={styles.controlsShell} pointerEvents="box-none">
+        {/* <Svg width="100%" height={24} style={styles.fade}>
           <Defs>
             <LinearGradient id="nav-fade" x1="0" y1="0" x2="0" y2="1">
               <Stop
@@ -104,10 +106,15 @@ export default function BottomNav({
             </LinearGradient>
           </Defs>
           <Rect x="0" y="0" width="100%" height="24" fill="url(#nav-fade)" />
-        </Svg>
+        </Svg> */}
 
         <View style={[styles.bar, barStyle]}>
-          <View style={[styles.inner, { paddingBottom: shellPaddingBottom }]}>
+          <View
+            style={[
+              styles.inner,
+              { paddingBottom: insets.bottom + NAV_INNER_PADDING_BOTTOM },
+            ]}
+          >
             {navItems.map(item => {
               const Icon = item.icon;
               const isActive = item.key === activeKey;
@@ -195,6 +202,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    alignItems: "center",
   },
   fade: {
     width: "100%",
@@ -202,6 +210,9 @@ const styles = StyleSheet.create({
   },
   bar: {
     borderTopWidth: 1,
+    width: "100%",
+    maxWidth: 430,
+    alignSelf: "center",
   },
   inner: {
     flexDirection: "row",
@@ -217,14 +228,15 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingVertical: 6,
     borderRadius: 14,
+    overflow: "hidden",
   },
   activePill: {
     position: "absolute",
-    top: 4,
-    right: 8,
-    bottom: 4,
-    left: 8,
-    borderRadius: 12,
+    top: 2,
+    right: 12,
+    bottom: 2,
+    left: 12,
+    borderRadius: 10,
   },
   tabIcon: {
     position: "relative",
@@ -255,7 +267,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   pressed: {
-    opacity: 0.88,
+    // opacity: 0.88,
     transform: [{ scale: 0.98 }],
   },
 });

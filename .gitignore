@@ -83,11 +83,13 @@ frontend/ios/*.xcuserstate
 ############################################
 
 frontend/android/build/
+frontend/android/app/build/
 frontend/android/.gradle/
 frontend/android/local.properties
 frontend/android/*.iml
 frontend/android/*.hprof
 frontend/android/.cxx/
+frontend/android/app/.cxx/
 frontend/android/*.keystore
 !frontend/android/debug.keystore
 frontend/android/.kotlin/

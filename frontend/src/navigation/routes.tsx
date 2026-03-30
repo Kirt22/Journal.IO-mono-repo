@@ -4,29 +4,18 @@ import SignInScreen from "../screens/auth/SignInScreen";
 import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
 import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
 import NewEntryScreen from "../screens/NewEntryScreen";
+import EntryDetailScreen from "../screens/journal/EntryDetailScreen";
+import EditEntryScreen from "../screens/journal/EditEntryScreen";
 import {
   OnboardingScreen,
   type OnboardingCompletionData,
 } from "../screens/onboarding/OnboardingScreen";
-import type { BottomNavKey } from "../components/BottomNav";
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
+import type { AuthEntrySource, FlowStage } from "./appFlow";
 import type { AuthSession } from "../services/authService";
-
-export type FlowStage =
-  | "onboarding"
-  | "auth"
-  | "sign-in"
-  | "create-account"
-  | "verify-email"
-  | "profile"
-  | "main-app"
-  | "new-entry"
-  | "complete";
-
-export type AuthEntrySource = "email" | "google";
 
 type AppFlowRoutesProps = {
   stage: FlowStage;
@@ -37,7 +26,6 @@ type AppFlowRoutesProps = {
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
-  onboardingGoals: string[];
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
@@ -56,9 +44,6 @@ type AppFlowRoutesProps = {
   onBackToVerifyEmail: () => void;
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
-  activeTab: BottomNavKey;
-  onTabChange: (nextTab: BottomNavKey) => void;
-  onOpenNewEntry: () => void;
   onCloseNewEntry: () => void;
   onToggleTheme: (nextMode: ThemeMode) => void;
 };
@@ -72,7 +57,6 @@ export function AppFlowRoutes({
   authSource,
   session,
   initialProfileName,
-  onboardingGoals,
   onOnboardingContinue,
   onContinueWithEmail,
   onContinueWithGoogle,
@@ -91,9 +75,6 @@ export function AppFlowRoutes({
   onBackToVerifyEmail,
   onSkipProfile,
   onRestart,
-  activeTab,
-  onTabChange,
-  onOpenNewEntry,
   onCloseNewEntry,
   onToggleTheme,
 }: AppFlowRoutesProps) {
@@ -157,22 +138,13 @@ export function AppFlowRoutes({
         />
       );
     case "main-app":
-      return (
-        <MainAppShell
-          activeTab={activeTab}
-          onTabChange={onTabChange}
-          onOpenNewEntry={onOpenNewEntry}
-          userName={session?.user.name || "Journal User"}
-          userEmail={session?.user.email}
-          userGoals={session?.user.journalingGoals}
-          onboardingGoals={onboardingGoals}
-          userAvatarColor={session?.user.avatarColor}
-          userProfilePic={session?.user.profilePic}
-          onToggleTheme={onToggleTheme}
-        />
-      );
+      return <MainAppShell onToggleTheme={onToggleTheme} />;
     case "new-entry":
       return <NewEntryScreen onBack={onCloseNewEntry} />;
+    case "journal-detail":
+      return <EntryDetailScreen />;
+    case "journal-edit":
+      return <EditEntryScreen />;
     case "complete":
       return (
         <CompletionScreen

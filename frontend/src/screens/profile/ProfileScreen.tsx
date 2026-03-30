@@ -30,6 +30,7 @@ type ProfileScreenProps = {
   onboardingGoals?: string[];
   userAvatarColor?: string | null;
   userProfilePic?: string | null;
+  onOpenStreaks?: () => void;
 };
 
 type MenuItem = {
@@ -292,6 +293,7 @@ export default function ProfileScreen({
   onboardingGoals = [],
   userAvatarColor,
   userProfilePic,
+  onOpenStreaks,
 }: ProfileScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -503,6 +505,11 @@ export default function ProfileScreen({
           <Pressable
             accessibilityRole="button"
             onPress={() => {
+              if (onOpenStreaks) {
+                onOpenStreaks();
+                return;
+              }
+
               Alert.alert("Streaks", "This area is not connected yet.");
             }}
             style={({ pressed }: { pressed: boolean }) => [

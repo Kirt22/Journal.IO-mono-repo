@@ -1,44 +1,36 @@
 import { StyleSheet, View } from "react-native";
+import { useState } from "react";
 import BottomNav, { type BottomNavKey } from "../../components/BottomNav";
 import ScreenTransitionHost from "../../components/ScreenTransition";
 import HomeScreen from "../HomeScreen";
 import CalendarScreen from "../calendar/CalendarScreen";
 import InsightsScreen from "../InsightsScreen";
+import StreaksScreen from "../StreaksScreen";
 import ProfileScreen from "../profile/ProfileScreen";
 import { useTheme } from "../../theme/provider";
 import type { ThemeMode } from "../../theme/theme";
+import { useAppStore } from "../../store/appStore";
 
 type MainAppShellProps = {
-  activeTab: BottomNavKey;
-  onTabChange: (nextTab: BottomNavKey) => void;
-  onOpenNewEntry: () => void;
   onToggleTheme: (nextMode: ThemeMode) => void;
-  userName?: string;
-  userEmail?: string | null;
-  userGoals?: string[];
-  onboardingGoals?: string[];
-  userAvatarColor?: string | null;
-  userProfilePic?: string | null;
 };
 
 const IMPLEMENTED_TABS: BottomNavKey[] = ["home", "calendar", "insights", "profile"];
 
 export default function MainAppShell({
-  activeTab,
-  onTabChange,
-  onOpenNewEntry,
   onToggleTheme,
-  userName,
-  userEmail,
-  userGoals,
-  onboardingGoals,
-  userAvatarColor,
-  userProfilePic,
 }: MainAppShellProps) {
   const theme = useTheme();
+  const activeTab = useAppStore(state => state.activeTab);
+  const onTabChange = useAppStore(state => state.setActiveTab);
+  const onOpenNewEntry = useAppStore(state => state.openNewEntry);
+  const session = useAppStore(state => state.session);
+  const onboardingGoals = useAppStore(state => state.onboardingData?.goals || []);
+  const [isStreaksViewVisible, setIsStreaksViewVisible] = useState(false);
 
   const handleTabPress = (nextTab: BottomNavKey) => {
     if (nextTab === "new") {
+      setIsStreaksViewVisible(false);
       onOpenNewEntry();
       return;
     }
@@ -47,15 +39,25 @@ export default function MainAppShell({
       return;
     }
 
+    setIsStreaksViewVisible(false);
     onTabChange(nextTab);
+  };
+
+  const handleOpenStreaks = () => {
+    onTabChange("home");
+    setIsStreaksViewVisible(true);
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScreenTransitionHost
-        activeKey={activeTab}
+        activeKey={isStreaksViewVisible ? "streaks" : activeTab}
         containerStyle={styles.tabViewport}
         renderContent={currentTab => {
+          if (currentTab === "streaks") {
+            return <StreaksScreen />;
+          }
+
           switch (currentTab) {
             case "calendar":
               return <CalendarScreen />;
@@ -64,21 +66,23 @@ export default function MainAppShell({
             case "profile":
               return (
                 <ProfileScreen
-                  userName={userName}
-                  userEmail={userEmail}
-                  fallbackEmail={userEmail}
-                  userGoals={userGoals}
+                  userName={session?.user.name || "Journal User"}
+                  userEmail={session?.user.email}
+                  fallbackEmail={session?.user.email}
+                  userGoals={session?.user.journalingGoals}
                   onboardingGoals={onboardingGoals}
-                  userAvatarColor={userAvatarColor}
-                  userProfilePic={userProfilePic}
+                  userAvatarColor={session?.user.avatarColor}
+                  userProfilePic={session?.user.profilePic}
+                  onOpenStreaks={handleOpenStreaks}
                 />
               );
             case "home":
             default:
               return (
                 <HomeScreen
-                  userName={userName}
+                  userName={session?.user.name || "Journal User"}
                   onOpenNewEntry={onOpenNewEntry}
+                  onOpenStreaks={handleOpenStreaks}
                   onToggleTheme={onToggleTheme}
                 />
               );

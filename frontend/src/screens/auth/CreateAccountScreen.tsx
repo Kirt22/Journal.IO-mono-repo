@@ -34,6 +34,9 @@ type CreateAccountScreenProps = {
 
 const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+const getErrorMessage = (error: unknown, fallbackMessage: string) =>
+  error instanceof Error ? error.message : fallbackMessage;
+
 export default function CreateAccountScreen({
   onSubmit,
   onSuccess,
@@ -54,6 +57,7 @@ export default function CreateAccountScreen({
     email?: string;
     password?: string;
     confirmPassword?: string;
+    form?: string;
   }>({});
   const successBannerOpacity = useRef(new Animated.Value(0)).current;
   const successBannerOffset = useRef(new Animated.Value(-24)).current;
@@ -125,8 +129,16 @@ export default function CreateAccountScreen({
         password,
       });
       showVerificationBanner();
-    } catch {
-      showVerificationBanner();
+    } catch (submissionError) {
+      const formError = getErrorMessage(
+        submissionError,
+        "Unable to create your account right now."
+      );
+
+      setErrors(previous => ({
+        ...previous,
+        form: formError,
+      }));
     } finally {
       setIsSubmitting(false);
     }
@@ -219,8 +231,12 @@ export default function CreateAccountScreen({
                     value={email}
                     onChangeText={(value: string) => {
                       setEmail(value);
-                      if (errors.email) {
-                        setErrors(previous => ({ ...previous, email: undefined }));
+                      if (errors.email || errors.form) {
+                        setErrors(previous => ({
+                          ...previous,
+                          email: undefined,
+                          form: undefined,
+                        }));
                       }
                     }}
                     placeholder="you@example.com"
@@ -313,10 +329,11 @@ export default function CreateAccountScreen({
                       value={password}
                       onChangeText={(value: string) => {
                         setPassword(value);
-                        if (errors.password || errors.confirmPassword) {
+                        if (errors.password || errors.confirmPassword || errors.form) {
                           setErrors(previous => ({
                             ...previous,
                             password: undefined,
+                            form: undefined,
                             confirmPassword:
                               previous.confirmPassword && value !== confirmPassword
                                 ? previous.confirmPassword
@@ -372,9 +389,10 @@ export default function CreateAccountScreen({
                       value={confirmPassword}
                       onChangeText={(value: string) => {
                         setConfirmPassword(value);
-                        if (errors.confirmPassword) {
+                        if (errors.confirmPassword || errors.form) {
                           setErrors(previous => ({
                             ...previous,
+                            form: undefined,
                             confirmPassword:
                               value !== password ? previous.confirmPassword : undefined,
                           }));
@@ -431,6 +449,17 @@ export default function CreateAccountScreen({
                   }
                   tone="accent"
                 />
+                {errors.form ? (
+                  <Text
+                    style={[
+                      styles.error,
+                      styles.formError,
+                      { color: theme.colors.destructive },
+                    ]}
+                  >
+                    {errors.form}
+                  </Text>
+                ) : null}
               </View>
 
               <View style={styles.footerRow}>
@@ -571,6 +600,10 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  formError: {
+    textAlign: "center",
+    marginTop: -4,
   },
   passwordBubble: {
     position: "absolute",

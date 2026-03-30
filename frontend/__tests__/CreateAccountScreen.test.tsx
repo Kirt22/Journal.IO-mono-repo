@@ -104,4 +104,51 @@ describe("CreateAccountScreen", () => {
       jest.advanceTimersByTime(1400);
     });
   });
+
+  test("does not advance when the backend signup call fails", async () => {
+    const onSubmit = jest.fn(async () => {
+      throw new Error("An account with this email already exists. Please sign in.");
+    });
+    const onSuccess = jest.fn();
+
+    let root: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      root = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <CreateAccountScreen
+            onSubmit={onSubmit}
+            onSuccess={onSuccess}
+            onBackToAuth={jest.fn()}
+            onGoToSignIn={jest.fn()}
+          />
+        </SafeAreaProvider>
+      );
+    });
+
+    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
+    const passwordInput = root!.root.findByProps({ placeholder: "Create a password" });
+    const confirmPasswordInput = root!.root.findByProps({
+      placeholder: "Re-enter your password",
+    });
+    const submitButton = root!.root.findByType(PrimaryButton);
+
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText("alex@example.com");
+      passwordInput.props.onChangeText("password123");
+      confirmPasswordInput.props.onChangeText("password123");
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await submitButton.props.onPress();
+      await Promise.resolve();
+    });
+
+    const tree = JSON.stringify(root!.toJSON());
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(tree).toContain("An account with this email already exists. Please sign in.");
+    expect(tree).not.toContain("Verification code has been sent.");
+  });
 });

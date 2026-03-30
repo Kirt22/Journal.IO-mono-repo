@@ -1,4 +1,4 @@
-import { request } from "../utils/apiClient";
+import { ApiError, request } from "../utils/apiClient";
 
 type AuthUser = {
   userId: string;
@@ -76,14 +76,6 @@ type VerifyOtpResponse = AuthSession & {
   isNewUser: boolean;
 };
 
-const EMAIL_VERIFICATION_CODE = "123456";
-const MOCK_LATENCY_MS = 650;
-
-const delay = (ms: number) =>
-  new Promise<void>(resolve => {
-    setTimeout(resolve, ms);
-  });
-
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 const deriveDisplayNameFromEmail = (email: string) => {
@@ -144,48 +136,34 @@ const createMockSession = (payload: {
   };
 };
 
-const buildVerificationChallenge = (
-  email: string
-): EmailVerificationChallenge => ({
-  email: normalizeEmail(email),
-  verificationRequired: true,
-  expiresInSeconds: 1800,
-  verificationCode: EMAIL_VERIFICATION_CODE,
-});
+const shouldUseDevNetworkFallback = (error: unknown) =>
+  __DEV__ && error instanceof ApiError && error.isNetworkError;
 
-const requestOrMock = async <T>(
-  path: string,
-  payload: Record<string, unknown>,
-  fallback: () => Promise<T> | T
-) => {
-  try {
-    const response = await request<T>(path, {
+const signUpWithEmail = async (payload: SignUpWithEmailPayload) => {
+  const response = await request<EmailVerificationChallenge>(
+    "/auth/sign_up_with_email",
+    {
       method: "POST",
       body: JSON.stringify(payload),
-    });
-
-    return response.data;
-  } catch {
-    await delay(MOCK_LATENCY_MS);
-    return fallback();
-  }
-};
-
-const signUpWithEmail = async (payload: SignUpWithEmailPayload) =>
-  requestOrMock<EmailVerificationChallenge>(
-    "/auth/sign_up_with_email",
-    payload,
-    () => buildVerificationChallenge(payload.email)
+    }
   );
+
+  return response.data;
+};
 
 const resendEmailVerification = async (
   payload: ResendEmailVerificationPayload
-) =>
-  requestOrMock<EmailVerificationChallenge>(
+) => {
+  const response = await request<EmailVerificationChallenge>(
     "/auth/resend_email_verification",
-    payload,
-    () => buildVerificationChallenge(payload.email)
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
   );
+
+  return response.data;
+};
 
 const verifyEmail = async (
   payload: VerifyEmailPayload,
@@ -198,11 +176,9 @@ const verifyEmail = async (
     });
 
     return response.data;
-  } catch {
-    await delay(MOCK_LATENCY_MS);
-
-    if (payload.code !== EMAIL_VERIFICATION_CODE) {
-      throw new Error("The verification code does not match.");
+  } catch (error) {
+    if (!shouldUseDevNetworkFallback(error)) {
+      throw error;
     }
 
     return createMockSession({
@@ -222,8 +198,10 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
     });
 
     return response.data;
-  } catch {
-    await delay(MOCK_LATENCY_MS);
+  } catch (error) {
+    if (!shouldUseDevNetworkFallback(error)) {
+      throw error;
+    }
 
     return createMockSession({
       email: payload.email,
@@ -243,8 +221,10 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
     });
 
     return response.data;
-  } catch {
-    await delay(MOCK_LATENCY_MS);
+  } catch (error) {
+    if (!shouldUseDevNetworkFallback(error)) {
+      throw error;
+    }
 
     return createMockSession({
       email: payload.email,

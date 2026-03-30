@@ -1,69 +1,143 @@
 import { request } from "../utils/apiClient";
+import {
+  type CreateJournalPayload,
+  type JournalEntry,
+  type JournalEntryApiRecord,
+  type UpdateJournalPayload,
+} from "../models/journalModels";
 
-type CreateJournalPayload = {
-  title: string;
-  content: string;
-  type?: string;
-  images?: string[];
-  tags?: string[];
-};
-
-type JournalEntry = {
-  _id: string;
-  title: string;
-  content: string;
-  type: string;
-  images: string[] | null;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-const MOCK_LATENCY_MS = 450;
-
-const delay = (ms: number) =>
-  new Promise<void>(resolve => {
-    setTimeout(resolve, ms);
-  });
-
-const buildMockJournalEntry = (payload: CreateJournalPayload): JournalEntry => {
-  const now = new Date().toISOString();
-  const safeTitle = payload.title.trim() || "Untitled";
-
-  return {
-    _id: `journal-${Date.now()}`,
-    title: safeTitle,
+const createJournalEntry = async (payload: CreateJournalPayload) => {
+  const requestBody = {
+    title: payload.title.trim(),
     content: payload.content.trim(),
     type: payload.type?.trim() || "journal",
-    images: payload.images?.length ? payload.images : [],
-    tags: payload.tags?.length ? payload.tags : [],
-    createdAt: now,
-    updatedAt: now,
+    images: payload.images || [],
+    tags: payload.tags || [],
+    isFavorite: payload.isFavorite ?? false,
+  };
+
+  if (__DEV__) {
+    console.log("[journalService] createJournalEntry request", requestBody);
+  }
+
+  const response = await request<JournalEntry>("/journal/create_journal", {
+    method: "POST",
+    body: JSON.stringify(requestBody),
+  });
+
+  if (__DEV__) {
+    console.log("[journalService] createJournalEntry response", response.data);
+  }
+
+  return {
+    ...response.data,
+    tags: response.data.tags || payload.tags || [],
+    isFavorite: response.data.isFavorite ?? payload.isFavorite ?? false,
   };
 };
 
-const createJournalEntry = async (payload: CreateJournalPayload) => {
-  try {
-    const response = await request<JournalEntry>("/journal/create_journal", {
-      method: "POST",
-      body: JSON.stringify({
-        title: payload.title.trim(),
-        content: payload.content.trim(),
-        type: payload.type?.trim() || "journal",
-        images: payload.images || [],
-        tags: payload.tags || [],
-      }),
-    });
+const getJournalEntry = async (journalId: string) => {
+  const response = await request<JournalEntry>(
+    `/journal/get_journal_details?journalId=${encodeURIComponent(journalId)}`,
+    {
+      method: "GET",
+    }
+  );
 
-    return {
-      ...response.data,
-      tags: (response.data as Partial<JournalEntry>).tags || payload.tags || [],
-    };
-  } catch {
-    await delay(MOCK_LATENCY_MS);
-    return buildMockJournalEntry(payload);
+  return {
+    ...response.data,
+    tags: response.data.tags || [],
+    isFavorite: response.data.isFavorite ?? false,
+  };
+};
+
+const updateJournalEntry = async (payload: UpdateJournalPayload) => {
+  const requestBody = {
+    journalId: payload.journalId,
+    title: payload.title.trim(),
+    content: payload.content.trim(),
+    type: payload.type?.trim() || "journal",
+    images: payload.images || [],
+    tags: payload.tags || [],
+    isFavorite: payload.isFavorite ?? false,
+  };
+
+  if (__DEV__) {
+    console.log("[journalService] updateJournalEntry request", requestBody);
   }
+
+  const response = await request<JournalEntry>("/journal/edit_journal", {
+    method: "POST",
+    body: JSON.stringify(requestBody),
+  });
+
+  if (__DEV__) {
+    console.log("[journalService] updateJournalEntry response", response.data);
+  }
+
+  return {
+    ...response.data,
+    tags: response.data.tags || payload.tags || [],
+    isFavorite: response.data.isFavorite ?? payload.isFavorite ?? false,
+  };
+};
+
+const toggleJournalFavorite = async (payload: {
+  journalId: string;
+  isFavorite: boolean;
+}) => {
+  const requestBody = {
+    journalId: payload.journalId,
+    isFavorite: payload.isFavorite,
+  };
+
+  if (__DEV__) {
+    console.log("[journalService] toggleJournalFavorite request", requestBody);
+  }
+
+  const response = await request<JournalEntry>("/journal/toggle_favorite", {
+    method: "POST",
+    body: JSON.stringify(requestBody),
+  });
+
+  if (__DEV__) {
+    console.log("[journalService] toggleJournalFavorite response", response.data);
+  }
+
+  return {
+    ...response.data,
+    tags: response.data.tags || [],
+    isFavorite: response.data.isFavorite ?? payload.isFavorite,
+  };
+};
+
+const deleteJournalEntry = async (journalId: string) => {
+  const response = await request<{}>("/journal/delete_journal", {
+    method: "DELETE",
+    body: JSON.stringify({ journalId }),
+  });
+
+  return response.data;
+};
+
+const getJournalEntries = async () => {
+  const response = await request<JournalEntryApiRecord[]>("/journal/get_journals", {
+    method: "GET",
+  });
+
+  return response.data.map(entry => ({
+    ...entry,
+    tags: entry.tags || [],
+    isFavorite: entry.isFavorite ?? false,
+  }));
 };
 
 export type { CreateJournalPayload, JournalEntry };
-export { createJournalEntry };
+export {
+  createJournalEntry,
+  deleteJournalEntry,
+  getJournalEntry,
+  getJournalEntries,
+  toggleJournalFavorite,
+  updateJournalEntry,
+};

@@ -1,0 +1,35 @@
+export type CreateJournalPayload = {
+  title: string;
+  content: string;
+  type?: string;
+  images?: string[];
+  tags?: string[];
+  isFavorite?: boolean;
+};
+
+export type UpdateJournalPayload = {
+  journalId: string;
+  title: string;
+  content: string;
+  type?: string;
+  images?: string[];
+  tags?: string[];
+  isFavorite?: boolean;
+};
+
+export type JournalEntry = {
+  _id: string;
+  title: string;
+  content: string;
+  type: string;
+  images: string[] | null;
+  tags: string[];
+  isFavorite?: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type JournalEntryApiRecord = Omit<JournalEntry, "tags"> & {
+  tags?: string[];
+  isFavorite?: boolean;
+};

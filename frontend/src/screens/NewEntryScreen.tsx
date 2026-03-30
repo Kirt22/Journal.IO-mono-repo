@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -30,6 +30,7 @@ import {
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createJournalEntry } from "../services/journalService";
+import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
 type MoodKey = "amazing" | "good" | "okay" | "bad" | "terrible";
@@ -166,6 +167,10 @@ function HeaderIconButton({
 export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const addRecentJournalEntry = useAppStore(
+    state => state.addRecentJournalEntry
+  );
+  const setActiveTab = useAppStore(state => state.setActiveTab);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [selectedMood, setSelectedMood] = useState<MoodKey | null>(null);
@@ -175,23 +180,12 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoTagging, setIsAutoTagging] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const sheetMaxWidth = isWide ? 460 : 420;
-
-  useEffect(() => {
-    if (!saveSuccess) {
-      return;
-    }
-
-    const timer = setTimeout(onBack, 650);
-
-    return () => clearTimeout(timer);
-  }, [onBack, saveSuccess]);
 
   const moodTone = (mood: MoodKey) => {
     if (mood === "amazing") {
@@ -236,7 +230,21 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const handleSave = async () => {
     const trimmedContent = content.trim();
 
+    if (__DEV__) {
+      console.log("[NewEntryScreen] Save button pressed", {
+        title: title.trim(),
+        contentLength: trimmedContent.length,
+        selectedMood,
+        selectedTags,
+      });
+    }
+
     if (!trimmedContent) {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Save blocked", {
+          reason: "empty-content",
+        });
+      }
       setError("Please write something before saving.");
       return;
     }
@@ -244,15 +252,77 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
     setIsSaving(true);
     setError(null);
 
-    try {
-      await createJournalEntry({
-        title: title.trim() || `Entry for ${formatEntryTitleDate()}`,
-        content: trimmedContent,
-        type: selectedMood || "journal",
-        tags: selectedTags,
+    if (__DEV__) {
+      console.log("[NewEntryScreen] Saving state set", {
+        isSaving: true,
       });
-      setSaveSuccess(true);
+    }
+
+    const optimisticTags = selectedMood
+      ? [...selectedTags, `mood:${selectedMood}`]
+      : selectedTags;
+
+    const optimisticEntry = {
+      _id: `entry-${Date.now()}`,
+      title: title.trim() || `Entry for ${formatEntryTitleDate()}`,
+      content: trimmedContent,
+      type: "journal",
+      images: [],
+      tags: optimisticTags,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Calling createJournalEntry", {
+          title: optimisticEntry.title,
+          contentLength: optimisticEntry.content.length,
+          type: optimisticEntry.type,
+          tags: optimisticEntry.tags,
+        });
+      }
+
+      const savedEntry = await createJournalEntry({
+        title: optimisticEntry.title,
+        content: optimisticEntry.content,
+        type: optimisticEntry.type,
+        tags: optimisticEntry.tags,
+      });
+
+      if (__DEV__) {
+        console.log("[NewEntryScreen] createJournalEntry resolved", {
+          journalId: savedEntry._id,
+          title: savedEntry.title,
+          type: savedEntry.type,
+          tags: savedEntry.tags,
+        });
+      }
+
+      addRecentJournalEntry(savedEntry);
+
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Recent entry stored locally", {
+          journalId: savedEntry._id,
+        });
+      }
+
+      setActiveTab("home");
+
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Active tab set to home");
+      }
+
+      onBack();
+
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Navigated back after save");
+      }
     } catch (saveError) {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Save failed", saveError);
+      }
+
       setError(
         saveError instanceof Error
           ? saveError.message
@@ -260,6 +330,12 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
       );
     } finally {
       setIsSaving(false);
+
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Save flow finished", {
+          isSaving: false,
+        });
+      }
     }
   };
 
@@ -403,35 +479,6 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              {saveSuccess ? (
-                <View
-                  style={[
-                    styles.successCard,
-                    {
-                      borderColor: theme.colors.success,
-                      backgroundColor: toRgba(theme.colors.success, 0.08),
-                    },
-                  ]}
-                >
-                  <Check size={18} color={theme.colors.success} />
-                  <View style={styles.successCopy}>
-                    <Text
-                      style={[styles.successTitle, { color: theme.colors.foreground }]}
-                    >
-                      Entry saved
-                    </Text>
-                    <Text
-                      style={[
-                        styles.successSubtitle,
-                        { color: theme.colors.mutedForeground },
-                      ]}
-                    >
-                      Returning to Home.
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-
               <View style={styles.section}>
                 <Text
                   style={[styles.sectionLabel, { color: theme.colors.foreground }]}

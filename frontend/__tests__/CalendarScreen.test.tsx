@@ -6,6 +6,7 @@ import React from "react";
 import ReactTestRenderer from "react-test-renderer";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import CalendarScreen from "../src/screens/calendar/CalendarScreen";
+import { resetAppStore, useAppStore } from "../src/store/appStore";
 
 const safeAreaMetrics = {
   frame: {
@@ -24,6 +25,10 @@ const safeAreaMetrics = {
 
 test("renders the calendar screen layout", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+  });
 
   await ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
@@ -67,4 +72,33 @@ test("renders the calendar screen layout", async () => {
 
   expect(selectedTree).toContain("Mar 15, 2026");
   expect(selectedTree).toContain("Morning Reflections");
+});
+
+test("opens a journal detail from the calendar entry card", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+  });
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <CalendarScreen />
+      </SafeAreaProvider>
+    );
+  });
+
+  const firstEntryCard = root!.root.findAllByProps({
+    accessibilityLabel: "Open entry Morning Reflections",
+  })[0];
+
+  expect(firstEntryCard).toBeTruthy();
+
+  ReactTestRenderer.act(() => {
+    firstEntryCard.props.onPress();
+  });
+
+  expect(useAppStore.getState().stage).toBe("journal-detail");
+  expect(useAppStore.getState().selectedJournalEntryId).toBe("mar-15");
 });

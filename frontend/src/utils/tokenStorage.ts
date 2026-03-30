@@ -20,8 +20,35 @@ const getKeychain = (): any => {
   }
 };
 
+const parseTokens = (value: string | null): AuthTokens | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<AuthTokens>;
+
+    if (
+      typeof parsed.accessToken === "string" &&
+      parsed.accessToken.length > 0 &&
+      typeof parsed.refreshToken === "string" &&
+      parsed.refreshToken.length > 0
+    ) {
+      return {
+        accessToken: parsed.accessToken,
+        refreshToken: parsed.refreshToken,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
 const saveTokens = async (tokens: AuthTokens): Promise<void> => {
   inMemoryTokens = tokens;
+
   const keychain = getKeychain();
 
   if (!keychain?.setGenericPassword) {
@@ -29,7 +56,7 @@ const saveTokens = async (tokens: AuthTokens): Promise<void> => {
   }
 
   try {
-    await keychain.setGenericPassword("journal.io", JSON.stringify(tokens), {
+    await keychain.setGenericPassword("token", JSON.stringify(tokens), {
       service: KEYCHAIN_SERVICE,
     });
   } catch {
@@ -47,14 +74,15 @@ const getTokens = async (): Promise<AuthTokens | null> => {
       });
 
       if (credentials) {
-        try {
-          return JSON.parse(credentials.password) as AuthTokens;
-        } catch {
-          return inMemoryTokens;
+        const storedTokens = parseTokens(credentials.password);
+
+        if (storedTokens) {
+          inMemoryTokens = storedTokens;
+          return storedTokens;
         }
       }
     } catch {
-      return inMemoryTokens;
+      // Fall through to the in-memory cache if the native store is unavailable.
     }
   }
 
@@ -68,6 +96,7 @@ const getAccessToken = async (): Promise<string | null> => {
 
 const clearTokens = async (): Promise<void> => {
   inMemoryTokens = null;
+
   const keychain = getKeychain();
 
   if (!keychain?.resetGenericPassword) {

@@ -9,103 +9,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Grid3x3,
-  Heart,
   List,
-  Smile,
-  Sparkles,
-  Star,
-  Tag,
 } from "lucide-react-native";
 import { Animated, Easing, useWindowDimensions } from "react-native";
 import TabScreenLayout from "../../components/TabScreenLayout";
+import JournalEntryCard from "../../components/JournalEntryCard";
+import { toCalendarEntries } from "../../models/calendarModels";
+import { toggleJournalFavorite } from "../../services/journalService";
+import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 
 type ViewMode = "list" | "calendar";
-
-type EntryTone = "warm" | "challenge" | "reflective" | "supportive";
-
-type CalendarEntry = {
-  id: string;
-  date: Date;
-  title: string;
-  content: string;
-  tags: string[];
-  isFavorite: boolean;
-  tone: EntryTone;
-  icon: typeof Heart;
-};
-
-const sampleEntries: CalendarEntry[] = [
-  {
-    id: "mar-15",
-    date: new Date(2026, 2, 15),
-    title: "Morning Reflections",
-    content:
-      "Started the day with a beautiful sunrise walk. Feeling grateful for the small moments of peace. The crisp air helped reset my mind for the week ahead.",
-    tags: ["gratitude", "morning", "nature"],
-    isFavorite: true,
-    tone: "supportive",
-    icon: Heart,
-  },
-  {
-    id: "mar-14",
-    date: new Date(2026, 2, 14),
-    title: "Challenging Day at Work",
-    content:
-      "Today was tough. Had a difficult meeting that didn't go as planned. But I learned something important about speaking up earlier.",
-    tags: ["work", "growth", "challenges"],
-    isFavorite: false,
-    tone: "challenge",
-    icon: Smile,
-  },
-  {
-    id: "mar-13",
-    date: new Date(2026, 2, 13),
-    title: "Evening Meditation",
-    content:
-      "Spent 20 minutes in meditation tonight. My mind was racing at first, but eventually found stillness. These pauses seem to help more than I expect.",
-    tags: ["meditation", "mindfulness", "evening"],
-    isFavorite: true,
-    tone: "reflective",
-    icon: Sparkles,
-  },
-  {
-    id: "mar-12",
-    date: new Date(2026, 2, 12),
-    title: "Family Time",
-    content:
-      "Had dinner with family and felt recharged afterward. The evening was simple, calm, and exactly what I needed.",
-    tags: ["family", "connection", "rest"],
-    isFavorite: false,
-    tone: "warm",
-    icon: Heart,
-  },
-  {
-    id: "mar-11",
-    date: new Date(2026, 2, 11),
-    title: "Planning Ahead",
-    content:
-      "Spent time organizing tomorrow's tasks. Writing them down reduced a lot of noise in my head and made the evening feel lighter.",
-    tags: ["planning", "routine", "focus"],
-    isFavorite: false,
-    tone: "reflective",
-    icon: Star,
-  },
-];
-
-function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
-
-  if (normalized.length !== 6) {
-    return hex;
-  }
-
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
 
 function formatMonthLabel(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
@@ -157,42 +71,6 @@ function buildMonthCells(date: Date) {
   }
 
   return cells;
-}
-
-function getToneStyle(theme: ReturnType<typeof useTheme>, tone: EntryTone) {
-  if (tone === "warm") {
-    return {
-      badgeBackground: hexToRgba(theme.colors.success, 0.12),
-      badgeForeground: theme.colors.success,
-      iconBackground: hexToRgba(theme.colors.success, 0.12),
-      iconForeground: theme.colors.success,
-    };
-  }
-
-  if (tone === "challenge") {
-    return {
-      badgeBackground: hexToRgba(theme.colors.warning, 0.16),
-      badgeForeground: theme.colors.warning,
-      iconBackground: hexToRgba(theme.colors.warning, 0.12),
-      iconForeground: theme.colors.warning,
-    };
-  }
-
-  if (tone === "reflective") {
-    return {
-      badgeBackground: hexToRgba(theme.colors.info, 0.14),
-      badgeForeground: theme.colors.info,
-      iconBackground: hexToRgba(theme.colors.info, 0.12),
-      iconForeground: theme.colors.info,
-    };
-  }
-
-  return {
-    badgeBackground: hexToRgba(theme.colors.primary, 0.12),
-    badgeForeground: theme.colors.primary,
-    iconBackground: hexToRgba(theme.colors.primary, 0.1),
-    iconForeground: theme.colors.primary,
-  };
 }
 
 function ModeToggle({
@@ -292,81 +170,23 @@ function StatCard({
   );
 }
 
-function EntryCard({
-  entry,
-}: {
-  entry: CalendarEntry;
-}) {
-  const theme = useTheme();
-  const toneStyle = getToneStyle(theme, entry.tone);
-  const Icon = entry.icon;
-
-  return (
-    <View
-      style={[
-        styles.entryCard,
-        {
-          backgroundColor: theme.colors.card,
-          borderColor: entry.isFavorite ? hexToRgba(theme.colors.primary, 0.18) : theme.colors.border,
-          shadowColor: theme.colors.foreground,
-        },
-      ]}
-    >
-      <View style={styles.entryTopRow}>
-        <View style={styles.entryTitleWrap}>
-          <View style={styles.entryDateRow}>
-            <Icon size={14} color={toneStyle.iconForeground} />
-            <Text style={[styles.entryDateText, { color: theme.colors.mutedForeground }]}>
-              {formatDateLabel(entry.date)}
-            </Text>
-          </View>
-          <Text style={[styles.entryTitle, { color: theme.colors.foreground }]}>
-            {entry.title}
-          </Text>
-        </View>
-
-        <View style={styles.favoriteWrap}>
-          <Star
-            size={18}
-            fill={entry.isFavorite ? theme.colors.warning : "transparent"}
-            color={entry.isFavorite ? theme.colors.warning : theme.colors.mutedForeground}
-          />
-        </View>
-      </View>
-
-      <Text style={[styles.entryContent, { color: theme.colors.mutedForeground }]}>
-        {entry.content}
-      </Text>
-
-      <View style={styles.tagRow}>
-        <Tag size={11} color={theme.colors.mutedForeground} />
-        {entry.tags.slice(0, 3).map(tag => (
-          <View
-            key={tag}
-            style={[
-              styles.tagPill,
-              {
-                backgroundColor: theme.colors.secondary,
-              },
-            ]}
-          >
-            <Text style={[styles.tagText, { color: theme.colors.secondaryForeground }]}>
-              {tag}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 export default function CalendarScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
+  const recentJournalEntries = useAppStore(
+    state => state.recentJournalEntries
+  );
+  const openJournalEntry = useAppStore(state => state.openJournalEntry);
+  const updateRecentJournalEntry = useAppStore(
+    state => state.updateRecentJournalEntry
+  );
   const [view, setView] = useState<ViewMode>("list");
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
+    null
+  );
   const viewTransition = useRef(new Animated.Value(1)).current;
 
   const isCompact = width < 360;
@@ -375,23 +195,28 @@ export default function CalendarScreen() {
   const layoutMaxWidth = isWide ? 460 : 420;
   const gridCellSize = isCompact ? 38 : isWide ? 48 : 44;
   const gridGap = isCompact ? 6 : 8;
+  const calendarEntries = useMemo(
+    () => toCalendarEntries(recentJournalEntries),
+    [recentJournalEntries]
+  );
 
   const monthCells = useMemo(() => buildMonthCells(currentMonth), [currentMonth]);
   const monthEntries = useMemo(
-    () => sampleEntries.filter(entry => isSameMonth(entry.date, currentMonth)),
-    [currentMonth]
+    () =>
+      calendarEntries.filter(entry => isSameMonth(entry.date, currentMonth)),
+    [calendarEntries, currentMonth]
   );
   const selectedEntries = useMemo(
     () =>
       selectedDate
-        ? sampleEntries.filter(entry => isSameDay(entry.date, selectedDate))
+        ? calendarEntries.filter(entry => isSameDay(entry.date, selectedDate))
         : [],
-    [selectedDate]
+    [calendarEntries, selectedDate]
   );
 
-  const totalCount = sampleEntries.length;
+  const totalCount = calendarEntries.length;
   const monthCount = monthEntries.length;
-  const favoriteCount = sampleEntries.filter(entry => entry.isFavorite).length;
+  const favoriteCount = calendarEntries.filter(entry => entry.isFavorite).length;
 
   const handleMonthShift = (offset: number) => {
     setCurrentMonth(
@@ -399,6 +224,34 @@ export default function CalendarScreen() {
         new Date(previous.getFullYear(), previous.getMonth() + offset, 1)
     );
     setSelectedDate(null);
+  };
+
+  const handleFavoriteToggle = async (
+    entryId: string,
+    nextFavorite: boolean
+  ) => {
+    if (favoriteUpdatingId === entryId) {
+      return;
+    }
+
+    const currentEntry = calendarEntries.find(entry => entry.id === entryId);
+
+    if (!currentEntry) {
+      return;
+    }
+
+    setFavoriteUpdatingId(entryId);
+
+    try {
+      const updatedEntry = await toggleJournalFavorite({
+        journalId: entryId,
+        isFavorite: nextFavorite,
+      });
+
+      updateRecentJournalEntry(updatedEntry);
+    } finally {
+      setFavoriteUpdatingId(null);
+    }
   };
 
   useEffect(() => {
@@ -453,8 +306,17 @@ export default function CalendarScreen() {
           ]}
         >
           <View style={styles.listStack}>
-            {sampleEntries.map(entry => (
-              <EntryCard key={entry.id} entry={entry} />
+            {calendarEntries.map(entry => (
+              <JournalEntryCard
+                key={entry.id}
+                entry={entry}
+                onPress={() => openJournalEntry(entry.id)}
+                onFavoritePress={() =>
+                  void handleFavoriteToggle(entry.id, !entry.isFavorite)
+                }
+                isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                previewLines={3}
+              />
             ))}
           </View>
         </Animated.View>
@@ -535,7 +397,7 @@ export default function CalendarScreen() {
 
               const isToday = isSameDay(cell, today);
               const isSelected = selectedDate ? isSameDay(cell, selectedDate) : false;
-              const hasEntry = sampleEntries.some(entry => isSameDay(entry.date, cell));
+              const hasEntry = calendarEntries.some(entry => isSameDay(entry.date, cell));
 
               return (
                 <Pressable
@@ -596,7 +458,16 @@ export default function CalendarScreen() {
               {selectedEntries.length > 0 ? (
                 <View style={styles.listStack}>
                   {selectedEntries.map(entry => (
-                    <EntryCard key={entry.id} entry={entry} />
+                    <JournalEntryCard
+                      key={entry.id}
+                      entry={entry}
+                      onPress={() => openJournalEntry(entry.id)}
+                      onFavoritePress={() =>
+                        void handleFavoriteToggle(entry.id, !entry.isFavorite)
+                      }
+                      isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                      previewLines={3}
+                    />
                   ))}
                 </View>
               ) : (
@@ -728,6 +599,9 @@ const styles = StyleSheet.create({
       height: 4,
     },
     elevation: 1,
+  },
+  entryCardPressable: {
+    opacity: 0.98,
   },
   entryTopRow: {
     flexDirection: "row",

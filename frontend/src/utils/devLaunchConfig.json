@@ -1,5 +1,6 @@
 {
   "stage": "onboarding",
   "activeTab": "home",
-  "email": null
+  "email": null,
+  "apiBaseUrl": null
 }

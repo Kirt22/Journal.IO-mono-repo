@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Animated,
+  Easing,
   Pressable,
   StyleSheet,
   Text,
@@ -32,18 +34,30 @@ import {
   Meh,
   Smile,
   SmilePlus,
-  RotateCcw,
 } from "lucide-react-native";
 import TabScreenLayout from "../components/TabScreenLayout";
+import JournalEntryCard from "../components/JournalEntryCard";
+import {
+  createJournalEntry,
+  toggleJournalFavorite,
+} from "../services/journalService";
+import {
+  getTodayMoodCheckIn,
+  logMoodCheckIn,
+  type MoodValue,
+} from "../services/moodService";
+import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
+import { getJournalEntries } from "../services/journalService";
 
 type HomeScreenProps = {
   userName?: string;
   onOpenNewEntry: () => void;
+  onOpenStreaks: () => void;
   onToggleTheme: (nextMode: "light" | "dark") => void;
 };
 
-type MoodType = "amazing" | "good" | "okay" | "bad" | "terrible";
+type MoodType = MoodValue;
 
 const aiPrompts = [
   "What are you grateful for today?",
@@ -53,6 +67,7 @@ const aiPrompts = [
 ];
 
 const quickTags = ["thought", "idea", "reminder", "gratitude", "dream"];
+const MOOD_CONFIRMATION_DELAY_MS = 120;
 
 const moods: {
   value: MoodType;
@@ -126,6 +141,16 @@ function hexToRgba(hex: string, alpha: number) {
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
 
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function delay(ms: number) {
+  return new Promise<void>(resolve => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function buildQuickThoughtTitle() {
+  return "Quick Thought";
 }
 
 function HeaderIconButton({
@@ -283,17 +308,45 @@ function RevealBlock({
 export default function HomeScreen({
   userName,
   onOpenNewEntry,
+  onOpenStreaks,
   onToggleTheme,
 }: HomeScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const setActiveTab = useAppStore(state => state.setActiveTab);
+  const shouldAnimateMood = typeof jest === "undefined";
+  const addRecentJournalEntry = useAppStore(
+    state => state.addRecentJournalEntry
+  );
+  const mergeRecentJournalEntries = useAppStore(
+    state => state.mergeRecentJournalEntries
+  );
+  const recentJournalEntries = useAppStore(
+    state => state.recentJournalEntries
+  );
+  const openJournalEntry = useAppStore(state => state.openJournalEntry);
+  const updateRecentJournalEntry = useAppStore(
+    state => state.updateRecentJournalEntry
+  );
   const noteInputRef = useRef<TextInput>(null);
+  const moodSelectionProgress = useRef(new Animated.Value(0)).current;
+  const moodRevealProgress = useRef(new Animated.Value(0)).current;
+  const moodEmojiSpinProgress = useRef(new Animated.Value(0)).current;
+  const moodTickProgress = useRef(new Animated.Value(0)).current;
+  const moodStageProgress = useRef(new Animated.Value(0)).current;
   const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
   const [savedMood, setSavedMood] = useState<MoodType | null>(null);
+  const [showMoodResult, setShowMoodResult] = useState(false);
+  const [isLoggingMood, setIsLoggingMood] = useState(false);
+  const [isLoadingMoodStatus, setIsLoadingMoodStatus] = useState(true);
   const [note, setNote] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [noteInputHeight, setNoteInputHeight] = useState(92);
+  const [isSavingQuickThought, setIsSavingQuickThought] = useState(false);
+  const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
+    null
+  );
   const [insightIndex, setInsightIndex] = useState(
     new Date().getDate() % tips.length
   );
@@ -339,28 +392,207 @@ export default function HomeScreen({
     }
   }, [isNoteExpanded]);
 
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRecentEntries = async () => {
+      try {
+        const entries = await getJournalEntries();
+
+        if (isActive) {
+          mergeRecentJournalEntries(entries);
+        }
+      } catch {
+        // Leave the locally cached entries in place if the backend list is unavailable.
+      }
+    };
+
+    void loadRecentEntries();
+
+    return () => {
+      isActive = false;
+    };
+  }, [mergeRecentJournalEntries]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadMoodStatus = async () => {
+      try {
+        const moodCheckIn = await getTodayMoodCheckIn();
+
+        if (!isActive) {
+          return;
+        }
+
+        if (moodCheckIn) {
+          setSavedMood(moodCheckIn.mood);
+          setShowMoodResult(true);
+          setSelectedMood(null);
+          moodSelectionProgress.setValue(0);
+          moodRevealProgress.setValue(1);
+          moodEmojiSpinProgress.setValue(1);
+          moodTickProgress.setValue(1);
+          moodStageProgress.setValue(1);
+        } else {
+          setSavedMood(null);
+          setShowMoodResult(false);
+          moodSelectionProgress.setValue(0);
+          moodRevealProgress.setValue(0);
+          moodEmojiSpinProgress.setValue(0);
+          moodTickProgress.setValue(0);
+          moodStageProgress.setValue(0);
+        }
+      } catch {
+        // Leave the card interactive if the mood status cannot be loaded.
+      } finally {
+        if (isActive) {
+          setIsLoadingMoodStatus(false);
+        }
+      }
+    };
+
+    void loadMoodStatus();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const resetMoodAnimations = () => {
+    moodSelectionProgress.stopAnimation();
+    moodRevealProgress.stopAnimation();
+    moodEmojiSpinProgress.stopAnimation();
+    moodTickProgress.stopAnimation();
+    moodStageProgress.stopAnimation();
+    moodSelectionProgress.setValue(0);
+    moodRevealProgress.setValue(0);
+    moodEmojiSpinProgress.setValue(0);
+    moodTickProgress.setValue(0);
+    moodStageProgress.setValue(0);
+  };
+
   const handleSelectMood = async (mood: MoodType) => {
-    setSelectedMood(mood);
-
-    await new Promise<void>(resolve => setTimeout(resolve, 300));
-
-    setSavedMood(mood);
-    setSelectedMood(null);
-  };
-
-  const handleResetMood = () => {
-    setSelectedMood(null);
-    setSavedMood(null);
-  };
-
-  const handleSaveNote = () => {
-    if (!note.trim()) {
+    if (isLoggingMood || isLoadingMoodStatus || showMoodResult) {
       return;
     }
 
-    setNote("");
-    setSelectedTags([]);
-    setIsNoteExpanded(false);
+    resetMoodAnimations();
+    setShowMoodResult(false);
+    setIsLoggingMood(true);
+    setSelectedMood(mood);
+    if (shouldAnimateMood) {
+      Animated.spring(moodSelectionProgress, {
+        toValue: 1,
+        friction: 7,
+        tension: 130,
+        useNativeDriver: false,
+      }).start();
+    } else {
+      moodSelectionProgress.setValue(1);
+    }
+
+    try {
+      const moodCheckIn = await logMoodCheckIn(mood);
+
+      if (shouldAnimateMood) {
+        await delay(MOOD_CONFIRMATION_DELAY_MS);
+        setSavedMood(moodCheckIn.mood);
+        setShowMoodResult(true);
+        setSelectedMood(null);
+
+        moodSelectionProgress.setValue(0);
+        moodRevealProgress.setValue(0);
+        moodEmojiSpinProgress.setValue(0);
+        moodTickProgress.setValue(0);
+        moodStageProgress.setValue(0);
+
+        Animated.parallel([
+          Animated.timing(moodRevealProgress, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+          Animated.timing(moodEmojiSpinProgress, {
+            toValue: 1,
+            duration: 620,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+          Animated.timing(moodStageProgress, {
+            toValue: 1,
+            duration: 280,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+          Animated.sequence([
+            Animated.delay(160),
+            Animated.spring(moodTickProgress, {
+              toValue: 1,
+              friction: 8,
+              tension: 160,
+              useNativeDriver: false,
+            }),
+          ]),
+        ]).start();
+      } else {
+        setSavedMood(moodCheckIn.mood);
+        setShowMoodResult(true);
+        setSelectedMood(null);
+        moodSelectionProgress.setValue(0);
+        moodRevealProgress.setValue(1);
+        moodEmojiSpinProgress.setValue(1);
+        moodTickProgress.setValue(1);
+        moodStageProgress.setValue(1);
+      }
+    } catch (error) {
+      console.error("Unable to save mood check-in:", error);
+      resetMoodAnimations();
+      setSelectedMood(null);
+      setShowMoodResult(false);
+    } finally {
+      setIsLoggingMood(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    const trimmedNote = note.trim();
+
+    if (!trimmedNote || isSavingQuickThought) {
+      return;
+    }
+
+    setIsSavingQuickThought(true);
+
+    const optimisticEntry = {
+      _id: `quick-thought-${Date.now()}`,
+      title: buildQuickThoughtTitle(),
+      content: trimmedNote,
+      type: "quick-thought",
+      images: [],
+      tags: [...selectedTags],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      const savedEntry = await createJournalEntry({
+        title: optimisticEntry.title,
+        content: optimisticEntry.content,
+        type: optimisticEntry.type,
+        tags: optimisticEntry.tags,
+      });
+
+      addRecentJournalEntry(savedEntry);
+      setNote("");
+      setSelectedTags([]);
+      setIsNoteExpanded(false);
+    } catch (error) {
+      console.error("Unable to save quick thought:", error);
+    } finally {
+      setIsSavingQuickThought(false);
+    }
   };
 
   const handleToggleTag = (tag: string) => {
@@ -371,8 +603,8 @@ export default function HomeScreen({
     );
   };
 
-  const moodData = displayedMood
-    ? moods.find(mood => mood.value === displayedMood)
+  const savedMoodData = savedMood
+    ? moods.find(mood => mood.value === savedMood)
     : null;
 
   const currentMoodTone =
@@ -413,6 +645,83 @@ export default function HomeScreen({
   const noteBorderColor = isNoteExpanded
     ? theme.colors.primary
     : theme.colors.border;
+  const moodCardAnimatedStyle = {
+    transform: [
+      {
+        scale: moodSelectionProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1, 1.02],
+        }),
+      },
+      {
+        translateY: moodSelectionProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -3],
+        }),
+      },
+    ],
+  } as const;
+  const moodQuestionOpacity = moodRevealProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const moodQuestionTranslateY = moodRevealProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -8],
+  });
+  const moodSavedOpacity = moodRevealProgress.interpolate({
+    inputRange: [0, 0.35, 1],
+    outputRange: [0, 0.5, 1],
+  });
+  const moodSavedTranslateY = moodRevealProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [12, 0],
+  });
+  const moodEmojiRotate = moodEmojiSpinProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const moodStageHeight = moodStageProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [152, 60],
+  });
+  const moodTickOpacity = moodTickProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const moodTickScale = moodTickProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 1],
+  });
+  const recentEntries = recentJournalEntries.slice(0, 10);
+
+  const handleFavoriteToggle = async (
+    entryId: string,
+    nextFavorite: boolean
+  ) => {
+    if (favoriteUpdatingId === entryId) {
+      return;
+    }
+
+    const currentEntry = recentJournalEntries.find(entry => entry._id === entryId);
+
+    if (!currentEntry) {
+      return;
+    }
+
+    setFavoriteUpdatingId(entryId);
+
+    try {
+      const updatedEntry = await toggleJournalFavorite({
+        journalId: entryId,
+        isFavorite: nextFavorite,
+      });
+
+      updateRecentJournalEntry(updatedEntry);
+    } finally {
+      setFavoriteUpdatingId(null);
+    }
+  };
 
   return (
     <TabScreenLayout
@@ -508,7 +817,7 @@ export default function HomeScreen({
         </View>
         <Pressable
           accessibilityRole="button"
-          onPress={() => {}}
+          onPress={onOpenStreaks}
           style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
         >
           <Text style={[styles.ghostButtonText, { color: theme.colors.foreground }]}>
@@ -518,71 +827,44 @@ export default function HomeScreen({
       </RevealBlock>
 
           <View style={styles.sectionSpacing}>
-            <View
+            <Animated.View
               style={[
                 styles.card,
+                styles.moodCard,
                 {
                   backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
+                  borderColor: showMoodResult && savedMood
+                    ? theme.colors.primary
+                    : theme.colors.border,
                 },
+                moodCardAnimatedStyle,
               ]}
             >
-              {displayedMood && moodData && currentMoodTone ? (
-                <View style={styles.moodSavedRow}>
-                  <View
-                    style={[
-                      styles.moodSavedIcon,
-                      { backgroundColor: currentMoodTone.backgroundColor },
-                    ]}
-                  >
-                    <Text style={styles.moodEmoji}>{moodData.emoji}</Text>
-                  </View>
-                  <View style={styles.moodSavedCopy}>
-                    <View style={styles.moodSavedTitleRow}>
-                      <Text
-                        style={[
-                          styles.moodSavedTitle,
-                          { color: theme.colors.foreground },
-                        ]}
-                      >
-                        Feeling{" "}
-                        <Text style={{ color: currentMoodTone.color }}>
-                          {moodData.label.toLowerCase()}
-                        </Text>{" "}
-                        today
-                      </Text>
-                      <Check size={14} color={theme.colors.success} />
-                    </View>
-                    <Text
-                      style={[
-                        styles.moodSavedSubtitle,
-                        { color: theme.colors.mutedForeground },
-                      ]}
-                    >
-                      Mood logged for today
-                    </Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Change mood"
-                    onPress={handleResetMood}
-                    style={({ pressed }) => [
-                      styles.smallIconButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <RotateCcw size={14} color={theme.colors.mutedForeground} />
-                  </Pressable>
-                </View>
-              ) : (
-                <>
+              <Animated.View
+                style={[
+                  styles.moodStage,
+                  {
+                    height: moodStageHeight,
+                  },
+                ]}
+              >
+                <Animated.View
+                  pointerEvents={showMoodResult ? "none" : "auto"}
+                  style={[
+                    styles.moodLayer,
+                    {
+                      opacity: moodQuestionOpacity,
+                      transform: [{ translateY: moodQuestionTranslateY }],
+                    },
+                  ]}
+                >
                   <Text
                     style={[
                       styles.cardPrompt,
                       { color: theme.colors.foreground },
                     ]}
                   >
-                    How are you feeling right now?
+                    How are you feeling today?
                   </Text>
 
                   <View style={styles.moodRow}>
@@ -642,50 +924,168 @@ export default function HomeScreen({
                                     ),
                                   };
 
+                      const selectedButtonStyle = isSelected
+                        ? {
+                            transform: [
+                              {
+                                scale: moodSelectionProgress.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [1, 1.08],
+                                }),
+                              },
+                              {
+                                translateY: moodSelectionProgress.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0, -2],
+                                }),
+                              },
+                            ],
+                          }
+                        : null;
+
                       return (
                         <Pressable
                           key={mood.value}
                           accessibilityRole="button"
                           accessibilityLabel={mood.label}
+                          disabled={isLoggingMood || isLoadingMoodStatus || showMoodResult}
                           onPress={() => {
                             handleSelectMood(mood.value).catch(() => {});
                           }}
                           style={({ pressed }) => [
-                            styles.moodOption,
-                            isSelected && {
-                              backgroundColor: tone.selectedBackgroundColor,
-                            },
-                            !isSelected && {
-                              backgroundColor: tone.backgroundColor,
-                            },
+                            styles.moodOptionShell,
                             pressed && styles.pressed,
                           ]}
                         >
-                          <View style={[styles.moodIconCircle, { backgroundColor: isSelected ? tone.selectedBackgroundColor : theme.colors.secondary }]}>
-                            <Icon
-                              size={18}
-                              color={isSelected ? tone.color : theme.colors.mutedForeground}
-                            />
-                          </View>
-                          <Text
+                          <Animated.View
                             style={[
-                              styles.moodLabel,
+                              styles.moodOption,
+                              isSelected && styles.moodOptionSelected,
                               {
-                                color: isSelected
+                                backgroundColor: isSelected
+                                  ? tone.selectedBackgroundColor
+                                  : tone.backgroundColor,
+                                borderColor: isSelected
                                   ? tone.color
-                                  : theme.colors.mutedForeground,
+                                  : theme.colors.border,
                               },
+                              selectedButtonStyle,
                             ]}
                           >
-                            {mood.label}
-                          </Text>
+                            <View
+                              style={[
+                                styles.moodIconCircle,
+                                {
+                                  backgroundColor: isSelected
+                                    ? tone.selectedBackgroundColor
+                                    : theme.colors.secondary,
+                                },
+                              ]}
+                            >
+                              <Icon
+                                size={18}
+                                color={
+                                  isSelected
+                                    ? tone.color
+                                    : theme.colors.mutedForeground
+                                }
+                              />
+                            </View>
+                            <Text
+                              style={[
+                                styles.moodLabel,
+                                {
+                                  color: isSelected
+                                    ? tone.color
+                                    : theme.colors.mutedForeground,
+                                },
+                              ]}
+                            >
+                              {mood.label}
+                            </Text>
+                          </Animated.View>
                         </Pressable>
                       );
                     })}
                   </View>
-                </>
-              )}
-            </View>
+                  <Text
+                    style={[
+                      styles.moodSavedSubtitle,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    {isLoadingMoodStatus
+                      ? "Checking today's mood..."
+                      : "You can log one mood check-in per day."}
+                  </Text>
+                </Animated.View>
+
+                <Animated.View
+                  pointerEvents={showMoodResult ? "auto" : "none"}
+                  style={[
+                    styles.moodLayer,
+                    styles.moodSavedLayer,
+                    {
+                      opacity: moodSavedOpacity,
+                      transform: [{ translateY: moodSavedTranslateY }],
+                    },
+                  ]}
+                >
+                  {savedMoodData && currentMoodTone ? (
+                    <View style={styles.moodSavedRow}>
+                      <View
+                        style={[
+                          styles.moodSavedIcon,
+                          { backgroundColor: currentMoodTone.backgroundColor },
+                        ]}
+                      >
+                        <Animated.View
+                          style={{
+                            transform: [{ rotate: moodEmojiRotate }],
+                          }}
+                        >
+                          <Text style={styles.moodEmoji}>
+                            {savedMoodData.emoji}
+                          </Text>
+                        </Animated.View>
+                      </View>
+                      <View style={styles.moodSavedCopy}>
+                        <View style={styles.moodSavedTitleRow}>
+                          <Text
+                            style={[
+                              styles.moodSavedTitle,
+                              { color: theme.colors.foreground },
+                            ]}
+                          >
+                            Feeling{" "}
+                            <Text style={{ color: currentMoodTone.color }}>
+                              {savedMoodData.label.toLowerCase()}
+                            </Text>{" "}
+                            today
+                          </Text>
+                          <Animated.View
+                            style={{
+                              opacity: moodTickOpacity,
+                              transform: [{ scale: moodTickScale }],
+                            }}
+                          >
+                            <Check size={14} color={theme.colors.success} />
+                          </Animated.View>
+                        </View>
+                        <Text
+                          style={[
+                            styles.moodSavedSubtitle,
+                            { color: theme.colors.mutedForeground },
+                          ]}
+                        >
+                          Mood logged for today. Come back tomorrow to update it.
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </Animated.View>
+              </Animated.View>
+            </Animated.View>
           </View>
 
           <View style={styles.sectionSpacing}>
@@ -702,6 +1102,7 @@ export default function HomeScreen({
               {!isNoteExpanded ? (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel="Open quick thought"
                   onPress={() => setIsNoteExpanded(true)}
                   style={({ pressed }) => [
                     styles.quickNoteCollapsed,
@@ -744,8 +1145,8 @@ export default function HomeScreen({
                     <View style={styles.quickNoteActions}>
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Expand to full editor"
-                        onPress={() => {}}
+                        accessibilityLabel="Open full editor"
+                        onPress={onOpenNewEntry}
                         style={({ pressed }) => [
                           styles.smallIconButton,
                           pressed && styles.pressed,
@@ -849,6 +1250,7 @@ export default function HomeScreen({
                     </Text>
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityLabel="Save quick thought"
                       onPress={handleSaveNote}
                       disabled={!note.trim()}
                       style={({ pressed }) => [
@@ -1031,7 +1433,7 @@ export default function HomeScreen({
                 icon={CalendarDays}
                 label="Calendar"
                 accessibilityLabel="Open calendar"
-                onPress={() => {}}
+                onPress={() => setActiveTab("calendar")}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -1065,14 +1467,43 @@ export default function HomeScreen({
           </Text>
         </View>
 
-        <EmptyState
-          theme={theme}
-          title="No entries yet"
-          description="Start your journaling journey by creating your first entry"
-          actionLabel="Create Entry"
-          actionAccessibilityLabel="Create a new entry"
-          onActionPress={onOpenNewEntry}
-        />
+        {recentEntries.length ? (
+          <View style={styles.recentEntryList}>
+            {recentEntries.map(entry => (
+              <JournalEntryCard
+                key={entry._id}
+                entry={entry}
+                onPress={() => openJournalEntry(entry._id)}
+                onFavoritePress={() =>
+                  void handleFavoriteToggle(entry._id, !entry.isFavorite)
+                }
+                isFavoriteUpdating={favoriteUpdatingId === entry._id}
+                previewLines={2}
+              />
+            ))}
+            {recentEntries.length === 10 ? (
+              <View style={styles.recentEntriesFooterHint}>
+                <Text
+                  style={[
+                    styles.recentEntriesFooterText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  See Calendar for more details and the full entry history.
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <EmptyState
+            theme={theme}
+            title="No entries yet"
+            description="Start your journaling journey by creating your first entry"
+            actionLabel="Create Entry"
+            actionAccessibilityLabel="Create a new entry"
+            onActionPress={onOpenNewEntry}
+          />
+        )}
           </View>
     </TabScreenLayout>
   );
@@ -1173,6 +1604,21 @@ const styles = StyleSheet.create({
     padding: 20,
     overflow: "hidden",
   },
+  moodCard: {
+    paddingVertical: 14,
+  },
+  moodStage: {
+    position: "relative",
+  },
+  moodLayer: {
+    width: "100%",
+  },
+  moodSavedLayer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+  },
   quickNoteCard: {
     padding: 0,
   },
@@ -1185,13 +1631,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
-  moodOption: {
+  moodOptionShell: {
     flex: 1,
+  },
+  moodOption: {
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
     gap: 8,
+    borderWidth: 1,
+  },
+  moodOptionSelected: {
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    elevation: 3,
   },
   moodIconCircle: {
     width: 40,
@@ -1443,6 +1902,63 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
+  },
+  recentEntryList: {
+    gap: 10,
+  },
+  recentEntryCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    gap: 8,
+  },
+  recentEntryHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  recentEntryTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  recentEntryTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  recentEntryType: {
+    fontSize: 11,
+  },
+  recentEntryDate: {
+    fontSize: 11,
+    flexShrink: 0,
+  },
+  recentEntryPreview: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  recentEntryTagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  recentEntryTag: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  recentEntryTagText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  recentEntriesFooterHint: {
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  recentEntriesFooterText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
   },
   sectionTitle: {
     fontWeight: "600",

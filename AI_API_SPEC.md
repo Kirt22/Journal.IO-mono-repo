@@ -111,12 +111,14 @@ Request:
   "phoneNumber": "+15551234567",
   "otp": "123456",
   "name": "Alex",
-  "goals": ["Daily Reflection", "Personal Growth"]
+  "goals": ["Daily Reflection", "Personal Growth"],
+  "onboardingCompleted": true
 }
 ```
 
 `name` is optional and typically passed for new-user onboarding completion.
 `goals` is optional and carries the selected onboarding goals into the authenticated session.
+`onboardingCompleted` is optional and should be set when the onboarding flow has already been completed so the backend can persist that state.
 
 Success `data`:
 
@@ -132,6 +134,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": null
   },
   "isNewUser": true
@@ -150,7 +153,8 @@ Request:
   "googleUserId": "optional_google_sub",
   "email": "alex@gmail.com",
   "name": "Alex",
-  "profilePic": "https://..."
+  "profilePic": "https://...",
+  "onboardingCompleted": true
 }
 ```
 
@@ -165,6 +169,10 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@gmail.com",
+    "journalingGoals": [],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": "https://..."
   }
 }
@@ -221,6 +229,7 @@ Success `data`:
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
+  "onboardingCompleted": true,
   "profilePic": null
 }
 ```
@@ -465,6 +474,7 @@ Request:
 {
   "email": "alex@example.com",
   "password": "strong-password",
+  "onboardingCompleted": true,
   "onboardingContext": {
     "ageRange": "25-34",
     "journalingExperience": "regular",
@@ -517,7 +527,8 @@ Request:
 ```json
 {
   "email": "alex@example.com",
-  "code": "123456"
+  "code": "123456",
+  "onboardingCompleted": true
 }
 ```
 
@@ -535,6 +546,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": null
   },
   "isNewUser": true
@@ -550,7 +562,8 @@ Request:
 ```json
 {
   "email": "alex@example.com",
-  "password": "strong-password"
+  "password": "strong-password",
+  "onboardingCompleted": true
 }
 ```
 
@@ -568,6 +581,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
+    "onboardingCompleted": true,
     "profilePic": null
   }
 }

@@ -97,6 +97,8 @@ Implementation notes:
 - keep content readable and lightweight despite the deeper flow
 - include back/continue actions where appropriate
 - preserve any collected onboarding answers through auth and profile setup handoff
+- persist onboarding completion so returning launches can begin at auth instead of replaying onboarding
+- treat onboarding completion as device-scoped state so a reinstall restarts the onboarding flow
 
 ---
 
@@ -117,7 +119,10 @@ Auth should prioritize low-friction entry:
 - dedicated sign-in screen for returning email users
 - Google sign-in path
 - onboarding goals should remain available as hidden flow context during auth and setup steps
+- on app launch, a valid stored session should go directly to home before any onboarding/auth screens render
+- once onboarding has been completed, future app launches should begin at auth unless the user is already signed in
 - the auth screen is a one-way entry point from onboarding and does not show a back affordance
+- signed-in session state should be install-scoped so deleting and reinstalling the app returns to onboarding or auth instead of home
 
 Post-auth setup:
 

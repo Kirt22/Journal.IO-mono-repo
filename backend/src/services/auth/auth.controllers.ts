@@ -45,10 +45,138 @@ const resendOtpController = async (req: Request, res: Response) => {
   }
 };
 
+const signUpWithEmailController = async (req: Request, res: Response) => {
+  try {
+    const { email, password, onboardingContext, onboardingCompleted } =
+      req.body;
+    const result = await signUpWithEmail({
+      email,
+      password,
+      onboardingContext,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(409).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Verification code sent", result.challenge));
+  } catch (error) {
+    console.error("Error in signUpWithEmail:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const resendEmailVerificationController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { email } = req.body;
+    const result = await resendEmailVerification({ email });
+
+    if (!result.ok) {
+      return res.status(400).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Verification code resent", result.challenge));
+  } catch (error) {
+    console.error("Error in resendEmailVerification:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const verifyEmailController = async (req: Request, res: Response) => {
+  try {
+    const { email, code, onboardingCompleted } = req.body;
+    const result = await verifyEmail({
+      email,
+      code,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(400).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res.status(200).json(
+      apiResponse(true, "Login successful", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+        isNewUser: result.isNewUser,
+      })
+    );
+  } catch (error) {
+    console.error("Error in verifyEmail:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const signInWithEmailController = async (req: Request, res: Response) => {
+  try {
+    const { email, password, onboardingCompleted } = req.body;
+    const result = await signInWithEmail({
+      email,
+      password,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(401).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res.status(200).json(
+      apiResponse(true, "Login successful", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+      })
+    );
+  } catch (error) {
+    console.error("Error in signInWithEmail:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
 const verifyOtpController = async (req: Request, res: Response) => {
   try {
-    const { phoneNumber, otp, name, goals } = req.body;
-    const result = await verifyOtp({ phoneNumber, otp, name, goals });
+    const { phoneNumber, otp, name, goals, onboardingCompleted } = req.body;
+    const result = await verifyOtp({
+      phoneNumber,
+      otp,
+      name,
+      goals,
+      onboardingCompleted,
+    });
 
     if (!result.ok) {
       return res.status(400).json(
@@ -79,13 +207,21 @@ const registerFromGoogleOAuthController = async (
   res: Response
 ) => {
   try {
-    const { googleIdToken, googleUserId, email, name, profilePic } = req.body;
+    const {
+      googleIdToken,
+      googleUserId,
+      email,
+      name,
+      profilePic,
+      onboardingCompleted,
+    } = req.body;
     const result = await signInWithGoogle({
       googleIdToken,
       googleUserId,
       email,
       name,
       profilePic,
+      onboardingCompleted,
     });
 
     return res.status(200).json(
@@ -266,12 +402,12 @@ const logoutController = async (
 export {
   logoutController,
   refreshController,
-  registerFromGoogleOAuthController,
   resendEmailVerificationController,
+  registerFromGoogleOAuthController,
   resendOtpController,
-  sendOtpController,
   signInWithEmailController,
   signUpWithEmailController,
+  sendOtpController,
   verifyEmailController,
   verifyOtpController,
 };

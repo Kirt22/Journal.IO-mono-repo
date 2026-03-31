@@ -24,6 +24,14 @@ const otpStore = new Map<
 
 const OTP_LENGTH = 6;
 const OTP_MAX_ATTEMPTS = 5;
+const EMAIL_VERIFICATION_LENGTH = 6;
+const EMAIL_VERIFICATION_EXPIRY_MS = parseDurationToMs(
+  process.env.EMAIL_VERIFICATION_EXPIRES_IN || "30m",
+  30 * 60 * 1000
+);
+const PASSWORD_HASH_ITERATIONS = 120000;
+const PASSWORD_HASH_KEY_LENGTH = 64;
+const PASSWORD_HASH_DIGEST = "sha512";
 
 type SendOtpInput = {
   phoneNumber: string;
@@ -34,6 +42,7 @@ type VerifyOtpInput = {
   otp: string;
   name?: string;
   goals?: string[];
+  onboardingCompleted?: boolean;
 };
 
 type GoogleOAuthInput = {
@@ -42,6 +51,32 @@ type GoogleOAuthInput = {
   email: string;
   name: string;
   profilePic?: string;
+  onboardingCompleted?: boolean;
+};
+
+type SignUpWithEmailInput = {
+  email: string;
+  password: string;
+  onboardingContext?: {
+    goals?: string[];
+  };
+  onboardingCompleted?: boolean;
+};
+
+type ResendEmailVerificationInput = {
+  email: string;
+};
+
+type VerifyEmailInput = {
+  email: string;
+  code: string;
+  onboardingCompleted?: boolean;
+};
+
+type SignInWithEmailInput = {
+  email: string;
+  password: string;
+  onboardingCompleted?: boolean;
 };
 
 type EmailOnboardingContextInput = {
@@ -100,7 +135,7 @@ const getAccessTokenExpiry = (): Exclude<
   >;
 };
 
-const parseDurationToMs = (value: string, fallbackMs: number): number => {
+function parseDurationToMs(value: string, fallbackMs: number): number {
   const match = value.match(/^(\d+)([smhd])$/);
   if (!match) {
     return fallbackMs;
@@ -116,7 +151,7 @@ const parseDurationToMs = (value: string, fallbackMs: number): number => {
   };
 
   return amount * unitMs[unit as keyof typeof unitMs];
-};
+}
 
 const getRefreshTokenExpiryMs = (): number => {
   return parseDurationToMs(
@@ -193,6 +228,113 @@ const hashRefreshToken = (token: string): string => {
   return crypto.createHash("sha256").update(token).digest("hex");
 };
 
+const normalizeEmail = (email: string): string => {
+  return email.trim().toLowerCase();
+};
+
+const normalizeSelections = (values?: string[]) =>
+  Array.from(new Set((values || []).map(value => value.trim()).filter(Boolean)));
+
+const generateEmailVerificationCode = (): string => {
+  const digits = Array.from({ length: EMAIL_VERIFICATION_LENGTH }, () =>
+    crypto.randomInt(0, 10).toString()
+  );
+  return digits.join("");
+};
+
+const hashEmailVerificationCode = (
+  email: string,
+  code: string
+): string => {
+  return crypto
+    .createHash("sha256")
+    .update(`${normalizeEmail(email)}:${code}`)
+    .digest("hex");
+};
+
+const generatePasswordHash = (password: string): string => {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = crypto
+    .pbkdf2Sync(
+      password,
+      salt,
+      PASSWORD_HASH_ITERATIONS,
+      PASSWORD_HASH_KEY_LENGTH,
+      PASSWORD_HASH_DIGEST
+    )
+    .toString("hex");
+
+  return [
+    "pbkdf2",
+    PASSWORD_HASH_DIGEST,
+    PASSWORD_HASH_ITERATIONS.toString(),
+    salt,
+    derivedKey,
+  ].join("$");
+};
+
+const verifyPasswordHash = (password: string, storedHash?: string | null) => {
+  if (!storedHash) {
+    return false;
+  }
+
+  const [algorithm, digest, iterationsRaw, salt, derivedKey] =
+    storedHash.split("$");
+
+  if (
+    algorithm !== "pbkdf2" ||
+    digest !== PASSWORD_HASH_DIGEST ||
+    !iterationsRaw ||
+    !salt ||
+    !derivedKey
+  ) {
+    return false;
+  }
+
+  const iterations = Number(iterationsRaw);
+
+  if (!Number.isFinite(iterations) || iterations <= 0) {
+    return false;
+  }
+
+  const recalculated = crypto
+    .pbkdf2Sync(password, salt, iterations, derivedKey.length / 2, digest)
+    .toString("hex");
+
+  const recalculatedBuffer = Buffer.from(recalculated, "hex");
+  const storedBuffer = Buffer.from(derivedKey, "hex");
+
+  if (recalculatedBuffer.length !== storedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(recalculatedBuffer, storedBuffer);
+};
+
+const buildEmailVerificationChallenge = async (
+  user: IUser,
+  email: string
+) => {
+  const verificationCode = generateEmailVerificationCode();
+  user.emailVerificationCodeHash = hashEmailVerificationCode(
+    email,
+    verificationCode
+  );
+  user.emailVerificationExpiresAt = new Date(
+    Date.now() + EMAIL_VERIFICATION_EXPIRY_MS
+  );
+
+  await user.save();
+
+  return {
+    email,
+    verificationRequired: true,
+    expiresInSeconds: Math.floor(EMAIL_VERIFICATION_EXPIRY_MS / 1000),
+    verificationCode:
+      process.env.NODE_ENV !== "production" ? verificationCode : undefined,
+  };
+};
+
 const buildUserPayload = (user: IUser) => {
   return {
     userId: user._id.toString(),
@@ -202,6 +344,7 @@ const buildUserPayload = (user: IUser) => {
     journalingGoals: user.journalingGoals || [],
     avatarColor: user.avatarColor || null,
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
+    onboardingCompleted: Boolean(user.onboardingCompleted),
     profilePic: user.profilePic || null,
   };
 };
@@ -313,10 +456,12 @@ const createPhoneUser = async ({
   phoneNumber,
   name,
   goals,
+  onboardingCompleted,
 }: {
   phoneNumber: string;
   name: string;
   goals?: string[];
+  onboardingCompleted?: boolean;
 }) => {
   try {
     return await userModel.create({
@@ -325,6 +470,7 @@ const createPhoneUser = async ({
       authProviders: ["phone"],
       journalingGoals: goals || [],
       profileSetupCompleted: false,
+      onboardingCompleted: Boolean(onboardingCompleted),
     });
   } catch (error) {
     if (
@@ -339,8 +485,222 @@ const createPhoneUser = async ({
       }
     }
 
-    throw error;
+  throw error;
   }
+};
+
+const signUpWithEmail = async ({
+  email,
+  password,
+  onboardingContext,
+  onboardingCompleted,
+}: SignUpWithEmailInput) => {
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedGoals = normalizeSelections(onboardingContext?.goals);
+  const passwordHash = generatePasswordHash(password);
+
+  let user = await userModel.findOne({ email: normalizedEmail });
+
+  if (user?.emailVerifiedAt) {
+    return {
+      ok: false as const,
+      code: "EMAIL_EXISTS",
+      message: "An account with this email already exists. Please sign in.",
+    };
+  }
+
+  if (!user) {
+    user = await userModel.create({
+      name: "Journal User",
+      email: normalizedEmail,
+      authProviders: ["email"],
+      journalingGoals: normalizedGoals,
+      profileSetupCompleted: false,
+      onboardingCompleted: Boolean(onboardingCompleted),
+      emailPasswordHash: passwordHash,
+      emailVerifiedAt: null,
+      emailVerificationCodeHash: null,
+      emailVerificationExpiresAt: null,
+    });
+  } else {
+    if (!user.authProviders.includes("email")) {
+      user.authProviders = [...user.authProviders, "email"];
+    }
+
+    user.emailPasswordHash = passwordHash;
+    user.emailVerifiedAt = null;
+    user.emailVerificationCodeHash = null;
+    user.emailVerificationExpiresAt = null;
+    if (normalizedGoals.length > 0) {
+      user.journalingGoals = normalizedGoals;
+    }
+
+    if (onboardingCompleted !== undefined) {
+      user.onboardingCompleted = onboardingCompleted;
+    }
+
+    await user.save();
+  }
+
+  const challenge = await buildEmailVerificationChallenge(user, normalizedEmail);
+
+  return {
+    ok: true as const,
+    challenge,
+  };
+};
+
+const resendEmailVerification = async ({
+  email,
+}: ResendEmailVerificationInput) => {
+  const normalizedEmail = normalizeEmail(email);
+  const user = await userModel.findOne({ email: normalizedEmail });
+
+  if (!user) {
+    return {
+      ok: false as const,
+      code: "USER_NOT_FOUND",
+      message: "No account found for this email address.",
+    };
+  }
+
+  if (user.emailVerifiedAt) {
+    return {
+      ok: false as const,
+      code: "EMAIL_ALREADY_VERIFIED",
+      message: "This email is already verified.",
+    };
+  }
+
+  const challenge = await buildEmailVerificationChallenge(user, normalizedEmail);
+
+  return {
+    ok: true as const,
+    challenge,
+  };
+};
+
+const verifyEmail = async ({
+  email,
+  code,
+  onboardingCompleted,
+}: VerifyEmailInput) => {
+  const normalizedEmail = normalizeEmail(email);
+  const user = await userModel.findOne({ email: normalizedEmail });
+
+  if (!user) {
+    return {
+      ok: false as const,
+      code: "USER_NOT_FOUND",
+      message: "No pending account found for this email address.",
+    };
+  }
+
+  if (!user.emailVerificationCodeHash || !user.emailVerificationExpiresAt) {
+    return {
+      ok: false as const,
+      code: "VERIFICATION_NOT_FOUND",
+      message: "No active verification code found for this email address.",
+    };
+  }
+
+  if (Date.now() > user.emailVerificationExpiresAt.getTime()) {
+    user.emailVerificationCodeHash = null;
+    user.emailVerificationExpiresAt = null;
+    await user.save();
+
+    return {
+      ok: false as const,
+      code: "VERIFICATION_EXPIRED",
+      message: "The verification code has expired. Please request a new one.",
+    };
+  }
+
+  const expectedCodeHash = hashEmailVerificationCode(normalizedEmail, code);
+
+  if (expectedCodeHash !== user.emailVerificationCodeHash) {
+    return {
+      ok: false as const,
+      code: "VERIFICATION_INVALID",
+      message: "The verification code is incorrect.",
+    };
+  }
+
+  const isNewUser = !Boolean(user.emailVerifiedAt);
+
+  user.emailVerifiedAt = new Date();
+  user.emailVerificationCodeHash = null;
+  user.emailVerificationExpiresAt = null;
+
+  if (!user.authProviders.includes("email")) {
+    user.authProviders = [...user.authProviders, "email"];
+  }
+
+  if (onboardingCompleted !== undefined) {
+    user.onboardingCompleted = onboardingCompleted;
+  }
+
+  await user.save();
+
+  const tokens = await issueTokens(user);
+
+  return {
+    ok: true as const,
+    tokens,
+    user: buildUserPayload(user),
+    isNewUser,
+  };
+};
+
+const signInWithEmail = async ({
+  email,
+  password,
+  onboardingCompleted,
+}: SignInWithEmailInput) => {
+  const normalizedEmail = normalizeEmail(email);
+  const user = await userModel.findOne({ email: normalizedEmail });
+
+  if (!user) {
+    return {
+      ok: false as const,
+      code: "USER_NOT_FOUND",
+      message: "No account found for this email address.",
+    };
+  }
+
+  if (!user.emailVerifiedAt) {
+    return {
+      ok: false as const,
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Please verify your email before signing in.",
+    };
+  }
+
+  if (!verifyPasswordHash(password, user.emailPasswordHash)) {
+    return {
+      ok: false as const,
+      code: "INVALID_CREDENTIALS",
+      message: "The email or password is incorrect.",
+    };
+  }
+
+  if (!user.authProviders.includes("email")) {
+    user.authProviders = [...user.authProviders, "email"];
+    await user.save();
+  }
+
+  if (onboardingCompleted) {
+    user.onboardingCompleted = true;
+    await user.save();
+  }
+
+  const tokens = await issueTokens(user);
+
+  return {
+    ok: true as const,
+    tokens,
+    user: buildUserPayload(user),
+  };
 };
 
 const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
@@ -405,7 +765,13 @@ const resendOtp = async ({ phoneNumber }: SendOtpInput) => {
   return sendOtp({ phoneNumber });
 };
 
-const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
+const verifyOtp = async ({
+  phoneNumber,
+  otp,
+  name,
+  goals,
+  onboardingCompleted,
+}: VerifyOtpInput) => {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
   const otpRecord = otpStore.get(normalizedPhoneNumber);
 
@@ -486,6 +852,9 @@ const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
       phoneNumber: normalizedPhoneNumber,
       name: "Journal User",
       goals: normalizedGoals,
+      ...(onboardingCompleted !== undefined
+        ? { onboardingCompleted }
+        : {}),
     });
   }
 
@@ -494,6 +863,9 @@ const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
       phoneNumber: normalizedPhoneNumber,
       name: trimmedName,
       goals: normalizedGoals,
+      ...(onboardingCompleted !== undefined
+        ? { onboardingCompleted }
+        : {}),
     });
   }
 
@@ -511,6 +883,10 @@ const verifyOtp = async ({ phoneNumber, otp, name, goals }: VerifyOtpInput) => {
 
   if (normalizedGoals.length > 0) {
     user.journalingGoals = normalizedGoals;
+  }
+
+  if (onboardingCompleted) {
+    user.onboardingCompleted = true;
   }
 
   await user.save();
@@ -540,6 +916,7 @@ const signInWithGoogle = async (input: GoogleOAuthInput) => {
       googleUserId: input.googleUserId || null,
       profilePic: input.profilePic || null,
       authProviders: ["google"],
+      onboardingCompleted: Boolean(input.onboardingCompleted),
     });
   } else {
     const authProviders = user.authProviders.includes("google")
@@ -551,6 +928,9 @@ const signInWithGoogle = async (input: GoogleOAuthInput) => {
     user.googleUserId = user.googleUserId || input.googleUserId || null;
     user.profilePic = input.profilePic || user.profilePic || null;
     user.authProviders = authProviders;
+    if (input.onboardingCompleted) {
+      user.onboardingCompleted = true;
+    }
     await user.save();
   }
 
@@ -862,10 +1242,10 @@ export {
   refreshAccessToken,
   resendEmailVerification,
   resendOtp,
-  sendOtp,
   signInWithEmail,
-  signInWithGoogle,
   signUpWithEmail,
+  sendOtp,
+  signInWithGoogle,
   verifyEmail,
   verifyOtp,
 };

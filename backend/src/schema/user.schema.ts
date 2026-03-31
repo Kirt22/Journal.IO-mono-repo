@@ -28,6 +28,11 @@ export interface IUser extends Document {
   onboardingContext?: IOnboardingContext | null;
   avatarColor?: string | null;
   profileSetupCompleted: boolean;
+  onboardingCompleted: boolean;
+  emailPasswordHash?: string | null;
+  emailVerifiedAt?: Date | null;
+  emailVerificationCodeHash?: string | null;
+  emailVerificationExpiresAt?: Date | null;
   profilePic?: string | null;
   refreshTokenHash?: string | null;
   refreshTokenExpiresAt?: Date | null;
@@ -77,6 +82,11 @@ const userSchema = new mongoose.Schema<IUser>(
     },
     avatarColor: { type: String, default: null },
     profileSetupCompleted: { type: Boolean, default: false, required: true },
+    onboardingCompleted: { type: Boolean, default: false, required: true },
+    emailPasswordHash: { type: String, default: null },
+    emailVerifiedAt: { type: Date, default: null },
+    emailVerificationCodeHash: { type: String, default: null },
+    emailVerificationExpiresAt: { type: Date, default: null },
     profilePic: { type: String, default: null },
     refreshTokenHash: { type: String, default: null },
     refreshTokenExpiresAt: { type: Date, default: null },

@@ -8,6 +8,7 @@ type UserProfilePayload = {
   avatarColor: string | null;
   journalingGoals: string[];
   profileSetupCompleted: boolean;
+  onboardingCompleted: boolean;
   profilePic: string | null;
 };
 
@@ -26,6 +27,7 @@ const buildUserProfilePayload = (user: IUser): UserProfilePayload => {
     avatarColor: user.avatarColor || null,
     journalingGoals: user.journalingGoals || [],
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
+    onboardingCompleted: Boolean(user.onboardingCompleted),
     profilePic: user.profilePic || null,
   };
 };
@@ -58,6 +60,7 @@ const updateProfile = async (
     );
   }
   user.profileSetupCompleted = true;
+  user.onboardingCompleted = true;
 
   await user.save();
 

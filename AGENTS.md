@@ -634,11 +634,13 @@ For refactors:
 - keep diffs focused
 - avoid aesthetic-only churn
 
-For commit/push requests, use this branch-routing rule unless the user explicitly overrides it:
+For commit/push requests, use this branch model unless the user explicitly overrides it:
 
-- commit and push `frontend/**` changes to the `frontend` branch
-- commit and push `backend/**` changes to the `backend` branch
-- commit and push repo-level markdown files, skills, and other global/shared config changes to the `global` branch
+- `main` is the shared development branch and must not be edited directly during branch-management tasks unless the user explicitly asks
+- `codex` is the default working branch for local feature, bug-fix, frontend, backend, and docs changes
+- `prod` is the production-ready branch
+- commit related work together on `codex` instead of splitting frontend, backend, and global changes across separate branches
+- when the user asks to commit and push current work, push the complete validated change set in one go from `codex` unless they ask for a different branch
 
 ---
 

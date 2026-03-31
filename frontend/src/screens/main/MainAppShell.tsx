@@ -16,6 +16,7 @@ type MainAppShellProps = {
 };
 
 const IMPLEMENTED_TABS: BottomNavKey[] = ["home", "calendar", "insights", "profile"];
+const EMPTY_GOALS: string[] = [];
 
 export default function MainAppShell({
   onToggleTheme,
@@ -25,7 +26,9 @@ export default function MainAppShell({
   const onTabChange = useAppStore(state => state.setActiveTab);
   const onOpenNewEntry = useAppStore(state => state.openNewEntry);
   const session = useAppStore(state => state.session);
-  const onboardingGoals = useAppStore(state => state.onboardingData?.goals || []);
+  const onboardingGoals = useAppStore(
+    state => state.onboardingData?.goals ?? EMPTY_GOALS
+  );
   const [isStreaksViewVisible, setIsStreaksViewVisible] = useState(false);
 
   const handleTabPress = (nextTab: BottomNavKey) => {

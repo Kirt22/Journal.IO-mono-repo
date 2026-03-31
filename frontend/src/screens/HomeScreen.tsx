@@ -683,7 +683,7 @@ export default function HomeScreen({
   });
   const moodStageHeight = moodStageProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: [152, 60],
+    outputRange: [144, 56],
   });
   const moodTickOpacity = moodTickProgress.interpolate({
     inputRange: [0, 1],
@@ -1008,16 +1008,6 @@ export default function HomeScreen({
                       );
                     })}
                   </View>
-                  <Text
-                    style={[
-                      styles.moodSavedSubtitle,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {isLoadingMoodStatus
-                      ? "Checking today's mood..."
-                      : "You can log one mood check-in per day."}
-                  </Text>
                 </Animated.View>
 
                 <Animated.View
@@ -1605,7 +1595,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   moodCard: {
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
   moodStage: {
     position: "relative",
@@ -1629,16 +1621,21 @@ const styles = StyleSheet.create({
   moodRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 6,
   },
   moodOptionShell: {
     flex: 1,
+    minWidth: 0,
+    alignItems: "center",
   },
   moodOption: {
+    width: "96%",
+    minHeight: 94,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
+    paddingHorizontal: 4,
     gap: 8,
     borderWidth: 1,
   },
@@ -1653,29 +1650,29 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   moodIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   moodLabel: {
-    fontSize: 11,
+    fontSize: 10,
   },
   moodSavedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   moodSavedIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   moodEmoji: {
-    fontSize: 22,
+    fontSize: 20,
   },
   moodSavedCopy: {
     flex: 1,
@@ -1686,12 +1683,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   moodSavedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     flex: 1,
   },
   moodSavedSubtitle: {
     marginTop: 4,
-    fontSize: 12,
+    fontSize: 11,
   },
   smallIconButton: {
     width: 30,

@@ -1,4 +1,4 @@
-import { type ComponentProps } from "react";
+import { type ComponentProps, useEffect } from "react";
 import { StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppFlowRoutes } from "./navigation/routes";
@@ -9,6 +9,9 @@ import { useAppStore } from "./store/appStore";
 function AppContent() {
   const theme = useTheme();
   const stage = useAppStore(state => state.stage);
+  const hasBootstrappedAuthGate = useAppStore(
+    state => state.hasBootstrappedAuthGate
+  );
   const isCompletingOnboarding = useAppStore(
     state => state.isCompletingOnboarding
   );
@@ -21,6 +24,7 @@ function AppContent() {
   const session = useAppStore(state => state.session);
   const initialProfileName = useAppStore(state => state.initialProfileName);
   const completeOnboarding = useAppStore(state => state.completeOnboarding);
+  const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
   const continueWithEmail = useAppStore(state => state.continueWithEmail);
   const continueWithGoogle = useAppStore(state => state.continueWithGoogle);
   const goToSignIn = useAppStore(state => state.goToSignIn);
@@ -78,6 +82,14 @@ function AppContent() {
     onCloseNewEntry: closeNewEntry,
     onToggleTheme: setThemeModeOverride,
   } satisfies Omit<ComponentProps<typeof AppFlowRoutes>, "stage">;
+
+  useEffect(() => {
+    bootstrapAuthGate().catch(() => undefined);
+  }, [bootstrapAuthGate]);
+
+  if (!hasBootstrappedAuthGate) {
+    return <View style={[appStyles.appRoot, { backgroundColor: theme.colors.background }]} />;
+  }
 
   return (
     <View style={[appStyles.appRoot, { backgroundColor: theme.colors.background }]}>

@@ -9,6 +9,14 @@ type UpdateProfilePayload = {
 
 type ProfileResponse = AuthUser;
 
+const getProfile = async () => {
+  const response = await request<ProfileResponse>("/users/profile", {
+    method: "GET",
+  });
+
+  return response.data;
+};
+
 const updateProfile = async (payload: UpdateProfilePayload) => {
   const response = await request<ProfileResponse>("/users/profile", {
     method: "PATCH",
@@ -18,5 +26,5 @@ const updateProfile = async (payload: UpdateProfilePayload) => {
   return response.data;
 };
 
-export { updateProfile };
+export { getProfile, updateProfile };
 export type { UpdateProfilePayload, ProfileResponse };

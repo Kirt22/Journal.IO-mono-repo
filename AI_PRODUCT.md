@@ -38,12 +38,15 @@ Insight language must remain uncertainty-aware, for example:
 
 Primary user journey represented by the latest design context:
 
-1. Onboarding (3 steps)
-2. Phone auth or Google auth
-3. OTP verification (phone path)
-4. Profile setup
-5. Home dashboard
-6. Core journaling loops (new entry, history/calendar, insights, profile/settings/privacy)
+1. Onboarding (8 steps)
+2. Auth entry (email or Google)
+3. Create account (email path)
+4. Verify email (email path)
+5. Sign in (returning email users)
+6. Profile setup
+7. Home dashboard
+8. Core journaling loops (new entry, history/calendar, insights, profile/settings/privacy)
+9. Supporting monetization entry surfaces such as the premium paywall
 
 ---
 
@@ -51,6 +54,7 @@ Primary user journey represented by the latest design context:
 
 - onboarding and trust education
 - authentication and profile setup
+- premium upsell / paywall entry
 - quick mood check-in
 - daily journaling and history
 - AI-assisted insights

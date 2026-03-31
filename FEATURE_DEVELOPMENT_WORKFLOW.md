@@ -47,11 +47,18 @@ When work starts from Figma/design:
 # 4) Frontend Checklist (Per Slice)
 
 - screens
+- screens grouped by flow folder (`onboarding`, `auth`, `profile`, etc.)
+- shared helpers in `frontend/src/utils`
 - reusable components
 - service-layer API calls
+- MVVM boundary adherence:
+  - View in screens/components
+  - ViewModel in hooks/store
+  - Model in services/domain structures
 - navigation integration
 - loading/empty/error states
 - UX alignment to `AI_UI_UX_CONTEXT.md`
+- state split kept consistent (TanStack Query for server state, Zustand for app/client state)
 
 ---
 
@@ -78,3 +85,15 @@ A feature slice is complete only when:
 - contracts are respected
 - tests/checks are run and reported
 - no unrelated refactor is bundled
+
+---
+
+# 7) Branching Workflow
+
+When a task includes cross-scope changes, split delivery into dedicated branches:
+
+1. `frontend` for `frontend/` implementation changes
+2. `backend` for `backend/` implementation changes
+3. `global` for root/global docs or config changes (including root `.md`, `.agents/`, `.codex/`)
+
+Do not mix these scopes into the same commit. Commit and push each branch separately.

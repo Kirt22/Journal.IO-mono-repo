@@ -11,7 +11,13 @@ Implement features sequentially as complete vertical slices.
 Scope:
 
 - multi-step onboarding
+- 8-screen personalization flow
+- age range capture
+- journaling experience capture
 - goal selection capture
+- support-focus capture
+- reminder preference capture
+- AI comfort / opt-in explanation
 - privacy agreement capture
 
 Includes:
@@ -20,14 +26,20 @@ Includes:
 - backend persistence for onboarding preferences (if required)
 - validation and tests
 
+Current slice note:
+
+- latest design expects an 8-step onboarding flow whose collected preferences carry forward into auth and profile setup
+
 ---
 
-# 2) Authentication Flow (Phone + Google)
+# 2) Authentication Flow (Email + Google)
 
 Scope:
 
-- phone OTP request
-- OTP verification
+- auth landing screen with `Continue with Email`
+- email create-account
+- email verification
+- email sign-in
 - Google OAuth registration/login
 - token refresh and logout
 
@@ -36,6 +48,10 @@ Includes:
 - auth routes/controllers/validators/services
 - auth frontend service integration
 - auth UI states and error handling
+
+Current slice note:
+
+- current backend still uses phone OTP, but the latest design source has moved to email auth and now requires auth/create-account/verify-email/sign-in slices plus onboarding context handoff
 
 ---
 
@@ -46,6 +62,7 @@ Scope:
 - post-auth display name setup
 - optional avatar/profile preferences
 - profile fetch/update support
+- verified account summary for email or Google auth origin
 
 Includes:
 
@@ -53,9 +70,31 @@ Includes:
 - profile screen integration
 - validation and ownership checks
 
+Current slice note:
+
+- profile setup remains implemented through `PATCH /users/profile`; next design-aligned pass must replace phone-first assumptions with email/google-aware entry states
+
 ---
 
-# 4) Home Dashboard Slice
+# 4) Paywall and Monetization Entry
+
+Scope:
+
+- premium paywall screen
+- plan selection UI
+- restore purchases action
+- dismiss / close handling
+- premium feature messaging aligned to the current calm visual system
+
+Includes:
+
+- frontend paywall screen and navigation entry points
+- purchase-state loading / error handling
+- follow-up billing integration planning where needed
+
+---
+
+# 5) Home Dashboard Slice
 
 Scope:
 
@@ -73,7 +112,7 @@ Includes:
 
 ---
 
-# 5) Journal Lifecycle
+# 6) Journal Lifecycle
 
 Scope:
 
@@ -86,7 +125,7 @@ Scope:
 
 ---
 
-# 6) Insights and Trends
+# 7) Insights and Trends
 
 Scope:
 
@@ -101,7 +140,7 @@ Depends on:
 
 ---
 
-# 7) Weekly Action Plans
+# 8) Weekly Action Plans
 
 Scope:
 
@@ -111,7 +150,7 @@ Scope:
 
 ---
 
-# 8) Reminders and Streaks
+# 9) Reminders and Streaks
 
 Scope:
 
@@ -121,7 +160,7 @@ Scope:
 
 ---
 
-# 9) Privacy and Safety
+# 10) Privacy and Safety
 
 Scope:
 

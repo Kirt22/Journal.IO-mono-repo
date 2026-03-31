@@ -76,13 +76,31 @@ Current design flow represented in architecture decisions:
 Frontend structure:
 
 - `frontend/src/screens`
+- `frontend/src/screens/{flow}`
 - `frontend/src/components`
+- `frontend/src/utils`
 - `frontend/src/services`
 - `frontend/src/hooks`
 - `frontend/src/store`
 - `frontend/src/navigation`
 
+Frontend architectural pattern: MVVM.
+
+- View: screens and reusable UI components
+- ViewModel: hooks/store state and UI orchestration
+- Model: service-layer data access and feature/domain data structures
+
 API calls must remain in `frontend/src/services`.
+Low-level shared helpers like API clients and secure token storage belong in `frontend/src/utils`.
+Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
+Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
+
+Frontend state management split:
+
+- server state: TanStack Query
+- app/client global state: Zustand
+
+Redux/Redux Toolkit is not part of the default frontend architecture.
 
 ---
 
@@ -141,6 +159,7 @@ Core requirements:
 Current implemented backend modules are centered around:
 
 - `auth`
+- `user`
 - `journal`
 
 Design-aligned target modules include:

@@ -11,9 +11,17 @@ import {
   type AuthOnboardingContext,
   type AuthSession,
 } from "../services/authService";
-import { updateProfile } from "../services/userService";
+import { getProfile, updateProfile } from "../services/userService";
 import type { ThemeMode } from "../theme/theme";
-import { saveTokens } from "../utils/tokenStorage";
+import {
+  clearTokens,
+  getOnboardingCompleted,
+  hasSeenInstall,
+  getTokens,
+  markInstallSeen,
+  saveOnboardingCompleted,
+  saveTokens,
+} from "../utils/tokenStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
 import { calendarSampleJournalEntries } from "../models/calendarModels";
 import {
@@ -118,7 +126,9 @@ type AppStoreState = {
   initialProfileName: string;
   themeModeOverride: ThemeMode | null;
   selectedJournalEntryId: string | null;
+  hasBootstrappedAuthGate: boolean;
 } & JournalSliceState & {
+  bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
@@ -166,6 +176,7 @@ type AppStoreSnapshot = Pick<
   | "initialProfileName"
   | "themeModeOverride"
   | "selectedJournalEntryId"
+  | "hasBootstrappedAuthGate"
   | "recentJournalEntries"
 >;
 
@@ -184,6 +195,7 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   initialProfileName: "",
   themeModeOverride: null,
   selectedJournalEntryId: null,
+  hasBootstrappedAuthGate: false,
   ...createInitialJournalSliceState(calendarSampleJournalEntries),
 });
 
@@ -216,13 +228,103 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set as Parameters<typeof createJournalSlice>[0],
     calendarSampleJournalEntries
   ),
+  bootstrapAuthGate: async () => {
+    if (get().hasBootstrappedAuthGate) {
+      return;
+    }
+
+    if (__DEV__ && devLaunchConfig.stage && devLaunchConfig.stage !== "onboarding") {
+      set({ hasBootstrappedAuthGate: true });
+      return;
+    }
+
+    const installSeen = await hasSeenInstall();
+
+    if (!installSeen) {
+      await markInstallSeen();
+      await clearTokens();
+      await saveOnboardingCompleted(false);
+
+      set({
+        hasBootstrappedAuthGate: true,
+        stage: "onboarding",
+      });
+      return;
+    }
+
+    const tokens = await getTokens();
+
+    if (tokens) {
+      try {
+        const profile = await getProfile();
+        const hydratedSession: AuthSession = {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          user: profile,
+        };
+
+        await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: hydratedSession,
+          initialProfileName: profile.name,
+          authSource: profile.email ? "email" : null,
+          pendingEmail: profile.email || "",
+          pendingVerificationCode: "",
+          activeTab: "home",
+          stage: "main-app",
+        });
+        return;
+      } catch {
+        const fallbackSession: AuthSession = {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          user: {
+            userId: "",
+            name: "Journal User",
+            phoneNumber: null,
+            email: null,
+            journalingGoals: [],
+            avatarColor: null,
+            profileSetupCompleted: true,
+            onboardingCompleted: true,
+            profilePic: null,
+          },
+        };
+
+        await saveOnboardingCompleted(true);
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: fallbackSession,
+          initialProfileName: fallbackSession.user.name,
+          authSource: null,
+          pendingEmail: "",
+          pendingVerificationCode: "",
+          activeTab: "home",
+          stage: "main-app",
+        });
+        return;
+      }
+    }
+
+    const onboardingCompleted = await getOnboardingCompleted();
+
+    set({
+      hasBootstrappedAuthGate: true,
+      stage: onboardingCompleted ? "auth" : "onboarding",
+    });
+  },
   completeOnboarding: async data => {
     set({
       isCompletingOnboarding: true,
       onboardingData: data,
     });
 
+    const saveOnboardingCompletedPromise = saveOnboardingCompleted(true);
     await wait(ONBOARDING_EXIT_DELAY_MS);
+    await saveOnboardingCompletedPromise;
 
     set({
       isCompletingOnboarding: false,
@@ -240,12 +342,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       googleIdToken: "mock-google-token",
       email: "alex.rivera@example.com",
       name: "Alex Rivera",
+      onboardingCompleted: true,
     });
 
     await saveTokens({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
     });
+    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
 
     set({
       authSource: "google",
@@ -281,6 +385,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       email: normalizedEmail,
       password: payload.password,
       onboardingContext: buildOnboardingContext(get().onboardingData),
+      onboardingCompleted: true,
     });
 
     set({
@@ -320,6 +425,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       {
         onboardingGoals: onboardingData?.goals,
+        onboardingCompleted: true,
       }
     );
 
@@ -338,6 +444,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       accessToken: updatedSession.accessToken,
       refreshToken: updatedSession.refreshToken,
     });
+    await saveOnboardingCompleted(true);
 
     set({
       session: updatedSession,
@@ -348,12 +455,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ stage: "profile" });
   },
   signIn: async payload => {
-    const response = await signInWithEmail(payload);
+    const response = await signInWithEmail({
+      ...payload,
+      onboardingCompleted: true,
+    });
 
     await saveTokens({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
     });
+    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
 
     if (response.user.profileSetupCompleted) {
       set({
@@ -381,6 +492,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       goals: getSelectedGoals(get()),
     });
 
+    await saveOnboardingCompleted(true);
+
     enterHomeWithProfile(set, get, updatedProfile);
   },
   goBackToAuth: () => {
@@ -405,6 +518,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       avatarColor,
       goals: getSelectedGoals(state),
     });
+
+    await saveOnboardingCompleted(true);
 
     enterHomeWithProfile(set, get, updatedProfile);
   },

@@ -1,6 +1,15 @@
 import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
+jest.mock("@react-native-async-storage/async-storage", () => ({
+  __esModule: true,
+  default: {
+    setItem: jest.fn(),
+    getItem: jest.fn(),
+    removeItem: jest.fn(),
+  },
+}));
+
 const onboardingData = {
   ageRange: "25-34",
   journalingExperience: "Occasional journaler",
@@ -62,5 +71,165 @@ describe("appStore", () => {
     expect(store.getState().activeTab).toBe("home");
     expect(store.getState().authSource).toBeNull();
     expect(store.getState().themeModeOverride).toBeNull();
+  });
+
+  it("boots into auth when the onboarding gate has already been completed", async () => {
+    jest.resetModules();
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("auth");
+  });
+
+  it("boots directly into home when a signed-in session is already stored", async () => {
+    jest.resetModules();
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => ({
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        profilePic: null,
+      })),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("main-app");
+    expect(freshStore.getState().session?.user.email).toBe("alex@example.com");
+  });
+
+  it("boots into onboarding on a fresh install even if keychain still has a token", async () => {
+    jest.resetModules();
+
+    const clearTokens = jest.fn(async () => undefined);
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens,
+      getAccessToken: jest.fn(async () => "stale-access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      hasSeenInstall: jest.fn(async () => false),
+      getTokens: jest.fn(async () => ({
+        accessToken: "stale-access-token",
+        refreshToken: "stale-refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(clearTokens).toHaveBeenCalled();
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("onboarding");
+  });
+
+  it("persists the onboarding flag returned by sign in", async () => {
+    jest.resetModules();
+
+    const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const saveTokens = jest.fn(async () => undefined);
+    const signInWithEmail = jest.fn(async () => ({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        profilePic: null,
+      },
+    }));
+
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      signInWithEmail,
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted,
+      saveTokens,
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().signIn({
+        email: "alex@example.com",
+        password: "password123",
+      });
+    });
+
+    expect(signInWithEmail).toHaveBeenCalledWith({
+      email: "alex@example.com",
+      password: "password123",
+      onboardingCompleted: true,
+    });
+    expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().stage).toBe("main-app");
   });
 });

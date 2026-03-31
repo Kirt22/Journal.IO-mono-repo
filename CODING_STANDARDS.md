@@ -54,7 +54,9 @@ Do not introduce Redux Toolkit for this repo unless explicitly requested.
 
 Structure:
 
-- `frontend/src/screens`
+- `frontend/src/screens/{flow}`
+- `frontend/src/screens/{flow}/{ScreenName}.tsx`
+- `frontend/src/utils`
 - `frontend/src/components`
 - `frontend/src/services`
 - `frontend/src/hooks`
@@ -70,12 +72,19 @@ Frontend architecture pattern:
 
 Rules:
 
+- group screen files by flow folders such as `onboarding`, `auth`, and `profile`
+- keep low-level shared helpers like `apiClient` and `tokenStorage` in `frontend/src/utils`
+- keep app-wide state in `frontend/src/store` when introduced
 - place API calls in `frontend/src/services`
 - keep screens focused on composition and state display
 - keep MVVM boundaries explicit (no data-access logic directly in views)
 - extract reusable UI into components
 - include loading, empty, success, and error states
 - avoid direct API contract logic embedded in JSX
+- build responsive screen layouts for iOS and Android phone sizes (compact, base, and large widths)
+- use adaptive values (spacing, typography, control sizes, max content width) rather than single fixed dimensions for all devices
+- route screen colors through shared theme tokens and avoid isolated hardcoded palettes in screen files
+- use the app theme provider so light/dark mode follows the device system theme by default
 
 ---
 

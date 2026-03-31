@@ -5,20 +5,35 @@ import {
   logoutController,
   refreshController,
   registerFromGoogleOAuthController,
+  resendEmailVerificationController,
+  resendOtpController,
   sendOtpController,
+  signInWithEmailController,
+  signUpWithEmailController,
+  verifyEmailController,
   verifyOtpController,
 } from "./auth.controllers";
 import {
   logoutSchema,
+  resendEmailVerificationSchema,
+  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
   sendOtpSchema,
+  signInWithEmailSchema,
+  signUpWithEmailSchema,
+  verifyEmailSchema,
   verifyOtpSchema,
 } from "./auth.validators";
 
 const authRouter: Router = Router();
 
 authRouter.post("/send_otp", validateRequest(sendOtpSchema), sendOtpController);
+authRouter.post(
+  "/resend_otp",
+  validateRequest(resendOtpSchema),
+  resendOtpController
+);
 authRouter.post(
   "/verify_otp",
   validateRequest(verifyOtpSchema),
@@ -28,6 +43,26 @@ authRouter.post(
   "/register_from_googleOAuth",
   validateRequest(registerFromGoogleOAuthSchema),
   registerFromGoogleOAuthController
+);
+authRouter.post(
+  "/sign_up_with_email",
+  validateRequest(signUpWithEmailSchema),
+  signUpWithEmailController
+);
+authRouter.post(
+  "/resend_email_verification",
+  validateRequest(resendEmailVerificationSchema),
+  resendEmailVerificationController
+);
+authRouter.post(
+  "/verify_email",
+  validateRequest(verifyEmailSchema),
+  verifyEmailController
+);
+authRouter.post(
+  "/sign_in_with_email",
+  validateRequest(signInWithEmailSchema),
+  signInWithEmailController
 );
 authRouter.post("/refresh", validateRequest(refreshSchema), refreshController);
 authRouter.post(

@@ -7,7 +7,7 @@ import { validateRequest } from "../../middleware/validateRequest.middleware";
 const journalRouter: Router = Router();
 
 /**
- * @route   POST /get_journals
+ * @route   GET /get_journals
  * @desc    Retrieves a list of journals.
  * @access  Private (Requires JWT authentication)
  */
@@ -15,7 +15,7 @@ journalRouter.get(
   "/get_journals",
   verifyJwtToken,
   validateRequest(journalValidators.getJournalsSchema),
-  journalController.getJournals
+  journalController.getJournalsController
 );
 
 /**
@@ -27,7 +27,7 @@ journalRouter.post(
   "/create_journal",
   verifyJwtToken,
   validateRequest(journalValidators.createJournalSchema),
-  journalController.createJournal
+  journalController.createJournalController
 );
 
 /**
@@ -39,7 +39,7 @@ journalRouter.get(
   "/get_journal_details",
   verifyJwtToken,
   validateRequest(journalValidators.getJournalDetailsSchema),
-  journalController.getJournalDetails
+  journalController.getJournalDetailsController
 );
 
 /**
@@ -51,7 +51,19 @@ journalRouter.post(
   "/edit_journal",
   verifyJwtToken,
   validateRequest(journalValidators.editJournalSchema),
-  journalController.editJournal
+  journalController.editJournalController
+);
+
+/**
+ * @route   POST /toggle_favorite
+ * @desc    Toggles the favorite state of an existing journal entry.
+ * @access  Private (Requires JWT authentication)
+ */
+journalRouter.post(
+  "/toggle_favorite",
+  verifyJwtToken,
+  validateRequest(journalValidators.toggleJournalFavoriteSchema),
+  journalController.toggleJournalFavoriteController
 );
 
 /**
@@ -63,7 +75,7 @@ journalRouter.delete(
   "/delete_journal",
   verifyJwtToken,
   validateRequest(journalValidators.deleteJournalSchema),
-  journalController.deleteJournal
+  journalController.deleteJournalController
 );
 
 export default journalRouter;

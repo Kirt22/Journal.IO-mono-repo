@@ -8,7 +8,9 @@ export interface IJournal extends Document {
   userId: mongoose.Types.ObjectId;
   type: string;
   title: string;
+  tags: string[];
   images: [string] | null;
+  isFavorite: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,7 +25,9 @@ const journalSchema = new mongoose.Schema<IJournal>(
     content: { type: String, required: true },
     type: { type: String, required: true },
     title: { type: String, default: "Untitled", required: true },
+    tags: { type: [String], default: [] },
     images: { type: [String], default: [] },
+    isFavorite: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

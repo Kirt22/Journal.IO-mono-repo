@@ -1,0 +1,42 @@
+export type JournalEntryResponse = {
+  _id: string;
+  title: string;
+  content: string;
+  type: string;
+  tags: string[];
+  images: string[];
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateJournalInput = {
+  userId: string;
+  title: string;
+  content: string;
+  type?: string;
+  tags?: string[];
+  images?: string[];
+};
+
+export type UpdateJournalInput = {
+  userId: string;
+  journalId: string;
+  title: string;
+  content: string;
+  type?: string;
+  tags?: string[];
+  images?: string[];
+  isFavorite?: boolean;
+};
+
+export type ToggleJournalFavoriteInput = {
+  userId: string;
+  journalId: string;
+  isFavorite: boolean;
+};
+
+export type JournalLookupInput = {
+  userId: string;
+  journalId: string;
+};

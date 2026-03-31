@@ -1,15 +1,31 @@
 import mongoose, { Document, Model } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 
+export interface IOnboardingContext {
+  ageRange?: string | null;
+  journalingExperience?: string | null;
+  goals: string[];
+  supportFocus: string[];
+  reminderPreference?: string | null;
+  aiOptIn?: boolean | null;
+  privacyConsentAccepted?: boolean | null;
+}
+
 export interface IUser extends Document {
   toObject(): Record<string, unknown>;
   _id: mongoose.Types.ObjectId;
   name: string;
   phoneNumber?: string | null;
   email?: string | null;
+  passwordHash?: string | null;
+  emailVerified: boolean;
+  emailVerificationCode?: string | null;
+  emailVerificationExpiresAt?: Date | null;
+  emailVerificationAttempts: number;
   googleUserId?: string | null;
   authProviders: string[];
   journalingGoals: string[];
+  onboardingContext?: IOnboardingContext | null;
   avatarColor?: string | null;
   profileSetupCompleted: boolean;
   profilePic?: string | null;
@@ -20,15 +36,33 @@ export interface IUser extends Document {
   updatedAt: Date;
 }
 
+const onboardingContextSchema = new mongoose.Schema<IOnboardingContext>(
+  {
+    ageRange: { type: String, default: null, trim: true },
+    journalingExperience: { type: String, default: null, trim: true },
+    goals: { type: [String], default: [], required: true },
+    supportFocus: { type: [String], default: [], required: true },
+    reminderPreference: { type: String, default: null, trim: true },
+    aiOptIn: { type: Boolean, default: null },
+    privacyConsentAccepted: { type: Boolean, default: null },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
     phoneNumber: { type: String, default: null, trim: true },
     email: { type: String, default: null, trim: true, lowercase: true },
+    passwordHash: { type: String, default: null },
+    emailVerified: { type: Boolean, default: false, required: true },
+    emailVerificationCode: { type: String, default: null },
+    emailVerificationExpiresAt: { type: Date, default: null },
+    emailVerificationAttempts: { type: Number, default: 0, required: true },
     googleUserId: { type: String, default: null },
     authProviders: {
       type: [String],
-      enum: ["phone", "google"],
+      enum: ["phone", "google", "email"],
       default: [],
       required: true,
     },
@@ -36,6 +70,10 @@ const userSchema = new mongoose.Schema<IUser>(
       type: [String],
       default: [],
       required: true,
+    },
+    onboardingContext: {
+      type: onboardingContextSchema,
+      default: null,
     },
     avatarColor: { type: String, default: null },
     profileSetupCompleted: { type: Boolean, default: false, required: true },

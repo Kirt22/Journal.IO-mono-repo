@@ -5,7 +5,7 @@ const MONGO_STAGE = process.env.MONGO_STAGE || "local";
 let MONGO_URI: string;
 
 if (MONGO_STAGE === "local") {
-  MONGO_URI = process.env.MONGO_URI_LOCAL || "mongodb://localhost:27017/";
+  MONGO_URI = process.env.MONGO_URI_LOCAL || "mongodb://localhost:27017";
 } else if (MONGO_STAGE === "prod") {
   MONGO_URI = process.env.MONGO_URI_PROD || "";
 } else if (MONGO_STAGE === "dev") {

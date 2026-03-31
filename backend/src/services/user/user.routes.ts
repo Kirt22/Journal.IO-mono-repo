@@ -15,6 +15,7 @@ userRouter.get(
   validateRequest(getProfileSchema),
   getProfileController
 );
+
 userRouter.patch(
   "/profile",
   verifyJwtToken,

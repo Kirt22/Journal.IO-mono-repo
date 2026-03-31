@@ -34,6 +34,7 @@ The current design flow is:
 8. Supporting flows:
    - new entry
    - entry detail
+   - journal edit
    - calendar/history
    - search
    - insights
@@ -155,13 +156,26 @@ Home should support quick daily engagement:
 
 - greeting + date context
 - streak summary
-- quick mood check-in
+- quick daily mood tracker with a once-per-day guard
 - quick note capture
 - AI insight card (short and actionable)
 - daily prompt card
 - recent entries preview
+- recent entries should open a detail screen when tapped, with a separate edit screen for changes
+
+Shared journal-card rule:
+
+- Home recent entries and Calendar history cards should use the same entry presentation
+- show the emoji and date on the left, keep the favorite star on the right, then the title, compact content preview, and tags
+- the favorite star is tappable and updates the saved favorite state
+- quick thoughts should display a dedicated quick-thought title and thought emoji
+- if a journal entry has no explicit mood selection, use a placeholder journal emoji
+- strip `mood:` tags from the visible tag chips
+- keep the Home preview slightly shorter than Calendar
 
 The first screen after setup should make journaling and check-in easy within one scroll.
+
+Mood tracker copy should feel direct and calm, using "How are you feeling today?" for the prompt and clearly indicating when today's check-in is already logged.
 
 ---
 

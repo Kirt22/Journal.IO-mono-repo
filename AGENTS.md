@@ -337,24 +337,12 @@ Screens should:
 - handle loading, empty, success, and error states
 - avoid embedding raw API details in the JSX layer
 
-### Architecture Pattern
-
-Frontend implementation should follow MVVM:
-
-- View: `frontend/src/screens` and `frontend/src/components`
-- ViewModel: `frontend/src/hooks` and `frontend/src/store`
-- Model: `frontend/src/services` and feature/domain data structures
-
-Keep responsibilities separated and avoid blending data-access logic into views.
-
 ### State Rules
 
 Use:
 
 - TanStack Query for server state
 - Zustand for app/client state
-
-Global app/client state management for this app is Zustand. Do not introduce Redux or Redux Toolkit unless explicitly requested.
 
 Do not tightly couple state logic to UI rendering.
 
@@ -670,25 +658,15 @@ For refactors:
 - keep diffs focused
 - avoid aesthetic-only churn
 
----
+For commit/push requests, use this branch-routing rule unless the user explicitly overrides it:
 
-## 21) Git Branch Strategy
-
-When work spans multiple scopes, split changes into dedicated branches:
-
-- `frontend` branch: changes under `frontend/`
-- `backend` branch: changes under `backend/`
-- `global` branch: root/global configuration or guidance changes, including root `.md` files and updates under `.agents/` or `.codex/`
-
-Rules:
-
-- keep commits scope-pure per branch
-- do not mix frontend/backend/global edits in one commit
-- push each branch independently after its scoped commit is complete
+- commit and push `frontend/**` changes to the `frontend` branch
+- commit and push `backend/**` changes to the `backend` branch
+- commit and push repo-level markdown files, skills, and other global/shared config changes to the `global` branch
 
 ---
 
-## 22) When To Ask For Clarification
+## 21) When To Ask For Clarification
 
 Ask for clarification only when the ambiguity materially blocks correct implementation.
 
@@ -696,7 +674,7 @@ Otherwise, make the most reasonable repo-consistent assumption and state it in t
 
 ---
 
-## 23) Guidance Maintenance
+## 22) Guidance Maintenance
 
 If the same mistake happens more than once, update `AGENTS.md` with a concrete rule that would have prevented it.
 
@@ -704,7 +682,7 @@ Keep this file practical, short enough to be usable, and based on real repo need
 
 ---
 
-## 24) Screen Source And Tracking
+## 23) Screen Source And Tracking
 
 For screen implementation work, the default design source of truth is:
 
@@ -719,7 +697,7 @@ Rules:
 
 ---
 
-## 25) Skills
+## 24) Skills
 
 A skill is a set of local instructions stored in a `SKILL.md` file.
 

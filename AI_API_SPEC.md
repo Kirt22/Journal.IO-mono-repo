@@ -48,9 +48,9 @@ Error:
 
 Current backend reality:
 
-- the implemented backend still uses phone OTP plus Google OAuth
-- the latest Figma design has moved to email-first auth
-- the email auth contract is documented in the design-aligned target section below and should not be treated as already implemented until the backend/frontend migration lands
+- the implemented backend supports phone OTP, email-first auth, and Google OAuth
+- the current frontend auth flow uses the email-first endpoints below
+- the phone OTP endpoints remain available as a legacy auth path during migration
 
 ### `POST /auth/send_otp`
 
@@ -229,27 +229,219 @@ Both routes require authentication.
 
 ---
 
-## 3.3 Journal Module (`/journal`)
+## 3.3 Mood Tracker Module (`/mood`)
+
+The mood tracker is separate from journal entries. It stores only the authenticated user, the mood value, and the day-specific check-in record.
+
+### `GET /mood/today`
+
+Get the authenticated user's mood check-in for today.
+
+Response `data`:
+
+```json
+{
+  "moodCheckIn": {
+    "_id": "string",
+    "mood": "good",
+    "moodDateKey": "2026-03-30",
+    "createdAt": "2026-03-30T12:00:00.000Z",
+    "updatedAt": "2026-03-30T12:00:00.000Z"
+  }
+}
+```
+
+If no check-in exists yet for today, `moodCheckIn` is `null`.
+
+### `POST /mood/check_in`
+
+Create today's mood check-in if one does not already exist.
+
+Request:
+
+```json
+{
+  "mood": "good"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "moodCheckIn": {
+    "_id": "string",
+    "mood": "good",
+    "moodDateKey": "2026-03-30",
+    "createdAt": "2026-03-30T12:00:00.000Z",
+    "updatedAt": "2026-03-30T12:00:00.000Z"
+  }
+}
+```
+
+If a check-in already exists for the current day, the backend returns the existing record rather than creating a duplicate.
+
+Both routes require authentication.
+
+## 3.4 Journal Module (`/journal`)
 
 ### `GET /journal/get_journals`
 
 Get authenticated user journals.
 
+Response `data`:
+
+```json
+[
+  {
+    "_id": "string",
+    "title": "string",
+    "content": "string",
+    "type": "journal",
+    "tags": ["string"],
+    "images": ["string"],
+    "isFavorite": false,
+    "createdAt": "2026-03-30T12:00:00.000Z",
+    "updatedAt": "2026-03-30T12:00:00.000Z"
+  }
+]
+```
+
 ### `POST /journal/create_journal`
 
 Create journal entry.
+
+Request:
+
+```json
+{
+  "title": "Morning note",
+  "content": "Today felt steady and clear.",
+  "type": "journal",
+  "images": [],
+  "tags": ["reflection"],
+  "isFavorite": false
+}
+```
+
+Success `data`:
+
+```json
+{
+  "_id": "string",
+  "title": "Morning note",
+  "content": "Today felt steady and clear.",
+  "type": "journal",
+  "tags": ["reflection"],
+  "images": [],
+  "isFavorite": false,
+  "createdAt": "2026-03-30T12:00:00.000Z",
+  "updatedAt": "2026-03-30T12:00:00.000Z"
+}
+```
 
 ### `GET /journal/get_journal_details`
 
 Get details for one journal entry.
 
+Request query:
+
+```json
+{
+  "journalId": "string"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "_id": "string",
+  "title": "string",
+  "content": "string",
+  "type": "journal",
+  "tags": ["string"],
+  "images": ["string"],
+  "isFavorite": false,
+  "createdAt": "2026-03-30T12:00:00.000Z",
+  "updatedAt": "2026-03-30T12:00:00.000Z"
+}
+```
+
 ### `POST /journal/edit_journal`
 
 Edit one journal entry.
 
+Request:
+
+```json
+{
+  "journalId": "string",
+  "title": "Updated title",
+  "content": "Updated content",
+  "type": "journal",
+  "images": [],
+  "tags": ["reflection", "growth"],
+  "isFavorite": true
+}
+```
+
+Success `data`:
+
+```json
+{
+  "_id": "string",
+  "title": "Updated title",
+  "content": "Updated content",
+  "type": "journal",
+  "tags": ["reflection", "growth"],
+  "images": [],
+  "isFavorite": true,
+  "createdAt": "2026-03-30T12:00:00.000Z",
+  "updatedAt": "2026-03-30T12:10:00.000Z"
+}
+```
+
+### `POST /journal/toggle_favorite`
+
+Update only the favorite state for one journal entry.
+
+Request:
+
+```json
+{
+  "journalId": "string",
+  "isFavorite": true
+}
+```
+
+Success `data`:
+
+```json
+{
+  "_id": "string",
+  "title": "Updated title",
+  "content": "Updated content",
+  "type": "journal",
+  "tags": ["reflection", "growth"],
+  "images": [],
+  "isFavorite": true,
+  "createdAt": "2026-03-30T12:00:00.000Z",
+  "updatedAt": "2026-03-30T12:10:00.000Z"
+}
+```
+
 ### `DELETE /journal/delete_journal`
 
 Delete one journal entry.
+
+Request:
+
+```json
+{
+  "journalId": "string"
+}
+```
 
 All journal module routes require authentication.
 

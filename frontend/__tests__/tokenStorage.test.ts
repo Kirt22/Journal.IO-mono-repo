@@ -5,11 +5,13 @@ describe("tokenStorage", () => {
   });
 
   it("persists tokens to keychain and survives a reload", async () => {
-    jest.doMock("react-native", () => ({
-      Platform: { OS: "ios" },
-    }));
-
     const keychainState = new Map<string, string>();
+    const asyncStorage = {
+      setItem: jest.fn(async () => undefined),
+      getItem: jest.fn(async () => null),
+      removeItem: jest.fn(async () => undefined),
+    };
+
     jest.doMock("react-native-keychain", () => ({
       setGenericPassword: jest.fn(
         async (_username: string, password: string, options?: { service?: string }) => {
@@ -38,14 +40,10 @@ describe("tokenStorage", () => {
     }));
     jest.doMock("@react-native-async-storage/async-storage", () => ({
       __esModule: true,
-      default: {
-        setItem: jest.fn(async () => undefined),
-        getItem: jest.fn(async () => null),
-        removeItem: jest.fn(async () => undefined),
-      },
+      default: asyncStorage,
     }));
 
-    const { getTokens, saveTokens } = require("../src/utils/tokenStorage");
+    const { clearTokens, getTokens, saveTokens } = require("../src/utils/tokenStorage");
     const tokens = {
       accessToken: "header.payload.signature",
       refreshToken: "refresh-token",
@@ -53,11 +51,9 @@ describe("tokenStorage", () => {
 
     await saveTokens(tokens);
     await expect(getTokens()).resolves.toEqual(tokens);
+    expect(asyncStorage.setItem).not.toHaveBeenCalled();
 
     jest.resetModules();
-    jest.doMock("react-native", () => ({
-      Platform: { OS: "ios" },
-    }));
     jest.doMock("react-native-keychain", () => ({
       setGenericPassword: jest.fn(
         async (_username: string, password: string, options?: { service?: string }) => {
@@ -86,24 +82,23 @@ describe("tokenStorage", () => {
     }));
     jest.doMock("@react-native-async-storage/async-storage", () => ({
       __esModule: true,
-      default: {
-        setItem: jest.fn(async () => undefined),
-        getItem: jest.fn(async () => null),
-        removeItem: jest.fn(async () => undefined),
-      },
+      default: asyncStorage,
     }));
 
     const reloadedStorage = require("../src/utils/tokenStorage");
     await expect(reloadedStorage.getTokens()).resolves.toEqual(tokens);
 
-    await reloadedStorage.clearTokens();
+    await clearTokens();
     await expect(reloadedStorage.getTokens()).resolves.toBeNull();
   });
 
   it("returns the access token from keychain data", async () => {
-    jest.doMock("react-native", () => ({
-      Platform: { OS: "ios" },
-    }));
+    const asyncStorage = {
+      setItem: jest.fn(async () => undefined),
+      getItem: jest.fn(async () => null),
+      removeItem: jest.fn(async () => undefined),
+    };
+
     jest.doMock("react-native-keychain", () => ({
       getGenericPassword: jest.fn(async () => ({
         username: "token",
@@ -112,65 +107,17 @@ describe("tokenStorage", () => {
           refreshToken: "refresh-token",
         }),
       })),
-      setGenericPassword: jest.fn(async () => undefined),
-      resetGenericPassword: jest.fn(async () => undefined),
+      setGenericPassword: jest.fn(async () => true),
+      resetGenericPassword: jest.fn(async () => true),
     }));
     jest.doMock("@react-native-async-storage/async-storage", () => ({
       __esModule: true,
-      default: {
-        setItem: jest.fn(async () => undefined),
-        getItem: jest.fn(async () => null),
-        removeItem: jest.fn(async () => undefined),
-      },
+      default: asyncStorage,
     }));
 
     const { getAccessToken } = require("../src/utils/tokenStorage");
 
     await expect(getAccessToken()).resolves.toBe("header.payload.signature");
-  });
-
-  it("persists the onboarding completion flag to app storage", async () => {
-    const storageState = new Map<string, string>();
-
-    jest.doMock("react-native", () => ({
-      Platform: { OS: "ios" },
-    }));
-    jest.doMock("react-native-keychain", () => ({
-      getGenericPassword: jest.fn(async () => false),
-      setGenericPassword: jest.fn(async () => undefined),
-      resetGenericPassword: jest.fn(async () => undefined),
-    }));
-    jest.doMock("@react-native-async-storage/async-storage", () => ({
-      __esModule: true,
-      default: {
-        setItem: jest.fn(async (key: string, value: string) => {
-          storageState.set(key, value);
-        }),
-        getItem: jest.fn(async (key: string) => {
-          return storageState.get(key) || null;
-        }),
-        removeItem: jest.fn(async (key: string) => {
-          storageState.delete(key);
-        }),
-      },
-    }));
-
-    const {
-      clearOnboardingCompleted,
-      getOnboardingCompleted,
-      hasSeenInstall,
-      markInstallSeen,
-      saveOnboardingCompleted,
-    } = require("../src/utils/tokenStorage");
-
-    await expect(hasSeenInstall()).resolves.toBe(false);
-    await markInstallSeen();
-    await expect(hasSeenInstall()).resolves.toBe(true);
-
-    await saveOnboardingCompleted(true);
-    await expect(getOnboardingCompleted()).resolves.toBe(true);
-
-    await clearOnboardingCompleted();
-    await expect(getOnboardingCompleted()).resolves.toBe(false);
+    expect(asyncStorage.getItem).not.toHaveBeenCalled();
   });
 });

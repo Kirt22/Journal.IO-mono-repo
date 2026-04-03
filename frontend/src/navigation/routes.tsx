@@ -45,7 +45,7 @@ type AppFlowRoutesProps = {
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onCloseNewEntry: () => void;
-  onToggleTheme: (nextMode: ThemeMode) => void;
+  onToggleTheme: (nextMode: ThemeMode | null) => void;
 };
 
 export function AppFlowRoutes({

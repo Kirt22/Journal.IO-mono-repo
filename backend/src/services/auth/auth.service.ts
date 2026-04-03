@@ -1,17 +1,17 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import {
-  IOnboardingContext,
-  IUser,
+  type IOnboardingContext,
+  type IUser,
   userModel,
 } from "../../schema/user.schema";
+import { sendEmailVerificationCode } from "./emailOtp.service";
 import {
   isMsg91SmsConfigured,
   resendOtpSmsViaMsg91,
   sendOtpSmsViaMsg91,
   verifyOtpSmsViaMsg91,
 } from "./msg91Sms.service";
-import { sendEmailVerificationCode } from "./emailOtp.service";
 
 const otpStore = new Map<
   string,
@@ -24,11 +24,7 @@ const otpStore = new Map<
 
 const OTP_LENGTH = 6;
 const OTP_MAX_ATTEMPTS = 5;
-const EMAIL_VERIFICATION_LENGTH = 6;
-const EMAIL_VERIFICATION_EXPIRY_MS = parseDurationToMs(
-  process.env.EMAIL_VERIFICATION_EXPIRES_IN || "30m",
-  30 * 60 * 1000
-);
+const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 const PASSWORD_HASH_ITERATIONS = 120000;
 const PASSWORD_HASH_KEY_LENGTH = 64;
 const PASSWORD_HASH_DIGEST = "sha512";
@@ -54,31 +50,6 @@ type GoogleOAuthInput = {
   onboardingCompleted?: boolean;
 };
 
-type SignUpWithEmailInput = {
-  email: string;
-  password: string;
-  onboardingContext?: {
-    goals?: string[];
-  };
-  onboardingCompleted?: boolean;
-};
-
-type ResendEmailVerificationInput = {
-  email: string;
-};
-
-type VerifyEmailInput = {
-  email: string;
-  code: string;
-  onboardingCompleted?: boolean;
-};
-
-type SignInWithEmailInput = {
-  email: string;
-  password: string;
-  onboardingCompleted?: boolean;
-};
-
 type EmailOnboardingContextInput = {
   ageRange?: string;
   journalingExperience?: string;
@@ -93,6 +64,7 @@ type SignUpWithEmailInput = {
   email: string;
   password: string;
   onboardingContext?: EmailOnboardingContextInput;
+  onboardingCompleted?: boolean;
 };
 
 type ResendEmailVerificationInput = {
@@ -102,11 +74,13 @@ type ResendEmailVerificationInput = {
 type VerifyEmailInput = {
   email: string;
   code: string;
+  onboardingCompleted?: boolean;
 };
 
 type SignInWithEmailInput = {
   email: string;
   password: string;
+  onboardingCompleted?: boolean;
 };
 
 type AuthTokens = {
@@ -121,6 +95,17 @@ type EmailVerificationChallenge = {
   verificationCode?: string;
 };
 
+type AuthFailure = {
+  ok: false;
+  status: number;
+  code: string;
+  message: string;
+};
+
+type AuthSuccess<T> = T & {
+  ok: true;
+};
+
 const getAccessSecret = (): string => {
   return process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || "";
 };
@@ -129,7 +114,7 @@ const getAccessTokenExpiry = (): Exclude<
   jwt.SignOptions["expiresIn"],
   undefined
 > => {
-  return (process.env.JWT_ACCESS_EXPIRES_IN || "15m") as Exclude<
+  return (process.env.JWT_ACCESS_EXPIRES_IN || "14d") as Exclude<
     jwt.SignOptions["expiresIn"],
     undefined
   >;
@@ -137,6 +122,7 @@ const getAccessTokenExpiry = (): Exclude<
 
 function parseDurationToMs(value: string, fallbackMs: number): number {
   const match = value.match(/^(\d+)([smhd])$/);
+
   if (!match) {
     return fallbackMs;
   }
@@ -153,106 +139,92 @@ function parseDurationToMs(value: string, fallbackMs: number): number {
   return amount * unitMs[unit as keyof typeof unitMs];
 }
 
-const getRefreshTokenExpiryMs = (): number => {
+const getRefreshTokenExpiryMs = () => {
   return parseDurationToMs(
     process.env.JWT_REFRESH_EXPIRES_IN || "7d",
     7 * 24 * 60 * 60 * 1000
   );
 };
 
-const getOtpExpiryMs = (): number => {
-  return parseDurationToMs(process.env.AUTH_OTP_EXPIRES_IN || "10m", 10 * 60 * 1000);
+const getOtpExpiryMs = () => {
+  return parseDurationToMs(
+    process.env.AUTH_OTP_EXPIRES_IN || "10m",
+    10 * 60 * 1000
+  );
 };
 
-const getEmailVerificationExpiryMs = (): number => {
+const getEmailVerificationExpiryMs = () => {
   return parseDurationToMs(
     process.env.AUTH_EMAIL_OTP_EXPIRES_IN || "30m",
     30 * 60 * 1000
   );
 };
 
-const normalizePhoneNumber = (phoneNumber: string): string => {
+const normalizePhoneNumber = (phoneNumber: string) => {
   return phoneNumber.replace(/[^\d+]/g, "");
 };
 
-const normalizeEmail = (email: string): string => email.trim().toLowerCase();
-
-const generateOtp = (): string => {
-  const digits = Array.from({ length: OTP_LENGTH }, () =>
-    crypto.randomInt(0, 10).toString()
-  );
-  return digits.join("");
-};
-
-const PASSWORD_KEY_LENGTH = 64;
-const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
-
-const hashPassword = (password: string): string => {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const derivedKey = crypto
-    .scryptSync(password, salt, PASSWORD_KEY_LENGTH)
-    .toString("hex");
-
-  return `${salt}:${derivedKey}`;
-};
-
-const verifyPasswordHash = (
-  password: string,
-  passwordHash: string | null | undefined
-): boolean => {
-  if (!passwordHash) {
-    return false;
-  }
-
-  const [salt, storedKey] = passwordHash.split(":");
-
-  if (!salt || !storedKey) {
-    return false;
-  }
-
-  const derivedKey = crypto
-    .scryptSync(password, salt, PASSWORD_KEY_LENGTH)
-    .toString("hex");
-
-  return crypto.timingSafeEqual(
-    Buffer.from(storedKey, "hex"),
-    Buffer.from(derivedKey, "hex")
-  );
-};
-
-const generateRefreshToken = (): string => {
-  return crypto.randomBytes(32).toString("hex");
-};
-
-const hashRefreshToken = (token: string): string => {
-  return crypto.createHash("sha256").update(token).digest("hex");
-};
-
-const normalizeEmail = (email: string): string => {
+const normalizeEmail = (email: string) => {
   return email.trim().toLowerCase();
+};
+
+const normalizeOptionalString = (value?: string | null) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 };
 
 const normalizeSelections = (values?: string[]) =>
   Array.from(new Set((values || []).map(value => value.trim()).filter(Boolean)));
 
-const generateEmailVerificationCode = (): string => {
-  const digits = Array.from({ length: EMAIL_VERIFICATION_LENGTH }, () =>
+const deriveDisplayNameFromEmail = (email: string) => {
+  const localPart = normalizeEmail(email).split("@")[0] || "Journal User";
+  const cleaned = localPart.replace(/[._-]+/g, " ").trim();
+
+  if (!cleaned) {
+    return "Journal User";
+  }
+
+  return cleaned
+    .split(/\s+/)
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+};
+
+const sanitizeOnboardingContext = (
+  onboardingContext?: EmailOnboardingContextInput
+): IOnboardingContext | null => {
+  if (!onboardingContext) {
+    return null;
+  }
+
+  return {
+    ageRange: normalizeOptionalString(onboardingContext.ageRange),
+    journalingExperience: normalizeOptionalString(
+      onboardingContext.journalingExperience
+    ),
+    goals: normalizeSelections(onboardingContext.goals),
+    supportFocus: normalizeSelections(onboardingContext.supportFocus),
+    reminderPreference: normalizeOptionalString(
+      onboardingContext.reminderPreference
+    ),
+    aiOptIn:
+      typeof onboardingContext.aiOptIn === "boolean"
+        ? onboardingContext.aiOptIn
+        : null,
+    privacyConsentAccepted:
+      typeof onboardingContext.privacyConsentAccepted === "boolean"
+        ? onboardingContext.privacyConsentAccepted
+        : null,
+  };
+};
+
+const generateOtp = () => {
+  return Array.from({ length: OTP_LENGTH }, () =>
     crypto.randomInt(0, 10).toString()
-  );
-  return digits.join("");
+  ).join("");
 };
 
-const hashEmailVerificationCode = (
-  email: string,
-  code: string
-): string => {
-  return crypto
-    .createHash("sha256")
-    .update(`${normalizeEmail(email)}:${code}`)
-    .digest("hex");
-};
-
-const generatePasswordHash = (password: string): string => {
+const generatePasswordHash = (password: string) => {
   const salt = crypto.randomBytes(16).toString("hex");
   const derivedKey = crypto
     .pbkdf2Sync(
@@ -278,31 +250,52 @@ const verifyPasswordHash = (password: string, storedHash?: string | null) => {
     return false;
   }
 
-  const [algorithm, digest, iterationsRaw, salt, derivedKey] =
-    storedHash.split("$");
+  if (storedHash.includes("$")) {
+    const [algorithm, digest, iterationsRaw, salt, derivedKey] =
+      storedHash.split("$");
 
-  if (
-    algorithm !== "pbkdf2" ||
-    digest !== PASSWORD_HASH_DIGEST ||
-    !iterationsRaw ||
-    !salt ||
-    !derivedKey
-  ) {
+    if (
+      algorithm !== "pbkdf2" ||
+      digest !== PASSWORD_HASH_DIGEST ||
+      !iterationsRaw ||
+      !salt ||
+      !derivedKey
+    ) {
+      return false;
+    }
+
+    const iterations = Number(iterationsRaw);
+
+    if (!Number.isFinite(iterations) || iterations <= 0) {
+      return false;
+    }
+
+    const recalculated = crypto
+      .pbkdf2Sync(password, salt, iterations, derivedKey.length / 2, digest)
+      .toString("hex");
+
+    const recalculatedBuffer = Buffer.from(recalculated, "hex");
+    const storedBuffer = Buffer.from(derivedKey, "hex");
+
+    if (recalculatedBuffer.length !== storedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(recalculatedBuffer, storedBuffer);
+  }
+
+  const [salt, derivedKey] = storedHash.split(":");
+
+  if (!salt || !derivedKey) {
     return false;
   }
 
-  const iterations = Number(iterationsRaw);
-
-  if (!Number.isFinite(iterations) || iterations <= 0) {
-    return false;
-  }
-
-  const recalculated = crypto
-    .pbkdf2Sync(password, salt, iterations, derivedKey.length / 2, digest)
-    .toString("hex");
-
-  const recalculatedBuffer = Buffer.from(recalculated, "hex");
   const storedBuffer = Buffer.from(derivedKey, "hex");
+  const recalculatedBuffer = crypto.scryptSync(
+    password,
+    salt,
+    storedBuffer.length
+  );
 
   if (recalculatedBuffer.length !== storedBuffer.length) {
     return false;
@@ -311,28 +304,32 @@ const verifyPasswordHash = (password: string, storedHash?: string | null) => {
   return crypto.timingSafeEqual(recalculatedBuffer, storedBuffer);
 };
 
-const buildEmailVerificationChallenge = async (
-  user: IUser,
-  email: string
-) => {
-  const verificationCode = generateEmailVerificationCode();
-  user.emailVerificationCodeHash = hashEmailVerificationCode(
-    email,
-    verificationCode
-  );
-  user.emailVerificationExpiresAt = new Date(
-    Date.now() + EMAIL_VERIFICATION_EXPIRY_MS
-  );
+const hashRefreshToken = (token: string) => {
+  return crypto.createHash("sha256").update(token).digest("hex");
+};
 
-  await user.save();
+const generateRefreshToken = () => {
+  return crypto.randomBytes(32).toString("hex");
+};
 
-  return {
-    email,
-    verificationRequired: true,
-    expiresInSeconds: Math.floor(EMAIL_VERIFICATION_EXPIRY_MS / 1000),
-    verificationCode:
-      process.env.NODE_ENV !== "production" ? verificationCode : undefined,
-  };
+const hashEmailVerificationCode = (email: string, code: string) => {
+  return crypto
+    .createHash("sha256")
+    .update(`${normalizeEmail(email)}:${code}`)
+    .digest("hex");
+};
+
+const isDuplicateKeyError = (error: unknown): error is { code: number } => {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "number"
+  );
+};
+
+const isEmailVerified = (user: IUser) => {
+  return Boolean(user.emailVerified || user.emailVerifiedAt);
 };
 
 const buildUserPayload = (user: IUser) => {
@@ -349,59 +346,9 @@ const buildUserPayload = (user: IUser) => {
   };
 };
 
-const deriveDisplayNameFromEmail = (email: string): string => {
-  const localPart = normalizeEmail(email).split("@")[0] || "Journal User";
-  const cleaned = localPart.replace(/[._-]+/g, " ").trim();
-
-  if (!cleaned) {
-    return "Journal User";
-  }
-
-  return cleaned
-    .split(/\s+/)
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-};
-
-const normalizeStringList = (values?: string[]) =>
-  Array.from(new Set((values || []).map(value => value.trim()).filter(Boolean)));
-
-const normalizeOptionalString = (value?: string | null) => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-};
-
-const sanitizeOnboardingContext = (
-  onboardingContext?: EmailOnboardingContextInput
-): IOnboardingContext | null => {
-  if (!onboardingContext) {
-    return null;
-  }
-
-  return {
-    ageRange: normalizeOptionalString(onboardingContext.ageRange),
-    journalingExperience: normalizeOptionalString(
-      onboardingContext.journalingExperience
-    ),
-    goals: normalizeStringList(onboardingContext.goals),
-    supportFocus: normalizeStringList(onboardingContext.supportFocus),
-    reminderPreference: normalizeOptionalString(
-      onboardingContext.reminderPreference
-    ),
-    aiOptIn:
-      typeof onboardingContext.aiOptIn === "boolean"
-        ? onboardingContext.aiOptIn
-        : null,
-    privacyConsentAccepted:
-      typeof onboardingContext.privacyConsentAccepted === "boolean"
-        ? onboardingContext.privacyConsentAccepted
-        : null,
-  };
-};
-
 const buildEmailVerificationChallenge = (
   email: string,
-  code: string
+  verificationCode: string
 ): EmailVerificationChallenge => {
   const challenge: EmailVerificationChallenge = {
     email,
@@ -410,10 +357,32 @@ const buildEmailVerificationChallenge = (
   };
 
   if (process.env.NODE_ENV !== "production") {
-    challenge.verificationCode = code;
+    challenge.verificationCode = verificationCode;
   }
 
   return challenge;
+};
+
+const getStoredPasswordHash = (user: IUser) => {
+  return user.passwordHash || user.emailPasswordHash || null;
+};
+
+const setPendingEmailVerification = (
+  user: IUser,
+  email: string,
+  verificationCode: string
+) => {
+  user.emailVerified = false;
+  user.emailVerifiedAt = null;
+  user.emailVerificationCode = verificationCode;
+  user.emailVerificationCodeHash = hashEmailVerificationCode(
+    email,
+    verificationCode
+  );
+  user.emailVerificationExpiresAt = new Date(
+    Date.now() + getEmailVerificationExpiryMs()
+  );
+  user.emailVerificationAttempts = 0;
 };
 
 const issueTokens = async (user: IUser): Promise<AuthTokens> => {
@@ -473,11 +442,7 @@ const createPhoneUser = async ({
       onboardingCompleted: Boolean(onboardingCompleted),
     });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === 11000
-    ) {
+    if (isDuplicateKeyError(error) && error.code === 11000) {
       const existingUser = await userModel.findOne({ phoneNumber });
 
       if (existingUser) {
@@ -485,222 +450,8 @@ const createPhoneUser = async ({
       }
     }
 
-  throw error;
+    throw error;
   }
-};
-
-const signUpWithEmail = async ({
-  email,
-  password,
-  onboardingContext,
-  onboardingCompleted,
-}: SignUpWithEmailInput) => {
-  const normalizedEmail = normalizeEmail(email);
-  const normalizedGoals = normalizeSelections(onboardingContext?.goals);
-  const passwordHash = generatePasswordHash(password);
-
-  let user = await userModel.findOne({ email: normalizedEmail });
-
-  if (user?.emailVerifiedAt) {
-    return {
-      ok: false as const,
-      code: "EMAIL_EXISTS",
-      message: "An account with this email already exists. Please sign in.",
-    };
-  }
-
-  if (!user) {
-    user = await userModel.create({
-      name: "Journal User",
-      email: normalizedEmail,
-      authProviders: ["email"],
-      journalingGoals: normalizedGoals,
-      profileSetupCompleted: false,
-      onboardingCompleted: Boolean(onboardingCompleted),
-      emailPasswordHash: passwordHash,
-      emailVerifiedAt: null,
-      emailVerificationCodeHash: null,
-      emailVerificationExpiresAt: null,
-    });
-  } else {
-    if (!user.authProviders.includes("email")) {
-      user.authProviders = [...user.authProviders, "email"];
-    }
-
-    user.emailPasswordHash = passwordHash;
-    user.emailVerifiedAt = null;
-    user.emailVerificationCodeHash = null;
-    user.emailVerificationExpiresAt = null;
-    if (normalizedGoals.length > 0) {
-      user.journalingGoals = normalizedGoals;
-    }
-
-    if (onboardingCompleted !== undefined) {
-      user.onboardingCompleted = onboardingCompleted;
-    }
-
-    await user.save();
-  }
-
-  const challenge = await buildEmailVerificationChallenge(user, normalizedEmail);
-
-  return {
-    ok: true as const,
-    challenge,
-  };
-};
-
-const resendEmailVerification = async ({
-  email,
-}: ResendEmailVerificationInput) => {
-  const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
-
-  if (!user) {
-    return {
-      ok: false as const,
-      code: "USER_NOT_FOUND",
-      message: "No account found for this email address.",
-    };
-  }
-
-  if (user.emailVerifiedAt) {
-    return {
-      ok: false as const,
-      code: "EMAIL_ALREADY_VERIFIED",
-      message: "This email is already verified.",
-    };
-  }
-
-  const challenge = await buildEmailVerificationChallenge(user, normalizedEmail);
-
-  return {
-    ok: true as const,
-    challenge,
-  };
-};
-
-const verifyEmail = async ({
-  email,
-  code,
-  onboardingCompleted,
-}: VerifyEmailInput) => {
-  const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
-
-  if (!user) {
-    return {
-      ok: false as const,
-      code: "USER_NOT_FOUND",
-      message: "No pending account found for this email address.",
-    };
-  }
-
-  if (!user.emailVerificationCodeHash || !user.emailVerificationExpiresAt) {
-    return {
-      ok: false as const,
-      code: "VERIFICATION_NOT_FOUND",
-      message: "No active verification code found for this email address.",
-    };
-  }
-
-  if (Date.now() > user.emailVerificationExpiresAt.getTime()) {
-    user.emailVerificationCodeHash = null;
-    user.emailVerificationExpiresAt = null;
-    await user.save();
-
-    return {
-      ok: false as const,
-      code: "VERIFICATION_EXPIRED",
-      message: "The verification code has expired. Please request a new one.",
-    };
-  }
-
-  const expectedCodeHash = hashEmailVerificationCode(normalizedEmail, code);
-
-  if (expectedCodeHash !== user.emailVerificationCodeHash) {
-    return {
-      ok: false as const,
-      code: "VERIFICATION_INVALID",
-      message: "The verification code is incorrect.",
-    };
-  }
-
-  const isNewUser = !Boolean(user.emailVerifiedAt);
-
-  user.emailVerifiedAt = new Date();
-  user.emailVerificationCodeHash = null;
-  user.emailVerificationExpiresAt = null;
-
-  if (!user.authProviders.includes("email")) {
-    user.authProviders = [...user.authProviders, "email"];
-  }
-
-  if (onboardingCompleted !== undefined) {
-    user.onboardingCompleted = onboardingCompleted;
-  }
-
-  await user.save();
-
-  const tokens = await issueTokens(user);
-
-  return {
-    ok: true as const,
-    tokens,
-    user: buildUserPayload(user),
-    isNewUser,
-  };
-};
-
-const signInWithEmail = async ({
-  email,
-  password,
-  onboardingCompleted,
-}: SignInWithEmailInput) => {
-  const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
-
-  if (!user) {
-    return {
-      ok: false as const,
-      code: "USER_NOT_FOUND",
-      message: "No account found for this email address.",
-    };
-  }
-
-  if (!user.emailVerifiedAt) {
-    return {
-      ok: false as const,
-      code: "EMAIL_NOT_VERIFIED",
-      message: "Please verify your email before signing in.",
-    };
-  }
-
-  if (!verifyPasswordHash(password, user.emailPasswordHash)) {
-    return {
-      ok: false as const,
-      code: "INVALID_CREDENTIALS",
-      message: "The email or password is incorrect.",
-    };
-  }
-
-  if (!user.authProviders.includes("email")) {
-    user.authProviders = [...user.authProviders, "email"];
-    await user.save();
-  }
-
-  if (onboardingCompleted) {
-    user.onboardingCompleted = true;
-    await user.save();
-  }
-
-  const tokens = await issueTokens(user);
-
-  return {
-    ok: true as const,
-    tokens,
-    user: buildUserPayload(user),
-  };
 };
 
 const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
@@ -737,15 +488,16 @@ const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
     phoneNumber: normalizedPhoneNumber,
     expiresInSeconds: Math.floor(getOtpExpiryMs() / 1000),
     debugOtp:
-      !providerManaged && process.env.NODE_ENV !== "production" ? code : undefined,
+      !providerManaged && process.env.NODE_ENV !== "production"
+        ? code
+        : undefined,
   };
 };
 
 const resendOtp = async ({ phoneNumber }: SendOtpInput) => {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-  const providerManaged = isMsg91SmsConfigured();
 
-  if (providerManaged) {
+  if (isMsg91SmsConfigured()) {
     try {
       await resendOtpSmsViaMsg91({
         phoneNumber: normalizedPhoneNumber,
@@ -771,13 +523,21 @@ const verifyOtp = async ({
   name,
   goals,
   onboardingCompleted,
-}: VerifyOtpInput) => {
+}: VerifyOtpInput): Promise<
+  | AuthSuccess<{
+      tokens: AuthTokens;
+      user: ReturnType<typeof buildUserPayload>;
+      isNewUser: boolean;
+    }>
+  | AuthFailure
+> => {
   const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
   const otpRecord = otpStore.get(normalizedPhoneNumber);
 
   if (!otpRecord) {
     return {
-      ok: false as const,
+      ok: false,
+      status: 404,
       code: "OTP_NOT_FOUND",
       message: "No active verification code found for this phone number.",
     };
@@ -786,9 +546,10 @@ const verifyOtp = async ({
   if (Date.now() > otpRecord.expiresAt) {
     otpStore.delete(normalizedPhoneNumber);
     return {
-      ok: false as const,
+      ok: false,
+      status: 400,
       code: "OTP_EXPIRED",
-      message: "The verification code has expired. Please request a new one.",
+      message: "The verification code has expired. Please request a new code.",
     };
   }
 
@@ -804,7 +565,8 @@ const verifyOtp = async ({
       if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
         otpStore.delete(normalizedPhoneNumber);
         return {
-          ok: false as const,
+          ok: false,
+          status: 400,
           code: "OTP_LOCKED",
           message: "Too many incorrect attempts. Please request a new code.",
         };
@@ -812,7 +574,8 @@ const verifyOtp = async ({
 
       console.error("MSG91 OTP verification failed:", error);
       return {
-        ok: false as const,
+        ok: false,
+        status: 400,
         code: "OTP_INVALID",
         message: "The verification code is incorrect.",
       };
@@ -823,7 +586,8 @@ const verifyOtp = async ({
     if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
       otpStore.delete(normalizedPhoneNumber);
       return {
-        ok: false as const,
+        ok: false,
+        status: 400,
         code: "OTP_LOCKED",
         message: "Too many incorrect attempts. Please request a new code.",
       };
@@ -831,7 +595,8 @@ const verifyOtp = async ({
 
     if (otpRecord.code !== otp) {
       return {
-        ok: false as const,
+        ok: false,
+        status: 400,
         code: "OTP_INVALID",
         message: "The verification code is incorrect.",
       };
@@ -841,44 +606,25 @@ const verifyOtp = async ({
   otpStore.delete(normalizedPhoneNumber);
 
   let user = await userModel.findOne({ phoneNumber: normalizedPhoneNumber });
-  const normalizedGoals = Array.from(
-    new Set((goals || []).map(goal => goal.trim()).filter(Boolean))
-  );
+  const normalizedGoals = normalizeSelections(goals);
   const trimmedName = name?.trim();
   const isNewUser = !user;
 
-  if (!user && !trimmedName) {
-    user = await createPhoneUser({
-      phoneNumber: normalizedPhoneNumber,
-      name: "Journal User",
-      goals: normalizedGoals,
-      ...(onboardingCompleted !== undefined
-        ? { onboardingCompleted }
-        : {}),
-    });
-  }
-
-  if (!user && trimmedName) {
-    user = await createPhoneUser({
-      phoneNumber: normalizedPhoneNumber,
-      name: trimmedName,
-      goals: normalizedGoals,
-      ...(onboardingCompleted !== undefined
-        ? { onboardingCompleted }
-        : {}),
-    });
-  }
-
   if (!user) {
-    return {
-      ok: false as const,
-      code: "USER_NOT_FOUND",
-      message: "Unable to complete sign in for this phone number.",
-    };
+    user = await createPhoneUser({
+      phoneNumber: normalizedPhoneNumber,
+      name: trimmedName || "Journal User",
+      goals: normalizedGoals,
+      ...(onboardingCompleted !== undefined ? { onboardingCompleted } : {}),
+    });
   }
 
   if (!user.authProviders.includes("phone")) {
     user.authProviders = [...user.authProviders, "phone"];
+  }
+
+  if (trimmedName) {
+    user.name = trimmedName;
   }
 
   if (normalizedGoals.length > 0) {
@@ -894,51 +640,10 @@ const verifyOtp = async ({
   const tokens = await issueTokens(user);
 
   return {
-    ok: true as const,
+    ok: true,
     tokens,
     user: buildUserPayload(user),
     isNewUser,
-  };
-};
-
-const signInWithGoogle = async (input: GoogleOAuthInput) => {
-  const email = input.email.toLowerCase();
-
-  let user =
-    (input.googleUserId
-      ? await userModel.findOne({ googleUserId: input.googleUserId })
-      : null) || (await userModel.findOne({ email }));
-
-  if (!user) {
-    user = await userModel.create({
-      name: input.name,
-      email,
-      googleUserId: input.googleUserId || null,
-      profilePic: input.profilePic || null,
-      authProviders: ["google"],
-      onboardingCompleted: Boolean(input.onboardingCompleted),
-    });
-  } else {
-    const authProviders = user.authProviders.includes("google")
-      ? user.authProviders
-      : [...user.authProviders, "google"];
-
-    user.name = user.name || input.name;
-    user.email = user.email || email;
-    user.googleUserId = user.googleUserId || input.googleUserId || null;
-    user.profilePic = input.profilePic || user.profilePic || null;
-    user.authProviders = authProviders;
-    if (input.onboardingCompleted) {
-      user.onboardingCompleted = true;
-    }
-    await user.save();
-  }
-
-  const tokens = await issueTokens(user);
-
-  return {
-    tokens,
-    user: buildUserPayload(user),
   };
 };
 
@@ -946,23 +651,24 @@ const signUpWithEmail = async ({
   email,
   password,
   onboardingContext,
-}: SignUpWithEmailInput) => {
+  onboardingCompleted,
+}: SignUpWithEmailInput): Promise<
+  | AuthSuccess<{ challenge: EmailVerificationChallenge }>
+  | AuthFailure
+> => {
   const normalizedEmail = normalizeEmail(email);
-  const passwordHash = hashPassword(password);
-  const emailVerificationCode = generateOtp();
-  const emailVerificationExpiresAt = new Date(
-    Date.now() + getEmailVerificationExpiryMs()
-  );
+  const passwordHash = generatePasswordHash(password);
+  const verificationCode = generateOtp();
   const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
-  const displayName = deriveDisplayNameFromEmail(normalizedEmail);
   const onboardingGoals = normalizedOnboardingContext?.goals || [];
+  const displayName = deriveDisplayNameFromEmail(normalizedEmail);
 
   let user = await userModel.findOne({ email: normalizedEmail });
 
-  if (user?.emailVerified) {
+  if (user && isEmailVerified(user)) {
     return {
-      ok: false as const,
-      status: 409 as const,
+      ok: false,
+      status: 409,
       code: "EMAIL_ALREADY_REGISTERED",
       message: "An account with this email already exists. Please sign in.",
     };
@@ -973,116 +679,129 @@ const signUpWithEmail = async ({
       name: displayName,
       email: normalizedEmail,
       passwordHash,
-      emailVerified: false,
-      emailVerificationCode,
-      emailVerificationExpiresAt,
-      emailVerificationAttempts: 0,
+      emailPasswordHash: passwordHash,
       authProviders: ["email"],
       journalingGoals: onboardingGoals,
       onboardingContext: normalizedOnboardingContext,
       profileSetupCompleted: false,
+      onboardingCompleted: Boolean(onboardingCompleted),
+      emailVerified: false,
+      emailVerifiedAt: null,
+      emailVerificationCode: null,
+      emailVerificationCodeHash: null,
+      emailVerificationExpiresAt: null,
+      emailVerificationAttempts: 0,
     });
   } else {
     user.name = user.name || displayName;
     user.passwordHash = passwordHash;
-    user.emailVerificationCode = emailVerificationCode;
-    user.emailVerificationExpiresAt = emailVerificationExpiresAt;
-    user.emailVerificationAttempts = 0;
+    user.emailPasswordHash = passwordHash;
     user.onboardingContext = normalizedOnboardingContext;
     user.journalingGoals = onboardingGoals;
+
     if (!user.authProviders.includes("email")) {
       user.authProviders = [...user.authProviders, "email"];
     }
-    await user.save();
+
+    if (onboardingCompleted !== undefined) {
+      user.onboardingCompleted = onboardingCompleted;
+    }
   }
+
+  setPendingEmailVerification(user, normalizedEmail, verificationCode);
+  await user.save();
 
   await sendEmailVerificationCode({
     email: normalizedEmail,
-    code: emailVerificationCode,
+    code: verificationCode,
   });
 
   return {
-    ok: true as const,
-    challenge: buildEmailVerificationChallenge(
-      normalizedEmail,
-      emailVerificationCode
-    ),
+    ok: true,
+    challenge: buildEmailVerificationChallenge(normalizedEmail, verificationCode),
   };
 };
 
 const resendEmailVerification = async ({
   email,
-}: ResendEmailVerificationInput) => {
+}: ResendEmailVerificationInput): Promise<
+  | AuthSuccess<{ challenge: EmailVerificationChallenge }>
+  | AuthFailure
+> => {
   const normalizedEmail = normalizeEmail(email);
   const user = await userModel.findOne({ email: normalizedEmail });
 
-  if (!user || !user.passwordHash) {
+  if (!user || !getStoredPasswordHash(user)) {
     return {
-      ok: false as const,
-      status: 404 as const,
+      ok: false,
+      status: 404,
       code: "PENDING_ACCOUNT_NOT_FOUND",
       message: "No pending account found for this email.",
     };
   }
 
-  if (user.emailVerified) {
+  if (isEmailVerified(user)) {
     return {
-      ok: false as const,
-      status: 409 as const,
+      ok: false,
+      status: 409,
       code: "EMAIL_ALREADY_VERIFIED",
       message: "This email is already verified. Please sign in.",
     };
   }
 
-  const emailVerificationCode = generateOtp();
+  const verificationCode = generateOtp();
 
-  user.emailVerificationCode = emailVerificationCode;
-  user.emailVerificationExpiresAt = new Date(
-    Date.now() + getEmailVerificationExpiryMs()
-  );
-  user.emailVerificationAttempts = 0;
+  setPendingEmailVerification(user, normalizedEmail, verificationCode);
   await user.save();
 
   await sendEmailVerificationCode({
     email: normalizedEmail,
-    code: emailVerificationCode,
+    code: verificationCode,
   });
 
   return {
-    ok: true as const,
-    challenge: buildEmailVerificationChallenge(
-      normalizedEmail,
-      emailVerificationCode
-    ),
+    ok: true,
+    challenge: buildEmailVerificationChallenge(normalizedEmail, verificationCode),
   };
 };
 
-const verifyEmail = async ({ email, code }: VerifyEmailInput) => {
+const verifyEmail = async ({
+  email,
+  code,
+  onboardingCompleted,
+}: VerifyEmailInput): Promise<
+  | AuthSuccess<{
+      tokens: AuthTokens;
+      user: ReturnType<typeof buildUserPayload>;
+      isNewUser: boolean;
+    }>
+  | AuthFailure
+> => {
   const normalizedEmail = normalizeEmail(email);
   const user = await userModel.findOne({ email: normalizedEmail });
 
-  if (!user || !user.passwordHash) {
+  if (!user || !getStoredPasswordHash(user)) {
     return {
-      ok: false as const,
-      status: 404 as const,
+      ok: false,
+      status: 404,
       code: "PENDING_ACCOUNT_NOT_FOUND",
       message: "No pending account found for this email.",
     };
   }
 
-  if (user.emailVerified) {
+  if (isEmailVerified(user)) {
     return {
-      ok: false as const,
-      status: 409 as const,
+      ok: false,
+      status: 409,
       code: "EMAIL_ALREADY_VERIFIED",
       message: "This email is already verified. Please sign in.",
     };
   }
 
-  if (!user.emailVerificationCode || !user.emailVerificationExpiresAt) {
+  if (!user.emailVerificationExpiresAt) {
     return {
-      ok: false as const,
-      status: 400 as const,
+      ok: false,
+      status: 400,
       code: "EMAIL_OTP_NOT_FOUND",
       message: "No active verification code found for this email.",
     };
@@ -1090,30 +809,40 @@ const verifyEmail = async ({ email, code }: VerifyEmailInput) => {
 
   if (Date.now() > user.emailVerificationExpiresAt.getTime()) {
     user.emailVerificationCode = null;
+    user.emailVerificationCodeHash = null;
     user.emailVerificationExpiresAt = null;
     user.emailVerificationAttempts = 0;
     await user.save();
 
     return {
-      ok: false as const,
-      status: 400 as const,
+      ok: false,
+      status: 400,
       code: "EMAIL_OTP_EXPIRED",
       message: "The verification code has expired. Please request a new one.",
     };
   }
 
-  if (user.emailVerificationCode !== code) {
+  const codeMatchesPlaintext =
+    typeof user.emailVerificationCode === "string" &&
+    user.emailVerificationCode === code;
+  const codeMatchesHash =
+    typeof user.emailVerificationCodeHash === "string" &&
+    user.emailVerificationCodeHash ===
+      hashEmailVerificationCode(normalizedEmail, code);
+
+  if (!codeMatchesPlaintext && !codeMatchesHash) {
     user.emailVerificationAttempts += 1;
 
     if (user.emailVerificationAttempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
       user.emailVerificationCode = null;
+      user.emailVerificationCodeHash = null;
       user.emailVerificationExpiresAt = null;
       user.emailVerificationAttempts = 0;
       await user.save();
 
       return {
-        ok: false as const,
-        status: 400 as const,
+        ok: false,
+        status: 400,
         code: "EMAIL_OTP_LOCKED",
         message: "Too many incorrect attempts. Please request a new code.",
       };
@@ -1122,58 +851,70 @@ const verifyEmail = async ({ email, code }: VerifyEmailInput) => {
     await user.save();
 
     return {
-      ok: false as const,
-      status: 400 as const,
+      ok: false,
+      status: 400,
       code: "EMAIL_OTP_INVALID",
       message: "The verification code is incorrect.",
     };
   }
 
+  const isNewUser = !isEmailVerified(user);
+
   user.emailVerified = true;
+  user.emailVerifiedAt = new Date();
   user.emailVerificationCode = null;
+  user.emailVerificationCodeHash = null;
   user.emailVerificationExpiresAt = null;
   user.emailVerificationAttempts = 0;
+
   if (!user.authProviders.includes("email")) {
     user.authProviders = [...user.authProviders, "email"];
   }
-  if (!user.name?.trim()) {
-    user.name = deriveDisplayNameFromEmail(normalizedEmail);
+
+  if (onboardingCompleted !== undefined) {
+    user.onboardingCompleted = onboardingCompleted;
   }
-  if (!user.journalingGoals.length && user.onboardingContext?.goals?.length) {
-    user.journalingGoals = normalizeStringList(user.onboardingContext.goals);
-  }
+
   await user.save();
 
   const tokens = await issueTokens(user);
 
   return {
-    ok: true as const,
+    ok: true,
     tokens,
     user: buildUserPayload(user),
-    isNewUser: true,
+    isNewUser,
   };
 };
 
 const signInWithEmail = async ({
   email,
   password,
-}: SignInWithEmailInput) => {
+  onboardingCompleted,
+}: SignInWithEmailInput): Promise<
+  | AuthSuccess<{
+      tokens: AuthTokens;
+      user: ReturnType<typeof buildUserPayload>;
+    }>
+  | AuthFailure
+> => {
   const normalizedEmail = normalizeEmail(email);
   const user = await userModel.findOne({ email: normalizedEmail });
+  const storedPasswordHash = user ? getStoredPasswordHash(user) : null;
 
-  if (!user || !user.passwordHash || !verifyPasswordHash(password, user.passwordHash)) {
+  if (!user || !storedPasswordHash || !verifyPasswordHash(password, storedPasswordHash)) {
     return {
-      ok: false as const,
-      status: 401 as const,
+      ok: false,
+      status: 401,
       code: "INVALID_CREDENTIALS",
-      message: "Incorrect email or password.",
+      message: "The email or password is incorrect.",
     };
   }
 
-  if (!user.emailVerified) {
+  if (!isEmailVerified(user)) {
     return {
-      ok: false as const,
-      status: 403 as const,
+      ok: false,
+      status: 403,
       code: "EMAIL_NOT_VERIFIED",
       message: "Please verify your email before signing in.",
     };
@@ -1181,13 +922,71 @@ const signInWithEmail = async ({
 
   if (!user.authProviders.includes("email")) {
     user.authProviders = [...user.authProviders, "email"];
+  }
+
+  if (onboardingCompleted) {
+    user.onboardingCompleted = true;
+  }
+
+  await user.save();
+
+  const tokens = await issueTokens(user);
+
+  return {
+    ok: true,
+    tokens,
+    user: buildUserPayload(user),
+  };
+};
+
+const signInWithGoogle = async (
+  input: GoogleOAuthInput
+): Promise<{
+  tokens: AuthTokens;
+  user: ReturnType<typeof buildUserPayload>;
+}> => {
+  const normalizedEmail = normalizeEmail(input.email);
+
+  let user =
+    (input.googleUserId
+      ? await userModel.findOne({ googleUserId: input.googleUserId })
+      : null) || (await userModel.findOne({ email: normalizedEmail }));
+
+  if (!user) {
+    user = await userModel.create({
+      name: input.name,
+      email: normalizedEmail,
+      googleUserId: input.googleUserId || null,
+      profilePic: input.profilePic || null,
+      authProviders: ["google"],
+      profileSetupCompleted: false,
+      onboardingCompleted: Boolean(input.onboardingCompleted),
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      journalingGoals: [],
+    });
+  } else {
+    if (!user.authProviders.includes("google")) {
+      user.authProviders = [...user.authProviders, "google"];
+    }
+
+    user.name = user.name || input.name;
+    user.email = user.email || normalizedEmail;
+    user.googleUserId = user.googleUserId || input.googleUserId || null;
+    user.profilePic = input.profilePic || user.profilePic || null;
+    user.emailVerified = true;
+    user.emailVerifiedAt = user.emailVerifiedAt || new Date();
+
+    if (input.onboardingCompleted) {
+      user.onboardingCompleted = true;
+    }
+
     await user.save();
   }
 
   const tokens = await issueTokens(user);
 
   return {
-    ok: true as const,
     tokens,
     user: buildUserPayload(user),
   };
@@ -1207,6 +1006,7 @@ const refreshAccessToken = async (
   }
 
   const accessSecret = getAccessSecret();
+
   if (!accessSecret) {
     throw new Error("JWT access secret is not configured.");
   }
@@ -1225,7 +1025,7 @@ const refreshAccessToken = async (
   return { accessToken };
 };
 
-const invalidateRefreshToken = async (userId: string): Promise<void> => {
+const invalidateRefreshToken = async (userId: string) => {
   await userModel.updateOne(
     { _id: userId },
     {
@@ -1242,10 +1042,10 @@ export {
   refreshAccessToken,
   resendEmailVerification,
   resendOtp,
-  signInWithEmail,
-  signUpWithEmail,
   sendOtp,
+  signInWithEmail,
   signInWithGoogle,
+  signUpWithEmail,
   verifyEmail,
   verifyOtp,
 };

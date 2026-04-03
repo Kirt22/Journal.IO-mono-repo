@@ -42,3 +42,23 @@ test("favorite star is clickable on the journal card", () => {
 
   expect(onFavoritePress).toHaveBeenCalledTimes(1);
 });
+
+test("renders a date fallback for untitled journal entries", () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          entry={{
+            ...entry,
+            title: "Untitled",
+          }}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  expect(JSON.stringify(root!.toJSON())).toContain("Entry for Mar 30 2026");
+  expect(JSON.stringify(root!.toJSON())).not.toContain("Untitled");
+});

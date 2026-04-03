@@ -1,4 +1,9 @@
 import { journalModel, type IJournal } from "../../schema/journal.schema";
+import {
+  syncJournalCreatedInsights,
+  syncJournalDeletedInsights,
+  syncJournalUpdatedInsights,
+} from "../insights/insights.service";
 import type {
   CreateJournalInput,
   JournalEntryResponse,
@@ -15,6 +20,7 @@ const serializeJournal = (journal: IJournal): JournalEntryResponse => {
     title: journalObject.title,
     content: journalObject.content,
     type: journalObject.type,
+    aiPrompt: typeof journalObject.aiPrompt === "string" ? journalObject.aiPrompt : null,
     tags: Array.isArray(journalObject.tags) ? journalObject.tags : [],
     images: Array.isArray(journalObject.images) ? journalObject.images : [],
     isFavorite: Boolean(journalObject.isFavorite),
@@ -40,10 +46,23 @@ const createJournal = async (
     title: input.title.trim(),
     content: input.content.trim(),
     type: input.type?.trim() || "journal",
+    aiPrompt: input.aiPrompt?.trim() || null,
     tags: input.tags || [],
     images: input.images || [],
     isFavorite: false,
   });
+
+  try {
+    await syncJournalCreatedInsights({
+      userId: input.userId,
+      content: journal.content,
+      tags: journal.tags || [],
+      isFavorite: Boolean(journal.isFavorite),
+      createdAt: journal.createdAt,
+    });
+  } catch (error) {
+    console.error("Failed to sync insights cache after journal creation:", error);
+  }
 
   return serializeJournal(journal);
 };
@@ -65,24 +84,56 @@ const updateJournal = async (
   input: UpdateJournalInput
 ): Promise<JournalEntryResponse | null> => {
   const journal = await journalModel
-    .findOneAndUpdate(
-      { _id: input.journalId, userId: input.userId },
-      {
-        title: input.title.trim(),
-        content: input.content.trim(),
-        type: input.type?.trim() || "journal",
-        ...(input.tags ? { tags: input.tags } : {}),
-        ...(input.images ? { images: input.images } : {}),
-        ...(typeof input.isFavorite === "boolean"
-          ? { isFavorite: input.isFavorite }
-          : {}),
-      },
-      { new: true }
-    )
+    .findOne({ _id: input.journalId, userId: input.userId })
     .exec();
 
   if (!journal) {
     return null;
+  }
+
+  const previousJournalSnapshot = {
+    userId: input.userId,
+    content: journal.content,
+    tags: journal.tags || [],
+    isFavorite: Boolean(journal.isFavorite),
+    createdAt: journal.createdAt,
+  };
+
+  journal.title = input.title.trim();
+  journal.content = input.content.trim();
+  journal.type = input.type?.trim() || "journal";
+
+  if (typeof input.aiPrompt === "string") {
+    journal.aiPrompt = input.aiPrompt.trim() || null;
+  }
+
+  if (input.tags) {
+    journal.tags = input.tags;
+  }
+
+  if (input.images) {
+    journal.images = input.images;
+  }
+
+  if (typeof input.isFavorite === "boolean") {
+    journal.isFavorite = input.isFavorite;
+  }
+
+  await journal.save();
+
+  try {
+    await syncJournalUpdatedInsights({
+      previousJournal: previousJournalSnapshot,
+      nextJournal: {
+        userId: input.userId,
+        content: journal.content,
+        tags: journal.tags || [],
+        isFavorite: Boolean(journal.isFavorite),
+        createdAt: journal.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to sync insights cache after journal update:", error);
   }
 
   return serializeJournal(journal);
@@ -92,17 +143,40 @@ const toggleJournalFavorite = async (
   input: ToggleJournalFavoriteInput
 ): Promise<JournalEntryResponse | null> => {
   const journal = await journalModel
-    .findOneAndUpdate(
-      { _id: input.journalId, userId: input.userId },
-      {
-        isFavorite: input.isFavorite,
-      },
-      { new: true }
-    )
+    .findOne({ _id: input.journalId, userId: input.userId })
     .exec();
 
   if (!journal) {
     return null;
+  }
+
+  const previousJournalSnapshot = {
+    userId: input.userId,
+    content: journal.content,
+    tags: journal.tags || [],
+    isFavorite: Boolean(journal.isFavorite),
+    createdAt: journal.createdAt,
+  };
+
+  journal.isFavorite = input.isFavorite;
+  await journal.save();
+
+  try {
+    await syncJournalUpdatedInsights({
+      previousJournal: previousJournalSnapshot,
+      nextJournal: {
+        userId: input.userId,
+        content: journal.content,
+        tags: journal.tags || [],
+        isFavorite: Boolean(journal.isFavorite),
+        createdAt: journal.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Failed to sync insights cache after favorite toggle:",
+      error
+    );
   }
 
   return serializeJournal(journal);
@@ -112,14 +186,30 @@ const deleteJournal = async ({
   userId,
   journalId,
 }: JournalLookupInput): Promise<boolean> => {
-  const result = await journalModel
-    .deleteOne({
+  const journal = await journalModel
+    .findOneAndDelete({
       _id: journalId,
       userId,
     })
     .exec();
 
-  return result.deletedCount > 0;
+  if (!journal) {
+    return false;
+  }
+
+  try {
+    await syncJournalDeletedInsights({
+      userId,
+      content: journal.content,
+      tags: journal.tags || [],
+      isFavorite: Boolean(journal.isFavorite),
+      createdAt: journal.createdAt,
+    });
+  } catch (error) {
+    console.error("Failed to sync insights cache after journal deletion:", error);
+  }
+
+  return true;
 };
 
 export type {

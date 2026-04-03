@@ -20,7 +20,6 @@ export interface IUser extends Document {
   passwordHash?: string | null;
   emailVerified: boolean;
   emailVerificationCode?: string | null;
-  emailVerificationExpiresAt?: Date | null;
   emailVerificationAttempts: number;
   googleUserId?: string | null;
   authProviders: string[];
@@ -62,7 +61,6 @@ const userSchema = new mongoose.Schema<IUser>(
     passwordHash: { type: String, default: null },
     emailVerified: { type: Boolean, default: false, required: true },
     emailVerificationCode: { type: String, default: null },
-    emailVerificationExpiresAt: { type: Date, default: null },
     emailVerificationAttempts: { type: Number, default: 0, required: true },
     googleUserId: { type: String, default: null },
     authProviders: {

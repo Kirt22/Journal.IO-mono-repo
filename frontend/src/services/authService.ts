@@ -5,6 +5,7 @@ type AuthUser = {
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  isPremium?: boolean;
   journalingGoals: string[];
   avatarColor: string | null;
   profileSetupCompleted: boolean;
@@ -114,6 +115,27 @@ const buildMockTokens = (email: string) => {
   };
 };
 
+const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T => {
+  if (!__DEV__) {
+    return value;
+  }
+
+  if ("user" in value) {
+    return {
+      ...value,
+      user: {
+        ...value.user,
+        isPremium: value.user.isPremium ?? true,
+      },
+    };
+  }
+
+  return {
+    ...value,
+    isPremium: value.isPremium ?? true,
+  };
+};
+
 const createMockSession = (payload: {
   email: string;
   name?: string;
@@ -133,6 +155,7 @@ const createMockSession = (payload: {
       name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
       phoneNumber: null,
       email,
+      isPremium: true,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,
@@ -185,7 +208,7 @@ const verifyEmail = async (
       }),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -208,7 +231,7 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
       body: JSON.stringify(payload),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -232,7 +255,7 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
       body: JSON.stringify(payload),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -284,12 +307,20 @@ const verifyOtp = async (payload: {
     body: JSON.stringify(payload),
   });
 
-  return response.data;
+  return applyDevPremiumDefault(response.data);
+};
+
+const logout = async () => {
+  await request<{}>("/auth/logout", {
+    method: "POST",
+  });
 };
 
 export {
+  applyDevPremiumDefault,
   resendEmailVerification,
   resendOtp,
+  logout,
   sendOtp,
   signInWithEmail,
   signInWithGoogle,

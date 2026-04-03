@@ -1,10 +1,17 @@
-import { NativeModules, Platform } from "react-native";
+import { Alert, NativeModules, Platform } from "react-native";
 import devLaunchConfig from "./devLaunchConfig.json";
 import { getAccessToken } from "./tokenStorage";
 
 type DevLaunchConfig = {
   apiBaseUrl?: string | null;
 };
+
+const NETWORK_ALERT_COOLDOWN_MS = 3000;
+const NETWORK_ALERT_TITLE = "Connection issue";
+const NETWORK_ALERT_MESSAGE =
+  "We're having trouble reaching the server. Check your internet connection or make sure the backend is running, then try again.";
+
+let lastNetworkAlertAt = 0;
 
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -94,6 +101,17 @@ class ApiError extends Error {
   }
 }
 
+const showNetworkIssueAlert = () => {
+  const now = Date.now();
+
+  if (now - lastNetworkAlertAt < NETWORK_ALERT_COOLDOWN_MS) {
+    return;
+  }
+
+  lastNetworkAlertAt = now;
+  Alert.alert(NETWORK_ALERT_TITLE, NETWORK_ALERT_MESSAGE);
+};
+
 const request = async <T>(
   path: string,
   options: RequestInit = {}
@@ -138,6 +156,8 @@ const request = async <T>(
         error,
       });
     }
+
+    showNetworkIssueAlert();
 
     throw new ApiError(
       "Unable to reach the server. Check your connection and try again.",

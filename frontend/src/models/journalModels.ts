@@ -2,6 +2,7 @@ export type CreateJournalPayload = {
   title: string;
   content: string;
   type?: string;
+  aiPrompt?: string;
   images?: string[];
   tags?: string[];
   isFavorite?: boolean;
@@ -12,6 +13,7 @@ export type UpdateJournalPayload = {
   title: string;
   content: string;
   type?: string;
+  aiPrompt?: string;
   images?: string[];
   tags?: string[];
   isFavorite?: boolean;
@@ -22,6 +24,7 @@ export type JournalEntry = {
   title: string;
   content: string;
   type: string;
+  aiPrompt: string | null;
   images: string[] | null;
   tags: string[];
   isFavorite?: boolean;

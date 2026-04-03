@@ -62,6 +62,28 @@ Insights endpoints should compute:
 
 These support home insight cards, insights dashboards, and weekly planning flows.
 
+Current implemented non-AI overview aggregation:
+
+- `GET /insights/overview` is backed by a cached per-user `insights` document
+- the cache stores aggregate counters and maps derived from journal entries and mood check-ins
+- the cache is updated from journal create/edit/delete/favorite writes and mood logging writes
+- if the cache is absent, it is rebuilt from MongoDB source collections
+- this overview cache is separate from the future AI-derived feature aggregation pipeline
+
+Current implemented weekly AI-analysis cache:
+
+- `GET /insights/ai-analysis` reads from the same per-user `insights` document
+- journal and mood writes mark the weekly AI-analysis cache as stale without blocking the primary save flow
+- when the AI-analysis route is requested and the cache is stale or older than the current rolling week, the backend recomputes:
+  - weekly summary metadata
+  - pattern tags
+  - Big Five-style trait signals
+  - supportive dark-triad watchpoints
+  - actionable steps
+  - Journal.IO support guidance
+- recomputation uses recent journal text, recent tags, and recent mood check-ins only, then writes the structured result back to the `insights` document
+- the current implementation is deterministic and cache-backed; it does not yet call the future OpenAI async extraction pipeline for this screen
+
 ---
 
 # 5) Weekly Plan Generation

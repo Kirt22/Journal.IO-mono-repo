@@ -1,8 +1,11 @@
 import express, { Express, Request, Response } from "express";
 import { apiResponse } from "../helpers/commonHelper.helpers";
 import authRouter from "../services/auth/auth.routes";
+import insightsRouter from "../services/insights/insights.routes";
 import moodRouter from "../services/mood/mood.routes";
 import journalRouter from "../services/journal/journal.routes";
+import privacyRouter from "../services/privacy/privacy.routes";
+import streaksRouter from "../services/streaks/streaks.routes";
 import userRouter from "../services/user/user.routes";
 
 console.log("Initializing routes...");
@@ -36,6 +39,9 @@ export const initializeRoutes = (app: Express): void => {
   apiRouter.use("/users", userRouter);
   apiRouter.use("/mood", moodRouter);
   apiRouter.use("/journal", journalRouter);
+  apiRouter.use("/privacy", privacyRouter);
+  apiRouter.use("/streaks", streaksRouter);
+  apiRouter.use("/insights", insightsRouter);
 
   // Attach the global prefix
   app.use("/api/v1", apiRouter);

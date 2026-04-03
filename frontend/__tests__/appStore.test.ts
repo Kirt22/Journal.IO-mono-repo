@@ -73,7 +73,7 @@ describe("appStore", () => {
     expect(store.getState().themeModeOverride).toBeNull();
   });
 
-  it("boots into auth when the onboarding gate has already been completed", async () => {
+  it("boots into auth on the same install after tokens are gone", async () => {
     jest.resetModules();
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
@@ -175,6 +175,47 @@ describe("appStore", () => {
     expect(freshStore.getState().stage).toBe("onboarding");
   });
 
+  it("clears invalid persisted tokens and returns to auth on the same install", async () => {
+    jest.resetModules();
+
+    const clearTokens = jest.fn(async () => undefined);
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens,
+      getAccessToken: jest.fn(async () => "stale-access-token"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "stale-access-token",
+        refreshToken: "stale-refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { ApiError } = require("../src/utils/apiClient");
+
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => {
+        throw new ApiError("Unauthorized", { status: 401 });
+      }),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(freshStore.getState().session).toBeNull();
+    expect(freshStore.getState().stage).toBe("auth");
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+  });
+
   it("persists the onboarding flag returned by sign in", async () => {
     jest.resetModules();
 
@@ -198,6 +239,7 @@ describe("appStore", () => {
 
     jest.doMock("../src/services/authService", () => ({
       resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
       signInWithEmail,
       signInWithGoogle: jest.fn(),
       signUpWithEmail: jest.fn(),
@@ -231,5 +273,49 @@ describe("appStore", () => {
     });
     expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
     expect(freshStore.getState().stage).toBe("main-app");
+  });
+
+  it("signs out through the backend and clears the local session state", async () => {
+    jest.resetModules();
+
+    const logout = jest.fn(async () => undefined);
+
+    jest.doMock("../src/services/authService", () => ({
+      logout,
+      resendEmailVerification: jest.fn(),
+      signInWithEmail: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().signOut();
+    });
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(freshStore.getState().session).toBeNull();
+    expect(freshStore.getState().stage).toBe("auth");
+    expect(freshStore.getState().activeTab).toBe("home");
   });
 });

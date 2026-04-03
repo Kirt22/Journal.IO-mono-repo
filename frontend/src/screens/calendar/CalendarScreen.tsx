@@ -6,6 +6,7 @@ import {
   View,
 } from "../../infrastructure/reactNative";
 import {
+  BookOpen,
   ChevronLeft,
   ChevronRight,
   Grid3x3,
@@ -170,6 +171,65 @@ function StatCard({
   );
 }
 
+function EmptyState({
+  title,
+  description,
+  onActionPress,
+}: {
+  title: string;
+  description: string;
+  onActionPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.emptyState}>
+      <View
+        style={[
+          styles.emptyStateIconWrap,
+          {
+            backgroundColor: theme.colors.accent,
+          },
+        ]}
+      >
+        <BookOpen color={theme.colors.mutedForeground} size={28} />
+      </View>
+      <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+        {title}
+      </Text>
+      <Text
+        style={[
+          styles.emptyStateDescription,
+          { color: theme.colors.mutedForeground },
+        ]}
+      >
+        {description}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Create a new entry"
+        onPress={onActionPress}
+        style={({ pressed }: { pressed: boolean }) => [
+          styles.emptyStateAction,
+          {
+            backgroundColor: theme.colors.primary,
+          },
+          pressed && styles.pressed,
+        ]}
+      >
+        <Text
+          style={[
+            styles.emptyStateActionText,
+            { color: theme.colors.primaryForeground },
+          ]}
+        >
+          Create Entry
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function CalendarScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -177,13 +237,14 @@ export default function CalendarScreen() {
   const recentJournalEntries = useAppStore(
     state => state.recentJournalEntries
   );
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const openJournalEntry = useAppStore(state => state.openJournalEntry);
   const updateRecentJournalEntry = useAppStore(
     state => state.updateRecentJournalEntry
   );
   const [view, setView] = useState<ViewMode>("list");
   const [currentMonth, setCurrentMonth] = useState(today);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
   const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
     null
   );
@@ -288,6 +349,13 @@ export default function CalendarScreen() {
       </View>
 
       {view === "list" ? (
+        totalCount === 0 ? (
+          <EmptyState
+            title="No entries yet"
+            description="Start your journaling journey by creating your first entry"
+            onActionPress={openNewEntry}
+          />
+        ) : (
         <Animated.View
           key="list"
           style={[
@@ -320,6 +388,7 @@ export default function CalendarScreen() {
             ))}
           </View>
         </Animated.View>
+        )
       ) : (
         <Animated.View
           key="calendar"
@@ -584,6 +653,43 @@ const styles = StyleSheet.create({
   },
   listStack: {
     gap: 12,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+    paddingHorizontal: 20,
+  },
+  emptyStateIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  emptyStateDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    maxWidth: 260,
+    marginBottom: 20,
+  },
+  emptyStateAction: {
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+  },
+  emptyStateActionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   viewTransition: {
     width: "100%",

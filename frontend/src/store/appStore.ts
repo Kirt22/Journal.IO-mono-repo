@@ -4,6 +4,7 @@ import type { AuthEntrySource, FlowStage } from "../navigation/appFlow";
 import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingScreen";
 import {
   resendEmailVerification,
+  logout,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
@@ -13,6 +14,7 @@ import {
 } from "../services/authService";
 import { getProfile, updateProfile } from "../services/userService";
 import type { ThemeMode } from "../theme/theme";
+import { ApiError } from "../utils/apiClient";
 import {
   clearTokens,
   getOnboardingCompleted,
@@ -23,7 +25,6 @@ import {
   saveTokens,
 } from "../utils/tokenStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
-import { calendarSampleJournalEntries } from "../models/calendarModels";
 import {
   createInitialJournalSliceState,
   createJournalSlice,
@@ -117,6 +118,7 @@ function buildOnboardingContext(
 type AppStoreState = {
   stage: FlowStage;
   activeTab: BottomNavKey;
+  preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
@@ -148,12 +150,15 @@ type AppStoreState = {
     name: string;
     avatarColor: string;
   }) => Promise<void>;
+  signOut: () => Promise<void>;
   goBackToAuth: () => void;
   goBackToCreateAccount: () => void;
   goBackFromProfile: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
+  openInsightsTab: (nextTab?: "overview" | "analysis") => void;
+  clearPreferredInsightsTab: () => void;
   openNewEntry: () => void;
   closeNewEntry: () => void;
   openJournalEntry: (entryId: string) => void;
@@ -183,6 +188,7 @@ type AppStoreSnapshot = Pick<
 const createInitialSnapshot = (): AppStoreSnapshot => ({
   stage: getInitialStage(),
   activeTab: getInitialTab(),
+  preferredInsightsTab: null,
   isCompletingOnboarding: false,
   onboardingData: null,
   pendingEmail:
@@ -196,7 +202,7 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   themeModeOverride: null,
   selectedJournalEntryId: null,
   hasBootstrappedAuthGate: false,
-  ...createInitialJournalSliceState(calendarSampleJournalEntries),
+  ...createInitialJournalSliceState(),
 });
 
 const enterHomeWithProfile = (
@@ -222,11 +228,13 @@ const enterHomeWithProfile = (
 const getSelectedGoals = (state: Pick<AppStoreState, "onboardingData">) =>
   state.onboardingData?.goals || [];
 
+const isUnauthorizedProfileError = (error: unknown) =>
+  error instanceof ApiError && (error.status === 401 || error.status === 403);
+
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
   ...createJournalSlice(
-    set as Parameters<typeof createJournalSlice>[0],
-    calendarSampleJournalEntries
+    set as Parameters<typeof createJournalSlice>[0]
   ),
   bootstrapAuthGate: async () => {
     if (get().hasBootstrappedAuthGate) {
@@ -272,38 +280,28 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           authSource: profile.email ? "email" : null,
           pendingEmail: profile.email || "",
           pendingVerificationCode: "",
+          preferredInsightsTab: null,
           activeTab: "home",
           stage: "main-app",
         });
         return;
-      } catch {
-        const fallbackSession: AuthSession = {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          user: {
-            userId: "",
-            name: "Journal User",
-            phoneNumber: null,
-            email: null,
-            journalingGoals: [],
-            avatarColor: null,
-            profileSetupCompleted: true,
-            onboardingCompleted: true,
-            profilePic: null,
-          },
-        };
+      } catch (error) {
+        if (isUnauthorizedProfileError(error)) {
+          await clearTokens();
+        }
 
-        await saveOnboardingCompleted(true);
+        const onboardingCompleted = await getOnboardingCompleted();
 
         set({
           hasBootstrappedAuthGate: true,
-          session: fallbackSession,
-          initialProfileName: fallbackSession.user.name,
+          session: null,
+          initialProfileName: "",
           authSource: null,
           pendingEmail: "",
           pendingVerificationCode: "",
+          preferredInsightsTab: null,
           activeTab: "home",
-          stage: "main-app",
+          stage: onboardingCompleted ? "auth" : "onboarding",
         });
         return;
       }
@@ -366,6 +364,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   skipToHome: () => {
     set({
       activeTab: "home",
+      preferredInsightsTab: null,
       stage: "main-app",
     });
   },
@@ -471,6 +470,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         session: response,
         pendingEmail: response.user.email || payload.email,
         authSource: "email",
+        preferredInsightsTab: null,
         activeTab: "home",
         stage: "main-app",
       });
@@ -495,6 +495,30 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     await saveOnboardingCompleted(true);
 
     enterHomeWithProfile(set, get, updatedProfile);
+  },
+  signOut: async () => {
+    try {
+      await logout();
+    } catch {
+      // Sign-out must still complete locally even if the backend session is already gone.
+    }
+
+    await clearTokens();
+
+    set({
+      ...createInitialJournalSliceState(),
+      stage: "auth",
+      activeTab: "home",
+      preferredInsightsTab: null,
+      isCompletingOnboarding: false,
+      onboardingData: null,
+      pendingEmail: "",
+      pendingVerificationCode: "",
+      authSource: null,
+      session: null,
+      initialProfileName: "",
+      selectedJournalEntryId: null,
+    });
   },
   goBackToAuth: () => {
     set({ stage: "auth" });
@@ -527,7 +551,20 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set(createInitialSnapshot());
   },
   setActiveTab: nextTab => {
-    set({ activeTab: nextTab });
+    set({
+      activeTab: nextTab,
+      preferredInsightsTab: nextTab === "insights" ? get().preferredInsightsTab : null,
+    });
+  },
+  openInsightsTab: (nextTab = "overview") => {
+    set({
+      activeTab: "insights",
+      preferredInsightsTab: nextTab,
+      stage: "main-app",
+    });
+  },
+  clearPreferredInsightsTab: () => {
+    set({ preferredInsightsTab: null });
   },
   openNewEntry: () => {
     set({ stage: "new-entry" });

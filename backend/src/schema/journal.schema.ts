@@ -8,8 +8,9 @@ export interface IJournal extends Document {
   userId: mongoose.Types.ObjectId;
   type: string;
   title: string;
+  aiPrompt: string | null;
   tags: string[];
-  images: [string] | null;
+  images: string[] | null;
   isFavorite: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -25,6 +26,7 @@ const journalSchema = new mongoose.Schema<IJournal>(
     content: { type: String, required: true },
     type: { type: String, required: true },
     title: { type: String, default: "Untitled", required: true },
+    aiPrompt: { type: String, default: null },
     tags: { type: [String], default: [] },
     images: { type: [String], default: [] },
     isFavorite: { type: Boolean, default: false },
@@ -34,6 +36,7 @@ const journalSchema = new mongoose.Schema<IJournal>(
 
 // ✅ Indexes
 journalSchema.index({ userId: 1 });
+journalSchema.index({ userId: 1, createdAt: -1 });
 journalSchema.index({ type: 1 });
 journalSchema.index({ createdAt: -1 });
 journalSchema.index({ _id: 1, title: 1 });

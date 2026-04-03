@@ -167,6 +167,13 @@ Home should support quick daily engagement:
 - daily prompt card
 - recent entries preview
 - recent entries should open a detail screen when tapped, with a separate edit screen for changes
+- the Home AI insight card should reuse the same backend `AI Analysis` data shown on the Insights screen, but present it as short rotating snippets rather than full cards
+- the Home AI insight card should auto-advance through multiple snippets, keep a small manual next control in the top-right, and open the full `AI Analysis` tab when tapped
+- the Home AI insight card should animate smoothly when the snippet changes
+- the Home AI insight card should keep the copy compact and should fold supporting labels into the title/body instead of rendering standalone tag chips
+- the rotating Home AI insight snippets may change icon and CTA copy per card when that improves scanability without changing the card shell
+- AI surfaces should be premium-gated: non-premium users should see locked placeholders for the Home AI insight card and the Insights `AI Analysis` tab, with a clear upgrade handoff
+- the Home current-streak card should be API-backed and should use the lightweight `currentStreak` value returned by `GET /mood/today` rather than calling the full streak summary endpoints
 
 Shared journal-card rule:
 
@@ -177,10 +184,51 @@ Shared journal-card rule:
 - if a journal entry has no explicit mood selection, use a placeholder journal emoji
 - strip `mood:` tags from the visible tag chips
 - keep the Home preview slightly shorter than Calendar
+- do not seed Home or Calendar with fake journal entries at runtime; empty states should render until real local or backend-backed entries exist
+- entry detail and edit screens should show a stored `aiPrompt` prompt-used card when the journal record includes one
 
 The first screen after setup should make journaling and check-in easy within one scroll.
 
 Mood tracker copy should feel direct and calm, using "How are you feeling today?" for the prompt and clearly indicating when today's check-in is already logged.
+
+Insights screen expectations:
+
+- fetch the screen data from backend APIs rather than local placeholder constants
+- overview should show:
+  - total entries
+  - current streak
+  - average words
+  - total favorites
+  - 7-day activity graph
+  - mood distribution from saved home mood check-ins
+  - popular topics derived from the most-used non-`mood:` journal tags
+- analysis content may be derived from stored insight aggregates, but should remain supportive and non-clinical
+- the `AI Analysis` tab should load from a dedicated backend route instead of reusing overview placeholder text
+- the Insights screen should call only the overview API on initial page load; the `AI Analysis` API should be requested only after the user switches to that tab
+- the analysis tab should present structured, scan-friendly cards rather than a single text block
+- for non-premium users, keep the `AI Analysis` tab visible but locked, with a premium explainer instead of AI content
+- keep AI-analysis copy concise and easy to skim; prefer a few strong signals over dense paragraphs
+- include visual pattern cues such as trait bars, supportive watchpoint meters, and tag-style chips when they help readability without making the screen noisy
+- any Big Five or dark-triad-adjacent language must be framed as weekly signals, not diagnoses or fixed identity labels
+- dark-triad content must stay emotionally safe: direct but non-shaming, with a balancing explanation and a gentle counter-step
+- actionable steps should feel lightweight and achievable within the existing journaling habit
+- include a card that explains how Journal.IO features can help the user work with the surfaced patterns over time
+- include loading and recoverable error states when insight data cannot be fetched
+
+Streaks screen expectations:
+
+- keep the existing Make design intact; replace only the placeholder values with backend data
+- load the screen from backend APIs rather than hardcoded constants
+- show:
+  - current streak
+  - best streak
+  - this month entries
+  - total entries
+  - 30-day activity
+  - achievements
+- the 30-day activity grid should render directly from a backend day-by-day history response
+- achievements should come from backend milestone data so the screen does not duplicate unlock logic
+- include loading and recoverable error states without redesigning the streak layout
 
 ---
 

@@ -95,6 +95,12 @@ Low-level shared helpers like API clients and secure token storage belong in `fr
 Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
 Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
 
+Home-screen lightweight data note:
+
+- the Home current-streak card does not call the full streak summary endpoint
+- the existing `GET /mood/today` response includes a lightweight `currentStreak` field for the Home bootstrap path
+- the full streaks screen still reads the dedicated streak endpoints for the richer streak surface
+
 Frontend state management split:
 
 - server state: TanStack Query
@@ -161,17 +167,55 @@ Current implemented backend modules are centered around:
 - `auth`
 - `user`
 - `journal`
+- `mood`
+- `insights`
+- `streaks`
 
 Design-aligned target modules include:
 
 - prompts
-- insights
 - plans
 - reminders
 - streaks
 - privacy
 
 Architecture should evolve incrementally through vertical slices, not broad refactors.
+
+Current insights overview architecture:
+
+- the mobile Insights screen reads from `GET /insights/overview`
+- the mobile `AI Analysis` tab reads from `GET /insights/ai-analysis`
+- the Home AI insight card also reuses `GET /insights/ai-analysis`, but only surfaces short rotating snippets instead of the full weekly card stack
+- backend stores a per-user cached `insights` document for fast read access
+- the cache keeps lightweight aggregate counters and maps derived from:
+  - journal entries
+  - favorite state
+  - journal tags
+  - home mood check-ins
+- journal and mood write paths incrementally maintain the cache
+- if the cache is missing, the backend rebuilds it from journals and mood check-ins
+- the same `insights` document also stores a weekly AI-analysis cache plus staleness metadata
+- weekly AI-analysis is recomputed on demand from recent journal text, recent tags, and recent mood check-ins only when the cache is stale or the rolling week changes
+- AI-analysis output is structured for the mobile screen into:
+  - weekly summary metadata
+  - pattern tags
+  - Big Five-style trait signals
+  - supportive dark-triad watchpoints
+  - actionable steps
+  - app-guidance cards
+
+Current streaks architecture:
+
+- the mobile Streaks screen reads from `GET /streaks/current` and `GET /streaks/history?days=30`
+- journals remain the source of truth; streaks are derived from grouped journal-entry calendar dates rather than stored as a separate mutable streak counter
+- backend streak aggregation computes:
+  - current streak
+  - best streak
+  - current-month entry total
+  - lifetime entry total
+  - 30-day activity presence
+  - milestone achievements
+- the frontend keeps the existing Make layout and only swaps in the API-backed values
 
 ---
 

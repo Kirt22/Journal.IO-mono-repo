@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import {
   Alert,
   Image,
@@ -11,15 +11,16 @@ import {
 } from "react-native";
 import {
   Award,
+  BookOpen,
   Calendar,
   ChevronRight,
   Crown,
   Phone,
-  Shield,
   Settings,
-  BookOpen,
+  Shield,
 } from "lucide-react-native";
 import TabScreenLayout from "../../components/TabScreenLayout";
+import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
 import { useTheme } from "../../theme/provider";
 
 type ProfileScreenProps = {
@@ -30,7 +31,12 @@ type ProfileScreenProps = {
   onboardingGoals?: string[];
   userAvatarColor?: string | null;
   userProfilePic?: string | null;
+  isPremium?: boolean;
   onOpenStreaks?: () => void;
+  onOpenSettings?: () => void;
+  onOpenSubscription?: () => void;
+  onOpenPrivacy?: () => void;
+  onOpenPaywall?: () => void;
 };
 
 type MenuItem = {
@@ -38,6 +44,7 @@ type MenuItem = {
   label: string;
   description: string;
   badge?: string | null;
+  onPress?: () => void;
 };
 
 type ContactItem = {
@@ -46,29 +53,10 @@ type ContactItem = {
   phoneNumber: string;
 };
 
-const achievements = [
+const DEFAULT_ACHIEVEMENTS = [
   { emoji: "🏆", label: "First Entry" },
   { emoji: "🔥", label: "7-Day Streak" },
   { emoji: "📝", label: "50 Entries" },
-];
-
-const menuItems: MenuItem[] = [
-  {
-    icon: Settings,
-    label: "Settings",
-    description: "Preferences and account",
-  },
-  {
-    icon: Crown,
-    label: "Subscription",
-    description: "Manage your plan",
-    badge: null,
-  },
-  {
-    icon: Shield,
-    label: "Privacy & Data",
-    description: "Your data and privacy controls",
-  },
 ];
 
 const emergencyContacts: ContactItem[] = [
@@ -116,21 +104,15 @@ function getInitials(fullName: string) {
   return initials.slice(0, 2) || "U";
 }
 
-function handleExternalPhoneAction(phoneNumber: string, label: string) {
-  const telUrl = `tel:${phoneNumber}`;
+async function handleExternalPhoneAction(phoneNumber: string, label: string) {
+  const sanitizedPhoneNumber = phoneNumber.replace(/[^\d+]/g, "");
+  const telUrl = `tel:${sanitizedPhoneNumber}`;
 
-  Linking.canOpenURL(telUrl)
-    .then(canOpen => {
-      if (canOpen) {
-        return Linking.openURL(telUrl);
-      }
-
-      Alert.alert(label, `Call ${phoneNumber} from your phone dialer.`);
-      return null;
-    })
-    .catch(() => {
-      Alert.alert(label, `Call ${phoneNumber} from your phone dialer.`);
-    });
+  try {
+    await Linking.openURL(telUrl);
+  } catch {
+    Alert.alert(label, `Call ${phoneNumber} from your phone dialer.`);
+  }
 }
 
 function SectionCard({
@@ -285,6 +267,22 @@ function ContactRow({
   );
 }
 
+function getAchievementEmoji(achievement: StreakAchievement) {
+  switch (achievement.key) {
+    case "7-day-streak":
+      return "🔥";
+    case "30-day-streak":
+      return "🌿";
+    case "50-entries":
+      return "📝";
+    case "100-entries":
+      return "✨";
+    case "first-entry":
+    default:
+      return "🏆";
+  }
+}
+
 export default function ProfileScreen({
   userName = "Journal User",
   userEmail,
@@ -293,10 +291,16 @@ export default function ProfileScreen({
   onboardingGoals = [],
   userAvatarColor,
   userProfilePic,
+  isPremium = false,
   onOpenStreaks,
+  onOpenSettings,
+  onOpenSubscription,
+  onOpenPrivacy,
+  onOpenPaywall,
 }: ProfileScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const [streakSummary, setStreakSummary] = useState<StreakCurrentSummary | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -312,17 +316,89 @@ export default function ProfileScreen({
     []
   );
 
+  useEffect(() => {
+    let isActive = true;
+
+    const loadSummary = async () => {
+      try {
+        const summary = await getCurrentStreakSummary();
+
+        if (isActive) {
+          setStreakSummary(summary);
+        }
+      } catch {
+        if (isActive) {
+          setStreakSummary(null);
+        }
+      }
+    };
+
+    loadSummary();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   const initials = useMemo(() => getInitials(userName), [userName]);
   const displayedEmail = userEmail || fallbackEmail || DUMMY_EMAIL;
   const displayedGoals = userGoals.length > 0 ? userGoals : onboardingGoals;
   const hasGoals = displayedGoals.length > 0;
-  const showPremiumBanner = false;
+  const showPremiumBanner = !isPremium;
   const accentColor = userAvatarColor || theme.colors.primary;
+
   const statCards = [
-    { label: "Total Entries", value: 0, icon: BookOpen },
-    { label: "Current Streak", value: "0 days", icon: Award },
-    { label: "Member Since", value: displayMonth, icon: Calendar },
+    {
+      label: "Total Entries",
+      value: streakSummary?.totalEntries ?? 0,
+      icon: BookOpen,
+    },
+    {
+      label: "Current Streak",
+      value: `${streakSummary?.currentStreak ?? 0} days`,
+      icon: Award,
+    },
+    {
+      label: "Member Since",
+      value: displayMonth,
+      icon: Calendar,
+    },
   ];
+
+  const menuItems: MenuItem[] = [
+    {
+      icon: Settings,
+      label: "Settings",
+      description: "Preferences and account",
+      onPress: onOpenSettings,
+    },
+    {
+      icon: Crown,
+      label: "Subscription",
+      description: "Manage your plan",
+      badge: isPremium ? "Premium" : null,
+      onPress: onOpenSubscription,
+    },
+    {
+      icon: Shield,
+      label: "Privacy & Data",
+      description: "Your data and privacy controls",
+      onPress: onOpenPrivacy,
+    },
+  ];
+
+  const achievements = (streakSummary?.achievements || [])
+    .filter(achievement => achievement.unlocked)
+    .slice(0, 3)
+    .map(achievement => ({
+      emoji: getAchievementEmoji(achievement),
+      label: achievement.title,
+    }));
+
+  const visibleAchievements =
+    achievements.length > 0
+      ? achievements
+      : DEFAULT_ACHIEVEMENTS;
 
   return (
     <TabScreenLayout
@@ -374,12 +450,34 @@ export default function ProfileScreen({
         </Text>
 
         {showPremiumBanner ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (onOpenPaywall) {
+                onOpenPaywall();
+                return;
+              }
+
+              Alert.alert("Unlock Premium", "This area is not connected yet.");
+            }}
+            style={({ pressed }) => [
+              styles.premiumBadge,
+              { backgroundColor: theme.colors.primary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Crown size={14} color={theme.colors.primaryForeground} />
+            <Text
+              style={[styles.premiumBadgeText, { color: theme.colors.primaryForeground }]}
+            >
+              Unlock Premium
+            </Text>
+          </Pressable>
+        ) : (
           <View
             style={[
               styles.premiumBadge,
-              {
-                backgroundColor: theme.colors.primary,
-              },
+              { backgroundColor: theme.colors.primary },
             ]}
           >
             <Crown size={14} color={theme.colors.primaryForeground} />
@@ -389,7 +487,7 @@ export default function ProfileScreen({
               Premium Member
             </Text>
           </View>
-        ) : null}
+        )}
       </View>
 
       <View style={styles.statsGrid}>
@@ -448,16 +546,21 @@ export default function ProfileScreen({
         </View>
       </SectionCard>
 
-      {!showPremiumBanner ? (
+      {showPremiumBanner ? (
         <Pressable
           accessibilityRole="button"
           onPress={() => {
+            if (onOpenPaywall) {
+              onOpenPaywall();
+              return;
+            }
+
             Alert.alert(
               "Unlock Premium",
-              "This surface is not connected yet in the mobile app."
+              "This area is not connected yet in the mobile app."
             );
           }}
-          style={({ pressed }: { pressed: boolean }) => [
+          style={({ pressed }) => [
             styles.upgradeBanner,
             { backgroundColor: theme.colors.primary },
             pressed && styles.pressed,
@@ -491,6 +594,11 @@ export default function ProfileScreen({
             {...item}
             theme={theme}
             onPress={() => {
+              if (item.onPress) {
+                item.onPress();
+                return;
+              }
+
               Alert.alert(item.label, "This area is not connected yet.");
             }}
           />
@@ -512,7 +620,7 @@ export default function ProfileScreen({
 
               Alert.alert("Streaks", "This area is not connected yet.");
             }}
-            style={({ pressed }: { pressed: boolean }) => [
+            style={({ pressed }) => [
               styles.viewAllButton,
               pressed && styles.pressed,
             ]}
@@ -524,7 +632,7 @@ export default function ProfileScreen({
         </View>
 
         <View style={styles.achievementRow}>
-          {achievements.map(achievement => (
+          {visibleAchievements.map(achievement => (
             <View
               key={achievement.label}
               style={[

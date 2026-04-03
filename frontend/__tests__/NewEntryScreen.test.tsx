@@ -14,6 +14,7 @@ jest.mock("../src/services/journalService", () => ({
     title: payload.title,
     content: payload.content,
     type: payload.type || "journal",
+    aiPrompt: payload.aiPrompt ?? null,
     images: [],
     tags: payload.tags || [],
     isFavorite: false,
@@ -21,6 +22,10 @@ jest.mock("../src/services/journalService", () => ({
     updatedAt: "2026-01-01T08:00:00.000Z",
   })),
 }));
+
+beforeEach(() => {
+  (createJournalEntry as jest.Mock).mockClear();
+});
 
 const safeAreaMetrics = {
   frame: {
@@ -121,17 +126,74 @@ test("saves an entry and returns to home", async () => {
   });
 
   await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "Show writing prompts" }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "What are you grateful for today?" }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
     await root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.onPress();
   });
 
   expect(createJournalEntry).toHaveBeenCalledWith(
     expect.objectContaining({
       title: "Afternoon note",
-      content: "A calm reset after a busy meeting",
+      content: expect.stringMatching(
+        /A calm reset after a busy meeting[\s\S]*What are you grateful for today\?/
+      ),
       type: "journal",
+      aiPrompt: "What are you grateful for today?",
     })
   );
   expect(onBack).toHaveBeenCalled();
+});
+
+test("saves blank titles as untitled entries instead of a generated date title", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NewEntryScreen onBack={jest.fn()} />
+      </SafeAreaProvider>
+    );
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Entry content" })
+      .props.onChangeText("Left the title blank on purpose");
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "Show writing prompts" }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "What are you grateful for today?" }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.onPress();
+  });
+
+  expect(createJournalEntry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Untitled",
+      content: expect.stringMatching(
+        /Left the title blank on purpose[\s\S]*What are you grateful for today\?/
+      ),
+      type: "journal",
+      aiPrompt: "What are you grateful for today?",
+    })
+  );
+  expect(createJournalEntry).not.toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: expect.stringMatching(/^Entry for /),
+    })
+  );
 });
 
 test("keeps the entry screen open when saving fails", async () => {

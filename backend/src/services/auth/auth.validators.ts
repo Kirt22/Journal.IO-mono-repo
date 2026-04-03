@@ -72,7 +72,7 @@ const resendEmailVerificationSchema = z.object({
 const verifyEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
-    code: z.string().length(6, "Verification code must be exactly 6 digits").regex(/^\d{6}$/),
+    code: otpSchema,
     onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
@@ -114,42 +114,6 @@ const registerFromGoogleOAuthSchema = z.object({
   params: z.object({}).optional(),
 });
 
-const signUpWithEmailSchema = z.object({
-  body: z.object({
-    email: emailSchema,
-    password: passwordSchema,
-    onboardingContext: onboardingContextSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const resendEmailVerificationSchema = z.object({
-  body: z.object({
-    email: emailSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const verifyEmailSchema = z.object({
-  body: z.object({
-    email: emailSchema,
-    code: otpSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const signInWithEmailSchema = z.object({
-  body: z.object({
-    email: emailSchema,
-    password: passwordSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
 const refreshSchema = z.object({
   body: z.object({
     refreshToken: z.string().min(1, "Refresh token is required"),
@@ -166,13 +130,13 @@ const logoutSchema = z.object({
 
 export {
   logoutSchema,
-  resendEmailVerificationSchema,
-  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
+  resendEmailVerificationSchema,
+  resendOtpSchema,
+  sendOtpSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
-  sendOtpSchema,
   verifyEmailSchema,
   verifyOtpSchema,
 };

@@ -17,6 +17,7 @@ type PrimaryButtonProps = {
   variant?: "solid" | "outline" | "ghost";
   tone?: "default" | "accent";
   icon?: ReactNode;
+  size?: "md" | "sm";
 };
 
 const PrimaryButton = ({
@@ -27,6 +28,7 @@ const PrimaryButton = ({
   variant = "solid",
   tone = "default",
   icon,
+  size = "md",
 }: PrimaryButtonProps) => {
   const theme = useTheme();
   const isDisabled = disabled || loading;
@@ -49,6 +51,7 @@ const PrimaryButton = ({
       disabled={isDisabled}
       style={({ pressed }: { pressed: boolean }) => [
         styles.button,
+        size === "sm" && styles.buttonSmall,
         isGhost
           ? styles.buttonGhost
           : isOutline
@@ -74,6 +77,7 @@ const PrimaryButton = ({
           <Text
             style={[
               styles.labelBase,
+              size === "sm" && styles.labelSmall,
               !isOutline && !isGhost && { color: solidText },
               isOutline && { color: outlineText },
               isGhost && { color: ghostText },
@@ -93,6 +97,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
+  },
+  buttonSmall: {
+    paddingVertical: 10,
+    borderRadius: 10,
   },
   buttonSolid: {},
   buttonOutline: {
@@ -121,6 +129,9 @@ const styles = StyleSheet.create({
   labelBase: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  labelSmall: {
+    fontSize: 14,
   },
 });
 

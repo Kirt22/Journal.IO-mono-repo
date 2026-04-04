@@ -2,6 +2,7 @@ import { Router } from "express";
 import { validateRequest } from "../../middleware/validateRequest.middleware";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
+  googleMobileSignInController,
   logoutController,
   refreshController,
   resendEmailVerificationController,
@@ -14,6 +15,7 @@ import {
   verifyOtpController,
 } from "./auth.controllers";
 import {
+  googleMobileSignInSchema,
   logoutSchema,
   resendEmailVerificationSchema,
   resendOtpSchema,
@@ -58,6 +60,11 @@ authRouter.post(
   "/verify_otp",
   validateRequest(verifyOtpSchema),
   verifyOtpController
+);
+authRouter.post(
+  "/google/mobile",
+  validateRequest(googleMobileSignInSchema),
+  googleMobileSignInController
 );
 authRouter.post(
   "/register_from_googleOAuth",

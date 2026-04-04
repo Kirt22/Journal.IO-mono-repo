@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import {
   type IOnboardingContext,
   type IUser,
@@ -42,12 +43,16 @@ type VerifyOtpInput = {
 };
 
 type GoogleOAuthInput = {
-  googleIdToken: string;
-  googleUserId?: string;
-  email: string;
-  name: string;
-  profilePic?: string;
+  idToken: string;
   onboardingCompleted?: boolean;
+};
+
+type VerifiedGoogleProfile = {
+  googleSub: string;
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+  picture: string | null;
 };
 
 type EmailOnboardingContextInput = {
@@ -153,6 +158,23 @@ const getOtpExpiryMs = () => {
   );
 };
 
+const normalizeEnvClientId = (value?: string | null) => {
+  const trimmed = value?.trim() || "";
+  return trimmed.replace(/^["']|["']$/g, "").trim();
+};
+
+const getGoogleClientAudiences = () => {
+  return Array.from(
+    new Set(
+      [
+        normalizeEnvClientId(process.env.GOOGLE_WEB_CLIENT_ID),
+        normalizeEnvClientId(process.env.GOOGLE_IOS_CLIENT_ID),
+        normalizeEnvClientId(process.env.GOOGLE_ANDROID_CLIENT_ID),
+      ].filter(Boolean)
+    )
+  );
+};
+
 const getEmailVerificationExpiryMs = () => {
   return parseDurationToMs(
     process.env.AUTH_EMAIL_OTP_EXPIRES_IN || "30m",
@@ -188,6 +210,73 @@ const deriveDisplayNameFromEmail = (email: string) => {
     .split(/\s+/)
     .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+};
+
+const createDefaultGoogleIdTokenVerifier = () => {
+  return async (idToken: string): Promise<VerifiedGoogleProfile | null> => {
+    const audiences = getGoogleClientAudiences();
+
+    if (audiences.length === 0) {
+      throw new Error(
+        "At least one Google client ID must be configured for token verification."
+      );
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      try {
+        const [, payloadPart] = idToken.split(".");
+        const payload = payloadPart
+          ? JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8"))
+          : null;
+
+        console.log("[googleAuth] token audience debug", {
+          aud: payload?.aud,
+          azp: payload?.azp,
+          iss: payload?.iss,
+          acceptedAudiences: audiences,
+        });
+      } catch (decodeError) {
+        console.log("[googleAuth] failed to decode token payload", {
+          message:
+            decodeError instanceof Error
+              ? decodeError.message
+              : String(decodeError),
+          acceptedAudiences: audiences,
+        });
+      }
+    }
+
+    const client = new OAuth2Client();
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: audiences,
+    });
+    const payload = ticket.getPayload();
+
+    if (!payload?.sub) {
+      return null;
+    }
+
+    return {
+      googleSub: payload.sub,
+      email: normalizeOptionalString(payload.email) || null,
+      emailVerified: Boolean(payload.email_verified),
+      name: normalizeOptionalString(payload.name) || null,
+      picture: normalizeOptionalString(payload.picture) || null,
+    };
+  };
+};
+
+let verifyGoogleIdTokenImpl = createDefaultGoogleIdTokenVerifier();
+
+const setGoogleIdTokenVerifierForTests = (
+  verifier: typeof verifyGoogleIdTokenImpl
+) => {
+  verifyGoogleIdTokenImpl = verifier;
+};
+
+const resetGoogleIdTokenVerifierForTests = () => {
+  verifyGoogleIdTokenImpl = createDefaultGoogleIdTokenVerifier();
 };
 
 const sanitizeOnboardingContext = (
@@ -452,6 +541,31 @@ const createPhoneUser = async ({
 
     throw error;
   }
+};
+
+const createGoogleUser = async ({
+  googleProfile,
+  onboardingCompleted,
+}: {
+  googleProfile: VerifiedGoogleProfile;
+  onboardingCompleted?: boolean | undefined;
+}) => {
+  const fallbackName = googleProfile.email
+    ? deriveDisplayNameFromEmail(googleProfile.email)
+    : "Journal User";
+
+  return userModel.create({
+    name: googleProfile.name || fallbackName,
+    email: googleProfile.email,
+    googleUserId: googleProfile.googleSub,
+    profilePic: googleProfile.picture,
+    authProviders: ["google"],
+    profileSetupCompleted: false,
+    onboardingCompleted: Boolean(onboardingCompleted),
+    emailVerified: googleProfile.emailVerified,
+    emailVerifiedAt: googleProfile.emailVerified ? new Date() : null,
+    journalingGoals: [],
+  });
 };
 
 const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
@@ -941,41 +1055,92 @@ const signInWithEmail = async ({
 
 const signInWithGoogle = async (
   input: GoogleOAuthInput
-): Promise<{
-  tokens: AuthTokens;
-  user: ReturnType<typeof buildUserPayload>;
-}> => {
-  const normalizedEmail = normalizeEmail(input.email);
+): Promise<
+  | AuthSuccess<{
+      tokens: AuthTokens;
+      user: ReturnType<typeof buildUserPayload>;
+    }>
+  | AuthFailure
+> => {
+  let googleProfile: VerifiedGoogleProfile | null = null;
 
-  let user =
-    (input.googleUserId
-      ? await userModel.findOne({ googleUserId: input.googleUserId })
-      : null) || (await userModel.findOne({ email: normalizedEmail }));
+  try {
+    googleProfile = await verifyGoogleIdTokenImpl(input.idToken);
+  } catch (error) {
+    console.error("Google ID token verification failed:", error);
+    return {
+      ok: false,
+      status: 401,
+      code: "INVALID_GOOGLE_ID_TOKEN",
+      message: "Unable to verify the Google sign-in token.",
+    };
+  }
+
+  if (!googleProfile?.googleSub) {
+    return {
+      ok: false,
+      status: 401,
+      code: "INVALID_GOOGLE_ID_TOKEN",
+      message: "Unable to verify the Google sign-in token.",
+    };
+  }
+
+  const normalizedEmail = googleProfile.email
+    ? normalizeEmail(googleProfile.email)
+    : null;
+  googleProfile = {
+    ...googleProfile,
+    email: normalizedEmail,
+  };
+
+  let user = await userModel.findOne({ googleUserId: googleProfile.googleSub });
+
+  if (!user && normalizedEmail) {
+    user = await userModel.findOne({ email: normalizedEmail });
+
+    if (
+      user &&
+      user.googleUserId &&
+      user.googleUserId !== googleProfile.googleSub
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: "GOOGLE_ACCOUNT_ALREADY_LINKED",
+        message: "This email is already linked to another Google account.",
+      };
+    }
+  }
 
   if (!user) {
-    user = await userModel.create({
-      name: input.name,
-      email: normalizedEmail,
-      googleUserId: input.googleUserId || null,
-      profilePic: input.profilePic || null,
-      authProviders: ["google"],
-      profileSetupCompleted: false,
-      onboardingCompleted: Boolean(input.onboardingCompleted),
-      emailVerified: true,
-      emailVerifiedAt: new Date(),
-      journalingGoals: [],
+    user = await createGoogleUser({
+      googleProfile,
+      onboardingCompleted: input.onboardingCompleted,
     });
   } else {
     if (!user.authProviders.includes("google")) {
       user.authProviders = [...user.authProviders, "google"];
     }
 
-    user.name = user.name || input.name;
-    user.email = user.email || normalizedEmail;
-    user.googleUserId = user.googleUserId || input.googleUserId || null;
-    user.profilePic = input.profilePic || user.profilePic || null;
-    user.emailVerified = true;
-    user.emailVerifiedAt = user.emailVerifiedAt || new Date();
+    if (!user.name && googleProfile.name) {
+      user.name = googleProfile.name;
+    }
+
+    if (!user.name && normalizedEmail) {
+      user.name = deriveDisplayNameFromEmail(normalizedEmail);
+    }
+
+    if (!user.email && normalizedEmail) {
+      user.email = normalizedEmail;
+    }
+
+    user.googleUserId = googleProfile.googleSub;
+    user.profilePic = googleProfile.picture || user.profilePic || null;
+
+    if (googleProfile.emailVerified) {
+      user.emailVerified = true;
+      user.emailVerifiedAt = user.emailVerifiedAt || new Date();
+    }
 
     if (input.onboardingCompleted) {
       user.onboardingCompleted = true;
@@ -987,6 +1152,7 @@ const signInWithGoogle = async (
   const tokens = await issueTokens(user);
 
   return {
+    ok: true,
     tokens,
     user: buildUserPayload(user),
   };
@@ -1040,9 +1206,11 @@ const invalidateRefreshToken = async (userId: string) => {
 export {
   invalidateRefreshToken,
   refreshAccessToken,
+  resetGoogleIdTokenVerifierForTests,
   resendEmailVerification,
   resendOtp,
   sendOtp,
+  setGoogleIdTokenVerifierForTests,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,

@@ -67,7 +67,7 @@ Controllers remain thin. Services contain domain logic.
 Current design flow represented in architecture decisions:
 
 1. Onboarding
-2. Auth (phone / Google)
+2. Auth (email / Google, with legacy phone OTP still available on the backend)
 3. OTP verification
 4. Profile setup
 5. Home dashboard
@@ -94,6 +94,7 @@ API calls must remain in `frontend/src/services`.
 Low-level shared helpers like API clients and secure token storage belong in `frontend/src/utils`.
 Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
 Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
+For Google mobile sign-in, the device only forwards the Google `idToken`; the backend verifies it with Google and then issues the normal Journal.IO access and refresh tokens.
 
 Home-screen lightweight data note:
 
@@ -169,15 +170,15 @@ Current implemented backend modules are centered around:
 - `journal`
 - `mood`
 - `insights`
+- `privacy`
+- `reminders`
 - `streaks`
 
 Design-aligned target modules include:
 
 - prompts
 - plans
-- reminders
 - streaks
-- privacy
 
 Architecture should evolve incrementally through vertical slices, not broad refactors.
 

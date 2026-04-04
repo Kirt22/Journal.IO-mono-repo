@@ -105,9 +105,18 @@ const registerFromGoogleOAuthSchema = z.object({
   body: z.object({
     googleIdToken: z.string().min(1, "Google ID token is required"),
     googleUserId: z.string().min(1).optional(),
-    email: emailSchema,
-    name: z.string().min(1, "Name is required"),
+    email: emailSchema.optional(),
+    name: z.string().min(1, "Name is required").optional(),
     profilePic: z.string().url("Profile picture must be a valid URL").optional(),
+    onboardingCompleted: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const googleMobileSignInSchema = z.object({
+  body: z.object({
+    idToken: z.string().min(1, "Google ID token is required"),
     onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
@@ -129,6 +138,7 @@ const logoutSchema = z.object({
 });
 
 export {
+  googleMobileSignInSchema,
   logoutSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,

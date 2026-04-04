@@ -230,6 +230,21 @@ Streaks screen expectations:
 - achievements should come from backend milestone data so the screen does not duplicate unlock logic
 - include loading and recoverable error states without redesigning the streak layout
 
+Reminders screen expectations:
+
+- open from the Home header bell inside the main shell so the bottom nav stays visible
+- mirror the Make layout with:
+  - daily reminder enable card
+  - time selector
+  - notification preview card
+  - smart reminder toggles
+  - device-permission helper copy
+- load the current reminder from backend reminders CRUD instead of hardcoded local defaults once a reminder exists
+- enabling reminders must request system notification permission and then schedule local device notifications with Notifee
+- changing time, weekday coverage, or streak-warning behavior must re-sync the local notification schedule
+- skip-on-entry behavior should suppress the current day's reminder after a journal entry is saved when that toggle is enabled
+- include loading and recoverable error states without replacing the core Make structure
+
 ---
 
 # 7) Visual System

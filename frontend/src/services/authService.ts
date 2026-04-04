@@ -64,11 +64,7 @@ type SignInWithEmailPayload = {
 };
 
 type GoogleSignInPayload = {
-  googleIdToken: string;
-  googleUserId?: string;
-  email: string;
-  name: string;
-  profilePic?: string;
+  idToken: string;
   onboardingCompleted?: boolean;
 };
 
@@ -249,28 +245,12 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
 };
 
 const signInWithGoogle = async (payload: GoogleSignInPayload) => {
-  try {
-    const response = await request<AuthSession>("/auth/register_from_googleOAuth", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+  const response = await request<AuthSession>("/auth/google/mobile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
-    return applyDevPremiumDefault(response.data);
-  } catch (error) {
-    if (!shouldUseDevNetworkFallback(error)) {
-      throw error;
-    }
-
-    return createMockSession({
-      email: payload.email,
-      name: payload.name,
-      goals: [],
-      avatarColor: null,
-      profilePic: payload.profilePic || null,
-      profileSetupCompleted: false,
-      onboardingCompleted: true,
-    });
-  }
+  return applyDevPremiumDefault(response.data);
 };
 
 const sendOtp = async (payload: { phoneNumber: string }) => {

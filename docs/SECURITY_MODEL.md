@@ -33,6 +33,8 @@ Minimum requirements:
 - refresh-token lifecycle management
 - token invalidation on logout
 - authorization checks before read/update/delete operations
+- Google mobile sign-in must verify the Google ID token server-side before linking or creating a user
+- Google provider tokens must never be treated as the app's own access or refresh tokens
 
 ---
 
@@ -52,6 +54,15 @@ Related APIs:
 - `POST /auth/logout`
 
 Implemented privacy/session actions must invalidate server-side refresh tokens where applicable and keep user-owned data isolated by account.
+
+Reminder controls are also privacy-sensitive:
+
+- `GET /reminders`
+- `POST /reminders`
+- `PATCH /reminders/{reminderId}`
+- `DELETE /reminders/{reminderId}`
+
+Current reminder delivery is local-device scheduling from the mobile client. Notification permission must remain explicit opt-in, and reminder records must stay scoped to the authenticated user.
 
 ---
 

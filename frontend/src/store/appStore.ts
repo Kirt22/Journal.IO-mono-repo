@@ -12,6 +12,7 @@ import {
   type AuthOnboardingContext,
   type AuthSession,
 } from "../services/authService";
+import { getGoogleIdToken } from "../config/googleSignIn";
 import { getProfile, updateProfile } from "../services/userService";
 import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
@@ -172,6 +173,7 @@ type AppStoreSnapshot = Pick<
   AppStoreState,
   | "stage"
   | "activeTab"
+  | "preferredInsightsTab"
   | "isCompletingOnboarding"
   | "onboardingData"
   | "pendingEmail"
@@ -336,10 +338,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
   },
   continueWithGoogle: async () => {
+    const idToken = await getGoogleIdToken();
+
+    if (!idToken) {
+      return;
+    }
+
     const response = await signInWithGoogle({
-      googleIdToken: "mock-google-token",
-      email: "alex.rivera@example.com",
-      name: "Alex Rivera",
+      idToken,
       onboardingCompleted: true,
     });
 
@@ -351,11 +357,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     set({
       authSource: "google",
-      pendingEmail: response.user.email || "alex.rivera@example.com",
+      pendingEmail: response.user.email || "",
       pendingVerificationCode: "",
       session: response,
-      initialProfileName: response.user.name || "Alex Rivera",
-      stage: "profile",
+      initialProfileName: response.user.name || "Journal User",
+      preferredInsightsTab: null,
+      activeTab: "home",
+      stage: response.user.profileSetupCompleted ? "main-app" : "profile",
     });
   },
   goToSignIn: () => {

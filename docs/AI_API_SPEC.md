@@ -50,6 +50,7 @@ Current backend reality:
 
 - the implemented backend supports phone OTP, email-first auth, and Google OAuth
 - the current frontend auth flow uses the email-first endpoints below
+- the mobile Google sign-in flow now posts the Google ID token to `POST /auth/google/mobile`
 - the phone OTP endpoints remain available as a legacy auth path during migration
 
 ### `POST /auth/send_otp`
@@ -141,9 +142,48 @@ Success `data`:
 }
 ```
 
+### `POST /auth/google/mobile`
+
+Mobile Google sign-in.
+
+Request:
+
+```json
+{
+  "idToken": "google_id_token",
+  "onboardingCompleted": true
+}
+```
+
+Notes:
+
+- backend verifies the Google ID token against `GOOGLE_WEB_CLIENT_ID`
+- backend derives the Google identity from the verified token payload, not from frontend profile fields
+- backend stores the Google `sub` in the existing user Google identity field and then issues the normal app access/refresh tokens
+
+Success `data`:
+
+```json
+{
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Alex",
+    "phoneNumber": null,
+    "email": "alex@gmail.com",
+    "journalingGoals": [],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
+    "onboardingCompleted": true,
+    "profilePic": "https://..."
+  }
+}
+```
+
 ### `POST /auth/register_from_googleOAuth`
 
-Google OAuth-based login/signup.
+Legacy compatibility route for Google OAuth-based login/signup. The backend now verifies `googleIdToken` server-side and ignores untrusted frontend profile fields.
 
 Request:
 
@@ -609,6 +649,10 @@ Success `data`:
 
 Google OAuth remains a supported alternate auth path and should continue to return the same session payload shape as other sign-in flows.
 
+### `POST /auth/google/mobile`
+
+The mobile client obtains a Google `idToken`, posts it to the backend, and receives the same Journal.IO session payload used by the other sign-in flows. The backend verifies the Google token before linking or creating the user account.
+
 ## 4.2 User Profile
 
 - `GET /users/profile`
@@ -797,6 +841,140 @@ Behavior:
 - `PATCH /reminders/{reminderId}`
 - `DELETE /reminders/{reminderId}`
 
+`GET /reminders`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminders loaded",
+  "data": {
+    "reminders": [
+      {
+        "reminderId": "reminder-123",
+        "type": "daily_journal",
+        "enabled": true,
+        "time": "20:00",
+        "timezone": "Asia/Kolkata",
+        "skipIfCompletedToday": true,
+        "includeWeekends": false,
+        "streakWarnings": true,
+        "createdAt": "2026-04-03T10:00:00.000Z",
+        "updatedAt": "2026-04-03T10:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- returns the authenticated user's stored reminder records
+- MVP mobile currently reads the `daily_journal` reminder from this list and uses local device scheduling for delivery
+
+`POST /reminders`
+
+Request:
+
+```json
+{
+  "type": "daily_journal",
+  "enabled": true,
+  "time": "20:00",
+  "timezone": "Asia/Kolkata",
+  "skipIfCompletedToday": true,
+  "includeWeekends": false,
+  "streakWarnings": true
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder created",
+  "data": {
+    "reminderId": "reminder-123",
+    "type": "daily_journal",
+    "enabled": true,
+    "time": "20:00",
+    "timezone": "Asia/Kolkata",
+    "skipIfCompletedToday": true,
+    "includeWeekends": false,
+    "streakWarnings": true,
+    "createdAt": "2026-04-03T10:00:00.000Z",
+    "updatedAt": "2026-04-03T10:00:00.000Z"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- validates `time` in `HH:MM` 24-hour format
+- validates ownership through the authenticated user
+- enforces one reminder per `{ userId, type }` pair
+
+`PATCH /reminders/{reminderId}`
+
+Request:
+
+```json
+{
+  "enabled": false,
+  "includeWeekends": true
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder updated",
+  "data": {
+    "reminderId": "reminder-123",
+    "type": "daily_journal",
+    "enabled": false,
+    "time": "20:00",
+    "timezone": "Asia/Kolkata",
+    "skipIfCompletedToday": true,
+    "includeWeekends": true,
+    "streakWarnings": true,
+    "createdAt": "2026-04-03T10:00:00.000Z",
+    "updatedAt": "2026-04-03T10:05:00.000Z"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- requires at least one mutable field in the request body
+- updates only the authenticated user's reminder
+
+`DELETE /reminders/{reminderId}`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder deleted",
+  "data": {
+    "reminderId": "reminder-123"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- deletes only the authenticated user's reminder record
+
 ## 4.6 Streaks
 
 - `GET /streaks/current`
@@ -895,6 +1073,7 @@ Returns:
     },
     "journalEntries": [],
     "moodCheckIns": [],
+    "reminders": [],
     "insights": null,
     "streak": null,
     "stats": null
@@ -918,6 +1097,7 @@ Returns:
     "deletedAccount": true,
     "deletedJournals": 12,
     "deletedMoodCheckIns": 30,
+    "deletedReminders": 1,
     "deletedInsights": 1,
     "deletedStreaks": 1,
     "deletedStats": 1

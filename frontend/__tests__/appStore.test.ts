@@ -275,6 +275,71 @@ describe("appStore", () => {
     expect(freshStore.getState().stage).toBe("main-app");
   });
 
+  it("continues with Google using the shared session persistence flow", async () => {
+    jest.resetModules();
+
+    const getGoogleIdToken = jest.fn(async () => "google-id-token");
+    const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const saveTokens = jest.fn(async () => undefined);
+    const signInWithGoogle = jest.fn(async () => ({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: null,
+        profileSetupCompleted: false,
+        onboardingCompleted: true,
+        profilePic: "https://example.com/avatar.png",
+      },
+    }));
+
+    jest.doMock("../src/config/googleSignIn", () => ({
+      getGoogleIdToken,
+    }));
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithEmail: jest.fn(),
+      signInWithGoogle,
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted,
+      saveTokens,
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().continueWithGoogle();
+    });
+
+    expect(getGoogleIdToken).toHaveBeenCalledTimes(1);
+    expect(signInWithGoogle).toHaveBeenCalledWith({
+      idToken: "google-id-token",
+      onboardingCompleted: true,
+    });
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().authSource).toBe("google");
+    expect(freshStore.getState().stage).toBe("profile");
+  });
+
   it("signs out through the backend and clears the local session state", async () => {
     jest.resetModules();
 

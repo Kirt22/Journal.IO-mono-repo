@@ -21,6 +21,11 @@ describe("apiClient", () => {
   });
 
   test("uses the configured dev API base URL for requests", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -74,6 +79,11 @@ describe("apiClient", () => {
   });
 
   test("uses the Metro host in dev when no API override is configured", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -127,6 +137,11 @@ describe("apiClient", () => {
   });
 
   test("includes the request URL in 404 route errors", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -180,6 +195,11 @@ describe("apiClient", () => {
   });
 
   test("shows a network popup when the request cannot reach the server", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -231,6 +251,11 @@ describe("apiClient", () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date("2026-04-01T10:00:00.000Z"));
 
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,

@@ -23,6 +23,24 @@ jest.mock("../src/services/journalService", () => ({
   })),
 }));
 
+jest.mock("../src/services/remindersService", () => ({
+  getPrimaryDailyReminder: jest.fn(async () => null),
+}));
+
+jest.mock("../src/services/reminderNotificationsService", () => ({
+  syncReminderNotifications: jest.fn(async () => undefined),
+}));
+
+jest.mock("../src/services/streaksService", () => ({
+  getCurrentStreakSummary: jest.fn(async () => ({
+    currentStreak: 0,
+    bestStreak: 0,
+    thisMonthEntries: 0,
+    totalEntries: 0,
+    achievements: [],
+  })),
+}));
+
 beforeEach(() => {
   (createJournalEntry as jest.Mock).mockClear();
 });

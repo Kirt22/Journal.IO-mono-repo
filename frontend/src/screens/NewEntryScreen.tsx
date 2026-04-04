@@ -30,6 +30,9 @@ import {
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createJournalEntry } from "../services/journalService";
+import { getPrimaryDailyReminder } from "../services/remindersService";
+import { syncReminderNotifications } from "../services/reminderNotificationsService";
+import { getCurrentStreakSummary } from "../services/streaksService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
@@ -181,6 +184,29 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const sheetMaxWidth = isWide ? 460 : 420;
 
+  const maybeSkipTodaysReminder = async () => {
+    try {
+      const reminder = await getPrimaryDailyReminder();
+
+      if (!reminder?.enabled || !reminder.skipIfCompletedToday) {
+        return;
+      }
+
+      const currentStreak = reminder.streakWarnings
+        ? (await getCurrentStreakSummary()).currentStreak
+        : 0;
+
+      await syncReminderNotifications(reminder, {
+        currentStreak,
+        skipToday: true,
+      });
+    } catch (reminderError) {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Reminder sync skipped", reminderError);
+      }
+    }
+  };
+
   const moodTone = (mood: MoodKey) => {
     if (mood === "amazing") {
       return {
@@ -296,6 +322,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
       }
 
       addRecentJournalEntry(savedEntry);
+      await maybeSkipTodaysReminder();
 
       if (__DEV__) {
         console.log("[NewEntryScreen] Recent entry stored locally", {

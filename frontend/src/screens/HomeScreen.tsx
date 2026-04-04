@@ -60,6 +60,7 @@ type HomeScreenProps = {
   onOpenNewEntry: () => void;
   onOpenStreaks: () => void;
   onOpenSearch?: () => void;
+  onOpenReminders?: () => void;
   onToggleTheme: (nextMode: "light" | "dark") => void;
 };
 
@@ -408,6 +409,7 @@ export default function HomeScreen({
   onOpenNewEntry,
   onOpenStreaks,
   onOpenSearch,
+  onOpenReminders,
   onToggleTheme,
 }: HomeScreenProps) {
   const theme = useTheme();
@@ -1117,7 +1119,9 @@ export default function HomeScreen({
           />
           <HeaderIconButton
             icon={Bell}
-            onPress={() => {}}
+            onPress={() => {
+              onOpenReminders?.();
+            }}
             label="Reminders"
             borderColor={theme.colors.border}
             backgroundColor={theme.colors.card}

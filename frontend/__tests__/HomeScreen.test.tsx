@@ -275,6 +275,42 @@ test("opens search from the home search icon", async () => {
   expect(onOpenSearch).toHaveBeenCalledTimes(1);
 });
 
+test("opens reminders from the home bell icon", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const onOpenReminders = jest.fn();
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onOpenSearch={jest.fn()}
+          onOpenReminders={onOpenReminders}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  const reminderButton = root!.root.findByProps({
+    accessibilityLabel: "Reminders",
+  });
+
+  ReactTestRenderer.act(() => {
+    reminderButton.props.onPress();
+  });
+
+  expect(onOpenReminders).toHaveBeenCalledTimes(1);
+});
+
 test("cycles home AI insights and opens the full AI analysis tab", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 

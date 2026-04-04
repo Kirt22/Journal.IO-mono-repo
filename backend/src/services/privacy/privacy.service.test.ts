@@ -3,6 +3,7 @@ import test, { afterEach } from "node:test";
 import { journalModel } from "../../schema/journal.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { insightsModel } from "../../schema/insights.schema";
+import { reminderModel } from "../../schema/reminder.schema";
 import { streaksModel } from "../../schema/streak.schema";
 import { statsModel } from "../../schema/stat.schema";
 import { userModel } from "../../schema/user.schema";
@@ -36,6 +37,13 @@ const moodTarget = moodCheckInModel as unknown as {
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
+const reminderTarget = reminderModel as unknown as {
+  find: (...args: unknown[]) => {
+    sort: () => QueryResult<unknown[]>;
+  };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+
 const insightsTarget = insightsModel as unknown as {
   findOne: (...args: unknown[]) => QueryResult<unknown>;
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
@@ -58,6 +66,8 @@ const originalJournalFind = journalTarget.find;
 const originalJournalDeleteMany = journalTarget.deleteMany;
 const originalMoodFind = moodTarget.find;
 const originalMoodDeleteMany = moodTarget.deleteMany;
+const originalReminderFind = reminderTarget.find;
+const originalReminderDeleteMany = reminderTarget.deleteMany;
 const originalInsightsFindOne = insightsTarget.findOne;
 const originalInsightsDeleteMany = insightsTarget.deleteMany;
 const originalStreakFindOne = streakTarget.findOne;
@@ -73,6 +83,8 @@ afterEach(() => {
   journalTarget.deleteMany = originalJournalDeleteMany;
   moodTarget.find = originalMoodFind;
   moodTarget.deleteMany = originalMoodDeleteMany;
+  reminderTarget.find = originalReminderFind;
+  reminderTarget.deleteMany = originalReminderDeleteMany;
   insightsTarget.findOne = originalInsightsFindOne;
   insightsTarget.deleteMany = originalInsightsDeleteMany;
   streakTarget.findOne = originalStreakFindOne;
@@ -147,6 +159,26 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
       ],
     }),
   });
+  reminderTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          toObject: () => ({
+            _id: "reminder-1",
+            type: "daily_journal",
+            enabled: true,
+            time: "20:00",
+            timezone: "Asia/Kolkata",
+            skipIfCompletedToday: true,
+            includeWeekends: false,
+            streakWarnings: true,
+            createdAt: new Date("2026-04-02T06:00:00.000Z"),
+            updatedAt: new Date("2026-04-02T06:00:00.000Z"),
+          }),
+        },
+      ],
+    }),
+  });
   insightsTarget.findOne = () => ({
     exec: async () => ({
       toObject: () => ({
@@ -195,6 +227,7 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
   assert.equal(result?.account.userId, "user-123");
   assert.equal(result?.journalEntries.length, 1);
   assert.equal(result?.moodCheckIns.length, 1);
+  assert.equal(result?.reminders.length, 1);
   assert.equal(result?.insights?.totalEntries, 3);
   assert.equal(result?.streak?.streak, 4);
   assert.equal(result?.stats?.journalsWritten, 3);
@@ -211,6 +244,9 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   moodTarget.deleteMany = () => ({
     exec: async () => ({ deletedCount: 2 }),
   });
+  reminderTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 1 }),
+  });
   insightsTarget.deleteMany = () => ({
     exec: async () => ({ deletedCount: 1 }),
   });
@@ -226,6 +262,7 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   assert.equal(result.deletedAccount, true);
   assert.equal(result.deletedJournals, 2);
   assert.equal(result.deletedMoodCheckIns, 2);
+  assert.equal(result.deletedReminders, 1);
   assert.equal(result.deletedInsights, 1);
   assert.equal(result.deletedStreaks, 1);
   assert.equal(result.deletedStats, 1);

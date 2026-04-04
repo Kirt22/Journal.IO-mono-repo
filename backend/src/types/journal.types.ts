@@ -3,6 +3,7 @@ export type JournalEntryResponse = {
   title: string;
   content: string;
   type: string;
+  aiPrompt: string | null;
   tags: string[];
   images: string[];
   isFavorite: boolean;
@@ -15,6 +16,7 @@ export type CreateJournalInput = {
   title: string;
   content: string;
   type?: string;
+  aiPrompt?: string;
   tags?: string[];
   images?: string[];
 };
@@ -25,6 +27,7 @@ export type UpdateJournalInput = {
   title: string;
   content: string;
   type?: string;
+  aiPrompt?: string;
   tags?: string[];
   images?: string[];
   isFavorite?: boolean;

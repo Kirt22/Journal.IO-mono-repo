@@ -5,8 +5,10 @@
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { calendarSampleJournalEntries } from "../src/models/calendarModels";
 import HomeScreen from "../src/screens/HomeScreen";
 import { createJournalEntry } from "../src/services/journalService";
+import { getInsightsAiAnalysis } from "../src/services/insightsService";
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
@@ -28,13 +30,93 @@ jest.mock("../src/services/journalService", () => ({
 }));
 
 jest.mock("../src/services/moodService", () => ({
-  getTodayMoodCheckIn: jest.fn().mockResolvedValue(null),
+  getTodayMoodCheckIn: jest.fn().mockResolvedValue({
+    moodCheckIn: null,
+    currentStreak: 4,
+  }),
   logMoodCheckIn: jest.fn(async mood => ({
     _id: "mood-test-entry",
     mood,
     moodDateKey: "2026-01-01",
     createdAt: "2026-01-01T08:00:00.000Z",
     updatedAt: "2026-01-01T08:00:00.000Z",
+  })),
+}));
+
+jest.mock("../src/services/insightsService", () => ({
+  getInsightsAiAnalysis: jest.fn(async () => ({
+    window: {
+      startDate: "2026-03-26",
+      endDate: "2026-04-01",
+      label: "Mar 26 - Apr 1",
+      entryCount: 6,
+      activeDays: 5,
+      totalWords: 842,
+    },
+    freshness: {
+      generatedAt: "2026-04-01T09:05:00.000Z",
+      confidence: "high",
+      confidenceLabel: "Clearer weekly pattern",
+      note: "This view is based on a fuller week of journaling language and mood check-ins.",
+    },
+    summary: {
+      headline: "Conscientiousness stood out most this week",
+      narrative:
+        "Looking at the last week of writing, journal language suggests conscientiousness may be the clearest pattern right now, while self-focus signal is the main area to keep gentle watch on.",
+      highlight:
+        "Morning Routines appears repeatedly across the week and may be a useful theme for your next few reflections.",
+    },
+    patternTags: [
+      { label: "Morning Routines", tone: "coral" },
+      { label: "Routine Seeking", tone: "amber" },
+      { label: "Connection Energy", tone: "sage" },
+    ],
+    bigFive: [
+      {
+        trait: "conscientiousness",
+        label: "Conscientiousness",
+        score: 74,
+        band: "pronounced",
+        description:
+          "Your writing rhythm appears structured this week, supported by a 4-day streak.",
+        evidenceTags: ["4-day streak", "Routine"],
+      },
+    ],
+    darkTriad: [
+      {
+        trait: "machiavellianism",
+        label: "Machiavellianism",
+        supportiveLabel: "Control-seeking signal",
+        score: 42,
+        band: "watch",
+        description:
+          "There are mild signs of control-seeking or strategic guarding in the week.",
+        supportTip:
+          "When planning next steps, add one sentence about flexibility or what you can let unfold naturally.",
+      },
+    ],
+    actionPlan: {
+      headline:
+        "Focus on steadier routines, clearer emotional naming, and one recurring theme this week.",
+      steps: [
+        {
+          title: "Keep one signal you can repeat",
+          description:
+            "Pick one part of your current journaling rhythm that already feels steady and repeat it for the next three days.",
+          focus: "Consistency",
+        },
+      ],
+    },
+    appSupport: {
+      headline: "Journal.IO can help turn these patterns into gentler habits over time.",
+      items: [
+        {
+          title: "Tags make recurring topics easier to spot",
+          description:
+            "Tagging entries consistently helps the app notice when themes like morning routines keep returning.",
+        },
+      ],
+    },
   })),
 }));
 
@@ -81,12 +163,42 @@ const waitForTreeText = async (
   throw new Error(`Timed out waiting for text: ${expectedText}`);
 };
 
+const setPremiumSession = (isPremium: boolean) => {
+  useAppStore.setState({
+    session: {
+      accessToken: "test-access",
+      refreshToken: "test-refresh",
+      user: {
+        userId: "user-test",
+        name: "Journal User",
+        phoneNumber: null,
+        email: "journal@example.com",
+        isPremium,
+        journalingGoals: [],
+        avatarColor: null,
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        profilePic: null,
+      },
+    },
+  });
+};
+
+const seedRecentEntries = (count = 1) => {
+  useAppStore.getState().setRecentJournalEntries(calendarSampleJournalEntries.slice(0, count));
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
 test("renders the home screen layout", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   const onOpenNewEntry = jest.fn();
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -105,12 +217,17 @@ test("renders the home screen layout", async () => {
 
   const tree = JSON.stringify(root!.toJSON());
 
+  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(1);
   expect(tree).toContain("Current Streak");
+  expect(tree).toContain("4");
+  expect(tree).toContain("days");
   expect(tree).toContain("Capture a quick thought...");
   expect(tree).toContain("AI Insight");
+  expect(tree).toContain("Conscientiousness stood out most this week");
+  expect(tree).toContain("Mar 26 - Apr 1");
   expect(tree).toContain("Today's Prompt");
   expect(tree).toContain("Recent Entries");
-  expect(tree).toContain("Morning Reflections");
+  expect(tree).toContain("No entries yet");
 
   const newEntryButton = root!.root.findAllByProps({
     accessibilityLabel: "Create new entry",
@@ -123,11 +240,90 @@ test("renders the home screen layout", async () => {
   expect(onOpenNewEntry).toHaveBeenCalled();
 });
 
+test("opens search from the home search icon", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const onOpenSearch = jest.fn();
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onOpenSearch={onOpenSearch}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  const searchButton = root!.root.findByProps({
+    accessibilityLabel: "Search",
+  });
+
+  ReactTestRenderer.act(() => {
+    searchButton.props.onPress();
+  });
+
+  expect(onOpenSearch).toHaveBeenCalledTimes(1);
+});
+
+test("cycles home AI insights and opens the full AI analysis tab", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  expect(JSON.stringify(root!.toJSON())).toContain(
+    "Conscientiousness stood out most this week"
+  );
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Next insight" }).props.onPress();
+  });
+
+  expect(JSON.stringify(root!.toJSON())).toContain("Conscientiousness stood out");
+  expect(JSON.stringify(root!.toJSON())).toContain("4-day streak");
+  expect(JSON.stringify(root!.toJSON())).toContain("View full trait read");
+  expect(JSON.stringify(root!.toJSON())).not.toContain("Routine");
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Open AI analysis" }).props.onPress();
+  });
+
+  expect(useAppStore.getState().activeTab).toBe("insights");
+  expect(useAppStore.getState().preferredInsightsTab).toBe("analysis");
+});
+
 test("opens the calendar tab from the home calendar card", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -160,6 +356,7 @@ test("logs home mood selections as check-ins", async () => {
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -194,11 +391,14 @@ test("locks the mood card when today's mood already exists", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   let resolveMoodCheckIn:
     | ((value: {
-        _id: string;
-        mood: "amazing" | "good" | "okay" | "bad" | "terrible";
-        moodDateKey: string;
-        createdAt: string;
-        updatedAt: string;
+        moodCheckIn: {
+          _id: string;
+          mood: "amazing" | "good" | "okay" | "bad" | "terrible";
+          moodDateKey: string;
+          createdAt: string;
+          updatedAt: string;
+        } | null;
+        currentStreak: number;
       }) => void)
     | null = null;
 
@@ -211,6 +411,7 @@ test("locks the mood card when today's mood already exists", async () => {
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   ReactTestRenderer.act(() => {
@@ -228,11 +429,14 @@ test("locks the mood card when today's mood already exists", async () => {
 
   await ReactTestRenderer.act(async () => {
     resolveMoodCheckIn?.({
-      _id: "mood-existing-entry",
-      mood: "good",
-      moodDateKey: "2026-01-01",
-      createdAt: "2026-01-01T08:00:00.000Z",
-      updatedAt: "2026-01-01T08:00:00.000Z",
+      moodCheckIn: {
+        _id: "mood-existing-entry",
+        mood: "good",
+        moodDateKey: "2026-01-01",
+        createdAt: "2026-01-01T08:00:00.000Z",
+        updatedAt: "2026-01-01T08:00:00.000Z",
+      },
+      currentStreak: 6,
     });
     await flushAsyncWork();
   });
@@ -245,7 +449,7 @@ test("locks the mood card when today's mood already exists", async () => {
   expect(getTodayMoodCheckIn).toHaveBeenCalled();
   await waitForTreeText(
     root!,
-    "You can log one mood check-in per day."
+    "Mood logged for today. Come back tomorrow to update it."
   );
 
   const moodButton = root!.root.findAllByProps({
@@ -253,13 +457,17 @@ test("locks the mood card when today's mood already exists", async () => {
   })[0];
 
   expect(moodButton.props.disabled).toBe(true);
+  expect(JSON.stringify(root!.toJSON())).toContain("6");
 });
 
 test("saves quick thoughts into recent entries", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+  const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -292,6 +500,10 @@ test("saves quick thoughts into recent entries", async () => {
     noteInput.props.onChangeText("A quick note about walking outside");
   });
 
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "gratitude" }).props.onPress();
+  });
+
   const saveQuickThoughtButton = root!.root.findByProps({
     accessibilityLabel: "Save quick thought",
   });
@@ -305,6 +517,7 @@ test("saves quick thoughts into recent entries", async () => {
       title: "Quick Thought",
       content: "A quick note about walking outside",
       type: "quick-thought",
+      tags: ["gratitude"],
     })
   );
 
@@ -313,8 +526,31 @@ test("saves quick thoughts into recent entries", async () => {
   expect(tree).toContain("Recent Entries");
   expect(tree).toContain("A quick note about walking outside");
   expect(tree).toContain("Quick Thought");
+  expect(tree).toContain("5");
   expect(tree).not.toContain("Journal entry");
   expect(tree).not.toContain("No entries yet");
+  expect(root!.root.findAllByProps({ placeholder: "What's on your mind?" })).toHaveLength(0);
+  expect(logSpy).toHaveBeenCalledWith(
+    "[HomeScreen] Quick thought save tapped",
+    expect.objectContaining({
+      contentLength: "A quick note about walking outside".length,
+      selectedTags: ["gratitude"],
+    })
+  );
+  expect(logSpy).toHaveBeenCalledWith(
+    "[HomeScreen] Quick thought request succeeded",
+    expect.objectContaining({
+      journalId: "journal-test-entry",
+      title: "Quick Thought",
+      type: "quick-thought",
+      tags: ["gratitude"],
+    })
+  );
+  expect(logSpy).toHaveBeenCalledWith("[HomeScreen] Quick thought UI cleaned up");
+  expect(errorSpy).not.toHaveBeenCalled();
+
+  logSpy.mockRestore();
+  errorSpy.mockRestore();
 });
 
 test("opens a journal detail from a recent entry", async () => {
@@ -322,6 +558,7 @@ test("opens a journal detail from a recent entry", async () => {
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -337,6 +574,12 @@ test("opens a journal detail from a recent entry", async () => {
     );
     await Promise.resolve();
   });
+
+  ReactTestRenderer.act(() => {
+    seedRecentEntries(1);
+  });
+
+  await waitForTreeText(root!, "Morning Reflections");
 
   const firstOpenEntryButton = root!.root
     .findAllByProps({ accessibilityRole: "button" })
@@ -361,6 +604,8 @@ test("shows the calendar hint after the tenth recent entry", async () => {
 
   ReactTestRenderer.act(() => {
     resetAppStore();
+    setPremiumSession(true);
+    seedRecentEntries(10);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -424,4 +669,39 @@ test("opens the full editor from quick thought", async () => {
   });
 
   expect(onOpenNewEntry).toHaveBeenCalled();
+});
+
+test("shows a locked AI insight card for non-premium users", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(false);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  const tree = JSON.stringify(root!.toJSON());
+
+  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
+  expect(tree).toContain("Premium AI Insight");
+  expect(tree).toContain("Upgrade to Premium");
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Open AI analysis" }).props.onPress();
+  });
+
+  expect(useAppStore.getState().activeTab).toBe("profile");
 });

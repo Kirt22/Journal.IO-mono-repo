@@ -1,5 +1,5 @@
 import { request } from "../utils/apiClient";
-import type { AuthUser } from "./authService";
+import { applyDevPremiumDefault, type AuthUser } from "./authService";
 
 type UpdateProfilePayload = {
   name: string;
@@ -9,14 +9,22 @@ type UpdateProfilePayload = {
 
 type ProfileResponse = AuthUser;
 
+const getProfile = async () => {
+  const response = await request<ProfileResponse>("/users/profile", {
+    method: "GET",
+  });
+
+  return applyDevPremiumDefault(response.data);
+};
+
 const updateProfile = async (payload: UpdateProfilePayload) => {
   const response = await request<ProfileResponse>("/users/profile", {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
 
-  return response.data;
+  return applyDevPremiumDefault(response.data);
 };
 
-export { updateProfile };
+export { getProfile, updateProfile };
 export type { UpdateProfilePayload, ProfileResponse };

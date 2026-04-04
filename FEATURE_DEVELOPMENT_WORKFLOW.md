@@ -90,10 +90,10 @@ A feature slice is complete only when:
 
 # 7) Branching Workflow
 
-When a task includes cross-scope changes, split delivery into dedicated branches:
+Use the consolidated branch model:
 
-1. `frontend` for `frontend/` implementation changes
-2. `backend` for `backend/` implementation changes
-3. `global` for root/global docs or config changes (including root `.md`, `.agents/`, `.codex/`)
+1. `main` is the shared development branch
+2. `codex` is the default working branch for implementation and documentation changes
+3. `prod` is the production-ready branch
 
-Do not mix these scopes into the same commit. Commit and push each branch separately.
+Do not split frontend, backend, and root-doc work across separate long-lived branches. Keep related changes together on `codex`, validate them as one slice, and push them in one go unless the user explicitly asks for a different flow.

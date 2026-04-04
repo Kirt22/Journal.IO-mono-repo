@@ -78,14 +78,7 @@ const moods: MoodOption[] = [
   { value: "bad", icon: Meh, label: "Bad" },
   { value: "terrible", icon: Frown, label: "Terrible" },
 ];
-
-function formatEntryTitleDate() {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date());
-}
+const UNTITLED_ENTRY_TITLE = "Untitled";
 
 function toRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -178,6 +171,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const [tagInput, setTagInput] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
+  const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoTagging, setIsAutoTagging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -264,9 +258,10 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
 
     const optimisticEntry = {
       _id: `entry-${Date.now()}`,
-      title: title.trim() || `Entry for ${formatEntryTitleDate()}`,
+      title: title.trim() || UNTITLED_ENTRY_TITLE,
       content: trimmedContent,
       type: "journal",
+      aiPrompt: selectedPrompt,
       images: [],
       tags: optimisticTags,
       createdAt: new Date().toISOString(),
@@ -287,6 +282,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
         title: optimisticEntry.title,
         content: optimisticEntry.content,
         type: optimisticEntry.type,
+        aiPrompt: optimisticEntry.aiPrompt || undefined,
         tags: optimisticEntry.tags,
       });
 
@@ -355,6 +351,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   };
 
   const handlePromptPress = (prompt: string) => {
+    setSelectedPrompt(prompt);
     setContent(previous =>
       previous.trim() ? `${previous.trimEnd()}\n\n${prompt}\n` : `${prompt}\n`
     );
@@ -469,9 +466,9 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
           <ScrollView
             contentContainerStyle={[
               styles.content,
+              styles.contentInset,
               {
                 paddingHorizontal: horizontalPadding,
-                paddingBottom: 24,
                 backgroundColor: theme.colors.background,
               },
             ]}
@@ -913,6 +910,9 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingTop: 4,
+  },
+  contentInset: {
+    paddingBottom: 24,
   },
   sheet: {
     width: "100%",

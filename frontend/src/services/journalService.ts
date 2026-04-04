@@ -11,6 +11,7 @@ const createJournalEntry = async (payload: CreateJournalPayload) => {
     title: payload.title.trim(),
     content: payload.content.trim(),
     type: payload.type?.trim() || "journal",
+    aiPrompt: payload.aiPrompt?.trim() || undefined,
     images: payload.images || [],
     tags: payload.tags || [],
     isFavorite: payload.isFavorite ?? false,
@@ -31,6 +32,7 @@ const createJournalEntry = async (payload: CreateJournalPayload) => {
 
   return {
     ...response.data,
+    aiPrompt: response.data.aiPrompt ?? null,
     tags: response.data.tags || payload.tags || [],
     isFavorite: response.data.isFavorite ?? payload.isFavorite ?? false,
   };
@@ -46,6 +48,7 @@ const getJournalEntry = async (journalId: string) => {
 
   return {
     ...response.data,
+    aiPrompt: response.data.aiPrompt ?? null,
     tags: response.data.tags || [],
     isFavorite: response.data.isFavorite ?? false,
   };
@@ -57,6 +60,7 @@ const updateJournalEntry = async (payload: UpdateJournalPayload) => {
     title: payload.title.trim(),
     content: payload.content.trim(),
     type: payload.type?.trim() || "journal",
+    aiPrompt: payload.aiPrompt?.trim() || undefined,
     images: payload.images || [],
     tags: payload.tags || [],
     isFavorite: payload.isFavorite ?? false,
@@ -77,6 +81,7 @@ const updateJournalEntry = async (payload: UpdateJournalPayload) => {
 
   return {
     ...response.data,
+    aiPrompt: response.data.aiPrompt ?? null,
     tags: response.data.tags || payload.tags || [],
     isFavorite: response.data.isFavorite ?? payload.isFavorite ?? false,
   };
@@ -106,6 +111,7 @@ const toggleJournalFavorite = async (payload: {
 
   return {
     ...response.data,
+    aiPrompt: response.data.aiPrompt ?? null,
     tags: response.data.tags || [],
     isFavorite: response.data.isFavorite ?? payload.isFavorite,
   };
@@ -127,6 +133,7 @@ const getJournalEntries = async () => {
 
   return response.data.map(entry => ({
     ...entry,
+    aiPrompt: entry.aiPrompt ?? null,
     tags: entry.tags || [],
     isFavorite: entry.isFavorite ?? false,
   }));

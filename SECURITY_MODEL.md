@@ -49,6 +49,9 @@ Related APIs:
 - `POST /privacy/export`
 - `POST /privacy/delete-request`
 - `PATCH /privacy/ai-opt-out`
+- `POST /auth/logout`
+
+Implemented privacy/session actions must invalidate server-side refresh tokens where applicable and keep user-owned data isolated by account.
 
 ---
 

@@ -45,71 +45,15 @@ const resendOtpController = async (req: Request, res: Response) => {
   }
 };
 
-const verifyOtpController = async (req: Request, res: Response) => {
-  try {
-    const { phoneNumber, otp, name, goals } = req.body;
-    const result = await verifyOtp({ phoneNumber, otp, name, goals });
-
-    if (!result.ok) {
-      return res.status(400).json(
-        apiResponse(false, result.message, {}, {
-          error: { code: result.code },
-        })
-      );
-    }
-
-    return res.status(200).json(
-      apiResponse(true, "Login successful", {
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
-        user: result.user,
-        isNewUser: result.isNewUser,
-      })
-    );
-  } catch (error) {
-    console.error("Error in verifyOtp:", error);
-    return res
-      .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
-  }
-};
-
-const registerFromGoogleOAuthController = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    const { googleIdToken, googleUserId, email, name, profilePic } = req.body;
-    const result = await signInWithGoogle({
-      googleIdToken,
-      googleUserId,
-      email,
-      name,
-      profilePic,
-    });
-
-    return res.status(200).json(
-      apiResponse(true, "Login successful", {
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
-        user: result.user,
-      })
-    );
-  } catch (error) {
-    console.error("Error in registerFromGoogleOAuth:", error);
-    return res
-      .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
-  }
-};
-
 const signUpWithEmailController = async (req: Request, res: Response) => {
   try {
-    const { email, password, onboardingContext } = req.body;
+    const { email, password, onboardingContext, onboardingCompleted } =
+      req.body;
     const result = await signUpWithEmail({
       email,
       password,
       onboardingContext,
+      onboardingCompleted,
     });
 
     if (!result.ok) {
@@ -160,8 +104,12 @@ const resendEmailVerificationController = async (
 
 const verifyEmailController = async (req: Request, res: Response) => {
   try {
-    const { email, code } = req.body;
-    const result = await verifyEmail({ email, code });
+    const { email, code, onboardingCompleted } = req.body;
+    const result = await verifyEmail({
+      email,
+      code,
+      onboardingCompleted,
+    });
 
     if (!result.ok) {
       return res.status(result.status).json(
@@ -172,7 +120,7 @@ const verifyEmailController = async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(
-      apiResponse(true, "Email verified successfully", {
+      apiResponse(true, "Login successful", {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         user: result.user,
@@ -189,8 +137,12 @@ const verifyEmailController = async (req: Request, res: Response) => {
 
 const signInWithEmailController = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
-    const result = await signInWithEmail({ email, password });
+    const { email, password, onboardingCompleted } = req.body;
+    const result = await signInWithEmail({
+      email,
+      password,
+      onboardingCompleted,
+    });
 
     if (!result.ok) {
       return res.status(result.status).json(
@@ -209,6 +161,78 @@ const signInWithEmailController = async (req: Request, res: Response) => {
     );
   } catch (error) {
     console.error("Error in signInWithEmail:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const verifyOtpController = async (req: Request, res: Response) => {
+  try {
+    const { phoneNumber, otp, name, goals, onboardingCompleted } = req.body;
+    const result = await verifyOtp({
+      phoneNumber,
+      otp,
+      name,
+      goals,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res.status(200).json(
+      apiResponse(true, "Login successful", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+        isNewUser: result.isNewUser,
+      })
+    );
+  } catch (error) {
+    console.error("Error in verifyOtp:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const registerFromGoogleOAuthController = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const {
+      googleIdToken,
+      googleUserId,
+      email,
+      name,
+      profilePic,
+      onboardingCompleted,
+    } = req.body;
+    const result = await signInWithGoogle({
+      googleIdToken,
+      googleUserId,
+      email,
+      name,
+      profilePic,
+      onboardingCompleted,
+    });
+
+    return res.status(200).json(
+      apiResponse(true, "Login successful", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+      })
+    );
+  } catch (error) {
+    console.error("Error in registerFromGoogleOAuth:", error);
     return res
       .status(500)
       .json(apiResponse(false, "Internal Server Error", {}));
@@ -245,16 +269,12 @@ const logoutController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res
-        .status(401)
-        .json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
     await invalidateRefreshToken(userId);
 
-    return res
-      .status(200)
-      .json(apiResponse(true, "Logout successful", {}));
+    return res.status(200).json(apiResponse(true, "Logout successful", {}));
   } catch (error) {
     console.error("Error in logout:", error);
     return res
@@ -266,8 +286,8 @@ const logoutController = async (
 export {
   logoutController,
   refreshController,
-  registerFromGoogleOAuthController,
   resendEmailVerificationController,
+  registerFromGoogleOAuthController,
   resendOtpController,
   sendOtpController,
   signInWithEmailController,

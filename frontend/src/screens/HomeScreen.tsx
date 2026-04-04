@@ -31,6 +31,7 @@ import {
   X,
   BookOpen,
   Frown,
+  Lock,
   Meh,
   Smile,
   SmilePlus,
@@ -41,6 +42,10 @@ import {
   createJournalEntry,
   toggleJournalFavorite,
 } from "../services/journalService";
+import {
+  getInsightsAiAnalysis,
+  type InsightsAiAnalysis,
+} from "../services/insightsService";
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
@@ -54,6 +59,7 @@ type HomeScreenProps = {
   userName?: string;
   onOpenNewEntry: () => void;
   onOpenStreaks: () => void;
+  onOpenSearch?: () => void;
   onToggleTheme: (nextMode: "light" | "dark") => void;
 };
 
@@ -68,6 +74,7 @@ const aiPrompts = [
 
 const quickTags = ["thought", "idea", "reminder", "gratitude", "dream"];
 const MOOD_CONFIRMATION_DELAY_MS = 120;
+const HOME_AI_AUTOSCROLL_MS = 4800;
 
 const moods: {
   value: MoodType;
@@ -107,14 +114,6 @@ const moods: {
   },
 ];
 
-const tips = [
-  "Try writing for just 3 minutes today — short entries still build clarity over time.",
-  "Name your emotions specifically. \"Frustrated\" is more useful than \"bad\".",
-  "Re-reading past entries can reveal growth you don’t notice day-to-day.",
-  "Morning journaling sets intention. Evening journaling brings closure.",
-  "Writing about challenges helps your brain process them more effectively.",
-];
-
 function getGreeting(): string {
   const hour = new Date().getHours();
 
@@ -147,6 +146,105 @@ function delay(ms: number) {
   return new Promise<void>(resolve => {
     setTimeout(resolve, ms);
   });
+}
+
+function getFirstSentence(text: string) {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const match = normalized.match(/^[^.?!]+[.?!]?/);
+  return (match?.[0] || normalized).trim();
+}
+
+function truncateWords(text: string, maxWords: number) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+
+  if (words.length <= maxWords) {
+    return text.trim();
+  }
+
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
+type HomeInsightCard = {
+  id: string;
+  title: string;
+  body: string;
+  icon: typeof Lightbulb;
+  ctaLabel: string;
+};
+
+function buildHomeInsightCards(analysis: InsightsAiAnalysis | null): HomeInsightCard[] {
+  if (!analysis) {
+    return [];
+  }
+
+  const cards: HomeInsightCard[] = [];
+  const topTrait = [...analysis.bigFive].sort((left, right) => right.score - left.score)[0];
+  const topWatchpoint = [...analysis.darkTriad].sort(
+    (left, right) => right.score - left.score
+  )[0];
+  const firstActionStep = analysis.actionPlan.steps[0];
+  const firstSupportItem = analysis.appSupport.items[0];
+
+  cards.push({
+    id: "summary",
+    title: analysis.summary.headline,
+    body: `${analysis.window.label}. ${getFirstSentence(
+      analysis.summary.highlight || analysis.summary.narrative
+    )}`,
+    icon: Lightbulb,
+    ctaLabel: "Open weekly analysis",
+  });
+
+  if (topTrait) {
+    cards.push({
+      id: `trait-${topTrait.trait}`,
+      title: `${topTrait.label} stood out`,
+      body: `${getFirstSentence(topTrait.description)}${
+        topTrait.evidenceTags[0]
+          ? ` ${topTrait.evidenceTags[0]} helped shape this read.`
+          : ""
+      }`,
+      icon: Sparkles,
+      ctaLabel: "View full trait read",
+    });
+  }
+
+  if (topWatchpoint) {
+    cards.push({
+      id: `watchpoint-${topWatchpoint.trait}`,
+      title: topWatchpoint.supportiveLabel,
+      body: getFirstSentence(topWatchpoint.supportTip || topWatchpoint.description),
+      icon: Heart,
+      ctaLabel: "See the full support view",
+    });
+  }
+
+  if (firstActionStep) {
+    cards.push({
+      id: "action-step",
+      title: firstActionStep.title,
+      body: `${firstActionStep.focus}: ${truncateWords(firstActionStep.description, 16)}`,
+      icon: Feather,
+      ctaLabel: "See the action plan",
+    });
+  }
+
+  if (firstSupportItem) {
+    cards.push({
+      id: "app-support",
+      title: firstSupportItem.title,
+      body: truncateWords(firstSupportItem.description, 16),
+      icon: BookOpen,
+      ctaLabel: "Open the full AI analysis",
+    });
+  }
+
+  return cards;
 }
 
 function buildQuickThoughtTitle() {
@@ -309,12 +407,16 @@ export default function HomeScreen({
   userName,
   onOpenNewEntry,
   onOpenStreaks,
+  onOpenSearch,
   onToggleTheme,
 }: HomeScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const setActiveTab = useAppStore(state => state.setActiveTab);
+  const openInsightsTab = useAppStore(state => state.openInsightsTab);
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const shouldAnimateMood = typeof jest === "undefined";
+  const shouldAutoScrollInsights = typeof jest === "undefined";
   const addRecentJournalEntry = useAppStore(
     state => state.addRecentJournalEntry
   );
@@ -329,6 +431,7 @@ export default function HomeScreen({
     state => state.updateRecentJournalEntry
   );
   const noteInputRef = useRef<TextInput>(null);
+  const insightTransitionProgress = useRef(new Animated.Value(1)).current;
   const moodSelectionProgress = useRef(new Animated.Value(0)).current;
   const moodRevealProgress = useRef(new Animated.Value(0)).current;
   const moodEmojiSpinProgress = useRef(new Animated.Value(0)).current;
@@ -336,6 +439,7 @@ export default function HomeScreen({
   const moodStageProgress = useRef(new Animated.Value(0)).current;
   const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
   const [savedMood, setSavedMood] = useState<MoodType | null>(null);
+  const [currentStreak, setCurrentStreak] = useState(0);
   const [showMoodResult, setShowMoodResult] = useState(false);
   const [isLoggingMood, setIsLoggingMood] = useState(false);
   const [isLoadingMoodStatus, setIsLoadingMoodStatus] = useState(true);
@@ -347,9 +451,10 @@ export default function HomeScreen({
   const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
     null
   );
-  const [insightIndex, setInsightIndex] = useState(
-    new Date().getDate() % tips.length
-  );
+  const [insightIndex, setInsightIndex] = useState(0);
+  const [homeAiAnalysis, setHomeAiAnalysis] = useState<InsightsAiAnalysis | null>(null);
+  const [isLoadingHomeAiInsight, setIsLoadingHomeAiInsight] = useState(true);
+  const [homeAiInsightError, setHomeAiInsightError] = useState<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -370,6 +475,12 @@ export default function HomeScreen({
   const greeting = getGreeting();
   const todayPrompt = aiPrompts[new Date().getDate() % aiPrompts.length];
   const displayedMood = selectedMood || savedMood;
+  const homeInsightCards = useMemo(
+    () => buildHomeInsightCards(homeAiAnalysis),
+    [homeAiAnalysis]
+  );
+  const activeHomeInsight = homeInsightCards[insightIndex] || null;
+  const ActiveHomeInsightIcon = activeHomeInsight?.icon || Lightbulb;
   const todayDate = useMemo(
     () =>
       new Intl.DateTimeFormat("en-US", {
@@ -379,6 +490,101 @@ export default function HomeScreen({
       }).format(new Date()),
     []
   );
+
+  useEffect(() => {
+    if (!isPremiumUser) {
+      setHomeAiAnalysis(null);
+      setHomeAiInsightError(null);
+      setIsLoadingHomeAiInsight(false);
+      return;
+    }
+
+    let isActive = true;
+
+    const loadHomeAiInsight = async () => {
+      setIsLoadingHomeAiInsight(true);
+      setHomeAiInsightError(null);
+
+      try {
+        const analysis = await getInsightsAiAnalysis();
+
+        if (isActive) {
+          setHomeAiAnalysis(analysis);
+        }
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setHomeAiInsightError(
+          error instanceof Error
+            ? error.message
+            : "We could not load your latest AI insight right now."
+        );
+      } finally {
+        if (isActive) {
+          setIsLoadingHomeAiInsight(false);
+        }
+      }
+    };
+
+    loadHomeAiInsight().catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, [isPremiumUser]);
+
+  useEffect(() => {
+    if (!homeInsightCards.length) {
+      setInsightIndex(0);
+      return;
+    }
+
+    setInsightIndex(previous =>
+      previous < homeInsightCards.length ? previous : 0
+    );
+  }, [homeInsightCards.length]);
+
+  useEffect(() => {
+    if (
+      !isPremiumUser ||
+      !shouldAutoScrollInsights ||
+      homeInsightCards.length < 2 ||
+      isLoadingHomeAiInsight
+    ) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setInsightIndex(previous => (previous + 1) % homeInsightCards.length);
+    }, HOME_AI_AUTOSCROLL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [
+    homeInsightCards.length,
+    isLoadingHomeAiInsight,
+    isPremiumUser,
+    shouldAutoScrollInsights,
+  ]);
+
+  useEffect(() => {
+    if (!isPremiumUser || !activeHomeInsight) {
+      insightTransitionProgress.setValue(1);
+      return;
+    }
+
+    insightTransitionProgress.stopAnimation();
+    insightTransitionProgress.setValue(0);
+    Animated.timing(insightTransitionProgress, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [activeHomeInsight, insightTransitionProgress, isPremiumUser]);
 
   useEffect(() => {
     if (isNoteExpanded) {
@@ -407,7 +613,7 @@ export default function HomeScreen({
       }
     };
 
-    void loadRecentEntries();
+    loadRecentEntries().catch(() => undefined);
 
     return () => {
       isActive = false;
@@ -419,11 +625,15 @@ export default function HomeScreen({
 
     const loadMoodStatus = async () => {
       try {
-        const moodCheckIn = await getTodayMoodCheckIn();
+        const moodStatus = await getTodayMoodCheckIn();
 
         if (!isActive) {
           return;
         }
+
+        setCurrentStreak(moodStatus.currentStreak);
+
+        const moodCheckIn = moodStatus.moodCheckIn;
 
         if (moodCheckIn) {
           setSavedMood(moodCheckIn.mood);
@@ -452,12 +662,18 @@ export default function HomeScreen({
       }
     };
 
-    void loadMoodStatus();
+    loadMoodStatus().catch(() => undefined);
 
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [
+    moodEmojiSpinProgress,
+    moodRevealProgress,
+    moodSelectionProgress,
+    moodStageProgress,
+    moodTickProgress,
+  ]);
 
   const resetMoodAnimations = () => {
     moodSelectionProgress.stopAnimation();
@@ -559,11 +775,35 @@ export default function HomeScreen({
   const handleSaveNote = async () => {
     const trimmedNote = note.trim();
 
+    if (__DEV__) {
+      console.log("[HomeScreen] Quick thought save tapped", {
+        contentLength: trimmedNote.length,
+        selectedTags,
+      });
+    }
+
     if (!trimmedNote || isSavingQuickThought) {
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought save blocked", {
+          reason: !trimmedNote ? "empty-content" : "already-saving",
+        });
+      }
       return;
     }
 
     setIsSavingQuickThought(true);
+
+    const hadEntryTodayBeforeSave = recentJournalEntries.some(entry => {
+      return (
+        entry.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10)
+      );
+    });
+
+    if (__DEV__) {
+      console.log("[HomeScreen] Quick thought saving state set", {
+        isSavingQuickThought: true,
+      });
+    }
 
     const optimisticEntry = {
       _id: `quick-thought-${Date.now()}`,
@@ -577,6 +817,16 @@ export default function HomeScreen({
     };
 
     try {
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought payload prepared", {
+          title: optimisticEntry.title,
+          contentLength: optimisticEntry.content.length,
+          type: optimisticEntry.type,
+          tags: optimisticEntry.tags,
+        });
+        console.log("[HomeScreen] Quick thought request start");
+      }
+
       const savedEntry = await createJournalEntry({
         title: optimisticEntry.title,
         content: optimisticEntry.content,
@@ -584,14 +834,51 @@ export default function HomeScreen({
         tags: optimisticEntry.tags,
       });
 
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought request succeeded", {
+          journalId: savedEntry._id,
+          title: savedEntry.title,
+          type: savedEntry.type,
+          tags: savedEntry.tags,
+        });
+      }
+
       addRecentJournalEntry(savedEntry);
+
+      if (!hadEntryTodayBeforeSave) {
+        setCurrentStreak(previous => previous + 1);
+      }
+
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought stored locally", {
+          journalId: savedEntry._id,
+        });
+      }
+
       setNote("");
       setSelectedTags([]);
       setIsNoteExpanded(false);
+
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought UI cleaned up");
+        console.log("[HomeScreen] Quick thought save flow completed", {
+          activeTab: "home",
+          isNoteExpanded: false,
+        });
+      }
     } catch (error) {
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought request failed", error);
+      }
       console.error("Unable to save quick thought:", error);
     } finally {
       setIsSavingQuickThought(false);
+
+      if (__DEV__) {
+        console.log("[HomeScreen] Quick thought save flow finished", {
+          isSavingQuickThought: false,
+        });
+      }
     }
   };
 
@@ -683,7 +970,7 @@ export default function HomeScreen({
   });
   const moodStageHeight = moodStageProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: [152, 60],
+    outputRange: [144, 56],
   });
   const moodTickOpacity = moodTickProgress.interpolate({
     inputRange: [0, 1],
@@ -694,6 +981,57 @@ export default function HomeScreen({
     outputRange: [0.4, 1],
   });
   const recentEntries = recentJournalEntries.slice(0, 10);
+
+  const reloadHomeAiInsight = () => {
+    if (!isPremiumUser) {
+      return;
+    }
+
+    setIsLoadingHomeAiInsight(true);
+    setHomeAiInsightError(null);
+
+    getInsightsAiAnalysis()
+      .then(analysis => {
+        setHomeAiAnalysis(analysis);
+      })
+      .catch(error => {
+        setHomeAiInsightError(
+          error instanceof Error
+            ? error.message
+            : "We could not load your latest AI insight right now."
+        );
+      })
+      .finally(() => {
+        setIsLoadingHomeAiInsight(false);
+      });
+  };
+
+  const handleAdvanceInsight = () => {
+    if (!isPremiumUser) {
+      setActiveTab("profile");
+      return;
+    }
+
+    if (homeAiInsightError) {
+      reloadHomeAiInsight();
+      return;
+    }
+
+    if (homeInsightCards.length < 2) {
+      return;
+    }
+
+    setInsightIndex(previous => (previous + 1) % homeInsightCards.length);
+  };
+
+  const handleOpenFullAiAnalysis = () => {
+    if (!isPremiumUser) {
+      setActiveTab("profile");
+      return;
+    }
+
+    openInsightsTab("analysis");
+  };
 
   const handleFavoriteToggle = async (
     entryId: string,
@@ -769,7 +1107,9 @@ export default function HomeScreen({
           />
           <HeaderIconButton
             icon={Search}
-            onPress={() => {}}
+            onPress={() => {
+              onOpenSearch?.();
+            }}
             label="Search"
             borderColor={theme.colors.border}
             backgroundColor={theme.colors.card}
@@ -803,7 +1143,7 @@ export default function HomeScreen({
             <Text
               style={[styles.streakValue, { color: theme.colors.foreground }]}
             >
-              0
+              {currentStreak}
             </Text>
             <Text
               style={[
@@ -1008,16 +1348,6 @@ export default function HomeScreen({
                       );
                     })}
                   </View>
-                  <Text
-                    style={[
-                      styles.moodSavedSubtitle,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {isLoadingMoodStatus
-                      ? "Checking today's mood..."
-                      : "You can log one mood check-in per day."}
-                  </Text>
                 </Animated.View>
 
                 <Animated.View
@@ -1310,7 +1640,7 @@ export default function HomeScreen({
 
                 <View style={styles.insightControls}>
                   <View style={styles.insightDots}>
-                    {tips.map((_, _index) => (
+                    {(isPremiumUser ? homeInsightCards : [0, 1, 2]).map((_, _index) => (
                       <Pressable
                         key={_index}
                         accessibilityRole="button"
@@ -1322,6 +1652,7 @@ export default function HomeScreen({
                             ? activeInsightDotStyle
                             : inactiveInsightDotStyle,
                           _index === insightIndex && styles.insightDotActive,
+                          !isPremiumUser && styles.insightDotLocked,
                         ]}
                       />
                     ))}
@@ -1329,50 +1660,130 @@ export default function HomeScreen({
 
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Next insight"
-                    onPress={() =>
-                      setInsightIndex(previous => (previous + 1) % tips.length)
+                    accessibilityLabel={
+                      !isPremiumUser
+                        ? "Unlock AI insights"
+                        : homeAiInsightError
+                          ? "Retry AI insight"
+                          : "Next insight"
                     }
+                    disabled={isLoadingHomeAiInsight}
+                    onPress={handleAdvanceInsight}
                     style={({ pressed }) => [
                       styles.smallIconButton,
+                      isLoadingHomeAiInsight && styles.smallIconButtonDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <RefreshCw size={13} color={theme.colors.mutedForeground} />
+                    {!isPremiumUser ? (
+                      <Lock size={13} color={theme.colors.mutedForeground} />
+                    ) : (
+                      <RefreshCw size={13} color={theme.colors.mutedForeground} />
+                    )}
                   </Pressable>
                 </View>
               </View>
 
-              <View style={styles.insightBody}>
-                <View
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open AI analysis"
+                onPress={handleOpenFullAiAnalysis}
+                style={({ pressed }) => [
+                  styles.insightBody,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Animated.View
                   style={[
-                    styles.insightIconWrap,
+                    styles.insightAnimatedContent,
                     {
-                      backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                      opacity: insightTransitionProgress,
+                      transform: [
+                        {
+                          translateX: insightTransitionProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [14, 0],
+                          }),
+                        },
+                      ],
                     },
                   ]}
                 >
-                  <Lightbulb size={20} color={theme.colors.primary} />
-                </View>
-                <View style={styles.insightCopy}>
-                  <Text
+                  <View
                     style={[
-                      styles.insightTitle,
-                      { color: theme.colors.foreground },
+                      styles.insightIconWrap,
+                      {
+                        backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                      },
                     ]}
                   >
-                    Daily Tip
-                  </Text>
-                  <Text
-                    style={[
-                      styles.insightText,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {tips[insightIndex]}
-                  </Text>
-                </View>
-              </View>
+                    {isPremiumUser ? (
+                      <ActiveHomeInsightIcon
+                        size={20}
+                        color={theme.colors.primary}
+                      />
+                    ) : (
+                      <Lock size={18} color={theme.colors.primary} />
+                    )}
+                  </View>
+                  <View style={styles.insightCopy}>
+                    <Text
+                      style={[
+                        styles.insightTitle,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      {!isPremiumUser
+                        ? "Premium AI Insight"
+                        : isLoadingHomeAiInsight
+                          ? "Loading weekly signal"
+                          : homeAiInsightError
+                            ? "AI analysis unavailable"
+                            : activeHomeInsight?.title || "AI Insight"}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.insightText,
+                        { color: theme.colors.mutedForeground },
+                      ]}
+                    >
+                      {!isPremiumUser
+                        ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
+                        : isLoadingHomeAiInsight
+                          ? "Pulling a short read from your latest AI analysis."
+                          : homeAiInsightError
+                            ? "We could not load the latest AI insight right now."
+                            : activeHomeInsight?.body ||
+                              "Your latest weekly patterns will appear here."}
+                    </Text>
+                    {isPremiumUser && !isLoadingHomeAiInsight && !homeAiInsightError ? (
+                      <View style={styles.insightCtaRow}>
+                        <Text
+                          style={[
+                            styles.insightCtaText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          {activeHomeInsight?.ctaLabel || "Open full AI analysis"}
+                        </Text>
+                        <ChevronRight size={14} color={theme.colors.primary} />
+                      </View>
+                    ) : !isPremiumUser ? (
+                      <View style={styles.insightCtaRow}>
+                        <Text
+                          style={[
+                            styles.insightCtaText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          Open subscription
+                        </Text>
+                        <ChevronRight size={14} color={theme.colors.primary} />
+                      </View>
+                    ) : null}
+                  </View>
+                </Animated.View>
+              </Pressable>
             </View>
           </View>
 
@@ -1474,9 +1885,11 @@ export default function HomeScreen({
                 key={entry._id}
                 entry={entry}
                 onPress={() => openJournalEntry(entry._id)}
-                onFavoritePress={() =>
-                  void handleFavoriteToggle(entry._id, !entry.isFavorite)
-                }
+                onFavoritePress={() => {
+                  handleFavoriteToggle(entry._id, !entry.isFavorite).catch(
+                    () => undefined
+                  );
+                }}
                 isFavoriteUpdating={favoriteUpdatingId === entry._id}
                 previewLines={2}
               />
@@ -1605,7 +2018,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   moodCard: {
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
   moodStage: {
     position: "relative",
@@ -1629,16 +2044,21 @@ const styles = StyleSheet.create({
   moodRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 6,
   },
   moodOptionShell: {
     flex: 1,
+    minWidth: 0,
+    alignItems: "center",
   },
   moodOption: {
+    width: "96%",
+    minHeight: 94,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
+    paddingHorizontal: 4,
     gap: 8,
     borderWidth: 1,
   },
@@ -1653,29 +2073,29 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   moodIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   moodLabel: {
-    fontSize: 11,
+    fontSize: 10,
   },
   moodSavedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   moodSavedIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   moodEmoji: {
-    fontSize: 22,
+    fontSize: 20,
   },
   moodSavedCopy: {
     flex: 1,
@@ -1686,12 +2106,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   moodSavedTitle: {
-    fontSize: 14,
+    fontSize: 13,
     flex: 1,
   },
   moodSavedSubtitle: {
     marginTop: 4,
-    fontSize: 12,
+    fontSize: 11,
   },
   smallIconButton: {
     width: 30,
@@ -1835,11 +2255,16 @@ const styles = StyleSheet.create({
   insightDotActive: {
     width: 16,
   },
+  insightDotLocked: {
+    opacity: 0.6,
+  },
   insightBody: {
+    zIndex: 1,
+  },
+  insightAnimatedContent: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    zIndex: 1,
   },
   insightIconWrap: {
     width: 40,
@@ -1852,6 +2277,18 @@ const styles = StyleSheet.create({
   insightCopy: {
     flex: 1,
   },
+  insightMetaPill: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  insightMetaText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
   insightTitle: {
     fontSize: 14,
     marginBottom: 4,
@@ -1859,6 +2296,20 @@ const styles = StyleSheet.create({
   insightText: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  insightCtaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 10,
+  },
+  insightCtaText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  smallIconButtonDisabled: {
+    opacity: 0.45,
   },
   promptRow: {
     flexDirection: "row",

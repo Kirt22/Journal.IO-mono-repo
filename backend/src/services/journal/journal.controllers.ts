@@ -40,12 +40,13 @@ const createJournalController = async (
       return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
-    const { title, content, type, images, tags } = req.body;
+    const { title, content, type, aiPrompt, images, tags } = req.body;
     const journal = await createJournal({
       userId,
       title,
       content,
       type,
+      aiPrompt,
       tags,
       images,
     });
@@ -94,7 +95,7 @@ const editJournalController = async (
       return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
-    const { journalId, title, content, type, images, tags, isFavorite } =
+    const { journalId, title, content, type, aiPrompt, images, tags, isFavorite } =
       req.body;
     const journal = await updateJournal({
       userId,
@@ -102,6 +103,7 @@ const editJournalController = async (
       title,
       content,
       type,
+      aiPrompt,
       images,
       tags,
       isFavorite,

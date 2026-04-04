@@ -11,12 +11,18 @@ import {
 import {
   ArrowLeft,
   Edit2,
+  Heart,
   Loader2,
   Star,
   Tag,
   Trash2,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import BottomNav, {
+  BOTTOM_NAV_CONTENT_PADDING,
+  type BottomNavKey,
+} from "../../components/BottomNav";
+import JournalPromptCard from "../../components/JournalPromptCard";
 import {
   deleteJournalEntry,
   getJournalEntry,
@@ -25,6 +31,7 @@ import {
 import { useAppStore } from "../../store/appStore";
 import type { JournalEntry } from "../../models/journalModels";
 import { useTheme } from "../../theme/provider";
+import { getFilteredTags } from "../../utils/journalEntryCard";
 
 function formatEntryDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -33,18 +40,6 @@ function formatEntryDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
-}
-
-function getEntryTypeLabel(type: string) {
-  if (type === "quick-thought") {
-    return "Quick Thought";
-  }
-
-  if (type === "mood-checkin") {
-    return "Mood check-in";
-  }
-
-  return "Journal entry";
 }
 
 function JournalTags({ tags }: { tags: string[] }) {
@@ -74,7 +69,9 @@ function JournalTags({ tags }: { tags: string[] }) {
               },
             ]}
           >
-            <Text style={[styles.tagChipText, { color: theme.colors.secondaryForeground }]}>
+            <Text
+              style={[styles.tagChipText, { color: theme.colors.secondaryForeground }]}
+            >
               {tag}
             </Text>
           </View>
@@ -87,9 +84,12 @@ function JournalTags({ tags }: { tags: string[] }) {
 export default function EntryDetailScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const activeTab = useAppStore(state => state.activeTab);
   const entryId = useAppStore(state => state.selectedJournalEntryId);
   const entries = useAppStore(state => state.recentJournalEntries);
   const closeJournalEntry = useAppStore(state => state.closeJournalEntry);
+  const setActiveTab = useAppStore(state => state.setActiveTab);
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const openJournalEditor = useAppStore(state => state.openJournalEditor);
   const removeRecentJournalEntry = useAppStore(
     state => state.removeRecentJournalEntry
@@ -105,13 +105,10 @@ export default function EntryDetailScreen() {
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
-  const layoutMaxWidth = isWide ? 460 : 420;
+  const layoutMaxWidth = isWide ? 430 : 390;
 
   const entry = useMemo(
-    () =>
-      hydratedEntry ||
-      entries.find(current => current._id === entryId) ||
-      null,
+    () => hydratedEntry || entries.find(current => current._id === entryId) || null,
     [entryId, entries, hydratedEntry]
   );
 
@@ -135,7 +132,7 @@ export default function EntryDetailScreen() {
         updateRecentJournalEntry(fetchedEntry);
       })
       .catch(() => {
-        // Keep the locally cached entry in place if the backend refresh fails.
+        // Keep locally cached data if the refresh fails.
       })
       .finally(() => {
         if (isActive) {
@@ -200,37 +197,55 @@ export default function EntryDetailScreen() {
     );
   };
 
+  const handleBottomNavPress = (nextTab: BottomNavKey) => {
+    if (nextTab === "new") {
+      closeJournalEntry();
+      openNewEntry();
+      return;
+    }
+
+    closeJournalEntry();
+    setActiveTab(nextTab);
+  };
+
+  const renderBottomNav = (
+    <BottomNav activeKey={activeTab} onPress={handleBottomNavPress} />
+  );
+
   if (!entryId) {
     return (
       <SafeAreaView
         edges={["top", "left", "right"]}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
-          <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
-            Entry not found
-          </Text>
-          <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
-            Choose an entry from Home or Calendar to view it here.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Go back to home"
-            onPress={closeJournalEntry}
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.card,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
-              Go home
+        <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+          <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
+            <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+              Entry not found
             </Text>
-          </Pressable>
+            <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
+              Choose an entry from Home or Calendar to view it here.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back to home"
+              onPress={closeJournalEntry}
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
+                Go home
+              </Text>
+            </Pressable>
+          </View>
         </View>
+        {renderBottomNav}
       </SafeAreaView>
     );
   }
@@ -241,12 +256,15 @@ export default function EntryDetailScreen() {
         edges={["top", "left", "right"]}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
-          <Loader2 size={22} color={theme.colors.primary} />
-          <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
-            Loading entry
-          </Text>
+        <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+          <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
+            <Loader2 size={22} color={theme.colors.primary} />
+            <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+              Loading entry
+            </Text>
+          </View>
         </View>
+        {renderBottomNav}
       </SafeAreaView>
     );
   }
@@ -257,36 +275,41 @@ export default function EntryDetailScreen() {
         edges={["top", "left", "right"]}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
-          <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
-            Entry unavailable
-          </Text>
-          <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
-            The journal item could not be loaded.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            onPress={closeJournalEntry}
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                borderColor: theme.colors.border,
-                backgroundColor: theme.colors.card,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
-              Go back
+        <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+          <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
+            <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+              Entry unavailable
             </Text>
-          </Pressable>
+            <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
+              The journal item could not be loaded.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={closeJournalEntry}
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  borderColor: theme.colors.border,
+                  backgroundColor: theme.colors.card,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
+                Go back
+              </Text>
+            </Pressable>
+          </View>
         </View>
+        {renderBottomNav}
       </SafeAreaView>
     );
   }
 
   const favoriteLabel = entry.isFavorite ? "Remove favorite" : "Add favorite";
+  const visibleTags = getFilteredTags(entry.tags);
+  const hasMoodTag = entry.tags.some(tag => tag.toLowerCase().startsWith("mood:"));
 
   return (
     <SafeAreaView
@@ -295,19 +318,13 @@ export default function EntryDetailScreen() {
     >
       <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
         <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
-          <View style={styles.header}>
+            <View style={styles.header}>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Back"
               onPress={closeJournalEntry}
-              style={({ pressed }) => [
-                styles.iconButton,
-                {
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.card,
-                },
-                pressed && styles.pressed,
-              ]}
+              hitSlop={8}
+              style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
             >
               <ArrowLeft size={18} color={theme.colors.foreground} />
             </Pressable>
@@ -318,16 +335,9 @@ export default function EntryDetailScreen() {
                 accessibilityLabel={favoriteLabel}
                 onPress={handleToggleFavorite}
                 disabled={isTogglingFavorite}
+                hitSlop={8}
                 style={({ pressed }) => [
-                  styles.iconButton,
-                  {
-                    borderColor: entry.isFavorite
-                      ? theme.colors.primary
-                      : theme.colors.border,
-                    backgroundColor: entry.isFavorite
-                      ? `${theme.colors.primary}14`
-                      : theme.colors.card,
-                  },
+                  styles.headerIconButton,
                   pressed && !isTogglingFavorite && styles.pressed,
                 ]}
               >
@@ -336,8 +346,8 @@ export default function EntryDetailScreen() {
                 ) : (
                   <Star
                     size={16}
-                    fill={entry.isFavorite ? theme.colors.warning : "transparent"}
-                    color={entry.isFavorite ? theme.colors.warning : theme.colors.foreground}
+                    fill={entry.isFavorite ? theme.colors.primary : "transparent"}
+                    color={entry.isFavorite ? theme.colors.primary : theme.colors.foreground}
                   />
                 )}
               </Pressable>
@@ -346,14 +356,8 @@ export default function EntryDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Edit entry"
                 onPress={() => openJournalEditor(entry._id)}
-                style={({ pressed }) => [
-                  styles.iconButton,
-                  {
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.card,
-                  },
-                  pressed && styles.pressed,
-                ]}
+                hitSlop={8}
+                style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}
               >
                 <Edit2 size={16} color={theme.colors.foreground} />
               </Pressable>
@@ -363,12 +367,9 @@ export default function EntryDetailScreen() {
                 accessibilityLabel="Delete entry"
                 onPress={handleDelete}
                 disabled={isDeleting}
+                hitSlop={8}
                 style={({ pressed }) => [
-                  styles.iconButton,
-                  {
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.card,
-                  },
+                  styles.headerIconButton,
                   pressed && !isDeleting && styles.pressed,
                 ]}
               >
@@ -381,43 +382,50 @@ export default function EntryDetailScreen() {
             </View>
           </View>
 
+          <View
+            style={[
+              styles.headerDivider,
+              { borderTopColor: theme.colors.border },
+            ]}
+          />
+
           <ScrollView
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
           >
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <Text style={[styles.metaLabel, { color: theme.colors.mutedForeground }]}>
-                {getEntryTypeLabel(entry.type)}
-              </Text>
-              <Text style={[styles.dateText, { color: theme.colors.mutedForeground }]}>
-                {formatEntryDate(entry.createdAt)}
-              </Text>
+            <View style={styles.body}>
+              <View style={styles.metaRow}>
+                <Heart
+                  size={16}
+                  color={hasMoodTag ? theme.colors.success : theme.colors.mutedForeground}
+                />
+                <Text style={[styles.dateText, { color: theme.colors.mutedForeground }]}>
+                  {formatEntryDate(entry.createdAt)}
+                </Text>
+              </View>
+
               <Text style={[styles.title, { color: theme.colors.foreground }]}>
                 {entry.title}
               </Text>
+
               <Text style={[styles.contentText, { color: theme.colors.foreground }]}>
                 {entry.content}
               </Text>
 
-              <JournalTags tags={entry.tags} />
-
-              <View style={styles.footerRow}>
-                <Text style={[styles.footerText, { color: theme.colors.mutedForeground }]}>
-                  Updated {formatEntryDate(entry.updatedAt)}
-                </Text>
+              <View style={[styles.sectionDivider, { borderTopColor: theme.colors.border }]}>
+                <JournalTags tags={visibleTags} />
               </View>
+
+              {entry.aiPrompt ? (
+                <View style={styles.promptBlock}>
+                  <JournalPromptCard prompt={entry.aiPrompt} />
+                </View>
+              ) : null}
             </View>
           </ScrollView>
         </View>
       </View>
+      {renderBottomNav}
     </SafeAreaView>
   );
 }
@@ -425,6 +433,11 @@ export default function EntryDetailScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+  },
+  emptyShell: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   container: {
     flex: 1,
@@ -438,7 +451,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     gap: 12,
   },
   headerActions: {
@@ -446,53 +460,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
+  headerDivider: {
+    borderTopWidth: 1,
+    marginBottom: 20,
+  },
+  headerIconButton: {
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
   content: {
-    paddingBottom: 24,
+    paddingBottom: BOTTOM_NAV_CONTENT_PADDING + 24,
   },
-  card: {
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 20,
+  body: {
+    gap: 16,
   },
-  metaLabel: {
-    fontSize: 12,
-    marginBottom: 4,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   dateText: {
-    fontSize: 12,
-    marginBottom: 12,
+    fontSize: 13,
+    lineHeight: 18,
   },
   title: {
     fontSize: 28,
-    fontWeight: "600",
-    letterSpacing: -0.4,
-    marginBottom: 14,
+    lineHeight: 34,
+    fontWeight: "500",
+    letterSpacing: -0.2,
   },
   contentText: {
     fontSize: 15,
     lineHeight: 23,
   },
-  tagSection: {
-    marginTop: 20,
-    paddingTop: 18,
+  sectionDivider: {
     borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.06)",
+    paddingTop: 18,
+  },
+  promptBlock: {
+    marginTop: 4,
+  },
+  tagSection: {
+    gap: 12,
   },
   tagHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 12,
   },
   tagSectionLabel: {
     fontSize: 14,
@@ -513,41 +529,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  footerRow: {
-    marginTop: 20,
-    alignItems: "flex-start",
-  },
-  footerText: {
-    fontSize: 12,
-  },
   emptyState: {
-    flex: 1,
-    alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "center",
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "600",
   },
   emptyText: {
     fontSize: 14,
-    textAlign: "center",
     lineHeight: 20,
+    textAlign: "center",
   },
   backButton: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   backButtonText: {
     fontSize: 14,
     fontWeight: "600",
   },
   pressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.99 }],
+    opacity: 0.72,
   },
 });

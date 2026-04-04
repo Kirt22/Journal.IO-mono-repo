@@ -4,6 +4,7 @@ import type { AuthEntrySource, FlowStage } from "../navigation/appFlow";
 import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingScreen";
 import {
   resendEmailVerification,
+  logout,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
@@ -11,11 +12,19 @@ import {
   type AuthOnboardingContext,
   type AuthSession,
 } from "../services/authService";
-import { updateProfile } from "../services/userService";
+import { getProfile, updateProfile } from "../services/userService";
 import type { ThemeMode } from "../theme/theme";
-import { saveTokens } from "../utils/tokenStorage";
+import { ApiError } from "../utils/apiClient";
+import {
+  clearTokens,
+  getOnboardingCompleted,
+  hasSeenInstall,
+  getTokens,
+  markInstallSeen,
+  saveOnboardingCompleted,
+  saveTokens,
+} from "../utils/tokenStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
-import { calendarSampleJournalEntries } from "../models/calendarModels";
 import {
   createInitialJournalSliceState,
   createJournalSlice,
@@ -109,6 +118,7 @@ function buildOnboardingContext(
 type AppStoreState = {
   stage: FlowStage;
   activeTab: BottomNavKey;
+  preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
@@ -118,7 +128,9 @@ type AppStoreState = {
   initialProfileName: string;
   themeModeOverride: ThemeMode | null;
   selectedJournalEntryId: string | null;
+  hasBootstrappedAuthGate: boolean;
 } & JournalSliceState & {
+  bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
@@ -138,12 +150,15 @@ type AppStoreState = {
     name: string;
     avatarColor: string;
   }) => Promise<void>;
+  signOut: () => Promise<void>;
   goBackToAuth: () => void;
   goBackToCreateAccount: () => void;
   goBackFromProfile: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
+  openInsightsTab: (nextTab?: "overview" | "analysis") => void;
+  clearPreferredInsightsTab: () => void;
   openNewEntry: () => void;
   closeNewEntry: () => void;
   openJournalEntry: (entryId: string) => void;
@@ -166,12 +181,14 @@ type AppStoreSnapshot = Pick<
   | "initialProfileName"
   | "themeModeOverride"
   | "selectedJournalEntryId"
+  | "hasBootstrappedAuthGate"
   | "recentJournalEntries"
 >;
 
 const createInitialSnapshot = (): AppStoreSnapshot => ({
   stage: getInitialStage(),
   activeTab: getInitialTab(),
+  preferredInsightsTab: null,
   isCompletingOnboarding: false,
   onboardingData: null,
   pendingEmail:
@@ -184,7 +201,8 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   initialProfileName: "",
   themeModeOverride: null,
   selectedJournalEntryId: null,
-  ...createInitialJournalSliceState(calendarSampleJournalEntries),
+  hasBootstrappedAuthGate: false,
+  ...createInitialJournalSliceState(),
 });
 
 const enterHomeWithProfile = (
@@ -210,19 +228,101 @@ const enterHomeWithProfile = (
 const getSelectedGoals = (state: Pick<AppStoreState, "onboardingData">) =>
   state.onboardingData?.goals || [];
 
+const isUnauthorizedProfileError = (error: unknown) =>
+  error instanceof ApiError && (error.status === 401 || error.status === 403);
+
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
   ...createJournalSlice(
-    set as Parameters<typeof createJournalSlice>[0],
-    calendarSampleJournalEntries
+    set as Parameters<typeof createJournalSlice>[0]
   ),
+  bootstrapAuthGate: async () => {
+    if (get().hasBootstrappedAuthGate) {
+      return;
+    }
+
+    if (__DEV__ && devLaunchConfig.stage && devLaunchConfig.stage !== "onboarding") {
+      set({ hasBootstrappedAuthGate: true });
+      return;
+    }
+
+    const installSeen = await hasSeenInstall();
+
+    if (!installSeen) {
+      await markInstallSeen();
+      await clearTokens();
+      await saveOnboardingCompleted(false);
+
+      set({
+        hasBootstrappedAuthGate: true,
+        stage: "onboarding",
+      });
+      return;
+    }
+
+    const tokens = await getTokens();
+
+    if (tokens) {
+      try {
+        const profile = await getProfile();
+        const hydratedSession: AuthSession = {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          user: profile,
+        };
+
+        await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: hydratedSession,
+          initialProfileName: profile.name,
+          authSource: profile.email ? "email" : null,
+          pendingEmail: profile.email || "",
+          pendingVerificationCode: "",
+          preferredInsightsTab: null,
+          activeTab: "home",
+          stage: "main-app",
+        });
+        return;
+      } catch (error) {
+        if (isUnauthorizedProfileError(error)) {
+          await clearTokens();
+        }
+
+        const onboardingCompleted = await getOnboardingCompleted();
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: null,
+          initialProfileName: "",
+          authSource: null,
+          pendingEmail: "",
+          pendingVerificationCode: "",
+          preferredInsightsTab: null,
+          activeTab: "home",
+          stage: onboardingCompleted ? "auth" : "onboarding",
+        });
+        return;
+      }
+    }
+
+    const onboardingCompleted = await getOnboardingCompleted();
+
+    set({
+      hasBootstrappedAuthGate: true,
+      stage: onboardingCompleted ? "auth" : "onboarding",
+    });
+  },
   completeOnboarding: async data => {
     set({
       isCompletingOnboarding: true,
       onboardingData: data,
     });
 
+    const saveOnboardingCompletedPromise = saveOnboardingCompleted(true);
     await wait(ONBOARDING_EXIT_DELAY_MS);
+    await saveOnboardingCompletedPromise;
 
     set({
       isCompletingOnboarding: false,
@@ -240,12 +340,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       googleIdToken: "mock-google-token",
       email: "alex.rivera@example.com",
       name: "Alex Rivera",
+      onboardingCompleted: true,
     });
 
     await saveTokens({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
     });
+    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
 
     set({
       authSource: "google",
@@ -262,6 +364,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   skipToHome: () => {
     set({
       activeTab: "home",
+      preferredInsightsTab: null,
       stage: "main-app",
     });
   },
@@ -281,6 +384,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       email: normalizedEmail,
       password: payload.password,
       onboardingContext: buildOnboardingContext(get().onboardingData),
+      onboardingCompleted: true,
     });
 
     set({
@@ -320,6 +424,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       {
         onboardingGoals: onboardingData?.goals,
+        onboardingCompleted: true,
       }
     );
 
@@ -338,6 +443,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       accessToken: updatedSession.accessToken,
       refreshToken: updatedSession.refreshToken,
     });
+    await saveOnboardingCompleted(true);
 
     set({
       session: updatedSession,
@@ -348,18 +454,23 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({ stage: "profile" });
   },
   signIn: async payload => {
-    const response = await signInWithEmail(payload);
+    const response = await signInWithEmail({
+      ...payload,
+      onboardingCompleted: true,
+    });
 
     await saveTokens({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
     });
+    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
 
     if (response.user.profileSetupCompleted) {
       set({
         session: response,
         pendingEmail: response.user.email || payload.email,
         authSource: "email",
+        preferredInsightsTab: null,
         activeTab: "home",
         stage: "main-app",
       });
@@ -381,7 +492,33 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       goals: getSelectedGoals(get()),
     });
 
+    await saveOnboardingCompleted(true);
+
     enterHomeWithProfile(set, get, updatedProfile);
+  },
+  signOut: async () => {
+    try {
+      await logout();
+    } catch {
+      // Sign-out must still complete locally even if the backend session is already gone.
+    }
+
+    await clearTokens();
+
+    set({
+      ...createInitialJournalSliceState(),
+      stage: "auth",
+      activeTab: "home",
+      preferredInsightsTab: null,
+      isCompletingOnboarding: false,
+      onboardingData: null,
+      pendingEmail: "",
+      pendingVerificationCode: "",
+      authSource: null,
+      session: null,
+      initialProfileName: "",
+      selectedJournalEntryId: null,
+    });
   },
   goBackToAuth: () => {
     set({ stage: "auth" });
@@ -406,13 +543,28 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       goals: getSelectedGoals(state),
     });
 
+    await saveOnboardingCompleted(true);
+
     enterHomeWithProfile(set, get, updatedProfile);
   },
   restartFlow: () => {
     set(createInitialSnapshot());
   },
   setActiveTab: nextTab => {
-    set({ activeTab: nextTab });
+    set({
+      activeTab: nextTab,
+      preferredInsightsTab: nextTab === "insights" ? get().preferredInsightsTab : null,
+    });
+  },
+  openInsightsTab: (nextTab = "overview") => {
+    set({
+      activeTab: "insights",
+      preferredInsightsTab: nextTab,
+      stage: "main-app",
+    });
+  },
+  clearPreferredInsightsTab: () => {
+    set({ preferredInsightsTab: null });
   },
   openNewEntry: () => {
     set({ stage: "new-entry" });

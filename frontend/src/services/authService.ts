@@ -5,9 +5,11 @@ type AuthUser = {
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  isPremium?: boolean;
   journalingGoals: string[];
   avatarColor: string | null;
   profileSetupCompleted: boolean;
+  onboardingCompleted: boolean;
   profilePic: string | null;
 };
 
@@ -38,6 +40,7 @@ type SignUpWithEmailPayload = {
   email: string;
   password: string;
   onboardingContext?: AuthOnboardingContext;
+  onboardingCompleted?: boolean;
 };
 
 type ResendEmailVerificationPayload = {
@@ -51,11 +54,13 @@ type VerifyEmailPayload = {
 
 type VerifyEmailOptions = {
   onboardingGoals?: string[];
+  onboardingCompleted?: boolean;
 };
 
 type SignInWithEmailPayload = {
   email: string;
   password: string;
+  onboardingCompleted?: boolean;
 };
 
 type GoogleSignInPayload = {
@@ -64,6 +69,7 @@ type GoogleSignInPayload = {
   email: string;
   name: string;
   profilePic?: string;
+  onboardingCompleted?: boolean;
 };
 
 type SendOtpResponse = {
@@ -109,12 +115,34 @@ const buildMockTokens = (email: string) => {
   };
 };
 
+const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T => {
+  if (!__DEV__) {
+    return value;
+  }
+
+  if ("user" in value) {
+    return {
+      ...value,
+      user: {
+        ...value.user,
+        isPremium: value.user.isPremium ?? true,
+      },
+    };
+  }
+
+  return {
+    ...value,
+    isPremium: value.isPremium ?? true,
+  };
+};
+
 const createMockSession = (payload: {
   email: string;
   name?: string;
   goals?: string[];
   avatarColor?: string | null;
   profileSetupCompleted?: boolean;
+  onboardingCompleted?: boolean;
   profilePic?: string | null;
 }): AuthSession => {
   const email = normalizeEmail(payload.email);
@@ -127,10 +155,12 @@ const createMockSession = (payload: {
       name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
       phoneNumber: null,
       email,
+      isPremium: true,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,
       profileSetupCompleted: payload.profileSetupCompleted ?? false,
+      onboardingCompleted: payload.onboardingCompleted ?? false,
       profilePic: payload.profilePic ?? null,
     },
   };
@@ -172,10 +202,13 @@ const verifyEmail = async (
   try {
     const response = await request<AuthSession>("/auth/verify_email", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        onboardingCompleted: options.onboardingCompleted ?? false,
+      }),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -186,6 +219,7 @@ const verifyEmail = async (
       name: deriveDisplayNameFromEmail(payload.email),
       goals: options.onboardingGoals || [],
       profileSetupCompleted: false,
+      onboardingCompleted: options.onboardingCompleted ?? true,
     });
   }
 };
@@ -197,7 +231,7 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
       body: JSON.stringify(payload),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -209,6 +243,7 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
       goals: [],
       avatarColor: "#8E4636",
       profileSetupCompleted: true,
+      onboardingCompleted: true,
     });
   }
 };
@@ -220,7 +255,7 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
       body: JSON.stringify(payload),
     });
 
-    return response.data;
+    return applyDevPremiumDefault(response.data);
   } catch (error) {
     if (!shouldUseDevNetworkFallback(error)) {
       throw error;
@@ -233,6 +268,7 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
       avatarColor: null,
       profilePic: payload.profilePic || null,
       profileSetupCompleted: false,
+      onboardingCompleted: true,
     });
   }
 };
@@ -264,18 +300,27 @@ const verifyOtp = async (payload: {
   otp: string;
   name?: string;
   goals?: string[];
+  onboardingCompleted?: boolean;
 }) => {
   const response = await request<VerifyOtpResponse>("/auth/verify_otp", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
-  return response.data;
+  return applyDevPremiumDefault(response.data);
+};
+
+const logout = async () => {
+  await request<{}>("/auth/logout", {
+    method: "POST",
+  });
 };
 
 export {
+  applyDevPremiumDefault,
   resendEmailVerification,
   resendOtp,
+  logout,
   sendOtp,
   signInWithEmail,
   signInWithGoogle,

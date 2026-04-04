@@ -111,12 +111,14 @@ Request:
   "phoneNumber": "+15551234567",
   "otp": "123456",
   "name": "Alex",
-  "goals": ["Daily Reflection", "Personal Growth"]
+  "goals": ["Daily Reflection", "Personal Growth"],
+  "onboardingCompleted": true
 }
 ```
 
 `name` is optional and typically passed for new-user onboarding completion.
 `goals` is optional and carries the selected onboarding goals into the authenticated session.
+`onboardingCompleted` is optional and should be set when the onboarding flow has already been completed so the backend can persist that state.
 
 Success `data`:
 
@@ -132,6 +134,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": null
   },
   "isNewUser": true
@@ -150,7 +153,8 @@ Request:
   "googleUserId": "optional_google_sub",
   "email": "alex@gmail.com",
   "name": "Alex",
-  "profilePic": "https://..."
+  "profilePic": "https://...",
+  "onboardingCompleted": true
 }
 ```
 
@@ -165,6 +169,10 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@gmail.com",
+    "journalingGoals": [],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": "https://..."
   }
 }
@@ -187,6 +195,16 @@ Request:
 Invalidate active refresh token for current authenticated user.
 
 Requires `Authorization` header.
+
+Returns:
+
+```json
+{
+  "success": true,
+  "message": "Logout successful",
+  "data": {}
+}
+```
 
 ---
 
@@ -221,6 +239,7 @@ Success `data`:
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
+  "onboardingCompleted": true,
   "profilePic": null
 }
 ```
@@ -241,6 +260,7 @@ Response `data`:
 
 ```json
 {
+  "currentStreak": 4,
   "moodCheckIn": {
     "_id": "string",
     "mood": "good",
@@ -252,6 +272,7 @@ Response `data`:
 ```
 
 If no check-in exists yet for today, `moodCheckIn` is `null`.
+`currentStreak` is always returned so the Home screen can render its streak card without calling the full streak summary endpoints.
 
 ### `POST /mood/check_in`
 
@@ -298,6 +319,7 @@ Response `data`:
     "title": "string",
     "content": "string",
     "type": "journal",
+    "aiPrompt": "string",
     "tags": ["string"],
     "images": ["string"],
     "isFavorite": false,
@@ -318,6 +340,7 @@ Request:
   "title": "Morning note",
   "content": "Today felt steady and clear.",
   "type": "journal",
+  "aiPrompt": "What are you grateful for today?",
   "images": [],
   "tags": ["reflection"],
   "isFavorite": false
@@ -332,6 +355,7 @@ Success `data`:
   "title": "Morning note",
   "content": "Today felt steady and clear.",
   "type": "journal",
+  "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection"],
   "images": [],
   "isFavorite": false,
@@ -360,6 +384,7 @@ Success `data`:
   "title": "string",
   "content": "string",
   "type": "journal",
+  "aiPrompt": "string",
   "tags": ["string"],
   "images": ["string"],
   "isFavorite": false,
@@ -380,6 +405,7 @@ Request:
   "title": "Updated title",
   "content": "Updated content",
   "type": "journal",
+  "aiPrompt": "What are you grateful for today?",
   "images": [],
   "tags": ["reflection", "growth"],
   "isFavorite": true
@@ -394,6 +420,7 @@ Success `data`:
   "title": "Updated title",
   "content": "Updated content",
   "type": "journal",
+  "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection", "growth"],
   "images": [],
   "isFavorite": true,
@@ -465,6 +492,7 @@ Request:
 {
   "email": "alex@example.com",
   "password": "strong-password",
+  "onboardingCompleted": true,
   "onboardingContext": {
     "ageRange": "25-34",
     "journalingExperience": "regular",
@@ -517,7 +545,8 @@ Request:
 ```json
 {
   "email": "alex@example.com",
-  "code": "123456"
+  "code": "123456",
+  "onboardingCompleted": true
 }
 ```
 
@@ -535,6 +564,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
+    "onboardingCompleted": true,
     "profilePic": null
   },
   "isNewUser": true
@@ -550,7 +580,8 @@ Request:
 ```json
 {
   "email": "alex@example.com",
-  "password": "strong-password"
+  "password": "strong-password",
+  "onboardingCompleted": true
 }
 ```
 
@@ -568,6 +599,7 @@ Success `data`:
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
+    "onboardingCompleted": true,
     "profilePic": null
   }
 }
@@ -592,10 +624,168 @@ Google OAuth remains a supported alternate auth path and should continue to retu
 ## 4.4 Insights
 
 - `GET /insights/overview`
+- `GET /insights/ai-analysis`
 - `GET /insights/trends`
 - `GET /insights/patterns`
 - `GET /insights/traits`
 - `GET /insights/explain/{insightId}`
+
+### `GET /insights/overview`
+
+Returns the cached insights overview used by the mobile Insights screen.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Insights overview loaded",
+  "data": {
+    "stats": {
+      "totalEntries": 14,
+      "currentStreak": 4,
+      "averageWords": 91,
+      "totalFavorites": 3
+    },
+    "activity7d": [
+      {
+        "dateKey": "2026-04-01",
+        "label": "Wed",
+        "count": 2
+      }
+    ],
+    "moodDistribution": [
+      {
+        "mood": "good",
+        "label": "Good",
+        "count": 4,
+        "percentage": 34
+      }
+    ],
+    "popularTopics": [
+      {
+        "tag": "gratitude",
+        "label": "Gratitude",
+        "count": 3,
+        "percentage": 12
+      }
+    ],
+    "analysis": {
+      "summary": "string",
+      "keyInsight": "string",
+      "growthPatterns": [
+        {
+          "title": "Consistency",
+          "subtitle": "string"
+        }
+      ],
+      "personalizedPrompts": [
+        {
+          "topic": "Reflection",
+          "text": "string"
+        }
+      ]
+    },
+    "updatedAt": "ISO-8601|null"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- data is served from a per-user cached insights document
+- cache source of truth remains journal entries and mood check-ins
+- popular topics are derived from the most-used non-`mood:` journal tags
+- mood distribution is derived from saved home mood check-ins
+
+### `GET /insights/ai-analysis`
+
+Returns the cached weekly AI-analysis payload used by the mobile `AI Analysis` tab. The Home AI insight card also consumes this endpoint and derives short rotating snippets from the same response.
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Insights AI analysis loaded",
+  "data": {
+    "window": {
+      "startDate": "2026-03-26",
+      "endDate": "2026-04-01",
+      "label": "Mar 26 - Apr 1",
+      "entryCount": 6,
+      "activeDays": 5,
+      "totalWords": 842
+    },
+    "freshness": {
+      "generatedAt": "2026-04-01T09:05:00.000Z",
+      "confidence": "high",
+      "confidenceLabel": "Clearer weekly pattern",
+      "note": "string"
+    },
+    "summary": {
+      "headline": "Conscientiousness stood out most this week",
+      "narrative": "string",
+      "highlight": "string"
+    },
+    "patternTags": [
+      {
+        "label": "Routine Seeking",
+        "tone": "amber"
+      }
+    ],
+    "bigFive": [
+      {
+        "trait": "conscientiousness",
+        "label": "Conscientiousness",
+        "score": 74,
+        "band": "pronounced",
+        "description": "string",
+        "evidenceTags": ["4-day streak", "Routine"]
+      }
+    ],
+    "darkTriad": [
+      {
+        "trait": "machiavellianism",
+        "label": "Machiavellianism",
+        "supportiveLabel": "Control-seeking signal",
+        "score": 42,
+        "band": "watch",
+        "description": "string",
+        "supportTip": "string"
+      }
+    ],
+    "actionPlan": {
+      "headline": "string",
+      "steps": [
+        {
+          "title": "string",
+          "description": "string",
+          "focus": "string"
+        }
+      ]
+    },
+    "appSupport": {
+      "headline": "string",
+      "items": [
+        {
+          "title": "string",
+          "description": "string"
+        }
+      ]
+    }
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- reads from the same per-user cached `insights` document as the overview route
+- cache is marked stale by journal create/edit/delete/favorite changes and mood check-ins
+- if the weekly AI-analysis cache is stale or missing, the backend recomputes it from recent journal content, recent tags, and recent mood check-ins, then stores the result back on the `insights` document
+- output language must remain supportive, uncertainty-aware, and non-clinical even when surfacing Big Five or dark-triad-adjacent signals
 
 ## 4.5 Plans and Reminders
 
@@ -612,11 +802,152 @@ Google OAuth remains a supported alternate auth path and should continue to retu
 - `GET /streaks/current`
 - `GET /streaks/history`
 
+`GET /streaks/current`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Current streak loaded",
+  "data": {
+    "currentStreak": 12,
+    "bestStreak": 18,
+    "thisMonthEntries": 9,
+    "totalEntries": 54,
+    "achievements": [
+      {
+        "key": "first-entry",
+        "title": "First Entry",
+        "description": "Started your journey",
+        "unlocked": true
+      },
+      {
+        "key": "7-day-streak",
+        "title": "7-Day Streak",
+        "description": "Wrote for a week",
+        "unlocked": true
+      }
+    ]
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- derives streaks from the authenticated user’s journal entry dates
+- `currentStreak` counts consecutive UTC calendar days with at least one journal entry, anchored to today or yesterday
+- `bestStreak` is the longest historical consecutive run of journal-entry days
+- `thisMonthEntries` counts all entries written in the current UTC calendar month
+- `totalEntries` counts all journal entries for the user
+- achievements are backend-derived milestone unlocks so the mobile screen can stay presentation-only
+
+`GET /streaks/history?days=30`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Streak history loaded",
+  "data": {
+    "days": [
+      {
+        "dateKey": "2026-04-01",
+        "count": 1,
+        "hasEntry": true,
+        "isToday": true
+      }
+    ]
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- `days` is optional and defaults to `30`
+- allowed range for `days` is `1..365`
+- returns one row per day in the requested window, including empty days
+- the mobile 30-day activity grid should consume this response directly without local hardcoded streak data
+
 ## 4.7 Privacy
 
-- `POST /privacy/export`
-- `POST /privacy/delete-request`
-- `PATCH /privacy/ai-opt-out`
+### `POST /privacy/export`
+
+Export the authenticated user's account data, journal entries, mood check-ins, and derived profile records.
+
+Requires `Authorization` header.
+
+Returns:
+
+```json
+{
+  "success": true,
+  "message": "Data export generated",
+  "data": {
+    "exportedAt": "2026-04-03T12:00:00.000Z",
+    "account": {
+      "userId": "user-123",
+      "name": "Alex",
+      "email": "alex@example.com"
+    },
+    "journalEntries": [],
+    "moodCheckIns": [],
+    "insights": null,
+    "streak": null,
+    "stats": null
+  }
+}
+```
+
+### `POST /privacy/delete-request`
+
+Delete the authenticated user's account and all owned profile data.
+
+Requires `Authorization` header.
+
+Returns:
+
+```json
+{
+  "success": true,
+  "message": "Account deleted successfully",
+  "data": {
+    "deletedAccount": true,
+    "deletedJournals": 12,
+    "deletedMoodCheckIns": 30,
+    "deletedInsights": 1,
+    "deletedStreaks": 1,
+    "deletedStats": 1
+  }
+}
+```
+
+### `PATCH /privacy/ai-opt-out`
+
+Update the authenticated user's AI usage preference.
+
+Request:
+
+```json
+{
+  "aiOptOut": true
+}
+```
+
+Returns:
+
+```json
+{
+  "success": true,
+  "message": "AI preference updated",
+  "data": {
+    "aiOptIn": false
+  }
+}
+```
 
 ---
 

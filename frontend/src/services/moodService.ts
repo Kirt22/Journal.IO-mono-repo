@@ -12,18 +12,19 @@ type MoodCheckIn = {
 
 type MoodStatusResponse = {
   moodCheckIn: MoodCheckIn | null;
+  currentStreak: number;
 };
 
 type LogMoodResponse = {
   moodCheckIn: MoodCheckIn;
 };
 
-const getTodayMoodCheckIn = async (): Promise<MoodCheckIn | null> => {
+const getTodayMoodCheckIn = async (): Promise<MoodStatusResponse> => {
   const response = await request<MoodStatusResponse>("/mood/today", {
     method: "GET",
   });
 
-  return response.data.moodCheckIn;
+  return response.data;
 };
 
 const logMoodCheckIn = async (mood: MoodValue): Promise<MoodCheckIn> => {
@@ -36,4 +37,4 @@ const logMoodCheckIn = async (mood: MoodValue): Promise<MoodCheckIn> => {
 };
 
 export { getTodayMoodCheckIn, logMoodCheckIn };
-export type { MoodCheckIn, MoodValue };
+export type { MoodCheckIn, MoodStatusResponse, MoodValue };

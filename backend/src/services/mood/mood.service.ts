@@ -1,4 +1,6 @@
 import { moodCheckInModel, type IMoodCheckIn } from "../../schema/mood.schema";
+import { syncMoodLoggedInsights } from "../insights/insights.service";
+import { getCurrentStreakValue } from "../streaks/streaks.service";
 import type {
   MoodCheckInInput,
   MoodCheckInResponse,
@@ -25,12 +27,14 @@ const getTodayMoodCheckIn = async (
   userId: string
 ): Promise<MoodStatusResponse> => {
   const moodDateKey = getMoodDateKey();
-  const moodCheckIn = await moodCheckInModel
-    .findOne({ userId, moodDateKey })
-    .exec();
+  const [moodCheckIn, currentStreak] = await Promise.all([
+    moodCheckInModel.findOne({ userId, moodDateKey }).exec(),
+    getCurrentStreakValue(userId),
+  ]);
 
   return {
     moodCheckIn: moodCheckIn ? serializeMoodCheckIn(moodCheckIn) : null,
+    currentStreak,
   };
 };
 
@@ -52,6 +56,18 @@ const logMoodCheckIn = async (
       mood: input.mood,
       moodDateKey,
     });
+
+    try {
+      await syncMoodLoggedInsights({
+        userId: input.userId,
+        mood: moodCheckIn.mood,
+      });
+    } catch (insightsError) {
+      console.error(
+        "Failed to sync insights cache after mood check-in:",
+        insightsError
+      );
+    }
 
     return serializeMoodCheckIn(moodCheckIn);
   } catch (error) {

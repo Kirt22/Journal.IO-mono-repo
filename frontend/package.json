@@ -11,6 +11,7 @@
     "test": "jest --watchman=false"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^3.0.2",
     "@react-native/new-app-screen": "0.82.1",
     "lucide-react-native": "^0.577.0",
     "react": "19.1.1",

@@ -15,4 +15,5 @@ export type MoodCheckInInput = {
 
 export type MoodStatusResponse = {
   moodCheckIn: MoodCheckInResponse | null;
+  currentStreak: number;
 };

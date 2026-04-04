@@ -5,17 +5,24 @@ import ScreenTransitionHost from "../../components/ScreenTransition";
 import HomeScreen from "../HomeScreen";
 import CalendarScreen from "../calendar/CalendarScreen";
 import InsightsScreen from "../InsightsScreen";
+import SearchScreen from "../search/SearchScreen";
 import StreaksScreen from "../StreaksScreen";
 import ProfileScreen from "../profile/ProfileScreen";
+import SettingsScreen from "../profile/SettingsScreen";
+import PrivacyScreen from "../profile/PrivacyScreen";
+import SubscriptionScreen from "../profile/SubscriptionScreen";
+import PaywallScreen from "../profile/PaywallScreen";
 import { useTheme } from "../../theme/provider";
 import type { ThemeMode } from "../../theme/theme";
 import { useAppStore } from "../../store/appStore";
 
 type MainAppShellProps = {
-  onToggleTheme: (nextMode: ThemeMode) => void;
+  onToggleTheme: (nextMode: ThemeMode | null) => void;
 };
 
 const IMPLEMENTED_TABS: BottomNavKey[] = ["home", "calendar", "insights", "profile"];
+const EMPTY_GOALS: string[] = [];
+type ProfileSectionRoute = "settings" | "privacy" | "subscription" | "paywall";
 
 export default function MainAppShell({
   onToggleTheme,
@@ -25,12 +32,49 @@ export default function MainAppShell({
   const onTabChange = useAppStore(state => state.setActiveTab);
   const onOpenNewEntry = useAppStore(state => state.openNewEntry);
   const session = useAppStore(state => state.session);
-  const onboardingGoals = useAppStore(state => state.onboardingData?.goals || []);
+  const themeModeOverride = useAppStore(state => state.themeModeOverride);
+  const signOut = useAppStore(state => state.signOut);
+  const onboardingGoals = useAppStore(
+    state => state.onboardingData?.goals ?? EMPTY_GOALS
+  );
+  const [isSearchViewVisible, setIsSearchViewVisible] = useState(false);
   const [isStreaksViewVisible, setIsStreaksViewVisible] = useState(false);
+  const [profileSectionStack, setProfileSectionStack] = useState<ProfileSectionRoute[]>([]);
+
+  const resetProfileSectionStack = () => {
+    setProfileSectionStack([]);
+  };
+
+  const closeTransientViews = () => {
+    setIsSearchViewVisible(false);
+    setIsStreaksViewVisible(false);
+    resetProfileSectionStack();
+  };
+
+  const openProfileSection = (route: ProfileSectionRoute) => {
+    setIsSearchViewVisible(false);
+    setIsStreaksViewVisible(false);
+    setProfileSectionStack(previous => [...previous, route]);
+  };
+
+  const closeProfileSection = () => {
+    setProfileSectionStack(previous => previous.slice(0, -1));
+  };
+
+  const openSearch = () => {
+    setIsStreaksViewVisible(false);
+    resetProfileSectionStack();
+    onTabChange("home");
+    setIsSearchViewVisible(true);
+  };
+
+  const closeSearch = () => {
+    setIsSearchViewVisible(false);
+  };
 
   const handleTabPress = (nextTab: BottomNavKey) => {
     if (nextTab === "new") {
-      setIsStreaksViewVisible(false);
+      closeTransientViews();
       onOpenNewEntry();
       return;
     }
@@ -39,23 +83,72 @@ export default function MainAppShell({
       return;
     }
 
-    setIsStreaksViewVisible(false);
+    closeTransientViews();
     onTabChange(nextTab);
   };
 
   const handleOpenStreaks = () => {
+    setIsSearchViewVisible(false);
     onTabChange("home");
+    resetProfileSectionStack();
     setIsStreaksViewVisible(true);
   };
+
+  const shellViewKey = isSearchViewVisible
+    ? "search"
+    : isStreaksViewVisible
+    ? "streaks"
+    : profileSectionStack.length > 0
+      ? `profile:${profileSectionStack[profileSectionStack.length - 1]}`
+      : activeTab;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScreenTransitionHost
-        activeKey={isStreaksViewVisible ? "streaks" : activeTab}
+        activeKey={shellViewKey}
         containerStyle={styles.tabViewport}
         renderContent={currentTab => {
+          if (currentTab === "search") {
+            return <SearchScreen onBack={closeSearch} />;
+          }
+
           if (currentTab === "streaks") {
             return <StreaksScreen />;
+          }
+
+          if (currentTab.startsWith("profile:")) {
+            const currentSection = currentTab.slice("profile:".length) as ProfileSectionRoute;
+
+            switch (currentSection) {
+              case "settings":
+                return (
+                  <SettingsScreen
+                    onBack={closeProfileSection}
+                    onOpenPrivacy={() => openProfileSection("privacy")}
+                    onSignOut={signOut}
+                    currentThemePreference={themeModeOverride ?? "system"}
+                    onToggleTheme={onToggleTheme}
+                  />
+                );
+              case "privacy":
+                return (
+                  <PrivacyScreen
+                    onBack={closeProfileSection}
+                    onSignOut={signOut}
+                  />
+                );
+              case "subscription":
+                return (
+                  <SubscriptionScreen
+                    onBack={closeProfileSection}
+                    onOpenPaywall={() => openProfileSection("paywall")}
+                  />
+                );
+              case "paywall":
+                return <PaywallScreen onBack={closeProfileSection} />;
+              default:
+                return null;
+            }
           }
 
           switch (currentTab) {
@@ -73,7 +166,13 @@ export default function MainAppShell({
                   onboardingGoals={onboardingGoals}
                   userAvatarColor={session?.user.avatarColor}
                   userProfilePic={session?.user.profilePic}
+                  isPremium={Boolean(session?.user.isPremium)}
                   onOpenStreaks={handleOpenStreaks}
+                  onOpenSearch={openSearch}
+                  onOpenSettings={() => openProfileSection("settings")}
+                  onOpenSubscription={() => openProfileSection("subscription")}
+                  onOpenPrivacy={() => openProfileSection("privacy")}
+                  onOpenPaywall={() => openProfileSection("paywall")}
                 />
               );
             case "home":
@@ -83,6 +182,7 @@ export default function MainAppShell({
                   userName={session?.user.name || "Journal User"}
                   onOpenNewEntry={onOpenNewEntry}
                   onOpenStreaks={handleOpenStreaks}
+                  onOpenSearch={openSearch}
                   onToggleTheme={onToggleTheme}
                 />
               );

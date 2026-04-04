@@ -200,18 +200,13 @@ Each service module should follow this pattern where applicable:
 ### Frontend
 Expected structure:
 
-- `frontend/src/screens/{flow}`
-- `frontend/src/screens/{flow}/{ScreenName}.tsx`
-- `frontend/src/utils`
+- `frontend/src/screens`
 - `frontend/src/components`
 - `frontend/src/services`
 - `frontend/src/hooks`
 - `frontend/src/store`
 - `frontend/src/navigation`
 
-Keep screens grouped by flow folder, such as `onboarding`, `auth`, and `profile`.
-Keep low-level helpers like API clients and token storage in `frontend/src/utils`.
-Keep global state in `frontend/src/store` when introduced.
 Keep files in the correct feature area.
 
 Do not create duplicate parallel architectures.
@@ -368,25 +363,6 @@ The app should feel:
 - emotionally safe
 
 Avoid noisy UI, heavy animation, and gamification overload.
-
-### Responsive Rules
-
-All mobile screens must be responsive across iOS and Android phone sizes.
-
-Required baseline:
-
-- support compact phones (about `320-359` logical width) without clipped content
-- support standard phones (`360-429` logical width) as default layout target
-- support larger phones (`430+` logical width) without overly narrow content
-- use adaptive spacing/sizing (for paddings, title sizes, key controls) instead of fixed assumptions for one device size
-- keep content in safe areas and maintain keyboard-safe forms across sizes
-
-### Theme Rules
-
-- keep all screen colors sourced from the centralized frontend theme tokens
-- use the theme provider to resolve system light/dark mode by default
-- avoid introducing new hardcoded screen colors unless they are added to the shared theme first
-- when implementing new screens, wire them to theme tokens in the same slice (do not defer this)
 
 ---
 
@@ -658,11 +634,13 @@ For refactors:
 - keep diffs focused
 - avoid aesthetic-only churn
 
-For commit/push requests, use this branch-routing rule unless the user explicitly overrides it:
+For commit/push requests, use this branch model unless the user explicitly overrides it:
 
-- commit and push `frontend/**` changes to the `frontend` branch
-- commit and push `backend/**` changes to the `backend` branch
-- commit and push repo-level markdown files, skills, and other global/shared config changes to the `global` branch
+- `main` is the shared development branch and must not be edited directly during branch-management tasks unless the user explicitly asks
+- `codex` is the default working branch for local feature, bug-fix, frontend, backend, and docs changes
+- `prod` is the production-ready branch
+- commit related work together on `codex` instead of splitting frontend, backend, and global changes across separate branches
+- when the user asks to commit and push current work, push the complete validated change set in one go from `codex` unless they ask for a different branch
 
 ---
 

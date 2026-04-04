@@ -11,32 +11,27 @@ const otpSchema = z
   .length(6, "OTP must be exactly 6 digits")
   .regex(/^\d{6}$/, "OTP must contain only digits");
 
-const emailSchema = z.string().trim().email("Invalid email address");
+const emailSchema = z
+  .string()
+  .trim()
+  .email("Invalid email address")
+  .transform(value => value.toLowerCase());
 
 const passwordSchema = z
   .string()
-  .min(8, "Password must be at least 8 characters")
-  .max(72, "Password must be at most 72 characters");
-
-const onboardingStringSchema = z.string().trim().min(1).max(80);
+  .min(8, "Password must be at least 8 characters");
 
 const onboardingContextSchema = z
   .object({
-    ageRange: onboardingStringSchema.max(40).optional(),
-    journalingExperience: onboardingStringSchema.max(40).optional(),
-    goals: z.array(onboardingStringSchema).max(8).optional(),
-    supportFocus: z.array(onboardingStringSchema).max(8).optional(),
-    reminderPreference: onboardingStringSchema.max(40).optional(),
+    ageRange: z.string().min(1).max(32).optional(),
+    journalingExperience: z.string().min(1).max(64).optional(),
+    goals: z.array(z.string().min(1)).max(8).optional(),
+    supportFocus: z.array(z.string().min(1)).max(8).optional(),
+    reminderPreference: z.string().min(1).max(32).optional(),
     aiOptIn: z.boolean().optional(),
     privacyConsentAccepted: z.boolean().optional(),
   })
-  .refine(
-    value => value.privacyConsentAccepted !== false,
-    {
-      message: "Privacy consent must be accepted to continue.",
-      path: ["privacyConsentAccepted"],
-    }
-  )
+  .strict()
   .optional();
 
 const sendOtpSchema = z.object({
@@ -55,34 +50,12 @@ const resendOtpSchema = z.object({
   params: z.object({}).optional(),
 });
 
-const verifyOtpSchema = z.object({
-  body: z.object({
-    phoneNumber: phoneNumberSchema,
-    otp: otpSchema,
-    name: z.string().min(1, "Name is required").optional(),
-    goals: z.array(z.string().min(1)).max(8).optional(),
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const registerFromGoogleOAuthSchema = z.object({
-  body: z.object({
-    googleIdToken: z.string().min(1, "Google ID token is required"),
-    googleUserId: z.string().min(1).optional(),
-    email: emailSchema,
-    name: z.string().min(1, "Name is required"),
-    profilePic: z.string().url("Profile picture must be a valid URL").optional(),
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
 const signUpWithEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
     password: passwordSchema,
     onboardingContext: onboardingContextSchema,
+    onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
@@ -100,6 +73,7 @@ const verifyEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
     code: otpSchema,
+    onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
@@ -109,6 +83,32 @@ const signInWithEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
     password: passwordSchema,
+    onboardingCompleted: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const verifyOtpSchema = z.object({
+  body: z.object({
+    phoneNumber: phoneNumberSchema,
+    otp: otpSchema,
+    name: z.string().min(1, "Name is required").optional(),
+    goals: z.array(z.string().min(1)).max(8).optional(),
+    onboardingCompleted: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const registerFromGoogleOAuthSchema = z.object({
+  body: z.object({
+    googleIdToken: z.string().min(1, "Google ID token is required"),
+    googleUserId: z.string().min(1).optional(),
+    email: emailSchema,
+    name: z.string().min(1, "Name is required"),
+    profilePic: z.string().url("Profile picture must be a valid URL").optional(),
+    onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
@@ -130,10 +130,10 @@ const logoutSchema = z.object({
 
 export {
   logoutSchema,
-  resendEmailVerificationSchema,
-  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
+  resendEmailVerificationSchema,
+  resendOtpSchema,
   sendOtpSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,

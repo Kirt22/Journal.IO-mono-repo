@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { apiResponse } from "../../helpers/commonHelper.helpers";
-import { getProfile, updateProfile } from "./user.service";
+import { getProfile, updatePremiumStatus, updateProfile } from "./user.service";
 
 const getProfileController = async (
   req: Request & { user?: { _id?: string } },
@@ -63,4 +63,33 @@ const updateProfileController = async (
   }
 };
 
-export { getProfileController, updateProfileController };
+const updatePremiumStatusController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+    }
+
+    const { isPremium } = req.body;
+    const profile = await updatePremiumStatus(userId, { isPremium });
+
+    if (!profile) {
+      return res.status(404).json(apiResponse(false, "User not found", {}));
+    }
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Premium status updated", profile));
+  } catch (error) {
+    console.error("Error in updatePremiumStatus:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+export { getProfileController, updatePremiumStatusController, updateProfileController };

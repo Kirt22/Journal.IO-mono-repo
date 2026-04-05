@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
 import { apiResponse } from "../../helpers/commonHelper.helpers";
 import {
+  signInWithGoogle,
   invalidateRefreshToken,
   refreshAccessToken,
   resendEmailVerification,
   resendOtp,
   sendOtp,
   signInWithEmail,
-  signInWithGoogle,
   signUpWithEmail,
   verifyEmail,
   verifyOtp,
@@ -202,27 +202,56 @@ const verifyOtpController = async (req: Request, res: Response) => {
   }
 };
 
+const googleMobileSignInController = async (req: Request, res: Response) => {
+  try {
+    const { idToken, onboardingContext, onboardingCompleted } = req.body;
+    const result = await signInWithGoogle({
+      idToken,
+      onboardingContext,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res.status(200).json(
+      apiResponse(true, "Login successful", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+      })
+    );
+  } catch (error) {
+    console.error("Error in googleMobileSignIn:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
 const registerFromGoogleOAuthController = async (
   req: Request,
   res: Response
 ) => {
   try {
-    const {
-      googleIdToken,
-      googleUserId,
-      email,
-      name,
-      profilePic,
-      onboardingCompleted,
-    } = req.body;
+    const { googleIdToken, onboardingCompleted } = req.body;
     const result = await signInWithGoogle({
-      googleIdToken,
-      googleUserId,
-      email,
-      name,
-      profilePic,
+      idToken: googleIdToken,
       onboardingCompleted,
     });
+
+    if (!result.ok) {
+      return res.status(result.status).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
 
     return res.status(200).json(
       apiResponse(true, "Login successful", {
@@ -284,6 +313,7 @@ const logoutController = async (
 };
 
 export {
+  googleMobileSignInController,
   logoutController,
   refreshController,
   resendEmailVerificationController,

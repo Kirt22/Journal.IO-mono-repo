@@ -3,6 +3,7 @@ import {
   type CreateJournalPayload,
   type JournalEntry,
   type JournalEntryApiRecord,
+  type JournalTagSuggestions,
   type UpdateJournalPayload,
 } from "../models/journalModels";
 
@@ -139,12 +140,32 @@ const getJournalEntries = async () => {
   }));
 };
 
+const suggestJournalTags = async (payload: {
+  content: string;
+  selectedTags?: string[];
+  mood?: "amazing" | "good" | "okay" | "bad" | "terrible" | null;
+}) => {
+  const response = await request<JournalTagSuggestions>("/journal/suggest_tags", {
+    method: "POST",
+    body: JSON.stringify({
+      content: payload.content.trim(),
+      selectedTags: payload.selectedTags || [],
+      mood: payload.mood || undefined,
+    }),
+  });
+
+  return {
+    tags: response.data.tags || [],
+  };
+};
+
 export type { CreateJournalPayload, JournalEntry };
 export {
   createJournalEntry,
   deleteJournalEntry,
   getJournalEntry,
   getJournalEntries,
+  suggestJournalTags,
   toggleJournalFavorite,
   updateJournalEntry,
 };

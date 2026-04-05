@@ -1,4 +1,5 @@
 import { Alert, NativeModules, Platform } from "react-native";
+import { env } from "../config/env";
 import devLaunchConfig from "./devLaunchConfig.json";
 import { getAccessToken } from "./tokenStorage";
 
@@ -12,6 +13,8 @@ const NETWORK_ALERT_MESSAGE =
   "We're having trouble reaching the server. Check your internet connection or make sure the backend is running, then try again.";
 
 let lastNetworkAlertAt = 0;
+const isJestRuntime =
+  typeof process !== "undefined" && Boolean(process.env.JEST_WORKER_ID);
 
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -44,6 +47,12 @@ const getBundleHost = () => {
 };
 
 const getBaseUrl = () => {
+  const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
+
+  if (envBaseUrl) {
+    return envBaseUrl;
+  }
+
   const configuredBaseUrl = normalizeBaseUrl(
     __DEV__ ? (devLaunchConfig as DevLaunchConfig).apiBaseUrl : null
   );

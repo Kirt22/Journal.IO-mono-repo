@@ -1,5 +1,6 @@
 import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
+import { syncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -8,6 +9,10 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
     getItem: jest.fn(),
     removeItem: jest.fn(),
   },
+}));
+
+jest.mock("../src/services/reminderNotificationsService", () => ({
+  syncOnboardingReminderPreference: jest.fn(async () => undefined),
 }));
 
 const onboardingData = {
@@ -24,6 +29,7 @@ describe("appStore", () => {
   beforeEach(() => {
     resetAppStore();
     jest.useFakeTimers();
+    (syncOnboardingReminderPreference as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -32,7 +38,7 @@ describe("appStore", () => {
     resetAppStore();
   });
 
-  it("preserves onboarding data and advances the flow after the handoff delay", async () => {
+  it("preserves onboarding data and advances into paywall after the handoff delay", async () => {
     const store = useAppStore;
 
     await act(async () => {
@@ -47,7 +53,73 @@ describe("appStore", () => {
     });
 
     expect(store.getState().isCompletingOnboarding).toBe(false);
+    expect(store.getState().stage).toBe("paywall");
+    expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
+  });
+
+  it("continues from paywall into auth", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "paywall" });
+      store.getState().continueFromPaywall();
+    });
+
     expect(store.getState().stage).toBe("auth");
+  });
+
+  it("returns to the stored stage when paywall is opened from inside the app", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "main-app",
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: true,
+            onboardingCompleted: true,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+      store.getState().openPaywall("main-app");
+    });
+
+    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().paywallReturnStage).toBe("main-app");
+
+    act(() => {
+      store.getState().continueFromPaywall();
+    });
+
+    expect(store.getState().stage).toBe("main-app");
+    expect(store.getState().paywallReturnStage).toBeNull();
+  });
+
+  it("clears local reminders when onboarding selects no reminders", async () => {
+    const store = useAppStore;
+
+    await act(async () => {
+      const transition = store.getState().completeOnboarding({
+        ...onboardingData,
+        reminderPreference: "none",
+      });
+
+      jest.advanceTimersByTime(220);
+      await transition;
+    });
+
+    expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("none");
   });
 
   it("moves auth navigation into the shared store and resets cleanly", async () => {
@@ -71,6 +143,66 @@ describe("appStore", () => {
     expect(store.getState().activeTab).toBe("home");
     expect(store.getState().authSource).toBeNull();
     expect(store.getState().themeModeOverride).toBeNull();
+  });
+
+  it("stores and clears a prefilled prompt when opening new entry from home", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().openNewEntry({
+        initialPrompt: "What felt most steady or grounding in your day?",
+      });
+    });
+
+    expect(store.getState().stage).toBe("new-entry");
+    expect(store.getState().pendingNewEntryPrompt).toBe(
+      "What felt most steady or grounding in your day?"
+    );
+
+    act(() => {
+      store.getState().closeNewEntry();
+    });
+
+    expect(store.getState().pendingNewEntryPrompt).toBeNull();
+  });
+
+  it("updates ai opt-in on the active session user", () => {
+    const store = useAppStore;
+
+    useAppStore.setState({
+      session: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        user: {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        },
+      },
+    });
+
+    act(() => {
+      store.getState().setSessionAiOptIn(false);
+    });
+
+    expect(store.getState().session?.user.aiOptIn).toBe(false);
+  });
+
+  it("stores the hide journal previews device preference", async () => {
+    const store = useAppStore;
+
+    await act(async () => {
+      await store.getState().setHideJournalPreviews(true);
+    });
+
+    expect(store.getState().hideJournalPreviews).toBe(true);
   });
 
   it("boots into auth on the same install after tokens are gone", async () => {
@@ -125,6 +257,7 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn: true,
       })),
       updateProfile: jest.fn(),
     }));
@@ -234,6 +367,7 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn: true,
       },
     }));
 
@@ -273,6 +407,90 @@ describe("appStore", () => {
     });
     expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
     expect(freshStore.getState().stage).toBe("main-app");
+  });
+
+  it("continues with Google using the shared session persistence flow", async () => {
+    jest.resetModules();
+
+    const getGoogleIdToken = jest.fn(async () => "google-id-token");
+    const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const saveTokens = jest.fn(async () => undefined);
+    const signInWithGoogle = jest.fn(async () => ({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: null,
+        profileSetupCompleted: false,
+        onboardingCompleted: true,
+        profilePic: "https://example.com/avatar.png",
+        aiOptIn: false,
+      },
+    }));
+
+    jest.doMock("../src/config/googleSignIn", () => ({
+      getGoogleIdToken,
+    }));
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithEmail: jest.fn(),
+      signInWithGoogle,
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted,
+      saveTokens,
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({
+        onboardingData: {
+          ...onboardingData,
+          aiComfort: false,
+        },
+      });
+    });
+
+    await act(async () => {
+      await freshStore.getState().continueWithGoogle();
+    });
+
+    expect(getGoogleIdToken).toHaveBeenCalledTimes(1);
+    expect(signInWithGoogle).toHaveBeenCalledWith({
+      idToken: "google-id-token",
+      onboardingContext: {
+        ageRange: "25-34",
+        journalingExperience: "Occasional journaler",
+        goals: ["Daily Reflection", "Personal Growth"],
+        supportFocus: ["Stress", "Sleep"],
+        reminderPreference: "Evening",
+        aiOptIn: false,
+        privacyConsentAccepted: true,
+      },
+      onboardingCompleted: true,
+    });
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().authSource).toBe("google");
+    expect(freshStore.getState().stage).toBe("profile");
   });
 
   it("signs out through the backend and clears the local session state", async () => {

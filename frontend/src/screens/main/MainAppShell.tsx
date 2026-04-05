@@ -6,6 +6,7 @@ import HomeScreen from "../HomeScreen";
 import CalendarScreen from "../calendar/CalendarScreen";
 import InsightsScreen from "../InsightsScreen";
 import SearchScreen from "../search/SearchScreen";
+import RemindersScreen from "../reminders/RemindersScreen";
 import StreaksScreen from "../StreaksScreen";
 import ProfileScreen from "../profile/ProfileScreen";
 import SettingsScreen from "../profile/SettingsScreen";
@@ -30,7 +31,7 @@ export default function MainAppShell({
   const theme = useTheme();
   const activeTab = useAppStore(state => state.activeTab);
   const onTabChange = useAppStore(state => state.setActiveTab);
-  const onOpenNewEntry = useAppStore(state => state.openNewEntry);
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const session = useAppStore(state => state.session);
   const themeModeOverride = useAppStore(state => state.themeModeOverride);
   const signOut = useAppStore(state => state.signOut);
@@ -38,6 +39,7 @@ export default function MainAppShell({
     state => state.onboardingData?.goals ?? EMPTY_GOALS
   );
   const [isSearchViewVisible, setIsSearchViewVisible] = useState(false);
+  const [isRemindersViewVisible, setIsRemindersViewVisible] = useState(false);
   const [isStreaksViewVisible, setIsStreaksViewVisible] = useState(false);
   const [profileSectionStack, setProfileSectionStack] = useState<ProfileSectionRoute[]>([]);
 
@@ -47,12 +49,24 @@ export default function MainAppShell({
 
   const closeTransientViews = () => {
     setIsSearchViewVisible(false);
+    setIsRemindersViewVisible(false);
     setIsStreaksViewVisible(false);
     resetProfileSectionStack();
   };
 
+  const handleOpenNewEntry = (initialPrompt?: string) => {
+    openNewEntry(
+      initialPrompt
+        ? {
+            initialPrompt,
+          }
+        : undefined
+    );
+  };
+
   const openProfileSection = (route: ProfileSectionRoute) => {
     setIsSearchViewVisible(false);
+    setIsRemindersViewVisible(false);
     setIsStreaksViewVisible(false);
     setProfileSectionStack(previous => [...previous, route]);
   };
@@ -62,6 +76,7 @@ export default function MainAppShell({
   };
 
   const openSearch = () => {
+    setIsRemindersViewVisible(false);
     setIsStreaksViewVisible(false);
     resetProfileSectionStack();
     onTabChange("home");
@@ -72,10 +87,22 @@ export default function MainAppShell({
     setIsSearchViewVisible(false);
   };
 
+  const openReminders = () => {
+    setIsSearchViewVisible(false);
+    setIsStreaksViewVisible(false);
+    resetProfileSectionStack();
+    onTabChange("home");
+    setIsRemindersViewVisible(true);
+  };
+
+  const closeReminders = () => {
+    setIsRemindersViewVisible(false);
+  };
+
   const handleTabPress = (nextTab: BottomNavKey) => {
     if (nextTab === "new") {
       closeTransientViews();
-      onOpenNewEntry();
+      handleOpenNewEntry();
       return;
     }
 
@@ -89,6 +116,7 @@ export default function MainAppShell({
 
   const handleOpenStreaks = () => {
     setIsSearchViewVisible(false);
+    setIsRemindersViewVisible(false);
     onTabChange("home");
     resetProfileSectionStack();
     setIsStreaksViewVisible(true);
@@ -96,11 +124,14 @@ export default function MainAppShell({
 
   const shellViewKey = isSearchViewVisible
     ? "search"
+    : isRemindersViewVisible
+    ? "reminders"
     : isStreaksViewVisible
     ? "streaks"
     : profileSectionStack.length > 0
       ? `profile:${profileSectionStack[profileSectionStack.length - 1]}`
       : activeTab;
+  const shouldShowBottomNav = shellViewKey !== "profile:paywall";
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -110,6 +141,10 @@ export default function MainAppShell({
         renderContent={currentTab => {
           if (currentTab === "search") {
             return <SearchScreen onBack={closeSearch} />;
+          }
+
+          if (currentTab === "reminders") {
+            return <RemindersScreen onBack={closeReminders} />;
           }
 
           if (currentTab === "streaks") {
@@ -125,6 +160,7 @@ export default function MainAppShell({
                   <SettingsScreen
                     onBack={closeProfileSection}
                     onOpenPrivacy={() => openProfileSection("privacy")}
+                    onOpenPaywall={() => openProfileSection("paywall")}
                     onSignOut={signOut}
                     currentThemePreference={themeModeOverride ?? "system"}
                     onToggleTheme={onToggleTheme}
@@ -180,9 +216,10 @@ export default function MainAppShell({
               return (
                 <HomeScreen
                   userName={session?.user.name || "Journal User"}
-                  onOpenNewEntry={onOpenNewEntry}
+                  onOpenNewEntry={handleOpenNewEntry}
                   onOpenStreaks={handleOpenStreaks}
                   onOpenSearch={openSearch}
+                  onOpenReminders={openReminders}
                   onToggleTheme={onToggleTheme}
                 />
               );
@@ -190,7 +227,9 @@ export default function MainAppShell({
         }}
       />
 
-      <BottomNav activeKey={activeTab} onPress={handleTabPress} />
+      {shouldShowBottomNav ? (
+        <BottomNav activeKey={activeTab} onPress={handleTabPress} />
+      ) : null}
     </View>
   );
 }

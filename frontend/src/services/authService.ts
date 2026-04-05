@@ -11,6 +11,7 @@ type AuthUser = {
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
   profilePic: string | null;
+  aiOptIn: boolean | null;
 };
 
 type AuthSession = {
@@ -54,6 +55,7 @@ type VerifyEmailPayload = {
 
 type VerifyEmailOptions = {
   onboardingGoals?: string[];
+  onboardingAiOptIn?: boolean;
   onboardingCompleted?: boolean;
 };
 
@@ -64,11 +66,8 @@ type SignInWithEmailPayload = {
 };
 
 type GoogleSignInPayload = {
-  googleIdToken: string;
-  googleUserId?: string;
-  email: string;
-  name: string;
-  profilePic?: string;
+  idToken: string;
+  onboardingContext?: AuthOnboardingContext;
   onboardingCompleted?: boolean;
 };
 
@@ -125,14 +124,14 @@ const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T =
       ...value,
       user: {
         ...value.user,
-        isPremium: value.user.isPremium ?? true,
+        isPremium: value.user.isPremium ?? false,
       },
     };
   }
 
   return {
     ...value,
-    isPremium: value.isPremium ?? true,
+    isPremium: value.isPremium ?? false,
   };
 };
 
@@ -144,6 +143,7 @@ const createMockSession = (payload: {
   profileSetupCompleted?: boolean;
   onboardingCompleted?: boolean;
   profilePic?: string | null;
+  aiOptIn?: boolean | null;
 }): AuthSession => {
   const email = normalizeEmail(payload.email);
   const tokens = buildMockTokens(email);
@@ -155,13 +155,14 @@ const createMockSession = (payload: {
       name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
       phoneNumber: null,
       email,
-      isPremium: true,
+      isPremium: false,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,
       profileSetupCompleted: payload.profileSetupCompleted ?? false,
       onboardingCompleted: payload.onboardingCompleted ?? false,
       profilePic: payload.profilePic ?? null,
+      aiOptIn: payload.aiOptIn ?? true,
     },
   };
 };
@@ -218,6 +219,10 @@ const verifyEmail = async (
       email: payload.email,
       name: deriveDisplayNameFromEmail(payload.email),
       goals: options.onboardingGoals || [],
+      aiOptIn:
+        typeof options.onboardingAiOptIn === "boolean"
+          ? options.onboardingAiOptIn
+          : true,
       profileSetupCompleted: false,
       onboardingCompleted: options.onboardingCompleted ?? true,
     });
@@ -249,28 +254,12 @@ const signInWithEmail = async (payload: SignInWithEmailPayload) => {
 };
 
 const signInWithGoogle = async (payload: GoogleSignInPayload) => {
-  try {
-    const response = await request<AuthSession>("/auth/register_from_googleOAuth", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+  const response = await request<AuthSession>("/auth/google/mobile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
-    return applyDevPremiumDefault(response.data);
-  } catch (error) {
-    if (!shouldUseDevNetworkFallback(error)) {
-      throw error;
-    }
-
-    return createMockSession({
-      email: payload.email,
-      name: payload.name,
-      goals: [],
-      avatarColor: null,
-      profilePic: payload.profilePic || null,
-      profileSetupCompleted: false,
-      onboardingCompleted: true,
-    });
-  }
+  return applyDevPremiumDefault(response.data);
 };
 
 const sendOtp = async (payload: { phoneNumber: string }) => {

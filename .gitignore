@@ -27,6 +27,7 @@ backend/dist/
 # Environment variables
 backend/.env
 backend/.env.*
+!backend/.env.example
 
 
 ############################################
@@ -42,6 +43,11 @@ frontend/yarn-error.log
 
 # Metro temporary files
 frontend/.metro-health-check*
+
+# Environment variables
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 # Test coverage
 frontend/coverage/

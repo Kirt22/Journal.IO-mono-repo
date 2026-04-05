@@ -50,6 +50,7 @@ Current backend reality:
 
 - the implemented backend supports phone OTP, email-first auth, and Google OAuth
 - the current frontend auth flow uses the email-first endpoints below
+- the mobile Google sign-in flow now posts the Google ID token to `POST /auth/google/mobile`
 - the phone OTP endpoints remain available as a legacy auth path during migration
 
 ### `POST /auth/send_otp`
@@ -131,19 +132,69 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": "+15551234567",
     "email": null,
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   },
   "isNewUser": true
 }
 ```
 
+### `POST /auth/google/mobile`
+
+Mobile Google sign-in.
+
+Request:
+
+```json
+{
+  "idToken": "google_id_token",
+  "onboardingContext": {
+    "goals": ["Daily Reflection"],
+    "reminderPreference": "Evening",
+    "aiOptIn": false,
+    "privacyConsentAccepted": true
+  },
+  "onboardingCompleted": true
+}
+```
+
+Notes:
+
+- backend verifies the Google ID token against `GOOGLE_WEB_CLIENT_ID`
+- backend derives the Google identity from the verified token payload, not from frontend profile fields
+- backend stores the Google `sub` in the existing user Google identity field and then issues the normal app access/refresh tokens
+- when onboarding context is present, the backend persists it on the user before returning the session
+
+Success `data`:
+
+```json
+{
+  "accessToken": "jwt",
+  "refreshToken": "jwt",
+  "user": {
+    "userId": "string",
+    "name": "Alex",
+    "phoneNumber": null,
+    "email": "alex@gmail.com",
+    "isPremium": false,
+    "journalingGoals": [],
+    "avatarColor": null,
+    "profileSetupCompleted": false,
+    "onboardingCompleted": true,
+    "profilePic": "https://...",
+    "aiOptIn": false
+  }
+}
+```
+
 ### `POST /auth/register_from_googleOAuth`
 
-Google OAuth-based login/signup.
+Legacy compatibility route for Google OAuth-based login/signup. The backend now verifies `googleIdToken` server-side and ignores untrusted frontend profile fields.
 
 Request:
 
@@ -169,11 +220,13 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@gmail.com",
+    "isPremium": false,
     "journalingGoals": [],
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": "https://..."
+    "profilePic": "https://...",
+    "aiOptIn": true
   }
 }
 ```
@@ -236,15 +289,49 @@ Success `data`:
   "name": "Alex",
   "phoneNumber": "+15551234567",
   "email": null,
+  "isPremium": false,
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
   "onboardingCompleted": true,
-  "profilePic": null
+  "profilePic": null,
+  "aiOptIn": true
 }
 ```
 
 Both routes require authentication.
+
+### `PATCH /users/premium-status`
+
+Persist the authenticated user's premium access state after purchase completion or restore.
+
+Request:
+
+```json
+{
+  "isPremium": true
+}
+```
+
+Success `data`:
+
+```json
+{
+  "userId": "string",
+  "name": "Alex",
+  "phoneNumber": "+15551234567",
+  "email": null,
+  "isPremium": true,
+  "avatarColor": "#8E4636",
+  "journalingGoals": ["Daily Reflection", "Personal Growth"],
+  "profileSetupCompleted": true,
+  "onboardingCompleted": true,
+  "profilePic": null,
+  "aiOptIn": true
+}
+```
+
+This route requires authentication.
 
 ---
 
@@ -364,6 +451,36 @@ Success `data`:
 }
 ```
 
+### `POST /journal/suggest_tags`
+
+Suggest tags for an in-progress journal draft.
+
+Request:
+
+```json
+{
+  "content": "Today felt calmer after I wrote everything out.",
+  "selectedTags": ["reflection"],
+  "mood": "bad"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "tags": ["mindfulness", "self-care"]
+}
+```
+
+Notes:
+
+- protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- when the authenticated user is premium, has AI enabled, and the backend is configured with OpenAI, tag suggestions are chosen through OpenAI against Journal.IO's allowed tag set
+- if a premium user has opted out of AI or OpenAI is unavailable, the backend falls back to deterministic keyword and mood-aware tag scoring
+- positive prompt words inside negated or distressed phrasing should not force a positive tag
+
 ### `GET /journal/get_journal_details`
 
 Get details for one journal entry.
@@ -474,6 +591,50 @@ All journal module routes require authentication.
 
 ---
 
+## 3.5 Prompts Module (`/prompts`)
+
+### `GET /prompts/writing`
+
+Load personalized writing prompts for the authenticated user.
+
+Success `data`:
+
+```json
+{
+  "featuredPrompt": {
+    "id": "patterns-1",
+    "topic": "Patterns",
+    "text": "Where did your mood shift, and what seemed to influence it?"
+  },
+  "prompts": [
+    {
+      "id": "patterns-1",
+      "topic": "Patterns",
+      "text": "Where did your mood shift, and what seemed to influence it?"
+    },
+    {
+      "id": "next-step-2",
+      "topic": "Next Step",
+      "text": "What is one small habit you want to reinforce tomorrow?"
+    }
+  ],
+  "source": "personalized",
+  "generatedAt": "2026-04-06T10:00:00.000Z"
+}
+```
+
+Notes:
+
+- prompts are personalized from the authenticated user's stored journaling patterns, mood trends, and recurring topics
+- when the user is premium, has AI enabled, and the backend has OpenAI configured, the prompt list is freshly generated through OpenAI from recent writing patterns and recent entry excerpts
+- if the user is free, has opted out of AI, or OpenAI is unavailable, the backend falls back to the cached insights-derived prompt set
+- `featuredPrompt` is stable for the current day and is intended for the Home `Today's Prompt` card
+- `prompts` is intended for surfaces like New Entry that need the full personalized list
+
+All prompts module routes require authentication.
+
+---
+
 # 4) Design-Aligned Target Endpoints (Planned Contract)
 
 These endpoints are expected by the current design context and should be treated as target modules for upcoming slices.
@@ -561,11 +722,13 @@ Success `data`:
     "name": "Journal User",
     "phoneNumber": null,
     "email": "alex@example.com",
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   },
   "isNewUser": true
 }
@@ -596,11 +759,13 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@example.com",
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   }
 }
 ```
@@ -608,6 +773,10 @@ Success `data`:
 ### `POST /auth/register_from_googleOAuth`
 
 Google OAuth remains a supported alternate auth path and should continue to return the same session payload shape as other sign-in flows.
+
+### `POST /auth/google/mobile`
+
+The mobile client obtains a Google `idToken`, posts it to the backend, and receives the same Journal.IO session payload used by the other sign-in flows. The backend verifies the Google token before linking or creating the user account.
 
 ## 4.2 User Profile
 
@@ -703,6 +872,15 @@ Behavior:
 
 Returns the cached weekly AI-analysis payload used by the mobile `AI Analysis` tab. The Home AI insight card also consumes this endpoint and derives short rotating snippets from the same response.
 
+Behavior:
+
+- protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
+- overview insights remain available even when AI analysis is disabled
+- when OpenAI is configured, the backend uses the cached deterministic weekly signal as a baseline and asks OpenAI to generate the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
+- if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
+
 Response:
 
 ```json
@@ -796,6 +974,140 @@ Behavior:
 - `POST /reminders`
 - `PATCH /reminders/{reminderId}`
 - `DELETE /reminders/{reminderId}`
+
+`GET /reminders`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminders loaded",
+  "data": {
+    "reminders": [
+      {
+        "reminderId": "reminder-123",
+        "type": "daily_journal",
+        "enabled": true,
+        "time": "20:00",
+        "timezone": "Asia/Kolkata",
+        "skipIfCompletedToday": true,
+        "includeWeekends": false,
+        "streakWarnings": true,
+        "createdAt": "2026-04-03T10:00:00.000Z",
+        "updatedAt": "2026-04-03T10:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- returns the authenticated user's stored reminder records
+- MVP mobile currently reads the `daily_journal` reminder from this list and uses local device scheduling for delivery
+
+`POST /reminders`
+
+Request:
+
+```json
+{
+  "type": "daily_journal",
+  "enabled": true,
+  "time": "20:00",
+  "timezone": "Asia/Kolkata",
+  "skipIfCompletedToday": true,
+  "includeWeekends": false,
+  "streakWarnings": true
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder created",
+  "data": {
+    "reminderId": "reminder-123",
+    "type": "daily_journal",
+    "enabled": true,
+    "time": "20:00",
+    "timezone": "Asia/Kolkata",
+    "skipIfCompletedToday": true,
+    "includeWeekends": false,
+    "streakWarnings": true,
+    "createdAt": "2026-04-03T10:00:00.000Z",
+    "updatedAt": "2026-04-03T10:00:00.000Z"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- validates `time` in `HH:MM` 24-hour format
+- validates ownership through the authenticated user
+- enforces one reminder per `{ userId, type }` pair
+
+`PATCH /reminders/{reminderId}`
+
+Request:
+
+```json
+{
+  "enabled": false,
+  "includeWeekends": true
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder updated",
+  "data": {
+    "reminderId": "reminder-123",
+    "type": "daily_journal",
+    "enabled": false,
+    "time": "20:00",
+    "timezone": "Asia/Kolkata",
+    "skipIfCompletedToday": true,
+    "includeWeekends": true,
+    "streakWarnings": true,
+    "createdAt": "2026-04-03T10:00:00.000Z",
+    "updatedAt": "2026-04-03T10:05:00.000Z"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- requires at least one mutable field in the request body
+- updates only the authenticated user's reminder
+
+`DELETE /reminders/{reminderId}`
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Reminder deleted",
+  "data": {
+    "reminderId": "reminder-123"
+  }
+}
+```
+
+Behavior:
+
+- protected route
+- deletes only the authenticated user's reminder record
 
 ## 4.6 Streaks
 
@@ -895,6 +1207,7 @@ Returns:
     },
     "journalEntries": [],
     "moodCheckIns": [],
+    "reminders": [],
     "insights": null,
     "streak": null,
     "stats": null
@@ -918,6 +1231,7 @@ Returns:
     "deletedAccount": true,
     "deletedJournals": 12,
     "deletedMoodCheckIns": 30,
+    "deletedReminders": 1,
     "deletedInsights": 1,
     "deletedStreaks": 1,
     "deletedStats": 1
@@ -948,6 +1262,12 @@ Returns:
   }
 }
 ```
+
+Behavior:
+
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- sets `onboardingContext.aiOptIn` for the authenticated user
+- when opt-out is enabled, clears any cached weekly AI analysis from the `insights` document
 
 ---
 

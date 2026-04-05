@@ -119,23 +119,23 @@ Avoid leaving placeholder TODOs for critical logic.
 
 When working in this repo, consult these documents when relevant:
 
-- `AI_PRODUCT.md` → product goals, scope, non-goals
-- `AI_ARCHITECTURE.md` → backend and AI architecture
-- `AI_API_SPEC.md` → API contracts
-- `AI_UI_UX_CONTEXT.md` → design system and screen behavior
-- `CODING_STANDARDS.md` → conventions and guardrails
-- `FEATURE_DEVELOPMENT_WORKFLOW.md` → implementation workflow
-- `AI_INSIGHTS_PIPELINE.md` → AI extraction and aggregation flow
-- `SECURITY_MODEL.md` → privacy and security rules
-- `AI_TASKS.md` → roadmap and feature order
+- `docs/AI_PRODUCT.md` → product goals, scope, non-goals
+- `docs/AI_ARCHITECTURE.md` → backend and AI architecture
+- `docs/AI_API_SPEC.md` → API contracts
+- `docs/AI_UI_UX_CONTEXT.md` → design system and screen behavior
+- `docs/CODING_STANDARDS.md` → conventions and guardrails
+- `docs/FEATURE_DEVELOPMENT_WORKFLOW.md` → implementation workflow
+- `docs/AI_INSIGHTS_PIPELINE.md` → AI extraction and aggregation flow
+- `docs/SECURITY_MODEL.md` → privacy and security rules
+- `docs/AI_TASKS.md` → roadmap and feature order
 
 If these docs conflict, use this priority order:
 
 1. `AGENTS.md`
-2. `AI_API_SPEC.md`
-3. `CODING_STANDARDS.md`
-4. `AI_ARCHITECTURE.md`
-5. `AI_UI_UX_CONTEXT.md`
+2. `docs/AI_API_SPEC.md`
+3. `docs/CODING_STANDARDS.md`
+4. `docs/AI_ARCHITECTURE.md`
+5. `docs/AI_UI_UX_CONTEXT.md`
 6. remaining docs
 
 Do not invent requirements that contradict these files.
@@ -395,7 +395,7 @@ Do not leave commented-out legacy code in commits.
 
 ## 12) API Contract Rules
 
-`AI_API_SPEC.md` is the contract source of truth.
+`docs/AI_API_SPEC.md` is the contract source of truth.
 
 When implementing endpoints:
 
@@ -670,7 +670,7 @@ Rules:
 
 - when implementing or updating a screen, Codex must fetch the latest relevant screen data from this Figma Make project first
 - do not switch to a different Figma file or project unless the user explicitly asks
-- after every screen implementation task, update `SCREEN_IMPLEMENTATION_STATUS.md`
+- after every screen implementation task, update `docs/SCREEN_IMPLEMENTATION_STATUS.md`
 - the tracker must record the latest known completion state and any relevant notes/blockers for the touched screens
 
 ---

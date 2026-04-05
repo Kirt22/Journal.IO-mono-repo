@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const INSTALL_SEEN_KEY = "journalio.installSeen";
 const ONBOARDING_COMPLETED_KEY = "journalio.onboardingCompleted";
+const HIDE_JOURNAL_PREVIEWS_KEY = "journalio.hideJournalPreviews";
 
 const hasSeenInstall = async () => {
   return (await AsyncStorage.getItem(INSTALL_SEEN_KEY)) === "true";
@@ -22,14 +23,27 @@ const saveOnboardingCompleted = async (completed: boolean) => {
   );
 };
 
+const getHideJournalPreviews = async () => {
+  return (await AsyncStorage.getItem(HIDE_JOURNAL_PREVIEWS_KEY)) === "true";
+};
+
+const saveHideJournalPreviews = async (enabled: boolean) => {
+  await AsyncStorage.setItem(
+    HIDE_JOURNAL_PREVIEWS_KEY,
+    enabled ? "true" : "false"
+  );
+};
+
 const clearOnboardingCompleted = async () => {
   await AsyncStorage.removeItem(ONBOARDING_COMPLETED_KEY);
 };
 
 export {
   clearOnboardingCompleted,
+  getHideJournalPreviews,
   getOnboardingCompleted,
   hasSeenInstall,
   markInstallSeen,
+  saveHideJournalPreviews,
   saveOnboardingCompleted,
 };

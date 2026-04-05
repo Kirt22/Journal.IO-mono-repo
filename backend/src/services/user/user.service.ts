@@ -5,11 +5,13 @@ type UserProfilePayload = {
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  isPremium: boolean;
   avatarColor: string | null;
   journalingGoals: string[];
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
   profilePic: string | null;
+  aiOptIn: boolean | null;
 };
 
 type UpdateProfileInput = {
@@ -18,17 +20,26 @@ type UpdateProfileInput = {
   goals?: string[];
 };
 
+type UpdatePremiumStatusInput = {
+  isPremium: boolean;
+};
+
 const buildUserProfilePayload = (user: IUser): UserProfilePayload => {
   return {
     userId: user._id.toString(),
     name: user.name,
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
+    isPremium: Boolean(user.isPremium),
     avatarColor: user.avatarColor || null,
     journalingGoals: user.journalingGoals || [],
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
     onboardingCompleted: Boolean(user.onboardingCompleted),
     profilePic: user.profilePic || null,
+    aiOptIn:
+      typeof user.onboardingContext?.aiOptIn === "boolean"
+        ? user.onboardingContext.aiOptIn
+        : null,
   };
 };
 
@@ -67,5 +78,21 @@ const updateProfile = async (
   return buildUserProfilePayload(user);
 };
 
-export { getProfile, updateProfile, buildUserProfilePayload };
-export type { UpdateProfileInput, UserProfilePayload };
+const updatePremiumStatus = async (
+  userId: string,
+  input: UpdatePremiumStatusInput
+): Promise<UserProfilePayload | null> => {
+  const user = await userModel.findById(userId);
+
+  if (!user) {
+    return null;
+  }
+
+  user.isPremium = input.isPremium;
+  await user.save();
+
+  return buildUserProfilePayload(user);
+};
+
+export { getProfile, updatePremiumStatus, updateProfile, buildUserProfilePayload };
+export type { UpdatePremiumStatusInput, UpdateProfileInput, UserProfilePayload };

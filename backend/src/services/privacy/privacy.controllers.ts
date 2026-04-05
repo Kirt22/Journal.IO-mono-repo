@@ -3,6 +3,7 @@ import { apiResponse } from "../../helpers/commonHelper.helpers";
 import {
   deletePrivacyAccount,
   exportPrivacyData,
+  PremiumPrivacyModeRequiredError,
   updatePrivacyAiOptOut,
 } from "./privacy.service";
 
@@ -104,6 +105,14 @@ const updatePrivacyAiOptOutController = async (
       .status(200)
       .json(apiResponse(true, "AI preference updated", result));
   } catch (error) {
+    if (error instanceof PremiumPrivacyModeRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
     console.error("Error in updatePrivacyAiOptOut:", error);
     return res
       .status(500)

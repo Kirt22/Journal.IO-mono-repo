@@ -43,3 +43,14 @@ export type JournalLookupInput = {
   userId: string;
   journalId: string;
 };
+
+export type SuggestJournalTagsInput = {
+  userId: string;
+  content: string;
+  selectedTags?: string[];
+  mood?: "amazing" | "good" | "okay" | "bad" | "terrible";
+};
+
+export type JournalTagSuggestionsResponse = {
+  tags: string[];
+};

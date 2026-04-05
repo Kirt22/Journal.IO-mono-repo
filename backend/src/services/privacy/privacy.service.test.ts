@@ -3,12 +3,14 @@ import test, { afterEach } from "node:test";
 import { journalModel } from "../../schema/journal.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { insightsModel } from "../../schema/insights.schema";
+import { reminderModel } from "../../schema/reminder.schema";
 import { streaksModel } from "../../schema/streak.schema";
 import { statsModel } from "../../schema/stat.schema";
 import { userModel } from "../../schema/user.schema";
 import {
   deletePrivacyAccount,
   exportPrivacyData,
+  PremiumPrivacyModeRequiredError,
   updatePrivacyAiOptOut,
 } from "./privacy.service";
 
@@ -36,8 +38,16 @@ const moodTarget = moodCheckInModel as unknown as {
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
+const reminderTarget = reminderModel as unknown as {
+  find: (...args: unknown[]) => {
+    sort: () => QueryResult<unknown[]>;
+  };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+
 const insightsTarget = insightsModel as unknown as {
   findOne: (...args: unknown[]) => QueryResult<unknown>;
+  updateOne: (...args: unknown[]) => Promise<unknown>;
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
@@ -58,12 +68,30 @@ const originalJournalFind = journalTarget.find;
 const originalJournalDeleteMany = journalTarget.deleteMany;
 const originalMoodFind = moodTarget.find;
 const originalMoodDeleteMany = moodTarget.deleteMany;
+const originalReminderFind = reminderTarget.find;
+const originalReminderDeleteMany = reminderTarget.deleteMany;
 const originalInsightsFindOne = insightsTarget.findOne;
+const originalInsightsUpdateOne = insightsTarget.updateOne;
 const originalInsightsDeleteMany = insightsTarget.deleteMany;
 const originalStreakFindOne = streakTarget.findOne;
 const originalStreakDeleteMany = streakTarget.deleteMany;
 const originalStatsFindOne = statsTarget.findOne;
 const originalStatsDeleteMany = statsTarget.deleteMany;
+
+const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
+  userTarget.findById = ((() => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium,
+          onboardingContext: {
+            aiOptIn,
+          },
+        }),
+      }),
+    }),
+  })) as unknown) as typeof userTarget.findById;
+};
 
 afterEach(() => {
   userTarget.findById = originalFindById;
@@ -73,7 +101,10 @@ afterEach(() => {
   journalTarget.deleteMany = originalJournalDeleteMany;
   moodTarget.find = originalMoodFind;
   moodTarget.deleteMany = originalMoodDeleteMany;
+  reminderTarget.find = originalReminderFind;
+  reminderTarget.deleteMany = originalReminderDeleteMany;
   insightsTarget.findOne = originalInsightsFindOne;
+  insightsTarget.updateOne = originalInsightsUpdateOne;
   insightsTarget.deleteMany = originalInsightsDeleteMany;
   streakTarget.findOne = originalStreakFindOne;
   streakTarget.deleteMany = originalStreakDeleteMany;
@@ -147,6 +178,26 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
       ],
     }),
   });
+  reminderTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          toObject: () => ({
+            _id: "reminder-1",
+            type: "daily_journal",
+            enabled: true,
+            time: "20:00",
+            timezone: "Asia/Kolkata",
+            skipIfCompletedToday: true,
+            includeWeekends: false,
+            streakWarnings: true,
+            createdAt: new Date("2026-04-02T06:00:00.000Z"),
+            updatedAt: new Date("2026-04-02T06:00:00.000Z"),
+          }),
+        },
+      ],
+    }),
+  });
   insightsTarget.findOne = () => ({
     exec: async () => ({
       toObject: () => ({
@@ -195,6 +246,7 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
   assert.equal(result?.account.userId, "user-123");
   assert.equal(result?.journalEntries.length, 1);
   assert.equal(result?.moodCheckIns.length, 1);
+  assert.equal(result?.reminders.length, 1);
   assert.equal(result?.insights?.totalEntries, 3);
   assert.equal(result?.streak?.streak, 4);
   assert.equal(result?.stats?.journalsWritten, 3);
@@ -211,6 +263,9 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   moodTarget.deleteMany = () => ({
     exec: async () => ({ deletedCount: 2 }),
   });
+  reminderTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 1 }),
+  });
   insightsTarget.deleteMany = () => ({
     exec: async () => ({ deletedCount: 1 }),
   });
@@ -226,16 +281,40 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   assert.equal(result.deletedAccount, true);
   assert.equal(result.deletedJournals, 2);
   assert.equal(result.deletedMoodCheckIns, 2);
+  assert.equal(result.deletedReminders, 1);
   assert.equal(result.deletedInsights, 1);
   assert.equal(result.deletedStreaks, 1);
   assert.equal(result.deletedStats, 1);
 });
 
 test("updatePrivacyAiOptOut updates the stored AI preference", async () => {
+  mockUserAiAccess(true);
   userTarget.updateOne = async () => ({ matchedCount: 1 });
+  const insightUpdates: unknown[] = [];
+  insightsTarget.updateOne = async (...args) => {
+    insightUpdates.push(args);
+    return { matchedCount: 1 };
+  };
 
   const result = await updatePrivacyAiOptOut("user-123", true);
 
   assert.ok(result);
   assert.equal(result?.aiOptIn, false);
+  assert.equal(insightUpdates.length, 1);
+});
+
+test("updatePrivacyAiOptOut rejects non-premium users", async () => {
+  mockUserAiAccess(false);
+
+  await assert.rejects(
+    () => updatePrivacyAiOptOut("user-123", true),
+    (error: unknown) => {
+      assert.ok(error instanceof PremiumPrivacyModeRequiredError);
+      assert.equal(
+        (error as Error).message,
+        "Premium membership is required for Privacy Mode."
+      );
+      return true;
+    }
+  );
 });

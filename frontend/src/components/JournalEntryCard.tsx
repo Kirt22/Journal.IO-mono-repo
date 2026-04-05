@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Star, Tag } from "lucide-react-native";
+import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import {
   formatDate,
@@ -60,6 +61,18 @@ function getToneStyle(theme: ReturnType<typeof useTheme>, tone: ReturnType<typeo
   };
 }
 
+function getMaskedEntryTitle(entry: JournalEntryCardSource) {
+  if (entry.type === "quick-thought") {
+    return "Quick Thought";
+  }
+
+  if (entry.type === "mood-checkin") {
+    return "Mood Check-In";
+  }
+
+  return "Journal Entry";
+}
+
 type JournalEntryCardProps = {
   entry: JournalEntryCardSource;
   onPress?: () => void;
@@ -76,11 +89,15 @@ export default function JournalEntryCard({
   previewLines = 2,
 }: JournalEntryCardProps) {
   const theme = useTheme();
-  const title = getEntryTitle(entry);
+  const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
+  const title = hideJournalPreviews ? getMaskedEntryTitle(entry) : getEntryTitle(entry);
   const emoji = getEntryEmoji(entry);
   const tone = getEntryTone(entry);
   const toneStyle = getToneStyle(theme, tone);
-  const displayTags = getFilteredTags(entry.tags);
+  const displayTags = hideJournalPreviews ? [] : getFilteredTags(entry.tags);
+  const previewText = hideJournalPreviews
+    ? "Preview hidden. Open the entry to read it."
+    : entry.content;
 
   return (
     <Pressable
@@ -140,7 +157,7 @@ export default function JournalEntryCard({
         style={[styles.content, { color: theme.colors.mutedForeground }]}
         numberOfLines={previewLines}
       >
-        {entry.content}
+        {previewText}
       </Text>
 
       {displayTags.length ? (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -28,6 +29,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
+import { requestAndSyncOnboardingReminderPreference } from "../../services/reminderNotificationsService";
 import { useTheme } from "../../theme/provider";
 
 const mascotImage = require("../../assets/png/Masscott.png");
@@ -199,6 +201,7 @@ export function OnboardingScreen({
   const [selectedReminder, setSelectedReminder] = useState("evening");
   const [aiComfort, setAiComfort] = useState(true);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
+  const [isApplyingReminderPreference, setIsApplyingReminderPreference] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
@@ -297,7 +300,7 @@ export function OnboardingScreen({
     setStep(previous => previous - 1);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (step === 2 && !selectedAgeRange) {
       setStepError("Please choose an age range to continue.");
       return;
@@ -314,6 +317,23 @@ export function OnboardingScreen({
     }
 
     setStepError(null);
+
+    if (step === 6) {
+      setIsApplyingReminderPreference(true);
+
+      try {
+        await requestAndSyncOnboardingReminderPreference(selectedReminder);
+      } catch (error) {
+        Alert.alert(
+          "Reminder setup",
+          error instanceof Error
+            ? error.message
+            : "Unable to apply reminder settings right now."
+        );
+      } finally {
+        setIsApplyingReminderPreference(false);
+      }
+    }
 
     if (step < TOTAL_STEPS) {
       setStep(previous => previous + 1);
@@ -741,7 +761,7 @@ export function OnboardingScreen({
             AI comfort and explanation
           </Text>
           <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-            Here&apos;s how Journal.IO can support your journaling practice.
+            Choose whether AI guidance should be ready if you unlock Premium later.
           </Text>
 
           <View
@@ -757,18 +777,18 @@ export function OnboardingScreen({
             <View style={styles.infoHeaderRow}>
               <Sparkles color={theme.colors.primary} size={18} strokeWidth={2} />
               <Text style={[styles.infoCardTitle, { color: theme.colors.foreground }]}>
-                What AI can do for you
+                What Premium AI can do for you
               </Text>
             </View>
             <View style={styles.bulletList}>
               <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
-                • Suggest personalized journaling prompts
+                • Generate personalized journaling prompts
               </Text>
               <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
                 • Notice patterns and summarize weekly reflections
               </Text>
               <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
-                • Help surface supportive, non-clinical insights
+                • Surface supportive, non-clinical insights and AI tag suggestions
               </Text>
             </View>
           </View>
@@ -795,7 +815,7 @@ export function OnboardingScreen({
                   Yes, I&apos;d love AI assistance
                 </Text>
                 <Text style={[styles.singleSelectDescription, { color: theme.colors.mutedForeground }]}>
-                  Get personalized insights and prompts to deepen your practice.
+                  If you upgrade, Journal.IO can unlock personalized prompts and weekly AI reflections.
                 </Text>
               </View>
                 <View
@@ -832,7 +852,7 @@ export function OnboardingScreen({
                   No thanks, keep it simple
                 </Text>
                 <Text style={[styles.singleSelectDescription, { color: theme.colors.mutedForeground }]}>
-                  Focus on writing without AI suggestions. You can change this later.
+                  Keep AI features off, even if you upgrade later. You can change this anytime.
                 </Text>
               </View>
                 <View
@@ -859,7 +879,7 @@ export function OnboardingScreen({
             ]}
           >
             <Text style={[styles.supportNoteText, { color: theme.colors.mutedForeground }]}>
-              Your journal entries stay private. AI features process your data securely and never share it with third parties.
+              Premium unlocks AI features and Privacy Mode controls. Core journaling, export, and deletion remain available to every account.
             </Text>
           </View>
         </View>
@@ -872,7 +892,7 @@ export function OnboardingScreen({
           Privacy & security
         </Text>
         <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-          You control your data. Journal.IO stays supportive and privacy-first.
+          You control your data. Core privacy protections apply to every account.
         </Text>
 
         <View style={styles.privacyList}>
@@ -1039,7 +1059,7 @@ export function OnboardingScreen({
             <View style={styles.actionSlot}>
               <Pressable
                 accessibilityRole="button"
-                disabled={isCompleting || !canProceed}
+                disabled={isCompleting || isApplyingReminderPreference || !canProceed}
                 onPress={handleContinue}
                 style={({ pressed }) => [
                   styles.primaryButton,
@@ -1047,10 +1067,11 @@ export function OnboardingScreen({
                     backgroundColor: canProceed ? theme.colors.primary : theme.colors.border,
                   },
                   pressed && canProceed && styles.primaryButtonPressed,
-                  (isCompleting || !canProceed) && styles.primaryButtonDisabled,
+                  (isCompleting || isApplyingReminderPreference || !canProceed) &&
+                    styles.primaryButtonDisabled,
                 ]}
               >
-                {isCompleting ? (
+                {isCompleting || isApplyingReminderPreference ? (
                   <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
                 ) : (
                   <Text

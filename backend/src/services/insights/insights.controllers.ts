@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { apiResponse } from "../../helpers/commonHelper.helpers";
-import { getInsightsAiAnalysis, getInsightsOverview } from "./insights.service";
+import {
+  AiAnalysisDisabledError,
+  getInsightsAiAnalysis,
+  getInsightsOverview,
+  PremiumFeatureRequiredError,
+} from "./insights.service";
 
 const getInsightsOverviewController = async (
   req: Request & { user?: { _id?: string } },
@@ -43,6 +48,22 @@ const getInsightsAiAnalysisController = async (
       .status(200)
       .json(apiResponse(true, "Insights AI analysis loaded", analysis));
   } catch (error) {
+    if (error instanceof PremiumFeatureRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
+    if (error instanceof AiAnalysisDisabledError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "AI_ANALYSIS_DISABLED" },
+        })
+      );
+    }
+
     console.error("Error in getInsightsAiAnalysisController:", error);
     return res
       .status(500)

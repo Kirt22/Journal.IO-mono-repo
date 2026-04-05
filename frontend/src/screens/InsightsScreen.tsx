@@ -1429,6 +1429,32 @@ function LockedAiAnalysisCard({
   );
 }
 
+function DisabledAiAnalysisCard() {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.lockedState}>
+        <View
+          style={[
+            styles.lockedIconWrap,
+            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+          ]}
+        >
+          <Brain color={theme.colors.primary} size={22} />
+        </View>
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          AI analysis is turned off
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          AI reflections are off for this account, so weekly AI analysis stays
+          hidden.
+        </Text>
+      </View>
+    </SectionCard>
+  );
+}
+
 function AnalysisLoadingState() {
   const theme = useTheme();
 
@@ -1451,6 +1477,7 @@ export default function InsightsScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
+  const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
   const setMainAppTab = useAppStore(state => state.setActiveTab);
   const preferredInsightsTab = useAppStore(state => state.preferredInsightsTab);
   const clearPreferredInsightsTab = useAppStore(
@@ -1499,7 +1526,7 @@ export default function InsightsScreen() {
 
   const loadAiAnalysis = useCallback(
     async ({ force = false }: { force?: boolean } = {}) => {
-      if (!isPremiumUser) {
+      if (!isPremiumUser || !isAiOptedIn) {
         return;
       }
 
@@ -1523,7 +1550,7 @@ export default function InsightsScreen() {
         setIsAnalysisLoading(false);
       }
     },
-    [aiAnalysis, isPremiumUser]
+    [aiAnalysis, isAiOptedIn, isPremiumUser]
   );
 
   const handleSelectTab = (nextTab: InsightTab) => {
@@ -1574,12 +1601,22 @@ export default function InsightsScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isPremiumUser || activeTab !== "analysis") {
+    if (!isPremiumUser || !isAiOptedIn || activeTab !== "analysis") {
       return;
     }
 
     loadAiAnalysis().catch(() => undefined);
-  }, [activeTab, isPremiumUser, loadAiAnalysis]);
+  }, [activeTab, isAiOptedIn, isPremiumUser, loadAiAnalysis]);
+
+  useEffect(() => {
+    if (isAiOptedIn) {
+      return;
+    }
+
+    setAiAnalysis(null);
+    setAnalysisError(null);
+    setIsAnalysisLoading(false);
+  }, [isAiOptedIn]);
 
   useEffect(() => {
     const initialPreferredTab = useAppStore.getState().preferredInsightsTab;
@@ -1672,7 +1709,7 @@ export default function InsightsScreen() {
             theme={theme}
             label="AI Analysis"
             selected={activeTab === "analysis"}
-            icon={isPremiumUser ? Sparkles : Lock}
+            icon={isPremiumUser && isAiOptedIn ? Sparkles : Lock}
             onPress={() => handleSelectTab("analysis")}
           />
         </View>
@@ -1713,6 +1750,8 @@ export default function InsightsScreen() {
               />
             ) : !isPremiumUser ? (
               <LockedAiAnalysisCard onOpenSubscription={() => setMainAppTab("profile")} />
+            ) : !isAiOptedIn ? (
+              <DisabledAiAnalysisCard />
             ) : isAnalysisLoading ? (
               <AnalysisLoadingState />
             ) : analysisError || !aiAnalysis ? (

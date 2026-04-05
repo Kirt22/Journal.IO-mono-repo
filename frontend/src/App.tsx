@@ -23,12 +23,15 @@ function AppContent() {
   const authSource = useAppStore(state => state.authSource);
   const session = useAppStore(state => state.session);
   const initialProfileName = useAppStore(state => state.initialProfileName);
+  const pendingNewEntryPrompt = useAppStore(
+    state => state.pendingNewEntryPrompt
+  );
   const completeOnboarding = useAppStore(state => state.completeOnboarding);
   const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
   const continueWithEmail = useAppStore(state => state.continueWithEmail);
+  const continueFromPaywall = useAppStore(state => state.continueFromPaywall);
   const continueWithGoogle = useAppStore(state => state.continueWithGoogle);
   const goToSignIn = useAppStore(state => state.goToSignIn);
-  const skipToHome = useAppStore(state => state.skipToHome);
   const goToCreateAccount = useAppStore(state => state.goToCreateAccount);
   const signIn = useAppStore(state => state.signIn);
   const createAccount = useAppStore(state => state.createAccount);
@@ -61,11 +64,12 @@ function AppContent() {
     authSource,
     session,
     initialProfileName,
+    pendingNewEntryPrompt,
     onOnboardingContinue: completeOnboarding,
+    onContinueFromPaywall: continueFromPaywall,
     onContinueWithEmail: continueWithEmail,
     onContinueWithGoogle: continueWithGoogle,
     onGoToSignIn: goToSignIn,
-    onSkipToHome: skipToHome,
     onGoToCreateAccount: goToCreateAccount,
     onSignIn: signIn,
     onCreateAccount: createAccount,

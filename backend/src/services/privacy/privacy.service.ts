@@ -1,9 +1,11 @@
 import { journalModel, type IJournal } from "../../schema/journal.schema";
 import { moodCheckInModel, type IMoodCheckIn } from "../../schema/mood.schema";
 import { insightsModel, type IInsights } from "../../schema/insights.schema";
+import { reminderModel, type IReminder } from "../../schema/reminder.schema";
 import { streaksModel, type IStreak } from "../../schema/streak.schema";
 import { statsModel, type IStat } from "../../schema/stat.schema";
 import { userModel, type IUser } from "../../schema/user.schema";
+import { getUserAiAccessState } from "../../helpers/openai.helpers";
 import { invalidateRefreshToken } from "../auth/auth.service";
 import type { MoodValue } from "../../types/mood.types";
 
@@ -89,11 +91,25 @@ type PrivacyExportStats = {
   updatedAt: string;
 };
 
+type PrivacyExportReminder = {
+  _id: string;
+  type: string;
+  enabled: boolean;
+  time: string;
+  timezone: string;
+  skipIfCompletedToday: boolean;
+  includeWeekends: boolean;
+  streakWarnings: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type PrivacyExportPayload = {
   exportedAt: string;
   account: PrivacyExportAccount;
   journalEntries: PrivacyExportJournalEntry[];
   moodCheckIns: PrivacyExportMoodEntry[];
+  reminders: PrivacyExportReminder[];
   insights: PrivacyExportInsights | null;
   streak: PrivacyExportStreak | null;
   stats: PrivacyExportStats | null;
@@ -103,6 +119,7 @@ type DeleteAccountResult = {
   deletedAccount: boolean;
   deletedJournals: number;
   deletedMoodCheckIns: number;
+  deletedReminders: number;
   deletedInsights: number;
   deletedStreaks: number;
   deletedStats: number;
@@ -111,6 +128,13 @@ type DeleteAccountResult = {
 type UpdateAiOptOutResult = {
   aiOptIn: boolean;
 };
+
+class PremiumPrivacyModeRequiredError extends Error {
+  constructor() {
+    super("Premium membership is required for Privacy Mode.");
+    this.name = "PremiumPrivacyModeRequiredError";
+  }
+}
 
 const toIso = (value: unknown): string => {
   if (!value) {
@@ -275,13 +299,31 @@ const serializeStats = (stats: IStat): PrivacyExportStats => {
   };
 };
 
+const serializeReminder = (reminder: IReminder): PrivacyExportReminder => {
+  const reminderObject = reminder.toObject() as Record<string, any>;
+
+  return {
+    _id: reminderObject._id.toString(),
+    type: reminderObject.type,
+    enabled: Boolean(reminderObject.enabled),
+    time: reminderObject.time,
+    timezone: reminderObject.timezone,
+    skipIfCompletedToday: Boolean(reminderObject.skipIfCompletedToday),
+    includeWeekends: Boolean(reminderObject.includeWeekends),
+    streakWarnings: Boolean(reminderObject.streakWarnings),
+    createdAt: toIso(reminderObject.createdAt),
+    updatedAt: toIso(reminderObject.updatedAt),
+  };
+};
+
 const exportPrivacyData = async (
   userId: string
 ): Promise<PrivacyExportPayload | null> => {
-  const [user, journalEntries, moodCheckIns, insights, streak, stats] = await Promise.all([
+  const [user, journalEntries, moodCheckIns, reminders, insights, streak, stats] = await Promise.all([
     userModel.findById(userId).exec(),
     journalModel.find({ userId }).sort({ createdAt: -1 }).exec(),
     moodCheckInModel.find({ userId }).sort({ createdAt: -1 }).exec(),
+    reminderModel.find({ userId }).sort({ createdAt: -1 }).exec(),
     insightsModel.findOne({ userId }).exec(),
     streaksModel.findOne({ userId }).exec(),
     statsModel.findOne({ userId }).exec(),
@@ -296,6 +338,7 @@ const exportPrivacyData = async (
     account: serializeUser(user),
     journalEntries: journalEntries.map(serializeJournal),
     moodCheckIns: moodCheckIns.map(serializeMood),
+    reminders: reminders.map(serializeReminder),
     insights: insights ? serializeInsights(insights) : null,
     streak: streak ? serializeStreak(streak) : null,
     stats: stats ? serializeStats(stats) : null,
@@ -305,10 +348,11 @@ const exportPrivacyData = async (
 const deletePrivacyAccount = async (userId: string): Promise<DeleteAccountResult> => {
   await invalidateRefreshToken(userId);
 
-  const [journalsResult, moodResult, insightsResult, streakResult, statsResult, userResult] =
+  const [journalsResult, moodResult, remindersResult, insightsResult, streakResult, statsResult, userResult] =
     await Promise.all([
       journalModel.deleteMany({ userId }).exec(),
       moodCheckInModel.deleteMany({ userId }).exec(),
+      reminderModel.deleteMany({ userId }).exec(),
       insightsModel.deleteMany({ userId }).exec(),
       streaksModel.deleteMany({ userId }).exec(),
       statsModel.deleteMany({ userId }).exec(),
@@ -319,6 +363,7 @@ const deletePrivacyAccount = async (userId: string): Promise<DeleteAccountResult
     deletedAccount: Boolean(userResult.deletedCount),
     deletedJournals: journalsResult.deletedCount || 0,
     deletedMoodCheckIns: moodResult.deletedCount || 0,
+    deletedReminders: remindersResult.deletedCount || 0,
     deletedInsights: insightsResult.deletedCount || 0,
     deletedStreaks: streakResult.deletedCount || 0,
     deletedStats: statsResult.deletedCount || 0,
@@ -329,14 +374,35 @@ const updatePrivacyAiOptOut = async (
   userId: string,
   aiOptOut: boolean
 ): Promise<UpdateAiOptOutResult | null> => {
-  const result = await userModel.updateOne(
-    { _id: userId },
-    {
-      $set: {
-        "onboardingContext.aiOptIn": !aiOptOut,
-      },
-    }
-  );
+  const accessState = await getUserAiAccessState(userId);
+
+  if (!accessState.isPremium) {
+    throw new PremiumPrivacyModeRequiredError();
+  }
+
+  const [result] = await Promise.all([
+    userModel.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          "onboardingContext.aiOptIn": !aiOptOut,
+        },
+      }
+    ),
+    aiOptOut
+      ? insightsModel.updateOne(
+          { userId },
+          {
+            $set: {
+              aiAnalysis: null,
+              aiAnalysisStale: true,
+              aiAnalysisComputedAt: null,
+              aiAnalysisWindowEndDateKey: null,
+            },
+          }
+        )
+      : Promise.resolve(null),
+  ]);
 
   if (!result.matchedCount) {
     return null;
@@ -347,7 +413,12 @@ const updatePrivacyAiOptOut = async (
   };
 };
 
-export { deletePrivacyAccount, exportPrivacyData, updatePrivacyAiOptOut };
+export {
+  deletePrivacyAccount,
+  exportPrivacyData,
+  PremiumPrivacyModeRequiredError,
+  updatePrivacyAiOptOut,
+};
 export type {
   DeleteAccountResult,
   PrivacyExportAccount,

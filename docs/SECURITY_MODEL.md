@@ -55,6 +55,12 @@ Related APIs:
 
 Implemented privacy/session actions must invalidate server-side refresh tokens where applicable and keep user-owned data isolated by account.
 
+AI opt-out must be enforced at runtime, not stored as cosmetic onboarding state only:
+
+- `aiOptIn === false` must block `GET /insights/ai-analysis`
+- Home and Insights AI surfaces must stay hidden or disabled when the user has opted out
+- opting out should clear cached weekly AI-analysis payloads so stale AI summaries are not resurfaced later
+
 Reminder controls are also privacy-sensitive:
 
 - `GET /reminders`

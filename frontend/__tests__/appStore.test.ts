@@ -1,5 +1,6 @@
 import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
+import { syncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -8,6 +9,10 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
     getItem: jest.fn(),
     removeItem: jest.fn(),
   },
+}));
+
+jest.mock("../src/services/reminderNotificationsService", () => ({
+  syncOnboardingReminderPreference: jest.fn(async () => undefined),
 }));
 
 const onboardingData = {
@@ -24,6 +29,7 @@ describe("appStore", () => {
   beforeEach(() => {
     resetAppStore();
     jest.useFakeTimers();
+    (syncOnboardingReminderPreference as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -48,6 +54,23 @@ describe("appStore", () => {
 
     expect(store.getState().isCompletingOnboarding).toBe(false);
     expect(store.getState().stage).toBe("auth");
+    expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
+  });
+
+  it("clears local reminders when onboarding selects no reminders", async () => {
+    const store = useAppStore;
+
+    await act(async () => {
+      const transition = store.getState().completeOnboarding({
+        ...onboardingData,
+        reminderPreference: "none",
+      });
+
+      jest.advanceTimersByTime(220);
+      await transition;
+    });
+
+    expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("none");
   });
 
   it("moves auth navigation into the shared store and resets cleanly", async () => {
@@ -71,6 +94,45 @@ describe("appStore", () => {
     expect(store.getState().activeTab).toBe("home");
     expect(store.getState().authSource).toBeNull();
     expect(store.getState().themeModeOverride).toBeNull();
+  });
+
+  it("updates ai opt-in on the active session user", () => {
+    const store = useAppStore;
+
+    useAppStore.setState({
+      session: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        user: {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        },
+      },
+    });
+
+    act(() => {
+      store.getState().setSessionAiOptIn(false);
+    });
+
+    expect(store.getState().session?.user.aiOptIn).toBe(false);
+  });
+
+  it("stores the hide journal previews device preference", async () => {
+    const store = useAppStore;
+
+    await act(async () => {
+      await store.getState().setHideJournalPreviews(true);
+    });
+
+    expect(store.getState().hideJournalPreviews).toBe(true);
   });
 
   it("boots into auth on the same install after tokens are gone", async () => {
@@ -125,6 +187,7 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn: true,
       })),
       updateProfile: jest.fn(),
     }));
@@ -234,6 +297,7 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn: true,
       },
     }));
 
@@ -294,6 +358,7 @@ describe("appStore", () => {
         profileSetupCompleted: false,
         onboardingCompleted: true,
         profilePic: "https://example.com/avatar.png",
+        aiOptIn: false,
       },
     }));
 
@@ -322,6 +387,15 @@ describe("appStore", () => {
 
     const { useAppStore: freshStore } = require("../src/store/appStore");
 
+    act(() => {
+      freshStore.setState({
+        onboardingData: {
+          ...onboardingData,
+          aiComfort: false,
+        },
+      });
+    });
+
     await act(async () => {
       await freshStore.getState().continueWithGoogle();
     });
@@ -329,6 +403,15 @@ describe("appStore", () => {
     expect(getGoogleIdToken).toHaveBeenCalledTimes(1);
     expect(signInWithGoogle).toHaveBeenCalledWith({
       idToken: "google-id-token",
+      onboardingContext: {
+        ageRange: "25-34",
+        journalingExperience: "Occasional journaler",
+        goals: ["Daily Reflection", "Personal Growth"],
+        supportFocus: ["Stress", "Sleep"],
+        reminderPreference: "Evening",
+        aiOptIn: false,
+        privacyConsentAccepted: true,
+      },
       onboardingCompleted: true,
     });
     expect(saveTokens).toHaveBeenCalledWith({

@@ -19,6 +19,8 @@ import {
   Trash2,
 } from "lucide-react-native";
 import PrimaryButton from "../../components/PrimaryButton";
+import { updateAiOptOutPreference } from "../../services/privacyService";
+import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 import type { ThemeMode } from "../../theme/theme";
@@ -59,11 +61,13 @@ function SettingRow({
   description,
   value,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   description: string;
   value: boolean;
   onValueChange: (nextValue: boolean) => void;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
 
@@ -80,6 +84,7 @@ function SettingRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
+        disabled={disabled}
         trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
         thumbColor={theme.colors.card}
       />
@@ -95,12 +100,24 @@ export default function SettingsScreen({
   onToggleTheme,
 }: SettingsScreenProps) {
   const theme = useTheme();
-  const [privacyMode, setPrivacyMode] = useState(false);
-  const [autoSave, setAutoSave] = useState(true);
+  const isPrivacyModeEnabled = useAppStore(
+    state => state.session?.user.aiOptIn === false
+  );
+  const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
+  const setHideJournalPreviews = useAppStore(
+    state => state.setHideJournalPreviews
+  );
+  const setSessionAiOptIn = useAppStore(state => state.setSessionAiOptIn);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isThemeMenuRendered, setIsThemeMenuRendered] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isUpdatingPrivacyMode, setIsUpdatingPrivacyMode] = useState(false);
+  const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] = useState(false);
   const themeMenuAnimation = useRef(new Animated.Value(0)).current;
+  const privacyDescriptionAnimation = useRef(new Animated.Value(1)).current;
+  const privacyModeDescription = isPrivacyModeEnabled
+    ? "AI reflections are off. Home and Insights AI surfaces stay hidden for this account."
+    : "Turn off AI reflections and weekly analysis for this account.";
 
   const themeLabel = useMemo(
     () =>
@@ -143,6 +160,18 @@ export default function SettingsScreen({
     });
   }, [isThemeMenuOpen, themeMenuAnimation]);
 
+  useEffect(() => {
+    privacyDescriptionAnimation.stopAnimation();
+    privacyDescriptionAnimation.setValue(0);
+
+    Animated.timing(privacyDescriptionAnimation, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isPrivacyModeEnabled, privacyDescriptionAnimation]);
+
   const handleLogout = async () => {
     setIsSigningOut(true);
 
@@ -160,6 +189,49 @@ export default function SettingsScreen({
 
   const handleExport = () => {
     onOpenPrivacy();
+  };
+
+  const handlePrivacyModeChange = async (nextValue: boolean) => {
+    if (isUpdatingPrivacyMode) {
+      return;
+    }
+
+    setIsUpdatingPrivacyMode(true);
+
+    try {
+      const result = await updateAiOptOutPreference(nextValue);
+      setSessionAiOptIn(result.aiOptIn);
+    } catch (error) {
+      Alert.alert(
+        "Privacy mode",
+        error instanceof Error
+          ? error.message
+          : "Unable to update your AI privacy preference right now."
+      );
+    } finally {
+      setIsUpdatingPrivacyMode(false);
+    }
+  };
+
+  const handlePreviewPrivacyChange = async (nextValue: boolean) => {
+    if (isUpdatingPreviewPrivacy) {
+      return;
+    }
+
+    setIsUpdatingPreviewPrivacy(true);
+
+    try {
+      await setHideJournalPreviews(nextValue);
+    } catch (error) {
+      Alert.alert(
+        "Hide journal previews",
+        error instanceof Error
+          ? error.message
+          : "Unable to update this device privacy setting right now."
+      );
+    } finally {
+      setIsUpdatingPreviewPrivacy(false);
+    }
   };
 
   return (
@@ -290,17 +362,45 @@ export default function SettingsScreen({
         </Text>
 
         <View style={styles.rowStack}>
+          <View style={styles.settingRow}>
+            <View style={styles.settingCopy}>
+              <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
+                Privacy Mode
+              </Text>
+              <Animated.Text
+                style={[
+                  styles.settingDescription,
+                  {
+                    color: theme.colors.mutedForeground,
+                    opacity: privacyDescriptionAnimation,
+                    transform: [
+                      {
+                        translateY: privacyDescriptionAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [6, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                {privacyModeDescription}
+              </Animated.Text>
+            </View>
+            <Switch
+              value={isPrivacyModeEnabled}
+              onValueChange={handlePrivacyModeChange}
+              disabled={isUpdatingPrivacyMode}
+              trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+              thumbColor={theme.colors.card}
+            />
+          </View>
           <SettingRow
-            label="Privacy Mode"
-            description="Hide entry previews in recent apps"
-            value={privacyMode}
-            onValueChange={setPrivacyMode}
-          />
-          <SettingRow
-            label="Auto-save"
-            description="Automatically save entries as you write"
-            value={autoSave}
-            onValueChange={setAutoSave}
+            label="Hide Journal Previews"
+            description="Mask journal titles, text, and tags in entry lists on this device."
+            value={hideJournalPreviews}
+            onValueChange={handlePreviewPrivacyChange}
+            disabled={isUpdatingPreviewPrivacy}
           />
         </View>
 

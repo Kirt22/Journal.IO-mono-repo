@@ -7,30 +7,6 @@ import { env } from "./env";
 
 let isGoogleSignInConfigured = false;
 
-const decodeJwtPayload = (token: string) => {
-  const parts = token.split(".");
-
-  if (parts.length < 2) {
-    return null;
-  }
-
-  try {
-    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(
-      normalized.length + ((4 - (normalized.length % 4 || 4)) % 4),
-      "="
-    );
-    const decoded =
-      typeof atob === "function"
-        ? atob(padded)
-        : Buffer.from(padded, "base64").toString("utf8");
-
-    return JSON.parse(decoded) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-};
-
 const extractGoogleIdToken = (result: unknown): string | null => {
   if (!result || typeof result !== "object") {
     return null;
@@ -81,21 +57,7 @@ const configureGoogleSignIn = () => {
   }
 
   if (!env.googleWebClientId) {
-    if (__DEV__) {
-      console.log("[googleSignIn] missing Google web client ID", {
-        platform: Platform.OS,
-        hasIosClientId: Boolean(env.googleIosClientId),
-      });
-    }
     throw new Error("Google sign-in is not configured for this build.");
-  }
-
-  if (__DEV__) {
-    console.log("[googleSignIn] configure", {
-      platform: Platform.OS,
-      webClientId: env.googleWebClientId,
-      iosClientId: env.googleIosClientId,
-    });
   }
 
   GoogleSignin.configure({
@@ -132,26 +94,9 @@ const getGoogleIdToken = async () => {
       );
     }
 
-    if (__DEV__) {
-      const payload = decodeJwtPayload(idToken);
-
-      console.log("[googleSignIn] decoded idToken payload", {
-        aud: payload?.aud,
-        azp: payload?.azp,
-        iss: payload?.iss,
-      });
-    }
-
     return idToken;
   } catch (error) {
     const errorCode = getGoogleErrorCode(error);
-
-    if (__DEV__) {
-      console.log("[googleSignIn] signIn error", {
-        code: errorCode,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
 
     if (errorCode === statusCodes.SIGN_IN_CANCELLED) {
       return null;

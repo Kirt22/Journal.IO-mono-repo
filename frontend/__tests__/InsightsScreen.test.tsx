@@ -257,7 +257,7 @@ async function waitForText(
   }
 }
 
-const setPremiumSession = (isPremium: boolean) => {
+const setPremiumSession = (isPremium: boolean, aiOptIn = true) => {
   useAppStore.setState({
     session: {
       accessToken: "test-access",
@@ -273,6 +273,7 @@ const setPremiumSession = (isPremium: boolean) => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn,
       },
     },
   });
@@ -392,4 +393,35 @@ test("shows a locked AI analysis state for non-premium users", async () => {
   });
 
   expect(useAppStore.getState().activeTab).toBe("profile");
+});
+
+test("shows an AI opt-out state without fetching the analysis", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true, false);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <InsightsScreen />
+      </SafeAreaProvider>
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
+  });
+
+  const tree = extractText(root!.toJSON());
+
+  expect(getInsightsOverview).toHaveBeenCalledTimes(1);
+  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
+  expect(tree).toContain("AI analysis is turned off");
+  expect(tree).toContain("You chose not to use Journal.IO's AI reflections");
 });

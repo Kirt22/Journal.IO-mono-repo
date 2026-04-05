@@ -101,6 +101,10 @@ type DeleteAccountResponse = {
   deletedStats: number;
 };
 
+type UpdateAiOptOutResponse = {
+  aiOptIn: boolean;
+};
+
 const exportAllEntries = async () => {
   const response = await request<PrivacyExportResponse>("/privacy/export", {
     method: "POST",
@@ -120,9 +124,22 @@ const deleteAccount = async () => {
   return response.data;
 };
 
+const updateAiOptOutPreference = async (aiOptOut: boolean) => {
+  const response = await request<UpdateAiOptOutResponse>(
+    "/privacy/ai-opt-out",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ aiOptOut }),
+    }
+  );
+
+  return response.data;
+};
+
 export {
   deleteAccount,
   exportAllEntries,
+  updateAiOptOutPreference,
 };
 export type {
   DeleteAccountResponse,
@@ -134,4 +151,5 @@ export type {
   PrivacyExportResponse,
   PrivacyExportStats,
   PrivacyExportStreak,
+  UpdateAiOptOutResponse,
 };

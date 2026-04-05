@@ -14,6 +14,7 @@ import {
 } from "../services/authService";
 import { getGoogleIdToken } from "../config/googleSignIn";
 import { getProfile, updateProfile } from "../services/userService";
+import { syncOnboardingReminderPreference } from "../services/reminderNotificationsService";
 import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
 import {
@@ -25,6 +26,10 @@ import {
   saveOnboardingCompleted,
   saveTokens,
 } from "../utils/tokenStorage";
+import {
+  getHideJournalPreviews,
+  saveHideJournalPreviews,
+} from "../utils/appStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
 import {
   createInitialJournalSliceState,
@@ -130,13 +135,13 @@ type AppStoreState = {
   themeModeOverride: ThemeMode | null;
   selectedJournalEntryId: string | null;
   hasBootstrappedAuthGate: boolean;
+  hideJournalPreviews: boolean;
 } & JournalSliceState & {
   bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
-  skipToHome: () => void;
   goToCreateAccount: () => void;
   createAccount: (payload: {
     email: string;
@@ -167,6 +172,9 @@ type AppStoreState = {
   closeJournalEntry: () => void;
   closeJournalEditor: () => void;
   setThemeModeOverride: (nextMode: ThemeMode | null) => void;
+  setHideJournalPreviews: (nextValue: boolean) => Promise<void>;
+  setSessionAiOptIn: (nextValue: boolean) => void;
+  setSessionPremiumStatus: (nextValue: boolean) => void;
 };
 
 type AppStoreSnapshot = Pick<
@@ -184,6 +192,7 @@ type AppStoreSnapshot = Pick<
   | "themeModeOverride"
   | "selectedJournalEntryId"
   | "hasBootstrappedAuthGate"
+  | "hideJournalPreviews"
   | "recentJournalEntries"
 >;
 
@@ -204,6 +213,7 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   themeModeOverride: null,
   selectedJournalEntryId: null,
   hasBootstrappedAuthGate: false,
+  hideJournalPreviews: false,
   ...createInitialJournalSliceState(),
 });
 
@@ -242,6 +252,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     if (get().hasBootstrappedAuthGate) {
       return;
     }
+
+    const hideJournalPreviews = await getHideJournalPreviews().catch(
+      () => false
+    );
+
+    set({ hideJournalPreviews });
 
     if (__DEV__ && devLaunchConfig.stage && devLaunchConfig.stage !== "onboarding") {
       set({ hasBootstrappedAuthGate: true });
@@ -323,8 +339,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
 
     const saveOnboardingCompletedPromise = saveOnboardingCompleted(true);
+    const syncOnboardingReminderPromise = syncOnboardingReminderPreference(
+      data.reminderPreference
+    ).catch(() => undefined);
     await wait(ONBOARDING_EXIT_DELAY_MS);
-    await saveOnboardingCompletedPromise;
+    await Promise.all([
+      saveOnboardingCompletedPromise,
+      syncOnboardingReminderPromise,
+    ]);
 
     set({
       isCompletingOnboarding: false,
@@ -344,8 +366,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
+    const onboardingContext = buildOnboardingContext(get().onboardingData);
+
     const response = await signInWithGoogle({
       idToken,
+      ...(onboardingContext ? { onboardingContext } : {}),
       onboardingCompleted: true,
     });
 
@@ -368,13 +393,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   goToSignIn: () => {
     set({ stage: "sign-in" });
-  },
-  skipToHome: () => {
-    set({
-      activeTab: "home",
-      preferredInsightsTab: null,
-      stage: "main-app",
-    });
   },
   goToCreateAccount: () => {
     set({ stage: "create-account" });
@@ -432,6 +450,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       {
         onboardingGoals: onboardingData?.goals,
+        onboardingAiOptIn: onboardingData?.aiComfort,
         onboardingCompleted: true,
       }
     );
@@ -605,6 +624,44 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   setThemeModeOverride: nextMode => {
     set({ themeModeOverride: nextMode });
+  },
+  setHideJournalPreviews: async nextValue => {
+    await saveHideJournalPreviews(nextValue);
+    set({ hideJournalPreviews: nextValue });
+  },
+  setSessionAiOptIn: nextValue => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      return;
+    }
+
+    set({
+      session: {
+        ...currentSession,
+        user: {
+          ...currentSession.user,
+          aiOptIn: nextValue,
+        },
+      },
+    });
+  },
+  setSessionPremiumStatus: nextValue => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      return;
+    }
+
+    set({
+      session: {
+        ...currentSession,
+        user: {
+          ...currentSession.user,
+          isPremium: nextValue,
+        },
+      },
+    });
   },
 }));
 

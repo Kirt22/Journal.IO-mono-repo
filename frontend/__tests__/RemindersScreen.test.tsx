@@ -14,10 +14,8 @@ import {
 } from "../src/services/remindersService";
 import {
   requestReminderPermission,
-  sendTestReminderNotification,
   syncReminderNotifications,
 } from "../src/services/reminderNotificationsService";
-import { getCurrentStreakSummary } from "../src/services/streaksService";
 
 jest.mock("../src/services/remindersService", () => ({
   createReminder: jest.fn(async payload => ({
@@ -28,7 +26,7 @@ jest.mock("../src/services/remindersService", () => ({
     timezone: payload.timezone,
     skipIfCompletedToday: payload.skipIfCompletedToday ?? true,
     includeWeekends: payload.includeWeekends ?? true,
-    streakWarnings: payload.streakWarnings ?? true,
+    streakWarnings: false,
     createdAt: "2026-04-03T10:00:00.000Z",
     updatedAt: "2026-04-03T10:00:00.000Z",
   })),
@@ -40,18 +38,7 @@ jest.mock("../src/services/reminderNotificationsService", () => ({
   cancelReminderNotifications: jest.fn(async () => undefined),
   getDefaultReminderTimezone: jest.fn(() => "Asia/Kolkata"),
   requestReminderPermission: jest.fn(async () => true),
-  sendTestReminderNotification: jest.fn(async () => undefined),
   syncReminderNotifications: jest.fn(async () => undefined),
-}));
-
-jest.mock("../src/services/streaksService", () => ({
-  getCurrentStreakSummary: jest.fn(async () => ({
-    currentStreak: 4,
-    bestStreak: 7,
-    thisMonthEntries: 5,
-    totalEntries: 12,
-    achievements: [],
-  })),
 }));
 
 const safeAreaMetrics = {
@@ -117,7 +104,9 @@ test("loads the reminders screen and enables a daily reminder", async () => {
   const tree = extractText(root!.toJSON());
   expect(getPrimaryDailyReminder).toHaveBeenCalledTimes(1);
   expect(tree).toContain("Daily Reminders");
-  expect(tree).toContain("Smart Reminders");
+  expect(tree).toContain("Reminder Rules");
+  expect(tree).toContain("Smart scheduling options");
+  expect(tree).not.toContain("Send Test Notification");
 
   const switches = root!.root.findAllByType(Switch);
 
@@ -135,51 +124,13 @@ test("loads the reminders screen and enables a daily reminder", async () => {
       timezone: "Asia/Kolkata",
     })
   );
-  expect(getCurrentStreakSummary).toHaveBeenCalledTimes(1);
   expect(syncReminderNotifications).toHaveBeenCalledWith(
     expect.objectContaining({
       reminderId: "reminder-1",
       enabled: true,
       time: "20:00",
-    }),
-    expect.objectContaining({
-      currentStreak: 4,
     })
   );
-
-  await ReactTestRenderer.act(async () => {
-    root!.unmount();
-  });
-});
-
-test("sends a test reminder notification from the preview card", async () => {
-  let root: ReactTestRenderer.ReactTestRenderer;
-
-  await ReactTestRenderer.act(async () => {
-    root = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <RemindersScreen onBack={jest.fn()} />
-      </SafeAreaProvider>
-    );
-    await Promise.resolve();
-  });
-
-  await flushAsyncWork();
-
-  const triggerButton = root!.root.findAllByType(PrimaryButton).find(
-    node => node.props.label === "Send Test Notification"
-  );
-
-  expect(triggerButton).toBeDefined();
-
-  await ReactTestRenderer.act(async () => {
-    triggerButton!.props.onPress();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-
-  expect(requestReminderPermission).toHaveBeenCalledTimes(1);
-  expect(sendTestReminderNotification).toHaveBeenCalledWith("8:00 PM");
 
   await ReactTestRenderer.act(async () => {
     root!.unmount();

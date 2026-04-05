@@ -10,13 +10,13 @@ import type { Reminder } from "./remindersService";
 
 const REMINDER_CHANNEL_ID = "journal-daily-reminders";
 const PRIMARY_PREFIX = "journal-daily-reminder";
-const WARNING_PREFIX = "journal-streak-warning";
-const DEFAULT_REMINDER_TITLE = "Time to Journal";
 const DEFAULT_REMINDER_BODY =
   "Take a moment to reflect on your day. Keep your streak going.";
-const WARNING_REMINDER_TITLE = "Protect Your Streak";
-const WARNING_REMINDER_BODY =
-  "You are still in reach of today's streak. A short check-in is enough.";
+const ONBOARDING_REMINDER_TIMES: Record<string, string> = {
+  morning: "08:00",
+  afternoon: "14:00",
+  evening: "20:00",
+};
 
 const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -39,13 +39,12 @@ const parseTime = (time: string) => {
   };
 };
 
-const getWarningTime = (time: string) => {
+const formatReminderTitle = (time: string) => {
   const { hour, minute } = parseTime(time);
-  const totalMinutes = Math.min(hour * 60 + minute + 90, 22 * 60);
-  const nextHour = Math.floor(totalMinutes / 60);
-  const nextMinute = totalMinutes % 60;
+  const period = hour >= 12 ? "PM" : "AM";
+  const normalizedHour = hour % 12 || 12;
 
-  return `${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`;
+  return `${normalizedHour}:${String(minute).padStart(2, "0")} ${period} reminder`;
 };
 
 const getNextWeeklyTimestamp = (
@@ -103,10 +102,9 @@ const getReminderPermissionGranted = async () => {
 };
 
 const cancelReminderNotifications = async () => {
-  const notificationIds = ALL_WEEKDAYS.flatMap(weekday => [
-    buildNotificationId(PRIMARY_PREFIX, weekday),
-    buildNotificationId(WARNING_PREFIX, weekday),
-  ]);
+  const notificationIds = ALL_WEEKDAYS.map(weekday =>
+    buildNotificationId(PRIMARY_PREFIX, weekday)
+  );
 
   await notifee.cancelTriggerNotifications(notificationIds);
 };
@@ -155,12 +153,8 @@ const scheduleWeeklyNotification = async ({
 };
 
 const syncReminderNotifications = async (
-  reminder: Pick<
-    Reminder,
-    "enabled" | "time" | "includeWeekends" | "streakWarnings"
-  >,
+  reminder: Pick<Reminder, "enabled" | "time" | "includeWeekends">,
   options?: {
-    currentStreak?: number;
     skipToday?: boolean;
   }
 ) => {
@@ -178,43 +172,59 @@ const syncReminderNotifications = async (
       notificationId: buildNotificationId(PRIMARY_PREFIX, weekday),
       weekday,
       time: reminder.time,
-      title: DEFAULT_REMINDER_TITLE,
+      title: formatReminderTitle(reminder.time),
       body: DEFAULT_REMINDER_BODY,
       skipToday: options?.skipToday,
     });
-
-    if (reminder.streakWarnings && (options?.currentStreak || 0) > 0) {
-      await scheduleWeeklyNotification({
-        notificationId: buildNotificationId(WARNING_PREFIX, weekday),
-        weekday,
-        time: getWarningTime(reminder.time),
-        title: WARNING_REMINDER_TITLE,
-        body: WARNING_REMINDER_BODY,
-        skipToday: options?.skipToday,
-      });
-    }
   }
 };
 
-const sendTestReminderNotification = async (time: string) => {
-  await ensureReminderChannel();
+const syncOnboardingReminderPreference = async (preference?: string | null) => {
+  const normalizedPreference = preference?.trim().toLowerCase() || "";
 
-  await notifee.displayNotification({
-    title: DEFAULT_REMINDER_TITLE,
-    body: `This is a test reminder for your ${time} journaling prompt.`,
-    android: {
-      channelId: REMINDER_CHANNEL_ID,
-      pressAction: { id: "default" },
-    },
-    ios: {
-      foregroundPresentationOptions: {
-        badge: true,
-        banner: true,
-        list: true,
-        sound: true,
-      },
-    },
+  if (!normalizedPreference || normalizedPreference === "none") {
+    await cancelReminderNotifications();
+    return;
+  }
+
+  const time = ONBOARDING_REMINDER_TIMES[normalizedPreference];
+
+  if (!time) {
+    return;
+  }
+
+  const permissionGranted = await getReminderPermissionGranted();
+
+  if (!permissionGranted) {
+    await cancelReminderNotifications();
+    return;
+  }
+
+  await syncReminderNotifications({
+    enabled: true,
+    time,
+    includeWeekends: true,
   });
+};
+
+const requestAndSyncOnboardingReminderPreference = async (
+  preference?: string | null
+) => {
+  const normalizedPreference = preference?.trim().toLowerCase() || "";
+
+  if (!normalizedPreference || normalizedPreference === "none") {
+    await cancelReminderNotifications();
+    return;
+  }
+
+  const permissionGranted = await requestReminderPermission();
+
+  if (!permissionGranted) {
+    await cancelReminderNotifications();
+    return;
+  }
+
+  await syncOnboardingReminderPreference(normalizedPreference);
 };
 
 export {
@@ -222,6 +232,7 @@ export {
   getDefaultReminderTimezone,
   getReminderPermissionGranted,
   requestReminderPermission,
-  sendTestReminderNotification,
+  requestAndSyncOnboardingReminderPreference,
+  syncOnboardingReminderPreference,
   syncReminderNotifications,
 };

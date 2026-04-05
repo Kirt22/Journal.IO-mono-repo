@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -28,6 +29,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
+import { requestAndSyncOnboardingReminderPreference } from "../../services/reminderNotificationsService";
 import { useTheme } from "../../theme/provider";
 
 const mascotImage = require("../../assets/png/Masscott.png");
@@ -199,6 +201,7 @@ export function OnboardingScreen({
   const [selectedReminder, setSelectedReminder] = useState("evening");
   const [aiComfort, setAiComfort] = useState(true);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
+  const [isApplyingReminderPreference, setIsApplyingReminderPreference] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
@@ -297,7 +300,7 @@ export function OnboardingScreen({
     setStep(previous => previous - 1);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (step === 2 && !selectedAgeRange) {
       setStepError("Please choose an age range to continue.");
       return;
@@ -314,6 +317,23 @@ export function OnboardingScreen({
     }
 
     setStepError(null);
+
+    if (step === 6) {
+      setIsApplyingReminderPreference(true);
+
+      try {
+        await requestAndSyncOnboardingReminderPreference(selectedReminder);
+      } catch (error) {
+        Alert.alert(
+          "Reminder setup",
+          error instanceof Error
+            ? error.message
+            : "Unable to apply reminder settings right now."
+        );
+      } finally {
+        setIsApplyingReminderPreference(false);
+      }
+    }
 
     if (step < TOTAL_STEPS) {
       setStep(previous => previous + 1);
@@ -1039,7 +1059,7 @@ export function OnboardingScreen({
             <View style={styles.actionSlot}>
               <Pressable
                 accessibilityRole="button"
-                disabled={isCompleting || !canProceed}
+                disabled={isCompleting || isApplyingReminderPreference || !canProceed}
                 onPress={handleContinue}
                 style={({ pressed }) => [
                   styles.primaryButton,
@@ -1047,10 +1067,11 @@ export function OnboardingScreen({
                     backgroundColor: canProceed ? theme.colors.primary : theme.colors.border,
                   },
                   pressed && canProceed && styles.primaryButtonPressed,
-                  (isCompleting || !canProceed) && styles.primaryButtonDisabled,
+                  (isCompleting || isApplyingReminderPreference || !canProceed) &&
+                    styles.primaryButtonDisabled,
                 ]}
               >
-                {isCompleting ? (
+                {isCompleting || isApplyingReminderPreference ? (
                   <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
                 ) : (
                   <Text

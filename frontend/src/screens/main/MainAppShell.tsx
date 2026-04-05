@@ -121,6 +121,7 @@ export default function MainAppShell({
     : profileSectionStack.length > 0
       ? `profile:${profileSectionStack[profileSectionStack.length - 1]}`
       : activeTab;
+  const shouldShowBottomNav = shellViewKey !== "profile:paywall";
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -215,7 +216,9 @@ export default function MainAppShell({
         }}
       />
 
-      <BottomNav activeKey={activeTab} onPress={handleTabPress} />
+      {shouldShowBottomNav ? (
+        <BottomNav activeKey={activeTab} onPress={handleTabPress} />
+      ) : null}
     </View>
   );
 }

@@ -245,6 +245,13 @@ Reminders screen expectations:
 - skip-on-entry behavior should suppress the current day's reminder after a journal entry is saved when that toggle is enabled
 - include loading and recoverable error states without replacing the core Make structure
 
+Settings and privacy expectations:
+
+- the Settings screen should keep the Make layout but avoid local-only placeholder toggles
+- the `Privacy Mode` toggle should map to the authenticated user's AI opt-out preference so Home and Insights AI surfaces respond immediately after the setting changes
+- a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
+- the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
+
 ---
 
 # 7) Visual System

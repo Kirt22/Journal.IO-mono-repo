@@ -136,7 +136,8 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   },
   "isNewUser": true
 }
@@ -151,6 +152,12 @@ Request:
 ```json
 {
   "idToken": "google_id_token",
+  "onboardingContext": {
+    "goals": ["Daily Reflection"],
+    "reminderPreference": "Evening",
+    "aiOptIn": false,
+    "privacyConsentAccepted": true
+  },
   "onboardingCompleted": true
 }
 ```
@@ -160,6 +167,7 @@ Notes:
 - backend verifies the Google ID token against `GOOGLE_WEB_CLIENT_ID`
 - backend derives the Google identity from the verified token payload, not from frontend profile fields
 - backend stores the Google `sub` in the existing user Google identity field and then issues the normal app access/refresh tokens
+- when onboarding context is present, the backend persists it on the user before returning the session
 
 Success `data`:
 
@@ -176,7 +184,8 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": "https://..."
+    "profilePic": "https://...",
+    "aiOptIn": false
   }
 }
 ```
@@ -213,7 +222,8 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": "https://..."
+    "profilePic": "https://...",
+    "aiOptIn": true
   }
 }
 ```
@@ -280,7 +290,8 @@ Success `data`:
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
   "onboardingCompleted": true,
-  "profilePic": null
+  "profilePic": null,
+  "aiOptIn": true
 }
 ```
 
@@ -605,7 +616,8 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   },
   "isNewUser": true
 }
@@ -640,7 +652,8 @@ Success `data`:
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
     "onboardingCompleted": true,
-    "profilePic": null
+    "profilePic": null,
+    "aiOptIn": true
   }
 }
 ```
@@ -746,6 +759,12 @@ Behavior:
 ### `GET /insights/ai-analysis`
 
 Returns the cached weekly AI-analysis payload used by the mobile `AI Analysis` tab. The Home AI insight card also consumes this endpoint and derives short rotating snippets from the same response.
+
+Behavior:
+
+- protected route
+- returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
+- overview insights remain available even when AI analysis is disabled
 
 Response:
 
@@ -1128,6 +1147,11 @@ Returns:
   }
 }
 ```
+
+Behavior:
+
+- sets `onboardingContext.aiOptIn` for the authenticated user
+- when opt-out is enabled, clears any cached weekly AI analysis from the `insights` document
 
 ---
 

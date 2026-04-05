@@ -417,6 +417,7 @@ export default function HomeScreen({
   const setActiveTab = useAppStore(state => state.setActiveTab);
   const openInsightsTab = useAppStore(state => state.openInsightsTab);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
+  const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
   const shouldAnimateMood = typeof jest === "undefined";
   const shouldAutoScrollInsights = typeof jest === "undefined";
   const addRecentJournalEntry = useAppStore(
@@ -481,6 +482,12 @@ export default function HomeScreen({
     () => buildHomeInsightCards(homeAiAnalysis),
     [homeAiAnalysis]
   );
+  const isAiInsightEnabled = isPremiumUser && isAiOptedIn;
+  const insightIndicators = isAiInsightEnabled
+    ? homeInsightCards
+    : isPremiumUser
+      ? [0]
+      : [0, 1, 2];
   const activeHomeInsight = homeInsightCards[insightIndex] || null;
   const ActiveHomeInsightIcon = activeHomeInsight?.icon || Lightbulb;
   const todayDate = useMemo(
@@ -494,7 +501,7 @@ export default function HomeScreen({
   );
 
   useEffect(() => {
-    if (!isPremiumUser) {
+    if (!isAiInsightEnabled) {
       setHomeAiAnalysis(null);
       setHomeAiInsightError(null);
       setIsLoadingHomeAiInsight(false);
@@ -535,7 +542,7 @@ export default function HomeScreen({
     return () => {
       isActive = false;
     };
-  }, [isPremiumUser]);
+  }, [isAiInsightEnabled]);
 
   useEffect(() => {
     if (!homeInsightCards.length) {
@@ -550,7 +557,7 @@ export default function HomeScreen({
 
   useEffect(() => {
     if (
-      !isPremiumUser ||
+      !isAiInsightEnabled ||
       !shouldAutoScrollInsights ||
       homeInsightCards.length < 2 ||
       isLoadingHomeAiInsight
@@ -568,12 +575,12 @@ export default function HomeScreen({
   }, [
     homeInsightCards.length,
     isLoadingHomeAiInsight,
-    isPremiumUser,
+    isAiInsightEnabled,
     shouldAutoScrollInsights,
   ]);
 
   useEffect(() => {
-    if (!isPremiumUser || !activeHomeInsight) {
+    if (!isAiInsightEnabled || !activeHomeInsight) {
       insightTransitionProgress.setValue(1);
       return;
     }
@@ -586,7 +593,7 @@ export default function HomeScreen({
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [activeHomeInsight, insightTransitionProgress, isPremiumUser]);
+  }, [activeHomeInsight, insightTransitionProgress, isAiInsightEnabled]);
 
   useEffect(() => {
     if (isNoteExpanded) {
@@ -985,7 +992,7 @@ export default function HomeScreen({
   const recentEntries = recentJournalEntries.slice(0, 10);
 
   const reloadHomeAiInsight = () => {
-    if (!isPremiumUser) {
+    if (!isAiInsightEnabled) {
       return;
     }
 
@@ -1011,6 +1018,11 @@ export default function HomeScreen({
   const handleAdvanceInsight = () => {
     if (!isPremiumUser) {
       setActiveTab("profile");
+      return;
+    }
+
+    if (!isAiOptedIn) {
+      openInsightsTab("analysis");
       return;
     }
 
@@ -1644,7 +1656,7 @@ export default function HomeScreen({
 
                 <View style={styles.insightControls}>
                   <View style={styles.insightDots}>
-                    {(isPremiumUser ? homeInsightCards : [0, 1, 2]).map((_, _index) => (
+                    {insightIndicators.map((_, _index) => (
                       <Pressable
                         key={_index}
                         accessibilityRole="button"
@@ -1656,7 +1668,7 @@ export default function HomeScreen({
                             ? activeInsightDotStyle
                             : inactiveInsightDotStyle,
                           _index === insightIndex && styles.insightDotActive,
-                          !isPremiumUser && styles.insightDotLocked,
+                          !isAiInsightEnabled && styles.insightDotLocked,
                         ]}
                       />
                     ))}
@@ -1667,6 +1679,8 @@ export default function HomeScreen({
                     accessibilityLabel={
                       !isPremiumUser
                         ? "Unlock AI insights"
+                        : !isAiOptedIn
+                          ? "AI insights are off"
                         : homeAiInsightError
                           ? "Retry AI insight"
                           : "Next insight"
@@ -1679,7 +1693,7 @@ export default function HomeScreen({
                       pressed && styles.pressed,
                     ]}
                   >
-                    {!isPremiumUser ? (
+                    {!isAiInsightEnabled ? (
                       <Lock size={13} color={theme.colors.mutedForeground} />
                     ) : (
                       <RefreshCw size={13} color={theme.colors.mutedForeground} />
@@ -1721,7 +1735,7 @@ export default function HomeScreen({
                       },
                     ]}
                   >
-                    {isPremiumUser ? (
+                    {isAiInsightEnabled ? (
                       <ActiveHomeInsightIcon
                         size={20}
                         color={theme.colors.primary}
@@ -1739,6 +1753,8 @@ export default function HomeScreen({
                     >
                       {!isPremiumUser
                         ? "Premium AI Insight"
+                        : !isAiOptedIn
+                          ? "AI insights are turned off"
                         : isLoadingHomeAiInsight
                           ? "Loading weekly signal"
                           : homeAiInsightError
@@ -1753,6 +1769,8 @@ export default function HomeScreen({
                     >
                       {!isPremiumUser
                         ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
+                        : !isAiOptedIn
+                          ? "AI reflections are off for this account, so weekly AI insight cards stay hidden."
                         : isLoadingHomeAiInsight
                           ? "Pulling a short read from your latest AI analysis."
                           : homeAiInsightError
@@ -1760,7 +1778,7 @@ export default function HomeScreen({
                             : activeHomeInsight?.body ||
                               "Your latest weekly patterns will appear here."}
                     </Text>
-                    {isPremiumUser && !isLoadingHomeAiInsight && !homeAiInsightError ? (
+                    {isAiInsightEnabled && !isLoadingHomeAiInsight && !homeAiInsightError ? (
                       <View style={styles.insightCtaRow}>
                         <Text
                           style={[
@@ -1781,6 +1799,18 @@ export default function HomeScreen({
                           ]}
                         >
                           Open subscription
+                        </Text>
+                        <ChevronRight size={14} color={theme.colors.primary} />
+                      </View>
+                    ) : !isAiOptedIn ? (
+                      <View style={styles.insightCtaRow}>
+                        <Text
+                          style={[
+                            styles.insightCtaText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          View details
                         </Text>
                         <ChevronRight size={14} color={theme.colors.primary} />
                       </View>

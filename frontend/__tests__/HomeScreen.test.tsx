@@ -163,7 +163,7 @@ const waitForTreeText = async (
   throw new Error(`Timed out waiting for text: ${expectedText}`);
 };
 
-const setPremiumSession = (isPremium: boolean) => {
+const setPremiumSession = (isPremium: boolean, aiOptIn = true) => {
   useAppStore.setState({
     session: {
       accessToken: "test-access",
@@ -179,6 +179,7 @@ const setPremiumSession = (isPremium: boolean) => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
+        aiOptIn,
       },
     },
   });
@@ -740,4 +741,42 @@ test("shows a locked AI insight card for non-premium users", async () => {
   });
 
   expect(useAppStore.getState().activeTab).toBe("profile");
+});
+
+test("shows an AI opt-out card instead of loading AI insights", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true, false);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  const tree = JSON.stringify(root!.toJSON());
+
+  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
+  expect(tree).toContain("AI insights are turned off");
+  expect(tree).toContain(
+    "AI reflections are off for this account, so weekly AI insight cards stay hidden."
+  );
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Open AI analysis" }).props.onPress();
+  });
+
+  expect(useAppStore.getState().activeTab).toBe("insights");
+  expect(useAppStore.getState().preferredInsightsTab).toBe("analysis");
 });

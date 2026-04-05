@@ -30,7 +30,6 @@ type AppFlowRoutesProps = {
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
-  onSkipToHome: () => void;
   onGoToCreateAccount: () => void;
   onSignIn: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
@@ -61,7 +60,6 @@ export function AppFlowRoutes({
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
-  onSkipToHome,
   onGoToCreateAccount,
   onSignIn,
   onCreateAccount,
@@ -94,7 +92,6 @@ export function AppFlowRoutes({
           onContinueWithEmail={onContinueWithEmail}
           onContinueWithGoogle={onContinueWithGoogle}
           onGoToSignIn={onGoToSignIn}
-          onSkipToHome={onSkipToHome}
         />
       );
     case "sign-in":

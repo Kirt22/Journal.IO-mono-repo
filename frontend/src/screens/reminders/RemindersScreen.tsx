@@ -30,10 +30,8 @@ import {
   cancelReminderNotifications,
   getDefaultReminderTimezone,
   requestReminderPermission,
-  sendTestReminderNotification,
   syncReminderNotifications,
 } from "../../services/reminderNotificationsService";
-import { getCurrentStreakSummary } from "../../services/streaksService";
 import { ProfileSectionLayout, SectionCard } from "../profile/ProfileSectionLayout";
 
 type RemindersScreenProps = {
@@ -46,7 +44,6 @@ type ReminderFormState = {
   timezone: string;
   skipIfCompletedToday: boolean;
   includeWeekends: boolean;
-  streakWarnings: boolean;
 };
 
 const TIME_OPTIONS = [
@@ -119,7 +116,6 @@ const buildDefaultReminderState = (onboardingPreference?: string | null): Remind
   timezone: getDefaultReminderTimezone(),
   skipIfCompletedToday: true,
   includeWeekends: true,
-  streakWarnings: true,
 });
 
 const toReminderFormState = (reminder: Reminder): ReminderFormState => ({
@@ -128,7 +124,6 @@ const toReminderFormState = (reminder: Reminder): ReminderFormState => ({
   timezone: reminder.timezone || getDefaultReminderTimezone(),
   skipIfCompletedToday: reminder.skipIfCompletedToday,
   includeWeekends: reminder.includeWeekends,
-  streakWarnings: reminder.streakWarnings,
 });
 
 const getReminderPreviewTime = (time: string) =>
@@ -152,8 +147,10 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
   const [isTimeMenuRendered, setIsTimeMenuRendered] = useState(false);
+  const [isReminderConfigRendered, setIsReminderConfigRendered] = useState(false);
   const [hasAnimatedIn, setHasAnimatedIn] = useState(false);
   const timeMenuAnimation = useRef(new Animated.Value(0)).current;
+  const reminderConfigAnimation = useRef(new Animated.Value(0)).current;
   const entranceAnimation = useRef(new Animated.Value(0)).current;
 
   const isDirty = useMemo(
@@ -236,6 +233,31 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
     });
   }, [isTimeMenuOpen, timeMenuAnimation]);
 
+  useEffect(() => {
+    if (formState.enabled) {
+      setIsReminderConfigRendered(true);
+      Animated.timing(reminderConfigAnimation, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    setIsTimeMenuOpen(false);
+    Animated.timing(reminderConfigAnimation, {
+      toValue: 0,
+      duration: 170,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setIsReminderConfigRendered(false);
+      }
+    });
+  }, [formState.enabled, reminderConfigAnimation]);
+
   const persistReminder = async (nextState: ReminderFormState) => {
     const payload = {
       enabled: nextState.enabled,
@@ -243,7 +265,6 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
       timezone: nextState.timezone,
       skipIfCompletedToday: nextState.skipIfCompletedToday,
       includeWeekends: nextState.includeWeekends,
-      streakWarnings: nextState.streakWarnings,
     };
 
     if (!reminderId) {
@@ -259,11 +280,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
       return;
     }
 
-    const currentStreak = reminder.streakWarnings
-      ? (await getCurrentStreakSummary()).currentStreak
-      : 0;
-
-    await syncReminderNotifications(reminder, { currentStreak });
+    await syncReminderNotifications(reminder);
   };
 
   const handleToggleEnabled = async (nextValue: boolean) => {
@@ -347,30 +364,6 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
     }
   };
 
-  const handleSendTestNotification = async () => {
-    setStatusMessage(null);
-
-    try {
-      const permissionGranted = await requestReminderPermission();
-
-      if (!permissionGranted) {
-        Alert.alert(
-          "Notifications disabled",
-          "Allow notifications in system settings to send a test reminder."
-        );
-        return;
-      }
-
-      await sendTestReminderNotification(getReminderPreviewTime(formState.time));
-      setStatusMessage("Test notification sent.");
-    } catch (error) {
-      Alert.alert(
-        "Test notification",
-        error instanceof Error ? error.message : "Unable to send a test notification right now."
-      );
-    }
-  };
-
   const buildEntranceStyle = (offset: number) => ({
     opacity: entranceAnimation,
     transform: [
@@ -410,8 +403,13 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
         </SectionCard>
       ) : (
         <>
-          <Animated.View style={buildEntranceStyle(14)}>
-            <SectionCard>
+          <Animated.View
+            style={[
+              buildEntranceStyle(14),
+              isTimeMenuRendered ? styles.dropdownSection : styles.baseSection,
+            ]}
+          >
+            <SectionCard style={isTimeMenuRendered ? styles.dropdownCard : undefined}>
               <View style={styles.cardHeader}>
                 <View
                   style={[
@@ -453,12 +451,30 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                 />
               </View>
 
-              {formState.enabled ? (
-                <View
+              {isReminderConfigRendered ? (
+                <Animated.View
                   style={[
                     styles.reminderConfig,
-                    { borderTopColor: theme.colors.border },
+                    {
+                      borderTopColor: theme.colors.border,
+                      opacity: reminderConfigAnimation,
+                      transform: [
+                        {
+                          translateY: reminderConfigAnimation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-8, 0],
+                          }),
+                        },
+                        {
+                          scaleY: reminderConfigAnimation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.96, 1],
+                          }),
+                        },
+                      ],
+                    },
                   ]}
+                  pointerEvents={formState.enabled ? "auto" : "none"}
                 >
                   <Text style={[styles.selectLabel, { color: theme.colors.foreground }]}>
                     Reminder Time
@@ -576,12 +592,12 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                       tone="accent"
                     />
                   ) : null}
-                </View>
+                </Animated.View>
               ) : null}
             </SectionCard>
           </Animated.View>
 
-          <Animated.View style={buildEntranceStyle(18)}>
+          <Animated.View style={[buildEntranceStyle(18), styles.baseSection]}>
             <SectionCard>
               <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
                 Notification Style
@@ -619,24 +635,16 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                 </View>
               </View>
 
-              <View style={styles.previewAction}>
-                <PrimaryButton
-                  label="Send Test Notification"
-                  onPress={handleSendTestNotification}
-                  variant="outline"
-                  size="sm"
-                />
-              </View>
             </SectionCard>
           </Animated.View>
 
-          <Animated.View style={buildEntranceStyle(22)}>
+          <Animated.View style={[buildEntranceStyle(22), styles.baseSection]}>
             <SectionCard>
               <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-                Smart Reminders
+                Reminder Rules
               </Text>
               <Text style={[styles.cardDescription, { color: theme.colors.mutedForeground }]}>
-                Personalized notification preferences
+                Smart scheduling options
               </Text>
 
               <View style={styles.smartToggleStack}>
@@ -656,19 +664,11 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                     setFormState(current => ({ ...current, includeWeekends: nextValue }))
                   }
                 />
-                <SmartToggleRow
-                  label="Streak warnings"
-                  description="Extra reminder if you're about to lose your streak"
-                  value={formState.streakWarnings}
-                  onValueChange={nextValue =>
-                    setFormState(current => ({ ...current, streakWarnings: nextValue }))
-                  }
-                />
               </View>
             </SectionCard>
           </Animated.View>
 
-          <Animated.View style={buildEntranceStyle(26)}>
+          <Animated.View style={[buildEntranceStyle(26), styles.baseSection]}>
             <View
               style={[
                 styles.infoCard,
@@ -681,7 +681,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   Enable notifications on your device
                 </Text>
                 <Text style={[styles.infoBody, { color: theme.colors.mutedForeground }]}>
-                  Journal.IO uses local reminders for scheduled writing prompts. You can change
+                  Journal.IO schedules reminders locally on this device. You can adjust
                   permissions later in system settings.
                 </Text>
               </View>
@@ -769,6 +769,7 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     borderTopWidth: 1,
     gap: 14,
+    overflow: "visible",
   },
   selectLabel: {
     fontSize: 14,
@@ -777,6 +778,7 @@ const styles = StyleSheet.create({
   selectWrapper: {
     position: "relative",
     zIndex: 2,
+    elevation: 2,
   },
   selectTrigger: {
     minHeight: 44,
@@ -810,6 +812,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     padding: 8,
+    zIndex: 20,
     shadowColor: "#000000",
     shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 10 },
@@ -856,9 +859,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     lineHeight: 18,
-  },
-  previewAction: {
-    marginTop: 14,
   },
   smartToggleStack: {
     marginTop: 14,
@@ -907,5 +907,17 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.82,
+  },
+  baseSection: {
+    zIndex: 1,
+    elevation: 1,
+  },
+  dropdownSection: {
+    zIndex: 30,
+    elevation: 30,
+  },
+  dropdownCard: {
+    zIndex: 20,
+    elevation: 20,
   },
 });

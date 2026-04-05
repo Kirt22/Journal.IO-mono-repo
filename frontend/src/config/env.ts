@@ -5,6 +5,9 @@ import {
 } from "@env";
 
 const normalizeEnvValue = (value?: string | null) => {
+
+  console.log("[env] raw value", { value });
+  console.log("[env] raw value", API_BASE_URL, GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID);
   const trimmed = value?.trim();
 
   if (!trimmed) {

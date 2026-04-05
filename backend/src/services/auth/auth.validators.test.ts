@@ -9,6 +9,10 @@ test("googleMobileSignInSchema accepts a valid mobile token payload", () => {
   const result = googleMobileSignInSchema.safeParse({
     body: {
       idToken: "google-id-token",
+      onboardingContext: {
+        reminderPreference: "Evening",
+        aiOptIn: false,
+      },
       onboardingCompleted: true,
     },
   });

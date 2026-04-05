@@ -1,6 +1,7 @@
 import { journalModel } from "../../schema/journal.schema";
 import { insightsModel, type IInsights } from "../../schema/insights.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
+import { userModel } from "../../schema/user.schema";
 import type {
   InsightTone,
   InsightsAiAnalysisResponse,
@@ -34,6 +35,13 @@ type WeeklyMoodSnapshot = {
 };
 
 type ConfidenceLevel = "low" | "medium" | "high";
+
+class AiAnalysisDisabledError extends Error {
+  constructor() {
+    super("AI analysis is turned off for this account.");
+    this.name = "AiAnalysisDisabledError";
+  }
+}
 
 const MOOD_ORDER: MoodValue[] = [
   "amazing",
@@ -216,6 +224,18 @@ const addUtcDays = (date: Date, delta: number) => {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + delta);
   return next;
+};
+
+const ensureAiAnalysisEnabled = async (userId: string) => {
+  const user = await userModel
+    .findById(userId)
+    .select("onboardingContext.aiOptIn")
+    .lean()
+    .exec();
+
+  if (user?.onboardingContext?.aiOptIn === false) {
+    throw new AiAnalysisDisabledError();
+  }
 };
 
 const startOfUtcDay = (date: Date) =>
@@ -1365,6 +1385,8 @@ const refreshAiAnalysisCache = async (userId: string, insights: IInsights, today
 };
 
 const getInsightsAiAnalysis = async (userId: string): Promise<InsightsAiAnalysisResponse> => {
+  await ensureAiAnalysisEnabled(userId);
+
   const insights = await getOrBuildInsightsCache(userId);
 
   if (!insights) {
@@ -1386,6 +1408,7 @@ const getInsightsAiAnalysis = async (userId: string): Promise<InsightsAiAnalysis
 };
 
 export {
+  AiAnalysisDisabledError,
   getInsightsOverview,
   getInsightsAiAnalysis,
   rebuildInsightsCache,

@@ -10,6 +10,7 @@ type UserProfilePayload = {
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
   profilePic: string | null;
+  aiOptIn: boolean | null;
 };
 
 type UpdateProfileInput = {
@@ -29,6 +30,10 @@ const buildUserProfilePayload = (user: IUser): UserProfilePayload => {
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
     onboardingCompleted: Boolean(user.onboardingCompleted),
     profilePic: user.profilePic || null,
+    aiOptIn:
+      typeof user.onboardingContext?.aiOptIn === "boolean"
+        ? user.onboardingContext.aiOptIn
+        : null,
   };
 };
 

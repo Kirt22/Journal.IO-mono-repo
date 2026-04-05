@@ -23,6 +23,10 @@ type UserDocument = {
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
   profilePic: string | null;
+  onboardingContext?: {
+    aiOptIn?: boolean | null;
+    goals?: string[];
+  } | null;
   emailVerified: boolean;
   emailVerifiedAt: Date | null;
   save: () => Promise<UserDocument>;
@@ -104,6 +108,10 @@ test("signInWithGoogle links a verified Google identity onto an existing email u
 
   const result = await signInWithGoogle({
     idToken: "google-id-token",
+    onboardingContext: {
+      aiOptIn: false,
+      goals: ["Daily Reflection"],
+    },
     onboardingCompleted: true,
   });
 
@@ -118,7 +126,10 @@ test("signInWithGoogle links a verified Google identity onto an existing email u
   assert.equal(existingUser.profilePic, "https://example.com/avatar.png");
   assert.equal(existingUser.emailVerified, true);
   assert.equal(existingUser.onboardingCompleted, true);
+  assert.equal(existingUser.onboardingContext?.aiOptIn, false);
+  assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
   assert.ok(existingUser.authProviders.includes("google"));
+  assert.equal(result.user.aiOptIn, false);
   assert.match(result.tokens.accessToken, /\S+/);
   assert.match(result.tokens.refreshToken, /\S+/);
   assert.equal(refreshUpdates.length, 1);

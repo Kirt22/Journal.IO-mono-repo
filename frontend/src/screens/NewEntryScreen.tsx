@@ -32,7 +32,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createJournalEntry } from "../services/journalService";
 import { getPrimaryDailyReminder } from "../services/remindersService";
 import { syncReminderNotifications } from "../services/reminderNotificationsService";
-import { getCurrentStreakSummary } from "../services/streaksService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
@@ -192,12 +191,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
         return;
       }
 
-      const currentStreak = reminder.streakWarnings
-        ? (await getCurrentStreakSummary()).currentStreak
-        : 0;
-
       await syncReminderNotifications(reminder, {
-        currentStreak,
         skipToday: true,
       });
     } catch (reminderError) {

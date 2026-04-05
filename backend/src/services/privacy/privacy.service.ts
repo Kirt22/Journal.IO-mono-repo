@@ -366,14 +366,29 @@ const updatePrivacyAiOptOut = async (
   userId: string,
   aiOptOut: boolean
 ): Promise<UpdateAiOptOutResult | null> => {
-  const result = await userModel.updateOne(
-    { _id: userId },
-    {
-      $set: {
-        "onboardingContext.aiOptIn": !aiOptOut,
-      },
-    }
-  );
+  const [result] = await Promise.all([
+    userModel.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          "onboardingContext.aiOptIn": !aiOptOut,
+        },
+      }
+    ),
+    aiOptOut
+      ? insightsModel.updateOne(
+          { userId },
+          {
+            $set: {
+              aiAnalysis: null,
+              aiAnalysisStale: true,
+              aiAnalysisComputedAt: null,
+              aiAnalysisWindowEndDateKey: null,
+            },
+          }
+        )
+      : Promise.resolve(null),
+  ]);
 
   if (!result.matchedCount) {
     return null;

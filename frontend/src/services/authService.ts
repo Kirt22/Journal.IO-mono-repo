@@ -11,6 +11,7 @@ type AuthUser = {
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
   profilePic: string | null;
+  aiOptIn: boolean | null;
 };
 
 type AuthSession = {
@@ -54,6 +55,7 @@ type VerifyEmailPayload = {
 
 type VerifyEmailOptions = {
   onboardingGoals?: string[];
+  onboardingAiOptIn?: boolean;
   onboardingCompleted?: boolean;
 };
 
@@ -65,6 +67,7 @@ type SignInWithEmailPayload = {
 
 type GoogleSignInPayload = {
   idToken: string;
+  onboardingContext?: AuthOnboardingContext;
   onboardingCompleted?: boolean;
 };
 
@@ -140,6 +143,7 @@ const createMockSession = (payload: {
   profileSetupCompleted?: boolean;
   onboardingCompleted?: boolean;
   profilePic?: string | null;
+  aiOptIn?: boolean | null;
 }): AuthSession => {
   const email = normalizeEmail(payload.email);
   const tokens = buildMockTokens(email);
@@ -158,6 +162,7 @@ const createMockSession = (payload: {
       profileSetupCompleted: payload.profileSetupCompleted ?? false,
       onboardingCompleted: payload.onboardingCompleted ?? false,
       profilePic: payload.profilePic ?? null,
+      aiOptIn: payload.aiOptIn ?? true,
     },
   };
 };
@@ -214,6 +219,10 @@ const verifyEmail = async (
       email: payload.email,
       name: deriveDisplayNameFromEmail(payload.email),
       goals: options.onboardingGoals || [],
+      aiOptIn:
+        typeof options.onboardingAiOptIn === "boolean"
+          ? options.onboardingAiOptIn
+          : true,
       profileSetupCompleted: false,
       onboardingCompleted: options.onboardingCompleted ?? true,
     });

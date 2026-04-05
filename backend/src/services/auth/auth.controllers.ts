@@ -204,9 +204,10 @@ const verifyOtpController = async (req: Request, res: Response) => {
 
 const googleMobileSignInController = async (req: Request, res: Response) => {
   try {
-    const { idToken, onboardingCompleted } = req.body;
+    const { idToken, onboardingContext, onboardingCompleted } = req.body;
     const result = await signInWithGoogle({
       idToken,
+      onboardingContext,
       onboardingCompleted,
     });
 

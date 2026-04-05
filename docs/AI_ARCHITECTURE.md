@@ -187,6 +187,7 @@ Current insights overview architecture:
 - the mobile Insights screen reads from `GET /insights/overview`
 - the mobile `AI Analysis` tab reads from `GET /insights/ai-analysis`
 - the Home AI insight card also reuses `GET /insights/ai-analysis`, but only surfaces short rotating snippets instead of the full weekly card stack
+- the `AI Analysis` tab and Home AI card are gated by the user's stored `aiOptIn` onboarding/privacy preference
 - backend stores a per-user cached `insights` document for fast read access
 - the cache keeps lightweight aggregate counters and maps derived from:
   - journal entries
@@ -196,6 +197,7 @@ Current insights overview architecture:
 - journal and mood write paths incrementally maintain the cache
 - if the cache is missing, the backend rebuilds it from journals and mood check-ins
 - the same `insights` document also stores a weekly AI-analysis cache plus staleness metadata
+- if a user opts out of AI analysis, the backend rejects `GET /insights/ai-analysis` and clears the cached weekly AI-analysis payload
 - weekly AI-analysis is recomputed on demand from recent journal text, recent tags, and recent mood check-ins only when the cache is stale or the rolling week changes
 - AI-analysis output is structured for the mobile screen into:
   - weekly summary metadata

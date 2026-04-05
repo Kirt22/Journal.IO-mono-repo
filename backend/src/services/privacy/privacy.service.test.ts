@@ -46,6 +46,7 @@ const reminderTarget = reminderModel as unknown as {
 
 const insightsTarget = insightsModel as unknown as {
   findOne: (...args: unknown[]) => QueryResult<unknown>;
+  updateOne: (...args: unknown[]) => Promise<unknown>;
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
@@ -69,6 +70,7 @@ const originalMoodDeleteMany = moodTarget.deleteMany;
 const originalReminderFind = reminderTarget.find;
 const originalReminderDeleteMany = reminderTarget.deleteMany;
 const originalInsightsFindOne = insightsTarget.findOne;
+const originalInsightsUpdateOne = insightsTarget.updateOne;
 const originalInsightsDeleteMany = insightsTarget.deleteMany;
 const originalStreakFindOne = streakTarget.findOne;
 const originalStreakDeleteMany = streakTarget.deleteMany;
@@ -86,6 +88,7 @@ afterEach(() => {
   reminderTarget.find = originalReminderFind;
   reminderTarget.deleteMany = originalReminderDeleteMany;
   insightsTarget.findOne = originalInsightsFindOne;
+  insightsTarget.updateOne = originalInsightsUpdateOne;
   insightsTarget.deleteMany = originalInsightsDeleteMany;
   streakTarget.findOne = originalStreakFindOne;
   streakTarget.deleteMany = originalStreakDeleteMany;
@@ -270,9 +273,15 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
 
 test("updatePrivacyAiOptOut updates the stored AI preference", async () => {
   userTarget.updateOne = async () => ({ matchedCount: 1 });
+  const insightUpdates: unknown[] = [];
+  insightsTarget.updateOne = async (...args) => {
+    insightUpdates.push(args);
+    return { matchedCount: 1 };
+  };
 
   const result = await updatePrivacyAiOptOut("user-123", true);
 
   assert.ok(result);
   assert.equal(result?.aiOptIn, false);
+  assert.equal(insightUpdates.length, 1);
 });

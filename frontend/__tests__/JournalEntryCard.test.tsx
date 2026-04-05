@@ -5,7 +5,10 @@
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
 import JournalEntryCard from "../src/components/JournalEntryCard";
+import { resetAppStore, useAppStore } from "../src/store/appStore";
 import { ThemeProvider } from "../src/theme/provider";
+
+let root: ReactTestRenderer.ReactTestRenderer | null = null;
 
 const entry = {
   _id: "entry-1",
@@ -18,9 +21,22 @@ const entry = {
   isFavorite: false,
 };
 
+beforeEach(() => {
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+  });
+});
+
+afterEach(() => {
+  ReactTestRenderer.act(() => {
+    root?.unmount();
+    root = null;
+    resetAppStore();
+  });
+});
+
 test("favorite star is clickable on the journal card", () => {
   const onFavoritePress = jest.fn();
-  let root: ReactTestRenderer.ReactTestRenderer;
 
   ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
@@ -44,8 +60,6 @@ test("favorite star is clickable on the journal card", () => {
 });
 
 test("renders a date fallback for untitled journal entries", () => {
-  let root: ReactTestRenderer.ReactTestRenderer;
-
   ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <ThemeProvider modeOverride="light">
@@ -61,4 +75,23 @@ test("renders a date fallback for untitled journal entries", () => {
 
   expect(JSON.stringify(root!.toJSON())).toContain("Entry for Mar 30 2026");
   expect(JSON.stringify(root!.toJSON())).not.toContain("Untitled");
+});
+
+test("masks journal previews when the device privacy setting is enabled", () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({ hideJournalPreviews: true });
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard entry={entry} />
+      </ThemeProvider>
+    );
+  });
+
+  const rendered = JSON.stringify(root!.toJSON());
+
+  expect(rendered).toContain("Journal Entry");
+  expect(rendered).toContain("Preview hidden. Open the entry to read it.");
+  expect(rendered).not.toContain("Morning Reflections");
+  expect(rendered).not.toContain("Started the day with a calm walk.");
+  expect(rendered).not.toContain("gratitude");
 });

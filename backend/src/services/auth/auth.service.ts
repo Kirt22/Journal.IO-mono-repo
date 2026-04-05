@@ -44,6 +44,7 @@ type VerifyOtpInput = {
 
 type GoogleOAuthInput = {
   idToken: string;
+  onboardingContext?: EmailOnboardingContextInput;
   onboardingCompleted?: boolean;
 };
 
@@ -220,30 +221,6 @@ const createDefaultGoogleIdTokenVerifier = () => {
       throw new Error(
         "At least one Google client ID must be configured for token verification."
       );
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      try {
-        const [, payloadPart] = idToken.split(".");
-        const payload = payloadPart
-          ? JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8"))
-          : null;
-
-        console.log("[googleAuth] token audience debug", {
-          aud: payload?.aud,
-          azp: payload?.azp,
-          iss: payload?.iss,
-          acceptedAudiences: audiences,
-        });
-      } catch (decodeError) {
-        console.log("[googleAuth] failed to decode token payload", {
-          message:
-            decodeError instanceof Error
-              ? decodeError.message
-              : String(decodeError),
-          acceptedAudiences: audiences,
-        });
-      }
     }
 
     const client = new OAuth2Client();
@@ -432,6 +409,10 @@ const buildUserPayload = (user: IUser) => {
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
     onboardingCompleted: Boolean(user.onboardingCompleted),
     profilePic: user.profilePic || null,
+    aiOptIn:
+      typeof user.onboardingContext?.aiOptIn === "boolean"
+        ? user.onboardingContext.aiOptIn
+        : null,
   };
 };
 
@@ -545,14 +526,17 @@ const createPhoneUser = async ({
 
 const createGoogleUser = async ({
   googleProfile,
+  onboardingContext,
   onboardingCompleted,
 }: {
   googleProfile: VerifiedGoogleProfile;
+  onboardingContext?: EmailOnboardingContextInput;
   onboardingCompleted?: boolean | undefined;
 }) => {
   const fallbackName = googleProfile.email
     ? deriveDisplayNameFromEmail(googleProfile.email)
     : "Journal User";
+  const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
 
   return userModel.create({
     name: googleProfile.name || fallbackName,
@@ -564,7 +548,8 @@ const createGoogleUser = async ({
     onboardingCompleted: Boolean(onboardingCompleted),
     emailVerified: googleProfile.emailVerified,
     emailVerifiedAt: googleProfile.emailVerified ? new Date() : null,
-    journalingGoals: [],
+    journalingGoals: normalizedOnboardingContext?.goals || [],
+    onboardingContext: normalizedOnboardingContext,
   });
 };
 
@@ -1067,7 +1052,6 @@ const signInWithGoogle = async (
   try {
     googleProfile = await verifyGoogleIdTokenImpl(input.idToken);
   } catch (error) {
-    console.error("Google ID token verification failed:", error);
     return {
       ok: false,
       status: 401,
@@ -1088,6 +1072,10 @@ const signInWithGoogle = async (
   const normalizedEmail = googleProfile.email
     ? normalizeEmail(googleProfile.email)
     : null;
+  const normalizedOnboardingContext = sanitizeOnboardingContext(
+    input.onboardingContext
+  );
+  const onboardingGoals = normalizedOnboardingContext?.goals || [];
   googleProfile = {
     ...googleProfile,
     email: normalizedEmail,
@@ -1115,6 +1103,9 @@ const signInWithGoogle = async (
   if (!user) {
     user = await createGoogleUser({
       googleProfile,
+      ...(input.onboardingContext
+        ? { onboardingContext: input.onboardingContext }
+        : {}),
       onboardingCompleted: input.onboardingCompleted,
     });
   } else {
@@ -1136,6 +1127,14 @@ const signInWithGoogle = async (
 
     user.googleUserId = googleProfile.googleSub;
     user.profilePic = googleProfile.picture || user.profilePic || null;
+
+    if (normalizedOnboardingContext) {
+      user.onboardingContext = normalizedOnboardingContext;
+    }
+
+    if (onboardingGoals.length > 0) {
+      user.journalingGoals = onboardingGoals;
+    }
 
     if (googleProfile.emailVerified) {
       user.emailVerified = true;

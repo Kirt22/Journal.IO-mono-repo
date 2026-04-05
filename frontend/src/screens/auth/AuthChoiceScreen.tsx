@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "../../infrastructure/reactNative";
-import { Loader2, Mail, ArrowRight } from "lucide-react-native";
+import { Loader2, Mail } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -20,14 +20,12 @@ type AuthChoiceScreenProps = {
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
-  onSkipToHome: () => void;
 };
 
 export default function AuthChoiceScreen({
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
-  onSkipToHome,
 }: AuthChoiceScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -132,14 +130,6 @@ export default function AuthChoiceScreen({
                 disabled={isEmailLoading || isGoogleLoading}
                 variant="outline"
                 icon={<GoogleMark />}
-              />
-
-              <PrimaryButton
-                label="Skip to Home"
-                onPress={onSkipToHome}
-                variant="ghost"
-                tone="default"
-                icon={<ArrowRight color={theme.colors.primary} size={16} />}
               />
 
               {error ? (

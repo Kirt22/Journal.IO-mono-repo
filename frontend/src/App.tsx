@@ -28,7 +28,6 @@ function AppContent() {
   const continueWithEmail = useAppStore(state => state.continueWithEmail);
   const continueWithGoogle = useAppStore(state => state.continueWithGoogle);
   const goToSignIn = useAppStore(state => state.goToSignIn);
-  const skipToHome = useAppStore(state => state.skipToHome);
   const goToCreateAccount = useAppStore(state => state.goToCreateAccount);
   const signIn = useAppStore(state => state.signIn);
   const createAccount = useAppStore(state => state.createAccount);
@@ -65,7 +64,6 @@ function AppContent() {
     onContinueWithEmail: continueWithEmail,
     onContinueWithGoogle: continueWithGoogle,
     onGoToSignIn: goToSignIn,
-    onSkipToHome: skipToHome,
     onGoToCreateAccount: goToCreateAccount,
     onSignIn: signIn,
     onCreateAccount: createAccount,

@@ -18,4 +18,12 @@ const updateProfileSchema = z.object({
   params: z.object({}).optional(),
 });
 
-export { getProfileSchema, updateProfileSchema };
+const updatePremiumStatusSchema = z.object({
+  body: z.object({
+    isPremium: z.boolean(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+export { getProfileSchema, updatePremiumStatusSchema, updateProfileSchema };

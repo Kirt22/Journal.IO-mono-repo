@@ -423,5 +423,7 @@ test("shows an AI opt-out state without fetching the analysis", async () => {
   expect(getInsightsOverview).toHaveBeenCalledTimes(1);
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
   expect(tree).toContain("AI analysis is turned off");
-  expect(tree).toContain("You chose not to use Journal.IO's AI reflections");
+  expect(tree).toContain(
+    "AI reflections are off for this account, so weekly AI analysis stays hidden."
+  );
 });

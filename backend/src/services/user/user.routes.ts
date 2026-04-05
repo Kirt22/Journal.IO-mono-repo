@@ -3,9 +3,14 @@ import { validateRequest } from "../../middleware/validateRequest.middleware";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
   getProfileController,
+  updatePremiumStatusController,
   updateProfileController,
 } from "./user.controllers";
-import { getProfileSchema, updateProfileSchema } from "./user.validators";
+import {
+  getProfileSchema,
+  updatePremiumStatusSchema,
+  updateProfileSchema,
+} from "./user.validators";
 
 const userRouter: Router = Router();
 
@@ -14,6 +19,13 @@ userRouter.get(
   verifyJwtToken,
   validateRequest(getProfileSchema),
   getProfileController
+);
+
+userRouter.patch(
+  "/premium-status",
+  verifyJwtToken,
+  validateRequest(updatePremiumStatusSchema),
+  updatePremiumStatusController
 );
 
 userRouter.patch(

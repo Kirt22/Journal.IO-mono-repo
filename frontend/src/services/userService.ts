@@ -7,6 +7,10 @@ type UpdateProfilePayload = {
   goals?: string[];
 };
 
+type UpdatePremiumStatusPayload = {
+  isPremium: boolean;
+};
+
 type ProfileResponse = AuthUser;
 
 const getProfile = async () => {
@@ -26,5 +30,14 @@ const updateProfile = async (payload: UpdateProfilePayload) => {
   return applyDevPremiumDefault(response.data);
 };
 
-export { getProfile, updateProfile };
-export type { UpdateProfilePayload, ProfileResponse };
+const updatePremiumStatus = async (payload: UpdatePremiumStatusPayload) => {
+  const response = await request<ProfileResponse>("/users/premium-status", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  return applyDevPremiumDefault(response.data);
+};
+
+export { getProfile, updatePremiumStatus, updateProfile };
+export type { ProfileResponse, UpdatePremiumStatusPayload, UpdateProfilePayload };

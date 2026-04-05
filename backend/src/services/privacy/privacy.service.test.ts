@@ -10,6 +10,7 @@ import { userModel } from "../../schema/user.schema";
 import {
   deletePrivacyAccount,
   exportPrivacyData,
+  PremiumPrivacyModeRequiredError,
   updatePrivacyAiOptOut,
 } from "./privacy.service";
 
@@ -76,6 +77,21 @@ const originalStreakFindOne = streakTarget.findOne;
 const originalStreakDeleteMany = streakTarget.deleteMany;
 const originalStatsFindOne = statsTarget.findOne;
 const originalStatsDeleteMany = statsTarget.deleteMany;
+
+const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
+  userTarget.findById = ((() => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium,
+          onboardingContext: {
+            aiOptIn,
+          },
+        }),
+      }),
+    }),
+  })) as unknown) as typeof userTarget.findById;
+};
 
 afterEach(() => {
   userTarget.findById = originalFindById;
@@ -272,6 +288,7 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
 });
 
 test("updatePrivacyAiOptOut updates the stored AI preference", async () => {
+  mockUserAiAccess(true);
   userTarget.updateOne = async () => ({ matchedCount: 1 });
   const insightUpdates: unknown[] = [];
   insightsTarget.updateOne = async (...args) => {
@@ -284,4 +301,20 @@ test("updatePrivacyAiOptOut updates the stored AI preference", async () => {
   assert.ok(result);
   assert.equal(result?.aiOptIn, false);
   assert.equal(insightUpdates.length, 1);
+});
+
+test("updatePrivacyAiOptOut rejects non-premium users", async () => {
+  mockUserAiAccess(false);
+
+  await assert.rejects(
+    () => updatePrivacyAiOptOut("user-123", true),
+    (error: unknown) => {
+      assert.ok(error instanceof PremiumPrivacyModeRequiredError);
+      assert.equal(
+        (error as Error).message,
+        "Premium membership is required for Privacy Mode."
+      );
+      return true;
+    }
+  );
 });

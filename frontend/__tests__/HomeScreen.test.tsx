@@ -9,6 +9,7 @@ import { calendarSampleJournalEntries } from "../src/models/calendarModels";
 import HomeScreen from "../src/screens/HomeScreen";
 import { createJournalEntry } from "../src/services/journalService";
 import { getInsightsAiAnalysis } from "../src/services/insightsService";
+import { getWritingPrompts } from "../src/services/promptsService";
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
@@ -120,6 +121,30 @@ jest.mock("../src/services/insightsService", () => ({
   })),
 }));
 
+jest.mock("../src/services/promptsService", () => ({
+  getWritingPrompts: jest.fn(async () => ({
+    featuredPrompt: {
+      id: "patterns-1",
+      topic: "Patterns",
+      text: "Where did your mood shift, and what seemed to influence it?",
+    },
+    prompts: [
+      {
+        id: "patterns-1",
+        topic: "Patterns",
+        text: "Where did your mood shift, and what seemed to influence it?",
+      },
+      {
+        id: "next-step-2",
+        topic: "Next Step",
+        text: "What is one small habit you want to reinforce tomorrow?",
+      },
+    ],
+    source: "personalized",
+    generatedAt: "2026-04-06T10:00:00.000Z",
+  })),
+}));
+
 const safeAreaMetrics = {
   frame: {
     x: 0,
@@ -219,6 +244,7 @@ test("renders the home screen layout", async () => {
   const tree = JSON.stringify(root!.toJSON());
 
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(1);
+  expect(getWritingPrompts).toHaveBeenCalledTimes(1);
   expect(tree).toContain("Current Streak");
   expect(tree).toContain("4");
   expect(tree).toContain("days");
@@ -227,6 +253,9 @@ test("renders the home screen layout", async () => {
   expect(tree).toContain("Conscientiousness stood out most this week");
   expect(tree).toContain("Mar 26 - Apr 1");
   expect(tree).toContain("Today's Prompt");
+  expect(tree).toContain(
+    "Where did your mood shift, and what seemed to influence it?"
+  );
   expect(tree).toContain("Recent Entries");
   expect(tree).toContain("No entries yet");
 
@@ -239,6 +268,19 @@ test("renders the home screen layout", async () => {
   });
 
   expect(onOpenNewEntry).toHaveBeenCalled();
+
+  const promptCard = root!.root.findByProps({
+    accessibilityLabel:
+      "Open today's writing prompt: Where did your mood shift, and what seemed to influence it?",
+  });
+
+  ReactTestRenderer.act(() => {
+    promptCard.props.onPress();
+  });
+
+  expect(onOpenNewEntry).toHaveBeenCalledWith(
+    "Where did your mood shift, and what seemed to influence it?"
+  );
 });
 
 test("opens search from the home search icon", async () => {

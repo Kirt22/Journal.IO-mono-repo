@@ -1,5 +1,6 @@
 export type FlowStage =
   | "onboarding"
+  | "paywall"
   | "auth"
   | "sign-in"
   | "create-account"

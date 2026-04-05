@@ -82,8 +82,8 @@ The onboarding sequence now uses 8 steps:
    - evening
    - no reminders
 7. AI comfort and feature explanation:
-   - explain AI-assisted prompts, summaries, and insight generation
-   - allow opt-in / opt-out posture without pressure
+   - explain that AI-assisted prompts, summaries, tag suggestions, and Privacy Mode unlock with Premium
+   - allow opt-in / opt-out posture without pressure so the preference is ready if the user upgrades later
 8. Privacy and trust:
    - user data control
    - no data selling
@@ -173,6 +173,7 @@ Home should support quick daily engagement:
 - the Home AI insight card should keep the copy compact and should fold supporting labels into the title/body instead of rendering standalone tag chips
 - the rotating Home AI insight snippets may change icon and CTA copy per card when that improves scanability without changing the card shell
 - AI surfaces should be premium-gated: non-premium users should see locked placeholders for the Home AI insight card and the Insights `AI Analysis` tab, with a clear upgrade handoff
+- New Entry should keep writing prompts available for everyone, but the `Auto-tag with AI` control should remain visible in a locked premium state for free users and must not call the suggestion API until premium is active
 - the Home current-streak card should be API-backed and should use the lightweight `currentStreak` value returned by `GET /mood/today` rather than calling the full streak summary endpoints
 
 Shared journal-card rule:
@@ -249,6 +250,7 @@ Settings and privacy expectations:
 
 - the Settings screen should keep the Make layout but avoid local-only placeholder toggles
 - the `Privacy Mode` toggle should map to the authenticated user's AI opt-out preference so Home and Insights AI surfaces respond immediately after the setting changes
+- `Privacy Mode` and `Hide Journal Previews` should be premium-gated controls in Settings; free users should see them as locked upgrade entry points instead of active toggles
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
 - the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
 

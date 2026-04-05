@@ -31,7 +31,7 @@ export default function MainAppShell({
   const theme = useTheme();
   const activeTab = useAppStore(state => state.activeTab);
   const onTabChange = useAppStore(state => state.setActiveTab);
-  const onOpenNewEntry = useAppStore(state => state.openNewEntry);
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const session = useAppStore(state => state.session);
   const themeModeOverride = useAppStore(state => state.themeModeOverride);
   const signOut = useAppStore(state => state.signOut);
@@ -52,6 +52,16 @@ export default function MainAppShell({
     setIsRemindersViewVisible(false);
     setIsStreaksViewVisible(false);
     resetProfileSectionStack();
+  };
+
+  const handleOpenNewEntry = (initialPrompt?: string) => {
+    openNewEntry(
+      initialPrompt
+        ? {
+            initialPrompt,
+          }
+        : undefined
+    );
   };
 
   const openProfileSection = (route: ProfileSectionRoute) => {
@@ -92,7 +102,7 @@ export default function MainAppShell({
   const handleTabPress = (nextTab: BottomNavKey) => {
     if (nextTab === "new") {
       closeTransientViews();
-      onOpenNewEntry();
+      handleOpenNewEntry();
       return;
     }
 
@@ -150,6 +160,7 @@ export default function MainAppShell({
                   <SettingsScreen
                     onBack={closeProfileSection}
                     onOpenPrivacy={() => openProfileSection("privacy")}
+                    onOpenPaywall={() => openProfileSection("paywall")}
                     onSignOut={signOut}
                     currentThemePreference={themeModeOverride ?? "system"}
                     onToggleTheme={onToggleTheme}
@@ -205,7 +216,7 @@ export default function MainAppShell({
               return (
                 <HomeScreen
                   userName={session?.user.name || "Journal User"}
-                  onOpenNewEntry={onOpenNewEntry}
+                  onOpenNewEntry={handleOpenNewEntry}
                   onOpenStreaks={handleOpenStreaks}
                   onOpenSearch={openSearch}
                   onOpenReminders={openReminders}

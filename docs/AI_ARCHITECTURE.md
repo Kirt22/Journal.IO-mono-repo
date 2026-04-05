@@ -199,6 +199,10 @@ Current insights overview architecture:
 - the same `insights` document also stores a weekly AI-analysis cache plus staleness metadata
 - if a user opts out of AI analysis, the backend rejects `GET /insights/ai-analysis` and clears the cached weekly AI-analysis payload
 - weekly AI-analysis is recomputed on demand from recent journal text, recent tags, and recent mood check-ins only when the cache is stale or the rolling week changes
+- recomputation uses a hybrid path:
+  - deterministic weekly scoring builds the stable metadata and trait/watchpoint structure
+  - an OpenAI Responses API call then generates the user-facing summary, pattern tags, action-plan copy, and Journal.IO support guidance when AI is enabled and the backend has `OPENAI_API_KEY`
+  - deterministic copy remains the fallback if OpenAI is unavailable
 - AI-analysis output is structured for the mobile screen into:
   - weekly summary metadata
   - pattern tags
@@ -206,6 +210,12 @@ Current insights overview architecture:
   - supportive dark-triad watchpoints
   - actionable steps
   - app-guidance cards
+
+Current prompts and tag architecture:
+
+- `GET /prompts/writing` uses the backend prompts service to assemble writing-pattern context, then calls OpenAI for fresh prompt generation when AI is enabled
+- `POST /journal/suggest_tags` uses the backend journal service to call OpenAI for allowed-tag selection on the draft entry when AI is enabled
+- both services keep deterministic fallbacks so journaling and prompt loading still work if OpenAI is disabled, unavailable, or the user has opted out
 
 Current streaks architecture:
 

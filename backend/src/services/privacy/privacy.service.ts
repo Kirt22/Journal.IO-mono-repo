@@ -5,6 +5,7 @@ import { reminderModel, type IReminder } from "../../schema/reminder.schema";
 import { streaksModel, type IStreak } from "../../schema/streak.schema";
 import { statsModel, type IStat } from "../../schema/stat.schema";
 import { userModel, type IUser } from "../../schema/user.schema";
+import { getUserAiAccessState } from "../../helpers/openai.helpers";
 import { invalidateRefreshToken } from "../auth/auth.service";
 import type { MoodValue } from "../../types/mood.types";
 
@@ -127,6 +128,13 @@ type DeleteAccountResult = {
 type UpdateAiOptOutResult = {
   aiOptIn: boolean;
 };
+
+class PremiumPrivacyModeRequiredError extends Error {
+  constructor() {
+    super("Premium membership is required for Privacy Mode.");
+    this.name = "PremiumPrivacyModeRequiredError";
+  }
+}
 
 const toIso = (value: unknown): string => {
   if (!value) {
@@ -366,6 +374,12 @@ const updatePrivacyAiOptOut = async (
   userId: string,
   aiOptOut: boolean
 ): Promise<UpdateAiOptOutResult | null> => {
+  const accessState = await getUserAiAccessState(userId);
+
+  if (!accessState.isPremium) {
+    throw new PremiumPrivacyModeRequiredError();
+  }
+
   const [result] = await Promise.all([
     userModel.updateOne(
       { _id: userId },
@@ -399,7 +413,12 @@ const updatePrivacyAiOptOut = async (
   };
 };
 
-export { deletePrivacyAccount, exportPrivacyData, updatePrivacyAiOptOut };
+export {
+  deletePrivacyAccount,
+  exportPrivacyData,
+  PremiumPrivacyModeRequiredError,
+  updatePrivacyAiOptOut,
+};
 export type {
   DeleteAccountResult,
   PrivacyExportAccount,

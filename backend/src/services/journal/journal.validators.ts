@@ -66,6 +66,19 @@ const deleteJournalSchema = z.object({
   params: z.object({}).optional(),
 });
 
+// POST /suggest_tags
+const suggestJournalTagsSchema = z.object({
+  body: z.object({
+    content: z.string().trim().min(1, "Content is required"),
+    selectedTags: z.array(z.string().trim().min(1)).optional(),
+    mood: z
+      .enum(["amazing", "good", "okay", "bad", "terrible"])
+      .optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
   getJournalsSchema,
   createJournalSchema,
@@ -73,4 +86,5 @@ export {
   editJournalSchema,
   toggleJournalFavoriteSchema,
   deleteJournalSchema,
+  suggestJournalTagsSchema,
 };

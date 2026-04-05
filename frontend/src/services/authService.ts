@@ -124,14 +124,14 @@ const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T =
       ...value,
       user: {
         ...value.user,
-        isPremium: value.user.isPremium ?? true,
+        isPremium: value.user.isPremium ?? false,
       },
     };
   }
 
   return {
     ...value,
-    isPremium: value.isPremium ?? true,
+    isPremium: value.isPremium ?? false,
   };
 };
 
@@ -155,7 +155,7 @@ const createMockSession = (payload: {
       name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
       phoneNumber: null,
       email,
-      isPremium: true,
+      isPremium: false,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,

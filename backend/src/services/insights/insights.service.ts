@@ -2,12 +2,18 @@ import { journalModel } from "../../schema/journal.schema";
 import { insightsModel, type IInsights } from "../../schema/insights.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { userModel } from "../../schema/user.schema";
+import {
+  canUseOpenAiForUser,
+  getUserAiAccessState,
+  requestStructuredOpenAi,
+} from "../../helpers/openai.helpers";
 import type {
   InsightTone,
   InsightsAiAnalysisResponse,
   InsightsOverviewResponse,
 } from "../../types/insights.types";
 import type { MoodValue } from "../../types/mood.types";
+import { z } from "zod";
 
 type JournalInsightsSnapshot = {
   userId: string;
@@ -43,6 +49,13 @@ class AiAnalysisDisabledError extends Error {
   }
 }
 
+class PremiumFeatureRequiredError extends Error {
+  constructor() {
+    super("Premium membership is required for this feature.");
+    this.name = "PremiumFeatureRequiredError";
+  }
+}
+
 const MOOD_ORDER: MoodValue[] = [
   "amazing",
   "good",
@@ -73,6 +86,126 @@ const DEFAULT_PROMPTS = [
     text: "What is one small thing you want to carry into tomorrow?",
   },
 ];
+const aiAnalysisEnhancementSchema = z.object({
+  summary: z.object({
+    headline: z.string().trim().min(1).max(90),
+    narrative: z.string().trim().min(1).max(280),
+    highlight: z.string().trim().min(1).max(220),
+  }),
+  patternTags: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(32),
+        tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+      })
+    )
+    .min(1)
+    .max(4),
+  actionPlan: z.object({
+    headline: z.string().trim().min(1).max(120),
+    steps: z
+      .array(
+        z.object({
+          title: z.string().trim().min(1).max(70),
+          description: z.string().trim().min(1).max(190),
+          focus: z.string().trim().min(1).max(36),
+        })
+      )
+      .min(3)
+      .max(3),
+  }),
+  appSupport: z.object({
+    headline: z.string().trim().min(1).max(120),
+    items: z
+      .array(
+        z.object({
+          title: z.string().trim().min(1).max(70),
+          description: z.string().trim().min(1).max(190),
+        })
+      )
+      .min(3)
+      .max(3),
+  }),
+});
+const aiAnalysisEnhancementJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "patternTags", "actionPlan", "appSupport"],
+  properties: {
+    summary: {
+      type: "object",
+      additionalProperties: false,
+      required: ["headline", "narrative", "highlight"],
+      properties: {
+        headline: { type: "string" },
+        narrative: { type: "string" },
+        highlight: { type: "string" },
+      },
+    },
+    patternTags: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "tone"],
+        properties: {
+          label: { type: "string" },
+          tone: {
+            type: "string",
+            enum: ["coral", "blue", "sage", "amber", "slate"],
+          },
+        },
+      },
+    },
+    actionPlan: {
+      type: "object",
+      additionalProperties: false,
+      required: ["headline", "steps"],
+      properties: {
+        headline: { type: "string" },
+        steps: {
+          type: "array",
+          minItems: 3,
+          maxItems: 3,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "description", "focus"],
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              focus: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    appSupport: {
+      type: "object",
+      additionalProperties: false,
+      required: ["headline", "items"],
+      properties: {
+        headline: { type: "string" },
+        items: {
+          type: "array",
+          minItems: 3,
+          maxItems: 3,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "description"],
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+  },
+} satisfies Record<string, unknown>;
 
 const BIG_FIVE_KEYWORDS = {
   openness: [
@@ -227,13 +360,13 @@ const addUtcDays = (date: Date, delta: number) => {
 };
 
 const ensureAiAnalysisEnabled = async (userId: string) => {
-  const user = await userModel
-    .findById(userId)
-    .select("onboardingContext.aiOptIn")
-    .lean()
-    .exec();
+  const accessState = await getUserAiAccessState(userId);
 
-  if (user?.onboardingContext?.aiOptIn === false) {
+  if (!accessState.isPremium) {
+    throw new PremiumFeatureRequiredError();
+  }
+
+  if (accessState.aiOptIn === false) {
     throw new AiAnalysisDisabledError();
   }
 };
@@ -1129,6 +1262,91 @@ const buildWeeklyAiAnalysis = ({
   };
 };
 
+const mergeAiAnalysisEnhancement = (
+  analysis: InsightsAiAnalysisResponse,
+  enhancement: z.infer<typeof aiAnalysisEnhancementSchema>
+): InsightsAiAnalysisResponse => {
+  return {
+    ...analysis,
+    summary: enhancement.summary,
+    patternTags: enhancement.patternTags,
+    actionPlan: enhancement.actionPlan,
+    appSupport: enhancement.appSupport,
+  };
+};
+
+const generateAiAnalysisEnhancement = async ({
+  userId,
+  analysis,
+  journals,
+  moods,
+}: {
+  userId: string;
+  analysis: InsightsAiAnalysisResponse;
+  journals: WeeklyJournalSnapshot[];
+  moods: WeeklyMoodSnapshot[];
+}) => {
+  if (!journals.length || !(await canUseOpenAiForUser(userId))) {
+    return null;
+  }
+
+  const recentEntries = journals.slice(0, 6).map((journal, index) => ({
+    order: index + 1,
+    createdAt: journal.createdAt.toISOString(),
+    tags: normalizeInsightTags(journal.tags),
+    isFavorite: journal.isFavorite,
+    excerpt: journal.content.trim().slice(0, 360),
+  }));
+  const moodSummary = buildMoodDistribution(
+    moods.reduce((acc, mood) => {
+      updateMoodMapValue(acc, mood.mood, 1);
+      return acc;
+    }, readMoodCountMap())
+  ).filter(item => item.count > 0);
+
+  return requestStructuredOpenAi({
+    feature: "weekly ai analysis",
+    schemaName: "weekly_ai_analysis_enhancement",
+    schema: aiAnalysisEnhancementJsonSchema,
+    parser: aiAnalysisEnhancementSchema,
+    maxOutputTokens: 980,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You refine Journal.IO's weekly analysis copy. Keep everything non-clinical, uncertainty-aware, emotionally safe, and behavior-focused. Never diagnose, pathologize, or claim certainty. Ground the language in recurring patterns from the provided week, and keep the wording concise enough for a mobile screen.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          analysisWindow: analysis.window,
+          freshness: analysis.freshness,
+          baseSummary: analysis.summary,
+          existingPatternTags: analysis.patternTags,
+          bigFive: analysis.bigFive.map(item => ({
+            trait: item.trait,
+            label: item.label,
+            score: item.score,
+            band: item.band,
+            evidenceTags: item.evidenceTags,
+          })),
+          darkTriad: analysis.darkTriad.map(item => ({
+            trait: item.trait,
+            supportiveLabel: item.supportiveLabel,
+            score: item.score,
+            band: item.band,
+            supportTip: item.supportTip,
+          })),
+          currentActionPlan: analysis.actionPlan,
+          currentAppSupport: analysis.appSupport,
+          moodSummary,
+          recentEntries,
+        }),
+      },
+    ],
+  });
+};
+
 const rebuildInsightsCache = async (userId: string) => {
   const [journals, moodCheckIns] = await Promise.all([
     journalModel.find({ userId }).select("content tags isFavorite createdAt").lean().exec(),
@@ -1360,7 +1578,7 @@ const refreshAiAnalysisCache = async (userId: string, insights: IInsights, today
       .exec(),
   ]);
 
-  const analysis = buildWeeklyAiAnalysis({
+  const baselineAnalysis = buildWeeklyAiAnalysis({
     insights,
     journals: journals.map(journal => ({
       content: journal.content || "",
@@ -1374,6 +1592,23 @@ const refreshAiAnalysisCache = async (userId: string, insights: IInsights, today
     })),
     today,
   });
+  const analysisEnhancement = await generateAiAnalysisEnhancement({
+    userId,
+    analysis: baselineAnalysis,
+    journals: journals.map(journal => ({
+      content: journal.content || "",
+      tags: journal.tags || [],
+      isFavorite: Boolean(journal.isFavorite),
+      createdAt: new Date(journal.createdAt),
+    })),
+    moods: moods.map(mood => ({
+      mood: mood.mood,
+      moodDateKey: mood.moodDateKey,
+    })),
+  });
+  const analysis = analysisEnhancement
+    ? mergeAiAnalysisEnhancement(baselineAnalysis, analysisEnhancement)
+    : baselineAnalysis;
 
   insights.aiAnalysis = analysis;
   insights.aiAnalysisComputedAt = new Date();
@@ -1409,8 +1644,11 @@ const getInsightsAiAnalysis = async (userId: string): Promise<InsightsAiAnalysis
 
 export {
   AiAnalysisDisabledError,
+  PremiumFeatureRequiredError,
+  buildWeeklyAiAnalysis,
   getInsightsOverview,
   getInsightsAiAnalysis,
+  mergeAiAnalysisEnhancement,
   rebuildInsightsCache,
   syncJournalCreatedInsights,
   syncJournalDeletedInsights,

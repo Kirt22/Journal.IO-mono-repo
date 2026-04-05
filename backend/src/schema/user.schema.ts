@@ -36,6 +36,7 @@ export interface IUser extends Document {
   refreshTokenHash?: string | null;
   refreshTokenExpiresAt?: Date | null;
   lastLoginAt?: Date | null;
+  isPremium: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -89,6 +90,7 @@ const userSchema = new mongoose.Schema<IUser>(
     refreshTokenHash: { type: String, default: null },
     refreshTokenExpiresAt: { type: Date, default: null },
     lastLoginAt: { type: Date, default: null },
+    isPremium: { type: Boolean, default: false, required: true },
   },
   { timestamps: true }
 );

@@ -51,13 +51,14 @@ import {
   logMoodCheckIn,
   type MoodValue,
 } from "../services/moodService";
+import { getWritingPrompts, type WritingPrompt } from "../services/promptsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import { getJournalEntries } from "../services/journalService";
 
 type HomeScreenProps = {
   userName?: string;
-  onOpenNewEntry: () => void;
+  onOpenNewEntry: (initialPrompt?: string) => void;
   onOpenStreaks: () => void;
   onOpenSearch?: () => void;
   onOpenReminders?: () => void;
@@ -66,16 +67,14 @@ type HomeScreenProps = {
 
 type MoodType = MoodValue;
 
-const aiPrompts = [
-  "What are you grateful for today?",
-  "What challenged you recently and what did you learn?",
-  "Describe a moment that made you smile",
-  "What would you tell your past self?",
-];
-
 const quickTags = ["thought", "idea", "reminder", "gratitude", "dream"];
 const MOOD_CONFIRMATION_DELAY_MS = 120;
 const HOME_AI_AUTOSCROLL_MS = 4800;
+const DEFAULT_HOME_PROMPT: WritingPrompt = {
+  id: "reflection-1",
+  topic: "Reflection",
+  text: "What felt most steady or grounding in your day?",
+};
 
 const moods: {
   value: MoodType;
@@ -458,6 +457,9 @@ export default function HomeScreen({
   const [homeAiAnalysis, setHomeAiAnalysis] = useState<InsightsAiAnalysis | null>(null);
   const [isLoadingHomeAiInsight, setIsLoadingHomeAiInsight] = useState(true);
   const [homeAiInsightError, setHomeAiInsightError] = useState<string | null>(null);
+  const [featuredPrompt, setFeaturedPrompt] = useState<WritingPrompt>(
+    DEFAULT_HOME_PROMPT
+  );
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -476,7 +478,6 @@ export default function HomeScreen({
   }, [userName]);
 
   const greeting = getGreeting();
-  const todayPrompt = aiPrompts[new Date().getDate() % aiPrompts.length];
   const displayedMood = selectedMood || savedMood;
   const homeInsightCards = useMemo(
     () => buildHomeInsightCards(homeAiAnalysis),
@@ -543,6 +544,30 @@ export default function HomeScreen({
       isActive = false;
     };
   }, [isAiInsightEnabled]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadFeaturedPrompt = async () => {
+      try {
+        const response = await getWritingPrompts();
+
+        if (isActive && response.featuredPrompt?.text) {
+          setFeaturedPrompt(response.featuredPrompt);
+        }
+      } catch {
+        if (isActive) {
+          setFeaturedPrompt(DEFAULT_HOME_PROMPT);
+        }
+      }
+    };
+
+    loadFeaturedPrompt().catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!homeInsightCards.length) {
@@ -1822,13 +1847,17 @@ export default function HomeScreen({
           </View>
 
           <View style={styles.sectionSpacing}>
-            <View
-              style={[
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open today's writing prompt: ${featuredPrompt.text}`}
+              onPress={() => onOpenNewEntry(featuredPrompt.text)}
+              style={({ pressed }) => [
                 styles.card,
                 {
                   backgroundColor: theme.colors.card,
                   borderColor: theme.colors.border,
                 },
+                pressed && styles.pressed,
               ]}
             >
               <View style={styles.promptRow}>
@@ -1855,11 +1884,11 @@ export default function HomeScreen({
                       { color: theme.colors.foreground },
                     ]}
                   >
-                    {todayPrompt}
+                    {featuredPrompt.text}
                   </Text>
                 </View>
               </View>
-            </View>
+            </Pressable>
           </View>
 
           <View style={styles.sectionSpacing}>
@@ -1888,7 +1917,7 @@ export default function HomeScreen({
                 icon={Sparkles}
                 label="Prompts"
                 accessibilityLabel="Open prompts"
-                onPress={() => {}}
+                onPress={() => onOpenNewEntry(featuredPrompt.text)}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}

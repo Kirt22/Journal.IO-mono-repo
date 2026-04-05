@@ -38,7 +38,7 @@ describe("appStore", () => {
     resetAppStore();
   });
 
-  it("preserves onboarding data and advances the flow after the handoff delay", async () => {
+  it("preserves onboarding data and advances into paywall after the handoff delay", async () => {
     const store = useAppStore;
 
     await act(async () => {
@@ -53,8 +53,57 @@ describe("appStore", () => {
     });
 
     expect(store.getState().isCompletingOnboarding).toBe(false);
-    expect(store.getState().stage).toBe("auth");
+    expect(store.getState().stage).toBe("paywall");
     expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
+  });
+
+  it("continues from paywall into auth", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "paywall" });
+      store.getState().continueFromPaywall();
+    });
+
+    expect(store.getState().stage).toBe("auth");
+  });
+
+  it("returns to the stored stage when paywall is opened from inside the app", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "main-app",
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: true,
+            onboardingCompleted: true,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+      store.getState().openPaywall("main-app");
+    });
+
+    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().paywallReturnStage).toBe("main-app");
+
+    act(() => {
+      store.getState().continueFromPaywall();
+    });
+
+    expect(store.getState().stage).toBe("main-app");
+    expect(store.getState().paywallReturnStage).toBeNull();
   });
 
   it("clears local reminders when onboarding selects no reminders", async () => {
@@ -94,6 +143,27 @@ describe("appStore", () => {
     expect(store.getState().activeTab).toBe("home");
     expect(store.getState().authSource).toBeNull();
     expect(store.getState().themeModeOverride).toBeNull();
+  });
+
+  it("stores and clears a prefilled prompt when opening new entry from home", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().openNewEntry({
+        initialPrompt: "What felt most steady or grounding in your day?",
+      });
+    });
+
+    expect(store.getState().stage).toBe("new-entry");
+    expect(store.getState().pendingNewEntryPrompt).toBe(
+      "What felt most steady or grounding in your day?"
+    );
+
+    act(() => {
+      store.getState().closeNewEntry();
+    });
+
+    expect(store.getState().pendingNewEntryPrompt).toBeNull();
   });
 
   it("updates ai opt-in on the active session user", () => {

@@ -5,6 +5,7 @@ import insightsRouter from "../services/insights/insights.routes";
 import moodRouter from "../services/mood/mood.routes";
 import journalRouter from "../services/journal/journal.routes";
 import privacyRouter from "../services/privacy/privacy.routes";
+import promptsRouter from "../services/prompts/prompts.routes";
 import remindersRouter from "../services/reminders/reminders.routes";
 import streaksRouter from "../services/streaks/streaks.routes";
 import userRouter from "../services/user/user.routes";
@@ -41,6 +42,7 @@ export const initializeRoutes = (app: Express): void => {
   apiRouter.use("/mood", moodRouter);
   apiRouter.use("/journal", journalRouter);
   apiRouter.use("/privacy", privacyRouter);
+  apiRouter.use("/prompts", promptsRouter);
   apiRouter.use("/reminders", remindersRouter);
   apiRouter.use("/streaks", streaksRouter);
   apiRouter.use("/insights", insightsRouter);

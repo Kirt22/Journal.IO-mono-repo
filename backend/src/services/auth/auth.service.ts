@@ -404,6 +404,7 @@ const buildUserPayload = (user: IUser) => {
     name: user.name,
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
+    isPremium: Boolean(user.isPremium),
     journalingGoals: user.journalingGoals || [],
     avatarColor: user.avatarColor || null,
     profileSetupCompleted: Boolean(user.profileSetupCompleted),

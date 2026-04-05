@@ -12,6 +12,7 @@ import {
 } from "../screens/onboarding/OnboardingScreen";
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
+import PaywallScreen from "../screens/profile/PaywallScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
@@ -26,7 +27,9 @@ type AppFlowRoutesProps = {
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
+  pendingNewEntryPrompt: string | null;
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
+  onContinueFromPaywall: () => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
@@ -56,7 +59,9 @@ export function AppFlowRoutes({
   authSource,
   session,
   initialProfileName,
+  pendingNewEntryPrompt,
   onOnboardingContinue,
+  onContinueFromPaywall,
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
@@ -94,6 +99,8 @@ export function AppFlowRoutes({
           onGoToSignIn={onGoToSignIn}
         />
       );
+    case "paywall":
+      return <PaywallScreen onBack={onContinueFromPaywall} />;
     case "sign-in":
       return (
         <SignInScreen
@@ -137,7 +144,12 @@ export function AppFlowRoutes({
     case "main-app":
       return <MainAppShell onToggleTheme={onToggleTheme} />;
     case "new-entry":
-      return <NewEntryScreen onBack={onCloseNewEntry} />;
+      return (
+        <NewEntryScreen
+          onBack={onCloseNewEntry}
+          initialPrompt={pendingNewEntryPrompt}
+        />
+      );
     case "journal-detail":
       return <EntryDetailScreen />;
     case "journal-edit":

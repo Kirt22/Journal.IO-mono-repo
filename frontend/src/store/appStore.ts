@@ -13,7 +13,7 @@ import {
   type AuthSession,
 } from "../services/authService";
 import { getGoogleIdToken } from "../config/googleSignIn";
-import { getProfile, updateProfile } from "../services/userService";
+import { getProfile, updatePremiumStatus, updateProfile } from "../services/userService";
 import { syncOnboardingReminderPreference } from "../services/reminderNotificationsService";
 import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
@@ -46,6 +46,7 @@ const wait = (ms: number) =>
 
 const isFlowStage = (value: string): value is FlowStage =>
   value === "onboarding" ||
+  value === "paywall" ||
   value === "auth" ||
   value === "sign-in" ||
   value === "create-account" ||
@@ -123,6 +124,7 @@ function buildOnboardingContext(
 
 type AppStoreState = {
   stage: FlowStage;
+  paywallReturnStage: Exclude<FlowStage, "paywall"> | null;
   activeTab: BottomNavKey;
   preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
@@ -134,11 +136,15 @@ type AppStoreState = {
   initialProfileName: string;
   themeModeOverride: ThemeMode | null;
   selectedJournalEntryId: string | null;
+  pendingNewEntryPrompt: string | null;
+  pendingPremiumActivation: boolean;
   hasBootstrappedAuthGate: boolean;
   hideJournalPreviews: boolean;
 } & JournalSliceState & {
   bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
+  continueFromPaywall: () => void;
+  openPaywall: (returnStage?: FlowStage) => void;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
@@ -165,7 +171,7 @@ type AppStoreState = {
   setActiveTab: (nextTab: BottomNavKey) => void;
   openInsightsTab: (nextTab?: "overview" | "analysis") => void;
   clearPreferredInsightsTab: () => void;
-  openNewEntry: () => void;
+  openNewEntry: (options?: { initialPrompt?: string | null }) => void;
   closeNewEntry: () => void;
   openJournalEntry: (entryId: string) => void;
   openJournalEditor: (entryId: string) => void;
@@ -180,6 +186,7 @@ type AppStoreState = {
 type AppStoreSnapshot = Pick<
   AppStoreState,
   | "stage"
+  | "paywallReturnStage"
   | "activeTab"
   | "preferredInsightsTab"
   | "isCompletingOnboarding"
@@ -191,6 +198,8 @@ type AppStoreSnapshot = Pick<
   | "initialProfileName"
   | "themeModeOverride"
   | "selectedJournalEntryId"
+  | "pendingNewEntryPrompt"
+  | "pendingPremiumActivation"
   | "hasBootstrappedAuthGate"
   | "hideJournalPreviews"
   | "recentJournalEntries"
@@ -198,6 +207,7 @@ type AppStoreSnapshot = Pick<
 
 const createInitialSnapshot = (): AppStoreSnapshot => ({
   stage: getInitialStage(),
+  paywallReturnStage: null,
   activeTab: getInitialTab(),
   preferredInsightsTab: null,
   isCompletingOnboarding: false,
@@ -212,6 +222,8 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   initialProfileName: "",
   themeModeOverride: null,
   selectedJournalEntryId: null,
+  pendingNewEntryPrompt: null,
+  pendingPremiumActivation: false,
   hasBootstrappedAuthGate: false,
   hideJournalPreviews: false,
   ...createInitialJournalSliceState(),
@@ -242,6 +254,32 @@ const getSelectedGoals = (state: Pick<AppStoreState, "onboardingData">) =>
 
 const isUnauthorizedProfileError = (error: unknown) =>
   error instanceof ApiError && (error.status === 401 || error.status === 403);
+
+const syncPendingPremiumIfNeeded = async (
+  session: AuthSession,
+  pendingPremiumActivation: boolean
+) => {
+  if (!pendingPremiumActivation) {
+    return session;
+  }
+
+  const updatedProfile = await updatePremiumStatus({ isPremium: true });
+
+  return {
+    ...session,
+    user: updatedProfile,
+  };
+};
+
+const resolvePaywallExitStage = (
+  state: Pick<AppStoreState, "session" | "paywallReturnStage">
+): Exclude<FlowStage, "paywall"> => {
+  if (state.paywallReturnStage && state.paywallReturnStage !== "paywall") {
+    return state.paywallReturnStage;
+  }
+
+  return state.session ? "main-app" : "auth";
+};
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
@@ -298,7 +336,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           authSource: profile.email ? "email" : null,
           pendingEmail: profile.email || "",
           pendingVerificationCode: "",
+          paywallReturnStage: null,
           preferredInsightsTab: null,
+          pendingPremiumActivation: false,
           activeTab: "home",
           stage: "main-app",
         });
@@ -317,6 +357,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           authSource: null,
           pendingEmail: "",
           pendingVerificationCode: "",
+          paywallReturnStage: null,
           preferredInsightsTab: null,
           activeTab: "home",
           stage: onboardingCompleted ? "auth" : "onboarding",
@@ -350,7 +391,25 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     set({
       isCompletingOnboarding: false,
-      stage: "auth",
+      pendingPremiumActivation: false,
+      paywallReturnStage: "auth",
+      stage: "paywall",
+    });
+  },
+  continueFromPaywall: () => {
+    set(state => ({
+      paywallReturnStage: null,
+      stage: resolvePaywallExitStage(state),
+    }));
+  },
+  openPaywall: returnStage => {
+    const fallbackStage = get().stage === "paywall" ? "main-app" : get().stage;
+
+    set({
+      paywallReturnStage:
+        (returnStage && returnStage !== "paywall" ? returnStage : fallbackStage) ||
+        (get().session ? "main-app" : "auth"),
+      stage: "paywall",
     });
   },
   continueWithEmail: async () => {
@@ -373,22 +432,28 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ...(onboardingContext ? { onboardingContext } : {}),
       onboardingCompleted: true,
     });
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
 
     await saveTokens({
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
+      accessToken: syncedSession.accessToken,
+      refreshToken: syncedSession.refreshToken,
     });
-    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
+    await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
 
     set({
       authSource: "google",
-      pendingEmail: response.user.email || "",
+      pendingEmail: syncedSession.user.email || "",
       pendingVerificationCode: "",
-      session: response,
-      initialProfileName: response.user.name || "Journal User",
+      paywallReturnStage: null,
+      session: syncedSession,
+      initialProfileName: syncedSession.user.name || "Journal User",
+      pendingPremiumActivation: false,
       preferredInsightsTab: null,
       activeTab: "home",
-      stage: response.user.profileSetupCompleted ? "main-app" : "profile",
+      stage: syncedSession.user.profileSetupCompleted ? "main-app" : "profile",
     });
   },
   goToSignIn: () => {
@@ -455,14 +520,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       }
     );
 
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
+
     const updatedSession: AuthSession = {
-      ...response,
+      ...syncedSession,
       user: {
-        ...response.user,
+        ...syncedSession.user,
         journalingGoals:
           onboardingData?.goals?.length
             ? onboardingData.goals
-            : response.user.journalingGoals,
+            : syncedSession.user.journalingGoals,
       },
     };
 
@@ -475,6 +545,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       session: updatedSession,
       initialProfileName: updatedSession.user.name,
+      paywallReturnStage: null,
+      pendingPremiumActivation: false,
     });
   },
   finishEmailVerification: () => {
@@ -485,18 +557,24 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ...payload,
       onboardingCompleted: true,
     });
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
 
     await saveTokens({
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
+      accessToken: syncedSession.accessToken,
+      refreshToken: syncedSession.refreshToken,
     });
-    await saveOnboardingCompleted(Boolean(response.user.onboardingCompleted));
+    await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
 
-    if (response.user.profileSetupCompleted) {
+    if (syncedSession.user.profileSetupCompleted) {
       set({
-        session: response,
-        pendingEmail: response.user.email || payload.email,
+        session: syncedSession,
+        pendingEmail: syncedSession.user.email || payload.email,
         authSource: "email",
+        paywallReturnStage: null,
+        pendingPremiumActivation: false,
         preferredInsightsTab: null,
         activeTab: "home",
         stage: "main-app",
@@ -505,10 +583,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }
 
     set({
-      session: response,
-      pendingEmail: response.user.email || payload.email,
+      session: syncedSession,
+      pendingEmail: syncedSession.user.email || payload.email,
       authSource: "email",
-      initialProfileName: response.user.name,
+      initialProfileName: syncedSession.user.name,
+      paywallReturnStage: null,
+      pendingPremiumActivation: false,
       stage: "profile",
     });
   },
@@ -536,6 +616,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ...createInitialJournalSliceState(),
       stage: "auth",
       activeTab: "home",
+      paywallReturnStage: null,
       preferredInsightsTab: null,
       isCompletingOnboarding: false,
       onboardingData: null,
@@ -545,6 +626,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       session: null,
       initialProfileName: "",
       selectedJournalEntryId: null,
+      pendingNewEntryPrompt: null,
+      pendingPremiumActivation: false,
     });
   },
   goBackToAuth: () => {
@@ -593,32 +676,39 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   clearPreferredInsightsTab: () => {
     set({ preferredInsightsTab: null });
   },
-  openNewEntry: () => {
-    set({ stage: "new-entry" });
+  openNewEntry: options => {
+    set({
+      stage: "new-entry",
+      pendingNewEntryPrompt: options?.initialPrompt?.trim() || null,
+    });
   },
   closeNewEntry: () => {
-    set({ stage: "main-app" });
+    set({ stage: "main-app", pendingNewEntryPrompt: null });
   },
   openJournalEntry: entryId => {
     set({
       selectedJournalEntryId: entryId,
+      pendingNewEntryPrompt: null,
       stage: "journal-detail",
     });
   },
   openJournalEditor: entryId => {
     set({
       selectedJournalEntryId: entryId,
+      pendingNewEntryPrompt: null,
       stage: "journal-edit",
     });
   },
   closeJournalEntry: () => {
     set({
       selectedJournalEntryId: null,
+      pendingNewEntryPrompt: null,
       stage: "main-app",
     });
   },
   closeJournalEditor: () => {
     set(state => ({
+      pendingNewEntryPrompt: null,
       stage: state.selectedJournalEntryId ? "journal-detail" : "main-app",
     }));
   },
@@ -650,10 +740,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const currentSession = get().session;
 
     if (!currentSession) {
+      set({ pendingPremiumActivation: nextValue });
       return;
     }
 
     set({
+      pendingPremiumActivation: nextValue,
       session: {
         ...currentSession,
         user: {

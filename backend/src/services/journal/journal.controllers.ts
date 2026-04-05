@@ -5,6 +5,8 @@ import {
   deleteJournal,
   getJournalDetails,
   getJournals,
+  PremiumTagSuggestionsRequiredError,
+  suggestJournalTags,
   toggleJournalFavorite,
   updateJournal,
 } from "./journal.service";
@@ -174,6 +176,42 @@ const deleteJournalController = async (
   }
 };
 
+const suggestJournalTagsController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+    }
+
+    const { content, selectedTags, mood } = req.body;
+    const suggestions = await suggestJournalTags({
+      userId,
+      content,
+      selectedTags,
+      mood,
+    });
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Journal tag suggestions ready", suggestions));
+  } catch (error) {
+    if (error instanceof PremiumTagSuggestionsRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
+    console.error("Error in suggestJournalTagsController:", error);
+    return res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
 export {
   getJournalsController,
   createJournalController,
@@ -181,4 +219,5 @@ export {
   editJournalController,
   toggleJournalFavoriteController,
   deleteJournalController,
+  suggestJournalTagsController,
 };

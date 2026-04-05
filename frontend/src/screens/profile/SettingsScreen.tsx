@@ -13,6 +13,7 @@ import {
   Check,
   ChevronDown,
   Download,
+  Lock,
   LogOut,
   Moon,
   Shield,
@@ -28,6 +29,7 @@ import type { ThemeMode } from "../../theme/theme";
 type SettingsScreenProps = {
   onBack: () => void;
   onOpenPrivacy: () => void;
+  onOpenPaywall: () => void;
   onSignOut: () => Promise<void> | void;
   currentThemePreference: ThemeMode | "system";
   onToggleTheme: (nextMode: ThemeMode | null) => void;
@@ -62,16 +64,19 @@ function SettingRow({
   value,
   onValueChange,
   disabled = false,
+  locked = false,
+  onLockedPress,
 }: {
   label: string;
   description: string;
   value: boolean;
   onValueChange: (nextValue: boolean) => void;
   disabled?: boolean;
+  locked?: boolean;
+  onLockedPress?: () => void;
 }) {
   const theme = useTheme();
-
-  return (
+  const rowContent = (
     <View style={styles.settingRow}>
       <View style={styles.settingCopy}>
         <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
@@ -81,25 +86,56 @@ function SettingRow({
           {description}
         </Text>
       </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        disabled={disabled}
-        trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-        thumbColor={theme.colors.card}
-      />
+      {locked ? (
+        <View
+          style={[
+            styles.lockBadge,
+            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+          ]}
+        >
+          <Lock size={13} color={theme.colors.primary} />
+          <Text style={[styles.lockBadgeText, { color: theme.colors.primary }]}>
+            Premium
+          </Text>
+        </View>
+      ) : (
+        <Switch
+          value={value}
+          onValueChange={onValueChange}
+          disabled={disabled}
+          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+          thumbColor={theme.colors.card}
+        />
+      )}
     </View>
   );
+
+  if (locked && onLockedPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Unlock ${label}`}
+        onPress={onLockedPress}
+        style={({ pressed }) => [pressed && styles.pressed]}
+      >
+        {rowContent}
+      </Pressable>
+    );
+  }
+
+  return rowContent;
 }
 
 export default function SettingsScreen({
   onBack,
   onOpenPrivacy,
+  onOpenPaywall,
   onSignOut,
   currentThemePreference,
   onToggleTheme,
 }: SettingsScreenProps) {
   const theme = useTheme();
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const isPrivacyModeEnabled = useAppStore(
     state => state.session?.user.aiOptIn === false
   );
@@ -115,9 +151,11 @@ export default function SettingsScreen({
   const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] = useState(false);
   const themeMenuAnimation = useRef(new Animated.Value(0)).current;
   const privacyDescriptionAnimation = useRef(new Animated.Value(1)).current;
-  const privacyModeDescription = isPrivacyModeEnabled
-    ? "AI reflections are off. Home and Insights AI surfaces stay hidden for this account."
-    : "Turn off AI reflections and weekly analysis for this account.";
+  const privacyModeDescription = !isPremiumUser
+    ? "Premium unlocks Privacy Mode for AI reflections and weekly analysis."
+    : isPrivacyModeEnabled
+      ? "AI reflections are off. Home and Insights AI surfaces stay hidden for this account."
+      : "Turn off AI reflections and weekly analysis for this account.";
 
   const themeLabel = useMemo(
     () =>
@@ -192,6 +230,11 @@ export default function SettingsScreen({
   };
 
   const handlePrivacyModeChange = async (nextValue: boolean) => {
+    if (!isPremiumUser) {
+      onOpenPaywall();
+      return;
+    }
+
     if (isUpdatingPrivacyMode) {
       return;
     }
@@ -214,6 +257,11 @@ export default function SettingsScreen({
   };
 
   const handlePreviewPrivacyChange = async (nextValue: boolean) => {
+    if (!isPremiumUser) {
+      onOpenPaywall();
+      return;
+    }
+
     if (isUpdatingPreviewPrivacy) {
       return;
     }
@@ -362,45 +410,73 @@ export default function SettingsScreen({
         </Text>
 
         <View style={styles.rowStack}>
-          <View style={styles.settingRow}>
-            <View style={styles.settingCopy}>
-              <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
-                Privacy Mode
-              </Text>
-              <Animated.Text
-                style={[
-                  styles.settingDescription,
-                  {
-                    color: theme.colors.mutedForeground,
-                    opacity: privacyDescriptionAnimation,
-                    transform: [
-                      {
-                        translateY: privacyDescriptionAnimation.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [6, 0],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                {privacyModeDescription}
-              </Animated.Text>
+          <Pressable
+            accessibilityRole={isPremiumUser ? undefined : "button"}
+            accessibilityLabel={isPremiumUser ? undefined : "Unlock Privacy Mode"}
+            disabled={isPremiumUser}
+            onPress={isPremiumUser ? undefined : onOpenPaywall}
+            style={({ pressed }) => [pressed && !isPremiumUser && styles.pressed]}
+          >
+            <View style={styles.settingRow}>
+              <View style={styles.settingCopy}>
+                <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
+                  Privacy Mode
+                </Text>
+                <Animated.Text
+                  style={[
+                    styles.settingDescription,
+                    {
+                      color: theme.colors.mutedForeground,
+                      opacity: privacyDescriptionAnimation,
+                      transform: [
+                        {
+                          translateY: privacyDescriptionAnimation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [6, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  {privacyModeDescription}
+                </Animated.Text>
+              </View>
+              {isPremiumUser ? (
+                <Switch
+                  value={isPrivacyModeEnabled}
+                  onValueChange={handlePrivacyModeChange}
+                  disabled={isUpdatingPrivacyMode}
+                  trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                  thumbColor={theme.colors.card}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.lockBadge,
+                    { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+                  ]}
+                >
+                  <Lock size={13} color={theme.colors.primary} />
+                  <Text style={[styles.lockBadgeText, { color: theme.colors.primary }]}>
+                    Premium
+                  </Text>
+                </View>
+              )}
             </View>
-            <Switch
-              value={isPrivacyModeEnabled}
-              onValueChange={handlePrivacyModeChange}
-              disabled={isUpdatingPrivacyMode}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-              thumbColor={theme.colors.card}
-            />
-          </View>
+          </Pressable>
           <SettingRow
             label="Hide Journal Previews"
-            description="Mask journal titles, text, and tags in entry lists on this device."
+            description={
+              isPremiumUser
+                ? "Mask journal titles, text, and tags in entry lists on this device."
+                : "Premium unlocks hidden journal previews across your device."
+            }
             value={hideJournalPreviews}
             onValueChange={handlePreviewPrivacyChange}
             disabled={isUpdatingPreviewPrivacy}
+            locked={!isPremiumUser}
+            onLockedPress={onOpenPaywall}
           />
         </View>
 
@@ -618,5 +694,17 @@ const styles = StyleSheet.create({
   dropdownCard: {
     zIndex: 20,
     elevation: 6,
+  },
+  lockBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  lockBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

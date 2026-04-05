@@ -132,6 +132,7 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": "+15551234567",
     "email": null,
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
@@ -180,6 +181,7 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@gmail.com",
+    "isPremium": false,
     "journalingGoals": [],
     "avatarColor": null,
     "profileSetupCompleted": false,
@@ -218,6 +220,7 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@gmail.com",
+    "isPremium": false,
     "journalingGoals": [],
     "avatarColor": null,
     "profileSetupCompleted": false,
@@ -286,6 +289,7 @@ Success `data`:
   "name": "Alex",
   "phoneNumber": "+15551234567",
   "email": null,
+  "isPremium": false,
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
@@ -296,6 +300,38 @@ Success `data`:
 ```
 
 Both routes require authentication.
+
+### `PATCH /users/premium-status`
+
+Persist the authenticated user's premium access state after purchase completion or restore.
+
+Request:
+
+```json
+{
+  "isPremium": true
+}
+```
+
+Success `data`:
+
+```json
+{
+  "userId": "string",
+  "name": "Alex",
+  "phoneNumber": "+15551234567",
+  "email": null,
+  "isPremium": true,
+  "avatarColor": "#8E4636",
+  "journalingGoals": ["Daily Reflection", "Personal Growth"],
+  "profileSetupCompleted": true,
+  "onboardingCompleted": true,
+  "profilePic": null,
+  "aiOptIn": true
+}
+```
+
+This route requires authentication.
 
 ---
 
@@ -415,6 +451,36 @@ Success `data`:
 }
 ```
 
+### `POST /journal/suggest_tags`
+
+Suggest tags for an in-progress journal draft.
+
+Request:
+
+```json
+{
+  "content": "Today felt calmer after I wrote everything out.",
+  "selectedTags": ["reflection"],
+  "mood": "bad"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "tags": ["mindfulness", "self-care"]
+}
+```
+
+Notes:
+
+- protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- when the authenticated user is premium, has AI enabled, and the backend is configured with OpenAI, tag suggestions are chosen through OpenAI against Journal.IO's allowed tag set
+- if a premium user has opted out of AI or OpenAI is unavailable, the backend falls back to deterministic keyword and mood-aware tag scoring
+- positive prompt words inside negated or distressed phrasing should not force a positive tag
+
 ### `GET /journal/get_journal_details`
 
 Get details for one journal entry.
@@ -525,6 +591,50 @@ All journal module routes require authentication.
 
 ---
 
+## 3.5 Prompts Module (`/prompts`)
+
+### `GET /prompts/writing`
+
+Load personalized writing prompts for the authenticated user.
+
+Success `data`:
+
+```json
+{
+  "featuredPrompt": {
+    "id": "patterns-1",
+    "topic": "Patterns",
+    "text": "Where did your mood shift, and what seemed to influence it?"
+  },
+  "prompts": [
+    {
+      "id": "patterns-1",
+      "topic": "Patterns",
+      "text": "Where did your mood shift, and what seemed to influence it?"
+    },
+    {
+      "id": "next-step-2",
+      "topic": "Next Step",
+      "text": "What is one small habit you want to reinforce tomorrow?"
+    }
+  ],
+  "source": "personalized",
+  "generatedAt": "2026-04-06T10:00:00.000Z"
+}
+```
+
+Notes:
+
+- prompts are personalized from the authenticated user's stored journaling patterns, mood trends, and recurring topics
+- when the user is premium, has AI enabled, and the backend has OpenAI configured, the prompt list is freshly generated through OpenAI from recent writing patterns and recent entry excerpts
+- if the user is free, has opted out of AI, or OpenAI is unavailable, the backend falls back to the cached insights-derived prompt set
+- `featuredPrompt` is stable for the current day and is intended for the Home `Today's Prompt` card
+- `prompts` is intended for surfaces like New Entry that need the full personalized list
+
+All prompts module routes require authentication.
+
+---
+
 # 4) Design-Aligned Target Endpoints (Planned Contract)
 
 These endpoints are expected by the current design context and should be treated as target modules for upcoming slices.
@@ -612,6 +722,7 @@ Success `data`:
     "name": "Journal User",
     "phoneNumber": null,
     "email": "alex@example.com",
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": null,
     "profileSetupCompleted": false,
@@ -648,6 +759,7 @@ Success `data`:
     "name": "Alex",
     "phoneNumber": null,
     "email": "alex@example.com",
+    "isPremium": false,
     "journalingGoals": ["Daily Reflection"],
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
@@ -763,8 +875,11 @@ Returns the cached weekly AI-analysis payload used by the mobile `AI Analysis` t
 Behavior:
 
 - protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
 - overview insights remain available even when AI analysis is disabled
+- when OpenAI is configured, the backend uses the cached deterministic weekly signal as a baseline and asks OpenAI to generate the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
+- if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
 
 Response:
 
@@ -1150,6 +1265,7 @@ Returns:
 
 Behavior:
 
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - sets `onboardingContext.aiOptIn` for the authenticated user
 - when opt-out is enabled, clears any cached weekly AI analysis from the `insights` document
 

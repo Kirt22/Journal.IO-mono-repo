@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,6 +18,7 @@ import {
   Frown,
   Heart,
   Image as ImageIcon,
+  Lock,
   Loader2,
   Mic,
   Save,
@@ -29,16 +32,25 @@ import {
   Meh,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createJournalEntry } from "../services/journalService";
+import {
+  createJournalEntry,
+  suggestJournalTags as fetchSuggestedJournalTags,
+} from "../services/journalService";
+import {
+  getWritingPrompts,
+  type WritingPrompt,
+} from "../services/promptsService";
 import { getPrimaryDailyReminder } from "../services/remindersService";
 import { syncReminderNotifications } from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
+import { ApiError } from "../utils/apiClient";
 
 type MoodKey = "amazing" | "good" | "okay" | "bad" | "terrible";
 
 type NewEntryScreenProps = {
   onBack: () => void;
+  initialPrompt?: string | null;
 };
 
 type MoodOption = {
@@ -47,13 +59,22 @@ type MoodOption = {
   label: string;
 };
 
-const aiPrompts = [
-  "What are you grateful for today?",
-  "What challenged you recently and what did you learn?",
-  "Describe a moment that made you smile",
-  "What would you tell your past self?",
-  "What are you looking forward to?",
-  "Write about someone who inspires you",
+const DEFAULT_WRITING_PROMPTS: WritingPrompt[] = [
+  {
+    id: "reflection-1",
+    topic: "Reflection",
+    text: "What felt most steady or grounding in your day?",
+  },
+  {
+    id: "patterns-2",
+    topic: "Patterns",
+    text: "Where did your mood shift, and what seemed to influence it?",
+  },
+  {
+    id: "next-step-3",
+    topic: "Next Step",
+    text: "What is one small thing you want to carry into tomorrow?",
+  },
 ];
 
 const tagKeywords: Record<string, string[]> = {
@@ -64,13 +85,42 @@ const tagKeywords: Record<string, string[]> = {
   reflection: ["think", "reflect", "realize", "learn", "insight", "looking back"],
   goals: ["goal", "plan", "achieve", "dream", "hope to", "aim"],
   mindfulness: ["mindful", "present", "breathe", "meditate", "calm", "peace"],
-  "self-care": ["self-care", "rest", "relax", "recharge", "sleep", "boundary"],
+  "self-care": [
+    "self-care",
+    "rest",
+    "relax",
+    "recharge",
+    "sleep",
+    "boundary",
+    "tired",
+    "exhausted",
+    "drained",
+    "burned out",
+    "burnt out",
+    "not feeling well",
+    "unwell",
+    "sick",
+  ],
   relationships: ["friend", "family", "partner", "relationship", "connection"],
   work: ["work", "job", "career", "meeting", "project", "deadline"],
   growth: ["grow", "improve", "better", "progress", "change", "overcome"],
   morning: ["morning", "woke up", "sunrise", "breakfast", "early"],
   evening: ["evening", "night", "sunset", "dinner", "bedtime", "tonight"],
   anger: ["angry", "furious", "frustrated", "annoyed", "irritated", "mad"],
+};
+const positiveMoodTags = new Set(["gratitude", "happiness", "mindfulness", "growth"]);
+const negativeCueExpressions = [
+  /\bnot\s+(?:that\s+)?(grateful|thankful|happy|excited|calm|good|great|well)\b/gi,
+  /\b(?:no|never)\s+(gratitude|joy|energy|motivation|hope)\b/gi,
+  /\btoo\s+(tired|drained|exhausted)\b/gi,
+  /\b(?:don't|do not|didn't|did not|can't|cannot|couldn't|could not)\s+feel\s+(good|well|calm|happy)\b/gi,
+];
+const moodBoosts: Record<MoodKey, string[]> = {
+  amazing: [],
+  good: [],
+  okay: [],
+  bad: ["sadness", "self-care"],
+  terrible: ["sadness", "anxiety", "self-care"],
 };
 
 const moods: MoodOption[] = [
@@ -96,31 +146,90 @@ function toRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function analyzeContentForTags(text: string): string[] {
-  const lowerText = text.toLowerCase();
-  const scored: { tag: string; score: number }[] = [];
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-  for (const [tag, keywords] of Object.entries(tagKeywords)) {
-    let score = 0;
+function scoreKeywordMatches(content: string, keyword: string) {
+  const expression = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "gi");
+  const matches = [...content.matchAll(expression)];
+  let positiveMatches = 0;
+  let negatedMatches = 0;
 
-    for (const keyword of keywords) {
-      const regex = new RegExp(`\\b${keyword}`, "gi");
-      const matches = lowerText.match(regex);
+  for (const match of matches) {
+    const startIndex = match.index ?? 0;
+    const contextWindow = content.slice(Math.max(0, startIndex - 18), startIndex);
+    const negatedContext =
+      /\b(?:not|no|never|hardly|barely)\s+$/.test(contextWindow) ||
+      /\bnot\s+that\s+$/.test(contextWindow);
 
-      if (matches) {
-        score += matches.length;
-      }
+    if (negatedContext) {
+      negatedMatches += 1;
+      continue;
     }
 
-    if (score > 0) {
-      scored.push({ tag, score });
-    }
+    positiveMatches += 1;
   }
 
-  return scored
-    .sort((a, b) => b.score - a.score)
+  return { positiveMatches, negatedMatches };
+}
+
+function countNegativeCues(content: string) {
+  return negativeCueExpressions.reduce((total, expression) => {
+    const matches = content.match(expression);
+    return total + (matches?.length || 0);
+  }, 0);
+}
+
+function analyzeContentForTags(text: string, mood?: MoodKey | null): string[] {
+  const lowerText = text.toLowerCase();
+  const negativeCueCount = countNegativeCues(lowerText);
+
+  const scored = Object.entries(tagKeywords)
+    .map(([tag, keywords]) => {
+      const score = keywords.reduce((total, keyword) => {
+        const { positiveMatches, negatedMatches } = scoreKeywordMatches(
+          lowerText,
+          keyword
+        );
+
+        return total + positiveMatches - negatedMatches;
+      }, 0);
+
+      let nextScore = score;
+
+      if (positiveMoodTags.has(tag) && negativeCueCount > 0) {
+        nextScore -= negativeCueCount;
+      }
+
+      if (mood && moodBoosts[mood].includes(tag)) {
+        nextScore += 1;
+      }
+
+      return { tag, score: nextScore };
+    })
+    .filter(item => item.score > 0);
+
+  const ranked = scored
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+
+      return a.tag.localeCompare(b.tag);
+    })
     .slice(0, 5)
     .map(item => item.tag);
+
+  if (ranked.length > 0) {
+    return ranked;
+  }
+
+  if (lowerText.trim().length >= 40) {
+    return ["reflection"];
+  }
+
+  return [];
 }
 
 function HeaderIconButton({
@@ -159,13 +268,17 @@ function HeaderIconButton({
   );
 }
 
-export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
+export default function NewEntryScreen({
+  onBack,
+  initialPrompt,
+}: NewEntryScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const addRecentJournalEntry = useAppStore(
     state => state.addRecentJournalEntry
   );
   const setActiveTab = useAppStore(state => state.setActiveTab);
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [selectedMood, setSelectedMood] = useState<MoodKey | null>(null);
@@ -174,14 +287,68 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+  const [writingPrompts, setWritingPrompts] =
+    useState<WritingPrompt[]>(DEFAULT_WRITING_PROMPTS);
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoTagging, setIsAutoTagging] = useState(false);
+  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
+  const [promptsError, setPromptsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const promptListProgress = useRef(new Animated.Value(0)).current;
+  const suggestionCardProgress = useRef(new Animated.Value(0)).current;
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const sheetMaxWidth = isWide ? 460 : 420;
+
+  useEffect(() => {
+    if (!showPrompts) {
+      promptListProgress.setValue(0);
+      return;
+    }
+
+    Animated.timing(promptListProgress, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [promptListProgress, showPrompts]);
+
+  useEffect(() => {
+    if (suggestedTags.length === 0) {
+      suggestionCardProgress.setValue(0);
+      return;
+    }
+
+    suggestionCardProgress.setValue(0);
+    Animated.spring(suggestionCardProgress, {
+      toValue: 1,
+      speed: 16,
+      bounciness: 5,
+      useNativeDriver: true,
+    }).start();
+  }, [suggestedTags.length, suggestionCardProgress]);
+
+  useEffect(() => {
+    if (!initialPrompt?.trim()) {
+      return;
+    }
+
+    setSelectedPrompt(previous => previous || initialPrompt.trim());
+    setContent(previous => {
+      if (previous.includes(initialPrompt.trim())) {
+        return previous;
+      }
+
+      if (!previous.trim()) {
+        return `${initialPrompt.trim()}\n`;
+      }
+
+      return `${initialPrompt.trim()}\n\n${previous.trimStart()}`;
+    });
+  }, [initialPrompt]);
 
   const maybeSkipTodaysReminder = async () => {
     try {
@@ -379,7 +546,42 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
     setShowPrompts(false);
   };
 
+  const loadWritingPrompts = async () => {
+    setIsLoadingPrompts(true);
+    setPromptsError(null);
+
+    try {
+      const response = await getWritingPrompts();
+      setWritingPrompts(
+        response.prompts.length > 0 ? response.prompts : DEFAULT_WRITING_PROMPTS
+      );
+    } catch (promptError) {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Writing prompts request failed", promptError);
+      }
+
+      setWritingPrompts(DEFAULT_WRITING_PROMPTS);
+      setPromptsError("Unable to load writing prompts right now.");
+    } finally {
+      setIsLoadingPrompts(false);
+    }
+  };
+
+  const handleTogglePrompts = () => {
+    const nextShowPrompts = !showPrompts;
+    setShowPrompts(nextShowPrompts);
+
+    if (nextShowPrompts) {
+      loadWritingPrompts().catch(() => undefined);
+    }
+  };
+
   const handleAutoTag = async () => {
+    if (!isPremiumUser) {
+      setError("Premium membership is required for AI tag suggestions.");
+      return;
+    }
+
     if (!content.trim()) {
       setError("Write something first so AI can analyze it.");
       return;
@@ -388,14 +590,41 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
     setIsAutoTagging(true);
     setError(null);
 
-    await new Promise<void>(resolve => {
-      setTimeout(resolve, 650);
-    });
+    try {
+      const response = await fetchSuggestedJournalTags({
+        content,
+        selectedTags,
+        mood: selectedMood,
+      });
+      const aiTags = response.tags.filter(tag => Boolean(tag?.trim()));
+      setSuggestedTags(aiTags);
+    } catch (autoTagError) {
+      if (__DEV__) {
+        console.log("[NewEntryScreen] Auto-tag request failed", autoTagError);
+      }
 
-    const aiTags = analyzeContentForTags(content);
-    const newSuggestions = aiTags.filter(tag => !selectedTags.includes(tag));
-    setSuggestedTags(newSuggestions);
-    setIsAutoTagging(false);
+      if (autoTagError instanceof ApiError && autoTagError.status === 403) {
+        setSuggestedTags([]);
+        setError("Premium membership is required for AI tag suggestions.");
+        return;
+      }
+
+      const fallbackSuggestions = analyzeContentForTags(content, selectedMood).filter(
+        tag => !selectedTags.includes(tag)
+      );
+
+      if (fallbackSuggestions.length > 0) {
+        setSuggestedTags(fallbackSuggestions);
+      } else {
+        setError(
+          autoTagError instanceof Error
+            ? autoTagError.message
+            : "Unable to suggest tags right now."
+        );
+      }
+    } finally {
+      setIsAutoTagging(false);
+    }
   };
 
   const handleAcceptSuggestedTag = (tag: string) => {
@@ -416,6 +645,42 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
   const handleDismissSuggested = (tag: string) => {
     setSuggestedTags(previous => previous.filter(current => current !== tag));
   };
+
+  const promptListAnimatedStyle = {
+    opacity: promptListProgress,
+    transform: [
+      {
+        translateY: promptListProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-10, 0],
+        }),
+      },
+      {
+        scale: promptListProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.98, 1],
+        }),
+      },
+    ],
+  } as const;
+
+  const suggestionCardAnimatedStyle = {
+    opacity: suggestionCardProgress,
+    transform: [
+      {
+        translateY: suggestionCardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [10, 0],
+        }),
+      },
+      {
+        scale: suggestionCardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.98, 1],
+        }),
+      },
+    ],
+  } as const;
 
   return (
     <SafeAreaView
@@ -560,7 +825,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={showPrompts ? "Hide writing prompts" : "Show writing prompts"}
-                  onPress={() => setShowPrompts(previous => !previous)}
+                  onPress={handleTogglePrompts}
                   style={({ pressed }) => [
                     styles.promptToggle,
                     {
@@ -579,33 +844,73 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                 </Pressable>
 
                 {showPrompts ? (
-                  <View style={styles.promptList}>
-                    {aiPrompts.map(prompt => (
-                      <Pressable
-                        key={prompt}
-                        accessibilityRole="button"
-                        accessibilityLabel={prompt}
-                        onPress={() => handlePromptPress(prompt)}
-                        style={({ pressed }) => [
-                          styles.promptButton,
+                  <Animated.View style={[styles.promptList, promptListAnimatedStyle]}>
+                    {isLoadingPrompts ? (
+                      <View
+                        style={[
+                          styles.promptStatusCard,
                           {
                             backgroundColor: theme.colors.accent,
                             borderColor: theme.colors.border,
                           },
-                          pressed && styles.pressed,
                         ]}
                       >
+                        <Loader2 size={16} color={theme.colors.primary} />
                         <Text
                           style={[
-                            styles.promptButtonText,
-                            { color: theme.colors.foreground },
+                            styles.promptStatusText,
+                            { color: theme.colors.mutedForeground },
                           ]}
                         >
-                          {prompt}
+                          Loading personalized prompts...
                         </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                      </View>
+                    ) : (
+                      writingPrompts.map(prompt => (
+                        <Pressable
+                          key={prompt.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={prompt.text}
+                          onPress={() => handlePromptPress(prompt.text)}
+                          style={({ pressed }) => [
+                            styles.promptButton,
+                            {
+                              backgroundColor: theme.colors.accent,
+                              borderColor: theme.colors.border,
+                            },
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.promptButtonTopic,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            {prompt.topic}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.promptButtonText,
+                              { color: theme.colors.foreground },
+                            ]}
+                          >
+                            {prompt.text}
+                          </Text>
+                        </Pressable>
+                      ))
+                    )}
+                    {promptsError ? (
+                      <Text
+                        style={[
+                          styles.promptErrorText,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        {promptsError}
+                      </Text>
+                    ) : null}
+                  </Animated.View>
                 ) : null}
               </View>
 
@@ -657,21 +962,31 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                 style={({ pressed }) => [
                   styles.autoTagCard,
                   {
-                    borderColor: theme.colors.primary,
-                    backgroundColor: toRgba(theme.colors.primary, 0.05),
+                    borderColor: isPremiumUser
+                      ? theme.colors.primary
+                      : theme.colors.border,
+                    backgroundColor: isPremiumUser
+                      ? toRgba(theme.colors.primary, 0.05)
+                      : theme.colors.card,
                   },
                   pressed && !isAutoTagging && styles.pressed,
-                  isAutoTagging && styles.autoTagCardDisabled,
+                  (isAutoTagging || !isPremiumUser) && styles.autoTagCardDisabled,
                 ]}
               >
                 <View
                   style={[
                     styles.autoTagIconWrap,
-                    { backgroundColor: toRgba(theme.colors.primary, 0.1) },
+                    {
+                      backgroundColor: isPremiumUser
+                        ? toRgba(theme.colors.primary, 0.1)
+                        : theme.colors.accent,
+                    },
                   ]}
                 >
                   {isAutoTagging ? (
                     <Loader2 size={18} color={theme.colors.primary} />
+                  ) : !isPremiumUser ? (
+                    <Lock size={18} color={theme.colors.mutedForeground} />
                   ) : (
                     <Wand2 size={18} color={theme.colors.primary} />
                   )}
@@ -688,10 +1003,24 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                       { color: theme.colors.mutedForeground },
                     ]}
                   >
-                    Analyze your thoughts and suggest tags
+                    {isPremiumUser
+                      ? "Analyze your thoughts and suggest tags"
+                      : "Premium unlocks AI tag suggestions for your entries"}
                   </Text>
                 </View>
-                <Sparkles size={16} color={theme.colors.primary} />
+                {isPremiumUser ? (
+                  <Sparkles size={16} color={theme.colors.primary} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.autoTagSubtitle,
+                      styles.autoTagPremiumText,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    Premium
+                  </Text>
+                )}
               </Pressable>
 
               <View style={styles.section}>
@@ -768,9 +1097,10 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                 ) : null}
 
                 {suggestedTags.length > 0 ? (
-                  <View
+                  <Animated.View
                     style={[
                       styles.suggestionCard,
+                      suggestionCardAnimatedStyle,
                       {
                         borderColor: theme.colors.primary,
                         backgroundColor: toRgba(theme.colors.primary, 0.05),
@@ -844,7 +1174,7 @@ export default function NewEntryScreen({ onBack }: NewEntryScreenProps) {
                         </View>
                       ))}
                     </View>
-                  </View>
+                  </Animated.View>
                 ) : null}
               </View>
 
@@ -985,15 +1315,40 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 8,
   },
+  promptStatusCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  promptStatusText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   promptButton: {
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  promptButtonTopic: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
   promptButtonText: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  promptErrorText: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
   },
   contentInput: {
     minHeight: 300,
@@ -1041,6 +1396,9 @@ const styles = StyleSheet.create({
   autoTagSubtitle: {
     fontSize: 11,
     lineHeight: 16,
+  },
+  autoTagPremiumText: {
+    fontWeight: "700",
   },
   tagInputRow: {
     flexDirection: "row",

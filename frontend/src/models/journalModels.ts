@@ -36,3 +36,7 @@ export type JournalEntryApiRecord = Omit<JournalEntry, "tags"> & {
   tags?: string[];
   isFavorite?: boolean;
 };
+
+export type JournalTagSuggestions = {
+  tags: string[];
+};

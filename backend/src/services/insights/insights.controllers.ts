@@ -4,6 +4,7 @@ import {
   AiAnalysisDisabledError,
   getInsightsAiAnalysis,
   getInsightsOverview,
+  PremiumFeatureRequiredError,
 } from "./insights.service";
 
 const getInsightsOverviewController = async (
@@ -47,6 +48,14 @@ const getInsightsAiAnalysisController = async (
       .status(200)
       .json(apiResponse(true, "Insights AI analysis loaded", analysis));
   } catch (error) {
+    if (error instanceof PremiumFeatureRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
     if (error instanceof AiAnalysisDisabledError) {
       return res.status(403).json(
         apiResponse(false, error.message, {}, {

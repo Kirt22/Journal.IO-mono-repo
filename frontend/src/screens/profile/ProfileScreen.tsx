@@ -53,12 +53,6 @@ type ContactItem = {
   phoneNumber: string;
 };
 
-const DEFAULT_ACHIEVEMENTS = [
-  { emoji: "🏆", label: "First Entry" },
-  { emoji: "🔥", label: "7-Day Streak" },
-  { emoji: "📝", label: "50 Entries" },
-];
-
 const emergencyContacts: ContactItem[] = [
   {
     label: "988 Suicide & Crisis Lifeline",
@@ -395,10 +389,7 @@ export default function ProfileScreen({
       label: achievement.title,
     }));
 
-  const visibleAchievements =
-    achievements.length > 0
-      ? achievements
-      : DEFAULT_ACHIEVEMENTS;
+  const hasUnlockedAchievements = achievements.length > 0;
 
   return (
     <TabScreenLayout
@@ -631,27 +622,54 @@ export default function ProfileScreen({
           </Pressable>
         </View>
 
-        <View style={styles.achievementRow}>
-          {visibleAchievements.map(achievement => (
-            <View
-              key={achievement.label}
-              style={[
-                styles.achievementCard,
-                { backgroundColor: theme.colors.accent },
-              ]}
-            >
-              <Text style={styles.achievementEmoji}>{achievement.emoji}</Text>
-              <Text
+        {hasUnlockedAchievements ? (
+          <View style={styles.achievementRow}>
+            {achievements.map(achievement => (
+              <View
+                key={achievement.label}
                 style={[
-                  styles.achievementLabel,
-                  { color: theme.colors.mutedForeground },
+                  styles.achievementCard,
+                  { backgroundColor: theme.colors.accent },
                 ]}
               >
-                {achievement.label}
-              </Text>
-            </View>
-          ))}
-        </View>
+                <Text style={styles.achievementEmoji}>{achievement.emoji}</Text>
+                <Text
+                  style={[
+                    styles.achievementLabel,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  {achievement.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.achievementEmptyState,
+              { backgroundColor: theme.colors.accent },
+            ]}
+          >
+            <Text style={styles.achievementEmptyEmoji}>🏆</Text>
+            <Text
+              style={[
+                styles.achievementEmptyTitle,
+                { color: theme.colors.foreground },
+              ]}
+            >
+              Start your journey to unlock achievements.
+            </Text>
+            <Text
+              style={[
+                styles.achievementEmptyText,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              Keep journaling and building streaks to see your recent wins here.
+            </Text>
+          </View>
+        )}
       </SectionCard>
 
       <SectionCard
@@ -943,6 +961,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
     lineHeight: 14,
+  },
+  achievementEmptyState: {
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    alignItems: "center",
+  },
+  achievementEmptyEmoji: {
+    fontSize: 24,
+    marginBottom: 10,
+  },
+  achievementEmptyTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  achievementEmptyText: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
   },
   emergencyHeader: {
     flexDirection: "row",

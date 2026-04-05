@@ -82,7 +82,16 @@ Current implemented weekly AI-analysis cache:
   - actionable steps
   - Journal.IO support guidance
 - recomputation uses recent journal text, recent tags, and recent mood check-ins only, then writes the structured result back to the `insights` document
-- the current implementation is deterministic and cache-backed; it does not yet call the future OpenAI async extraction pipeline for this screen
+- the current implementation is hybrid and cache-backed:
+  - deterministic weekly scoring still computes metadata, confidence, and trait/watchpoint scores
+  - OpenAI then generates the user-facing weekly summary, pattern tags, action plan copy, and Journal.IO support guidance when the user has AI enabled and the backend is configured with `OPENAI_API_KEY`
+  - if OpenAI is unavailable, the deterministic weekly copy remains the fallback
+
+Current implemented prompt and tag generation:
+
+- `GET /prompts/writing` uses OpenAI to generate a fresh personalized prompt list from recent writing patterns and recent journal excerpts when AI is enabled
+- `POST /journal/suggest_tags` uses OpenAI to choose from Journal.IO's allowed tag set for the in-progress draft when AI is enabled
+- both routes fall back to deterministic prompt/tag generation when the user has opted out of AI or the backend is not configured for OpenAI
 
 ---
 

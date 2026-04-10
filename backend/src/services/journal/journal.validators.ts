@@ -79,6 +79,14 @@ const suggestJournalTagsSchema = z.object({
   params: z.object({}).optional(),
 });
 
+const getJournalQuickAnalysisSchema = z.object({
+  body: z.object({
+    journalId: z.string().trim().min(1, "Journal ID is required"),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
   getJournalsSchema,
   createJournalSchema,
@@ -87,4 +95,5 @@ export {
   toggleJournalFavoriteSchema,
   deleteJournalSchema,
   suggestJournalTagsSchema,
+  getJournalQuickAnalysisSchema,
 };

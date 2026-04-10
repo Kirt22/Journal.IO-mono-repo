@@ -42,7 +42,31 @@ type InsightsOverview = {
   updatedAt: string | null;
 };
 
-type InsightsAiAnalysis = {
+type InsightsAiAnalysisPending = {
+  status: "pending";
+  readiness: {
+    joinedAt: string;
+    eligibleOn: string;
+    daysSinceSignup: number;
+    daysUntilReady: number;
+    totalEntries: number;
+    activeDays: number;
+    currentStreak: number;
+  };
+  summary: {
+    headline: string;
+    narrative: string;
+    highlight: string;
+  };
+  quickAnalysis: {
+    available: boolean;
+    title: string;
+    description: string;
+  };
+};
+
+type InsightsAiAnalysisReady = {
+  status: "ready";
   window: {
     startDate: string;
     endDate: string;
@@ -105,6 +129,63 @@ type InsightsAiAnalysis = {
   };
 };
 
+type InsightsAiAnalysis = InsightsAiAnalysisPending | InsightsAiAnalysisReady;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hasPendingShape(value: unknown): value is Omit<InsightsAiAnalysisPending, "status"> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return isRecord(value.readiness) && isRecord(value.summary) && isRecord(value.quickAnalysis);
+}
+
+function hasReadyShape(value: unknown): value is Omit<InsightsAiAnalysisReady, "status"> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isRecord(value.window) &&
+    isRecord(value.freshness) &&
+    isRecord(value.summary) &&
+    Array.isArray(value.patternTags) &&
+    Array.isArray(value.bigFive) &&
+    Array.isArray(value.darkTriad) &&
+    isRecord(value.actionPlan) &&
+    isRecord(value.appSupport)
+  );
+}
+
+function normalizeInsightsAiAnalysis(data: unknown): InsightsAiAnalysis {
+  if (isRecord(data) && data.status === "pending" && hasPendingShape(data)) {
+    return data as InsightsAiAnalysisPending;
+  }
+
+  if (isRecord(data) && data.status === "ready" && hasReadyShape(data)) {
+    return data as InsightsAiAnalysisReady;
+  }
+
+  if (hasPendingShape(data)) {
+    return {
+      status: "pending",
+      ...(data as Omit<InsightsAiAnalysisPending, "status">),
+    };
+  }
+
+  if (hasReadyShape(data)) {
+    return {
+      status: "ready",
+      ...(data as Omit<InsightsAiAnalysisReady, "status">),
+    };
+  }
+
+  throw new Error("AI analysis response was missing required fields.");
+}
+
 const getInsightsOverview = async () => {
   const response = await request<InsightsOverview>("/insights/overview", {
     method: "GET",
@@ -118,8 +199,15 @@ const getInsightsAiAnalysis = async () => {
     method: "GET",
   });
 
-  return response.data;
+  return normalizeInsightsAiAnalysis(response.data);
 };
 
-export { getInsightsOverview, getInsightsAiAnalysis };
-export type { InsightMood, InsightTone, InsightsOverview, InsightsAiAnalysis };
+export { getInsightsOverview, getInsightsAiAnalysis, normalizeInsightsAiAnalysis };
+export type {
+  InsightMood,
+  InsightTone,
+  InsightsOverview,
+  InsightsAiAnalysis,
+  InsightsAiAnalysisPending,
+  InsightsAiAnalysisReady,
+};

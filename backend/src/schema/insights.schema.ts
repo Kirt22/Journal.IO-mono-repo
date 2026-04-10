@@ -1,7 +1,7 @@
 import mongoose, { Document, Model } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 import type { MoodValue } from "../types/mood.types";
-import type { InsightsAiAnalysisResponse } from "../types/insights.types";
+import type { InsightsAiAnalysisReadyResponse } from "../types/insights.types";
 
 export interface IInsights extends Document {
   toObject(): Record<string, unknown>;
@@ -15,7 +15,7 @@ export interface IInsights extends Document {
   moodCounts: Map<MoodValue, number>;
   lastJournalDateKey: string | null;
   lastCalculatedAt: Date | null;
-  aiAnalysis: InsightsAiAnalysisResponse | null;
+  aiAnalysis: InsightsAiAnalysisReadyResponse | null;
   aiAnalysisStale: boolean;
   aiAnalysisComputedAt: Date | null;
   aiAnalysisWindowEndDateKey: string | null;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { BottomNavKey } from "../components/BottomNav";
 import type { AuthEntrySource, FlowStage } from "../navigation/appFlow";
+import type { PaywallTriggerMode } from "../services/paywallService";
 import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingScreen";
 import {
   resendEmailVerification,
@@ -24,6 +25,7 @@ import {
   getTokens,
   markInstallSeen,
   saveOnboardingCompleted,
+  savePostAuthPaywallSeen,
   saveTokens,
 } from "../utils/tokenStorage";
 import {
@@ -47,6 +49,7 @@ const wait = (ms: number) =>
 const isFlowStage = (value: string): value is FlowStage =>
   value === "onboarding" ||
   value === "paywall" ||
+  value === "lifetime-offer" ||
   value === "auth" ||
   value === "sign-in" ||
   value === "create-account" ||
@@ -124,7 +127,11 @@ function buildOnboardingContext(
 
 type AppStoreState = {
   stage: FlowStage;
-  paywallReturnStage: Exclude<FlowStage, "paywall"> | null;
+  paywallReturnStage: PaywallExitStage | null;
+  activePaywallPlacementKey: string | null;
+  activePaywallScreenKey: string | null;
+  activePaywallTriggerMode: PaywallTriggerMode;
+  pendingPostAuthLifetimeOffer: boolean;
   activeTab: BottomNavKey;
   preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
@@ -143,8 +150,21 @@ type AppStoreState = {
 } & JournalSliceState & {
   bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
-  continueFromPaywall: () => void;
+  continueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  continueFromLifetimeOffer: () => void;
   openPaywall: (returnStage?: FlowStage) => void;
+  openPaywallForPlacement: (options: {
+    placementKey: string;
+    returnStage?: FlowStage;
+    screenKey?: string | null;
+    triggerMode?: PaywallTriggerMode;
+  }) => void;
+  setPaywallContext: (context: {
+    placementKey: string | null;
+    screenKey?: string | null;
+    triggerMode?: PaywallTriggerMode;
+  }) => void;
+  clearPaywallContext: () => void;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
@@ -156,7 +176,7 @@ type AppStoreState = {
   finishCreateAccount: () => void;
   resendVerificationCode: () => Promise<void>;
   verifyPendingEmail: (code: string) => Promise<void>;
-  finishEmailVerification: () => void;
+  finishEmailVerification: () => Promise<void>;
   signIn: (payload: { email: string; password: string }) => Promise<void>;
   completeProfile: (payload: {
     name: string;
@@ -180,13 +200,18 @@ type AppStoreState = {
   setThemeModeOverride: (nextMode: ThemeMode | null) => void;
   setHideJournalPreviews: (nextValue: boolean) => Promise<void>;
   setSessionAiOptIn: (nextValue: boolean) => void;
-  setSessionPremiumStatus: (nextValue: boolean) => void;
+  setSessionPremiumStatus: (nextValue: boolean) => Promise<void>;
+  setSessionUserProfile: (nextProfile: AuthSession["user"]) => void;
 };
 
 type AppStoreSnapshot = Pick<
   AppStoreState,
   | "stage"
   | "paywallReturnStage"
+  | "activePaywallPlacementKey"
+  | "activePaywallScreenKey"
+  | "activePaywallTriggerMode"
+  | "pendingPostAuthLifetimeOffer"
   | "activeTab"
   | "preferredInsightsTab"
   | "isCompletingOnboarding"
@@ -208,6 +233,10 @@ type AppStoreSnapshot = Pick<
 const createInitialSnapshot = (): AppStoreSnapshot => ({
   stage: getInitialStage(),
   paywallReturnStage: null,
+  activePaywallPlacementKey: null,
+  activePaywallScreenKey: null,
+  activePaywallTriggerMode: "contextual",
+  pendingPostAuthLifetimeOffer: false,
   activeTab: getInitialTab(),
   preferredInsightsTab: null,
   isCompletingOnboarding: false,
@@ -271,15 +300,30 @@ const syncPendingPremiumIfNeeded = async (
   };
 };
 
+const getPostAuthDestinationStage = (
+  session: AuthSession | null
+): PaywallExitStage => {
+  if (!session) {
+    return "auth";
+  }
+
+  return session.user.profileSetupCompleted ? "main-app" : "profile";
+};
+
+const shouldShowPostAuthPaywall = (session: AuthSession | null) =>
+  Boolean(session && !session.user.isPremium);
+
 const resolvePaywallExitStage = (
   state: Pick<AppStoreState, "session" | "paywallReturnStage">
-): Exclude<FlowStage, "paywall"> => {
-  if (state.paywallReturnStage && state.paywallReturnStage !== "paywall") {
+): PaywallExitStage => {
+  if (state.paywallReturnStage) {
     return state.paywallReturnStage;
   }
 
-  return state.session ? "main-app" : "auth";
+  return getPostAuthDestinationStage(state.session);
 };
+
+type PaywallExitStage = Exclude<FlowStage, "paywall" | "lifetime-offer">;
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
@@ -308,6 +352,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       await markInstallSeen();
       await clearTokens();
       await saveOnboardingCompleted(false);
+      await savePostAuthPaywallSeen(false);
 
       set({
         hasBootstrappedAuthGate: true,
@@ -317,7 +362,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }
 
     const tokens = await getTokens();
-
     if (tokens) {
       try {
         const profile = await getProfile();
@@ -337,6 +381,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           pendingEmail: profile.email || "",
           pendingVerificationCode: "",
           paywallReturnStage: null,
+          activePaywallPlacementKey: null,
+          activePaywallScreenKey: null,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthLifetimeOffer: false,
           preferredInsightsTab: null,
           pendingPremiumActivation: false,
           activeTab: "home",
@@ -358,6 +406,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           pendingEmail: "",
           pendingVerificationCode: "",
           paywallReturnStage: null,
+          activePaywallPlacementKey: null,
+          activePaywallScreenKey: null,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthLifetimeOffer: false,
           preferredInsightsTab: null,
           activeTab: "home",
           stage: onboardingCompleted ? "auth" : "onboarding",
@@ -392,24 +444,106 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       isCompletingOnboarding: false,
       pendingPremiumActivation: false,
-      paywallReturnStage: "auth",
-      stage: "paywall",
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: false,
+      stage: "auth",
     });
   },
-  continueFromPaywall: () => {
+  continueFromPaywall: (reason = "continue") => {
+    set(state => {
+      const shouldOpenLifetimeOffer =
+        reason === "dismiss" &&
+        state.activePaywallPlacementKey === "post_auth" &&
+        state.pendingPostAuthLifetimeOffer;
+
+      if (shouldOpenLifetimeOffer) {
+        return {
+          activePaywallPlacementKey: null,
+          activePaywallScreenKey: null,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthLifetimeOffer: false,
+          stage: "lifetime-offer" as FlowStage,
+        };
+      }
+
+      return {
+        paywallReturnStage: null,
+        activePaywallPlacementKey: null,
+        activePaywallScreenKey: null,
+        activePaywallTriggerMode: "contextual",
+        pendingPostAuthLifetimeOffer: false,
+        stage: resolvePaywallExitStage(state),
+      };
+    });
+  },
+  continueFromLifetimeOffer: () => {
     set(state => ({
       paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: false,
       stage: resolvePaywallExitStage(state),
     }));
   },
   openPaywall: returnStage => {
-    const fallbackStage = get().stage === "paywall" ? "main-app" : get().stage;
+    const currentStage = get().stage;
+    const fallbackStage: PaywallExitStage =
+      currentStage === "paywall" || currentStage === "lifetime-offer"
+        ? getPostAuthDestinationStage(get().session)
+        : (currentStage as PaywallExitStage);
+    const nextReturnStage: PaywallExitStage =
+      returnStage && returnStage !== "paywall" && returnStage !== "lifetime-offer"
+        ? (returnStage as PaywallExitStage)
+        : fallbackStage;
 
     set({
-      paywallReturnStage:
-        (returnStage && returnStage !== "paywall" ? returnStage : fallbackStage) ||
-        (get().session ? "main-app" : "auth"),
+      paywallReturnStage: nextReturnStage,
+      pendingPostAuthLifetimeOffer: false,
       stage: "paywall",
+    });
+  },
+  openPaywallForPlacement: ({
+    placementKey,
+    returnStage,
+    screenKey = null,
+    triggerMode = "contextual",
+  }) => {
+    const currentStage = get().stage;
+    const fallbackStage: PaywallExitStage =
+      currentStage === "paywall" || currentStage === "lifetime-offer"
+        ? getPostAuthDestinationStage(get().session)
+        : (currentStage as PaywallExitStage);
+    const nextReturnStage: PaywallExitStage =
+      returnStage && returnStage !== "paywall" && returnStage !== "lifetime-offer"
+        ? (returnStage as PaywallExitStage)
+        : fallbackStage;
+
+    set({
+      paywallReturnStage: nextReturnStage,
+      activePaywallPlacementKey: placementKey,
+      activePaywallScreenKey: screenKey,
+      activePaywallTriggerMode: triggerMode,
+      pendingPostAuthLifetimeOffer: false,
+      stage: "paywall",
+    });
+  },
+  setPaywallContext: ({ placementKey, screenKey = null, triggerMode = "contextual" }) => {
+    set({
+      activePaywallPlacementKey: placementKey,
+      activePaywallScreenKey: screenKey,
+      activePaywallTriggerMode: triggerMode,
+    });
+  },
+  clearPaywallContext: () => {
+    set({
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: false,
     });
   },
   continueWithEmail: async () => {
@@ -432,28 +566,36 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ...(onboardingContext ? { onboardingContext } : {}),
       onboardingCompleted: true,
     });
+
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
     const syncedSession = await syncPendingPremiumIfNeeded(
       response,
       get().pendingPremiumActivation
     );
 
-    await saveTokens({
-      accessToken: syncedSession.accessToken,
-      refreshToken: syncedSession.refreshToken,
-    });
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    const nextStage = getPostAuthDestinationStage(syncedSession);
+    const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
     set({
       authSource: "google",
       pendingEmail: syncedSession.user.email || "",
       pendingVerificationCode: "",
-      paywallReturnStage: null,
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "auth" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: showPaywall,
       session: syncedSession,
       initialProfileName: syncedSession.user.name || "Journal User",
       pendingPremiumActivation: false,
       preferredInsightsTab: null,
       activeTab: "home",
-      stage: syncedSession.user.profileSetupCompleted ? "main-app" : "profile",
+      stage: showPaywall ? "paywall" : nextStage,
     });
   },
   goToSignIn: () => {
@@ -520,6 +662,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       }
     );
 
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
     const syncedSession = await syncPendingPremiumIfNeeded(
       response,
       get().pendingPremiumActivation
@@ -536,60 +683,62 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
     };
 
-    await saveTokens({
-      accessToken: updatedSession.accessToken,
-      refreshToken: updatedSession.refreshToken,
-    });
     await saveOnboardingCompleted(true);
 
     set({
       session: updatedSession,
       initialProfileName: updatedSession.user.name,
-      paywallReturnStage: null,
       pendingPremiumActivation: false,
     });
   },
-  finishEmailVerification: () => {
-    set({ stage: "profile" });
+  finishEmailVerification: async () => {
+    const state = get();
+    const nextStage = getPostAuthDestinationStage(state.session);
+    const showPaywall = shouldShowPostAuthPaywall(state.session);
+
+    set({
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "verify-email" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: showPaywall,
+      stage: showPaywall ? "paywall" : nextStage,
+    });
   },
   signIn: async payload => {
     const response = await signInWithEmail({
       ...payload,
       onboardingCompleted: true,
     });
+
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
     const syncedSession = await syncPendingPremiumIfNeeded(
       response,
       get().pendingPremiumActivation
     );
 
-    await saveTokens({
-      accessToken: syncedSession.accessToken,
-      refreshToken: syncedSession.refreshToken,
-    });
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
-
-    if (syncedSession.user.profileSetupCompleted) {
-      set({
-        session: syncedSession,
-        pendingEmail: syncedSession.user.email || payload.email,
-        authSource: "email",
-        paywallReturnStage: null,
-        pendingPremiumActivation: false,
-        preferredInsightsTab: null,
-        activeTab: "home",
-        stage: "main-app",
-      });
-      return;
-    }
+    const nextStage = getPostAuthDestinationStage(syncedSession);
+    const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
     set({
       session: syncedSession,
       pendingEmail: syncedSession.user.email || payload.email,
       authSource: "email",
       initialProfileName: syncedSession.user.name,
-      paywallReturnStage: null,
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "auth" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: showPaywall,
       pendingPremiumActivation: false,
-      stage: "profile",
+      preferredInsightsTab: null,
+      activeTab: "home",
+      stage: showPaywall ? "paywall" : nextStage,
     });
   },
   completeProfile: async payload => {
@@ -617,6 +766,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       stage: "auth",
       activeTab: "home",
       paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthLifetimeOffer: false,
       preferredInsightsTab: null,
       isCompletingOnboarding: false,
       onboardingData: null,
@@ -736,7 +889,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
     });
   },
-  setSessionPremiumStatus: nextValue => {
+  setSessionPremiumStatus: async nextValue => {
     const currentSession = get().session;
 
     if (!currentSession) {
@@ -744,15 +897,38 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
+    if (currentSession.user.isPremium === nextValue) {
+      set({ pendingPremiumActivation: false });
+      return;
+    }
+
+    const updatedProfile = await updatePremiumStatus({ isPremium: nextValue });
+
     set({
-      pendingPremiumActivation: nextValue,
+      pendingPremiumActivation: false,
       session: {
         ...currentSession,
         user: {
-          ...currentSession.user,
-          isPremium: nextValue,
+          ...updatedProfile,
         },
       },
+      initialProfileName: updatedProfile.name,
+    });
+  },
+  setSessionUserProfile: nextProfile => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      return;
+    }
+
+    set({
+      session: {
+        ...currentSession,
+        user: nextProfile,
+      },
+      initialProfileName: nextProfile.name,
+      pendingPremiumActivation: false,
     });
   },
 }));

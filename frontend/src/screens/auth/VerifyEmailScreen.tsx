@@ -22,7 +22,7 @@ type VerifyEmailScreenProps = {
   debugCode?: string | null;
   isResending?: boolean;
   onVerifyEmail: (code: string) => Promise<void>;
-  onVerificationSuccess: () => void;
+  onVerificationSuccess: () => void | Promise<void>;
   onResendCode: () => Promise<void>;
   onBackToCreateAccount: () => void;
 };

@@ -37,6 +37,12 @@ export interface IUser extends Document {
   refreshTokenExpiresAt?: Date | null;
   lastLoginAt?: Date | null;
   isPremium: boolean;
+  premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
+  premiumActivatedAt?: Date | null;
+  premiumSource?: "revenuecat_client_sync" | null;
+  lifetimePurchaseRecordedAt?: Date | null;
+  lastPaywallEventAt?: Date | null;
+  lastInterruptivePaywallAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,6 +97,20 @@ const userSchema = new mongoose.Schema<IUser>(
     refreshTokenExpiresAt: { type: Date, default: null },
     lastLoginAt: { type: Date, default: null },
     isPremium: { type: Boolean, default: false, required: true },
+    premiumPlanKey: {
+      type: String,
+      enum: ["weekly", "monthly", "yearly", "lifetime"],
+      default: null,
+    },
+    premiumActivatedAt: { type: Date, default: null },
+    premiumSource: {
+      type: String,
+      enum: ["revenuecat_client_sync"],
+      default: null,
+    },
+    lifetimePurchaseRecordedAt: { type: Date, default: null },
+    lastPaywallEventAt: { type: Date, default: null },
+    lastInterruptivePaywallAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

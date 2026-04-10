@@ -13,6 +13,7 @@ import SettingsScreen from "../profile/SettingsScreen";
 import PrivacyScreen from "../profile/PrivacyScreen";
 import SubscriptionScreen from "../profile/SubscriptionScreen";
 import PaywallScreen from "../profile/PaywallScreen";
+import LifetimeOfferPaywallScreen from "../profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../../theme/provider";
 import type { ThemeMode } from "../../theme/theme";
 import { useAppStore } from "../../store/appStore";
@@ -23,7 +24,12 @@ type MainAppShellProps = {
 
 const IMPLEMENTED_TABS: BottomNavKey[] = ["home", "calendar", "insights", "profile"];
 const EMPTY_GOALS: string[] = [];
-type ProfileSectionRoute = "settings" | "privacy" | "subscription" | "paywall";
+type ProfileSectionRoute =
+  | "settings"
+  | "privacy"
+  | "subscription"
+  | "paywall"
+  | "lifetime-offer";
 
 export default function MainAppShell({
   onToggleTheme,
@@ -35,6 +41,7 @@ export default function MainAppShell({
   const session = useAppStore(state => state.session);
   const themeModeOverride = useAppStore(state => state.themeModeOverride);
   const signOut = useAppStore(state => state.signOut);
+  const setPaywallContext = useAppStore(state => state.setPaywallContext);
   const onboardingGoals = useAppStore(
     state => state.onboardingData?.goals ?? EMPTY_GOALS
   );
@@ -73,6 +80,15 @@ export default function MainAppShell({
 
   const closeProfileSection = () => {
     setProfileSectionStack(previous => previous.slice(0, -1));
+  };
+
+  const openInAppPaywall = (placementKey: string, screenKey: string) => {
+    setPaywallContext({
+      placementKey,
+      screenKey,
+      triggerMode: "contextual",
+    });
+    openProfileSection("paywall");
   };
 
   const openSearch = () => {
@@ -131,7 +147,9 @@ export default function MainAppShell({
     : profileSectionStack.length > 0
       ? `profile:${profileSectionStack[profileSectionStack.length - 1]}`
       : activeTab;
-  const shouldShowBottomNav = shellViewKey !== "profile:paywall";
+  const shouldShowBottomNav =
+    shellViewKey !== "profile:paywall" &&
+    shellViewKey !== "profile:lifetime-offer";
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -160,7 +178,12 @@ export default function MainAppShell({
                   <SettingsScreen
                     onBack={closeProfileSection}
                     onOpenPrivacy={() => openProfileSection("privacy")}
-                    onOpenPaywall={() => openProfileSection("paywall")}
+                    onOpenPrivacyModePaywall={() =>
+                      openInAppPaywall("settings_privacy_mode_locked", "settings")
+                    }
+                    onOpenHidePreviewsPaywall={() =>
+                      openInAppPaywall("settings_hide_previews_locked", "settings")
+                    }
                     onSignOut={signOut}
                     currentThemePreference={themeModeOverride ?? "system"}
                     onToggleTheme={onToggleTheme}
@@ -177,11 +200,18 @@ export default function MainAppShell({
                 return (
                   <SubscriptionScreen
                     onBack={closeProfileSection}
-                    onOpenPaywall={() => openProfileSection("paywall")}
+                    currentPlanKey={session?.user.premiumPlanKey}
                   />
                 );
               case "paywall":
                 return <PaywallScreen onBack={closeProfileSection} />;
+              case "lifetime-offer":
+                return (
+                  <LifetimeOfferPaywallScreen
+                    onBack={closeProfileSection}
+                    currentPlanKey={session?.user.premiumPlanKey}
+                  />
+                );
               default:
                 return null;
             }
@@ -204,11 +234,17 @@ export default function MainAppShell({
                   userProfilePic={session?.user.profilePic}
                   isPremium={Boolean(session?.user.isPremium)}
                   onOpenStreaks={handleOpenStreaks}
-                  onOpenSearch={openSearch}
                   onOpenSettings={() => openProfileSection("settings")}
-                  onOpenSubscription={() => openProfileSection("subscription")}
+                  onOpenSubscription={() => {
+                    if (session?.user.isPremium) {
+                      openProfileSection("subscription");
+                      return;
+                    }
+
+                    openInAppPaywall("subscription_screen", "profile");
+                  }}
                   onOpenPrivacy={() => openProfileSection("privacy")}
-                  onOpenPaywall={() => openProfileSection("paywall")}
+                  onOpenPaywall={() => openProfileSection("lifetime-offer")}
                 />
               );
             case "home":

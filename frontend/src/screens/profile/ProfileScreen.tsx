@@ -20,6 +20,7 @@ import {
   Shield,
 } from "lucide-react-native";
 import TabScreenLayout from "../../components/TabScreenLayout";
+import { trackPaywallEvent } from "../../services/paywallService";
 import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
 import { useTheme } from "../../theme/provider";
 
@@ -339,6 +340,21 @@ export default function ProfileScreen({
   const displayedGoals = userGoals.length > 0 ? userGoals : onboardingGoals;
   const hasGoals = displayedGoals.length > 0;
   const showPremiumBanner = !isPremium;
+  const handleOpenUpgradePaywall = () => {
+    trackPaywallEvent({
+      placementKey: "profile_upgrade_banner",
+      screenKey: "profile",
+      eventType: "upgrade_tap",
+      wasInterruptive: false,
+    }).catch(() => undefined);
+
+    if (onOpenPaywall) {
+      onOpenPaywall();
+      return;
+    }
+
+    Alert.alert("Unlock Premium", "This area is not connected yet.");
+  };
   const accentColor = userAvatarColor || theme.colors.primary;
 
   const statCards = [
@@ -443,14 +459,7 @@ export default function ProfileScreen({
         {showPremiumBanner ? (
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              if (onOpenPaywall) {
-                onOpenPaywall();
-                return;
-              }
-
-              Alert.alert("Unlock Premium", "This area is not connected yet.");
-            }}
+            onPress={handleOpenUpgradePaywall}
             style={({ pressed }) => [
               styles.premiumBadge,
               { backgroundColor: theme.colors.primary },
@@ -540,17 +549,7 @@ export default function ProfileScreen({
       {showPremiumBanner ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() => {
-            if (onOpenPaywall) {
-              onOpenPaywall();
-              return;
-            }
-
-            Alert.alert(
-              "Unlock Premium",
-              "This area is not connected yet in the mobile app."
-            );
-          }}
+          onPress={handleOpenUpgradePaywall}
           style={({ pressed }) => [
             styles.upgradeBanner,
             { backgroundColor: theme.colors.primary },
@@ -570,7 +569,7 @@ export default function ProfileScreen({
             </Text>
             <View style={styles.upgradeCtaRow}>
               <Text style={[styles.upgradeCta, { color: theme.colors.primaryForeground }]}>
-                Start your free trial
+                Limited time offer!
               </Text>
               <ChevronRight size={16} color={theme.colors.primaryForeground} />
             </View>

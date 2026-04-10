@@ -36,8 +36,11 @@ import {
   getInsightsOverview,
   type InsightTone,
   type InsightsAiAnalysis,
+  type InsightsAiAnalysisPending,
+  type InsightsAiAnalysisReady,
   type InsightsOverview,
 } from "../services/insightsService";
+import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
@@ -852,7 +855,7 @@ function OverviewSection({
 function AnalysisHeroCard({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
   const conciseHighlight = truncateWords(analysis.summary.highlight, 18);
@@ -982,7 +985,7 @@ function AnalysisHeroCard({
 function PersonalityTraitsCard({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
   const topTraits = [...analysis.bigFive]
@@ -1085,7 +1088,7 @@ function PersonalityTraitsCard({
 function WatchpointsCard({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
   const primaryWatchpoints = [...analysis.darkTriad]
@@ -1189,7 +1192,7 @@ function WatchpointsCard({
 function ActionPlanCard({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
 
@@ -1262,7 +1265,7 @@ function ActionPlanCard({
 function AppSupportCard({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
   const supportItems = analysis.appSupport.items.slice(0, 2);
@@ -1312,7 +1315,7 @@ function AppSupportCard({
 function AnalysisSection({
   analysis,
 }: {
-  analysis: InsightsAiAnalysis;
+  analysis: InsightsAiAnalysisReady;
 }) {
   return (
     <View style={styles.sectionStack}>
@@ -1455,6 +1458,102 @@ function DisabledAiAnalysisCard() {
   );
 }
 
+function PendingAiAnalysisCard({
+  pending,
+  onKeepJournaling,
+}: {
+  pending: InsightsAiAnalysisPending;
+  onKeepJournaling: () => void;
+}) {
+  const theme = useTheme();
+  const daysLabel =
+    pending.readiness.daysUntilReady === 1
+      ? "1 day"
+      : `${pending.readiness.daysUntilReady} days`;
+
+  return (
+    <View style={styles.sectionStack}>
+      <SectionCard>
+        <View style={styles.lockedState}>
+          <View
+            style={[
+              styles.lockedIconWrap,
+              { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+            ]}
+          >
+            <Brain color={theme.colors.primary} size={22} />
+          </View>
+          <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+            {pending.summary.headline}
+          </Text>
+          <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+            {pending.summary.narrative}
+          </Text>
+          <View style={styles.pendingStatsRow}>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {daysLabel}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                until ready
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {pending.readiness.totalEntries}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                entries logged
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.pendingHighlightText, { color: theme.colors.mutedForeground }]}>
+            {pending.summary.highlight}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep journaling"
+            onPress={onKeepJournaling}
+            style={({ pressed }) => [
+              styles.retryButton,
+              { backgroundColor: theme.colors.primary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+              Keep Journaling
+            </Text>
+          </Pressable>
+        </View>
+      </SectionCard>
+
+      <SectionCard>
+        <View style={styles.pendingQuickAnalysisCard}>
+          <View style={styles.summaryTitleRow}>
+            <Sparkles color={theme.colors.primary} size={18} />
+            <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              {pending.quickAnalysis.title}
+            </Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+            {pending.quickAnalysis.description}
+          </Text>
+        </View>
+      </SectionCard>
+    </View>
+  );
+}
+
 function AnalysisLoadingState() {
   const theme = useTheme();
 
@@ -1476,8 +1575,12 @@ function AnalysisLoadingState() {
 export default function InsightsScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const stage = useAppStore(state => state.stage);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
   const setMainAppTab = useAppStore(state => state.setActiveTab);
   const preferredInsightsTab = useAppStore(state => state.preferredInsightsTab);
   const clearPreferredInsightsTab = useAppStore(
@@ -1500,6 +1603,12 @@ export default function InsightsScreen() {
   const horizontalPadding = useMemo(() => Math.max(16, Math.min(24, width * 0.05)), [width]);
   const layoutMaxWidth = width >= 430 ? 470 : 430;
   const thumbWidth = segmentedWidth > 0 ? (segmentedWidth - 6 - 4) / 2 : 0;
+  const readyAnalysis =
+    aiAnalysis && "window" in aiAnalysis && "bigFive" in aiAnalysis ? aiAnalysis : null;
+  const pendingAnalysis =
+    aiAnalysis && "readiness" in aiAnalysis && "quickAnalysis" in aiAnalysis
+      ? aiAnalysis
+      : null;
 
   const loadInsights = async () => {
     setIsLoading(true);
@@ -1554,6 +1663,21 @@ export default function InsightsScreen() {
   );
 
   const handleSelectTab = (nextTab: InsightTab) => {
+    if (nextTab === "analysis" && !isPremiumUser) {
+      trackPaywallEvent({
+        placementKey: "insights_ai_tab_locked",
+        screenKey: "insights",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "insights_ai_tab_locked",
+        returnStage: "main-app",
+        screenKey: "insights",
+      });
+      return;
+    }
+
     setActiveTab(nextTab);
   };
 
@@ -1607,6 +1731,38 @@ export default function InsightsScreen() {
 
     loadAiAnalysis().catch(() => undefined);
   }, [activeTab, isAiOptedIn, isPremiumUser, loadAiAnalysis]);
+
+  useEffect(() => {
+    if (isPremiumUser || stage !== "main-app") {
+      return;
+    }
+
+    let cancelled = false;
+
+    getPaywallConfig({
+      placementKey: "insights_interruptive",
+      screenKey: "insights",
+      currentStage: stage,
+      triggerMode: "interruptive",
+    })
+      .then(result => {
+        if (cancelled || !result.shouldShow) {
+          return;
+        }
+
+        openPaywallForPlacement({
+          placementKey: result.placementKey,
+          returnStage: "main-app",
+          screenKey: result.screenKey || "insights",
+          triggerMode: "interruptive",
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPremiumUser, openPaywallForPlacement, stage]);
 
   useEffect(() => {
     if (isAiOptedIn) {
@@ -1749,7 +1905,21 @@ export default function InsightsScreen() {
                 onSelectSegmentIndex={setSelectedSegmentIndex}
               />
             ) : !isPremiumUser ? (
-              <LockedAiAnalysisCard onOpenSubscription={() => setMainAppTab("profile")} />
+              <LockedAiAnalysisCard
+                onOpenSubscription={() => {
+                  trackPaywallEvent({
+                    placementKey: "insights_ai_tab_locked",
+                    screenKey: "insights",
+                    eventType: "locked_feature_tap",
+                    wasInterruptive: false,
+                  }).catch(() => undefined);
+                  openPaywallForPlacement({
+                    placementKey: "insights_ai_tab_locked",
+                    returnStage: "main-app",
+                    screenKey: "insights",
+                  });
+                }}
+              />
             ) : !isAiOptedIn ? (
               <DisabledAiAnalysisCard />
             ) : isAnalysisLoading ? (
@@ -1762,8 +1932,21 @@ export default function InsightsScreen() {
                   loadAiAnalysis({ force: true }).catch(() => undefined);
                 }}
               />
+            ) : pendingAnalysis ? (
+              <PendingAiAnalysisCard
+                pending={pendingAnalysis}
+                onKeepJournaling={() => setMainAppTab("home")}
+              />
+            ) : readyAnalysis ? (
+              <AnalysisSection analysis={readyAnalysis!} />
             ) : (
-              <AnalysisSection analysis={aiAnalysis} />
+              <ErrorState
+                title="AI analysis unavailable"
+                message="The latest AI analysis payload was incomplete. Try again once the backend is refreshed."
+                onRetry={() => {
+                  loadAiAnalysis({ force: true }).catch(() => undefined);
+                }}
+              />
             )}
           </Animated.View>
         )}
@@ -2460,6 +2643,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "700",
+  },
+  pendingStatsRow: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 10,
+  },
+  pendingStatCard: {
+    flex: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 2,
+    alignItems: "center",
+  },
+  pendingStatValue: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  pendingStatLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  pendingHighlightText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  pendingQuickAnalysisCard: {
+    gap: 8,
   },
   pressed: {
     opacity: 0.9,

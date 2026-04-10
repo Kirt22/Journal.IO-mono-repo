@@ -90,4 +90,11 @@ journalRouter.post(
   journalController.suggestJournalTagsController
 );
 
+journalRouter.post(
+  "/quick_analysis",
+  verifyJwtToken,
+  validateRequest(journalValidators.getJournalQuickAnalysisSchema),
+  journalController.getJournalQuickAnalysisController
+);
+
 export default journalRouter;

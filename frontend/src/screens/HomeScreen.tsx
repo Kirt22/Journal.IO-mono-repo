@@ -45,12 +45,14 @@ import {
 import {
   getInsightsAiAnalysis,
   type InsightsAiAnalysis,
+  type InsightsAiAnalysisReady,
 } from "../services/insightsService";
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
   type MoodValue,
 } from "../services/moodService";
+import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
 import { getWritingPrompts, type WritingPrompt } from "../services/promptsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
@@ -177,7 +179,7 @@ type HomeInsightCard = {
   ctaLabel: string;
 };
 
-function buildHomeInsightCards(analysis: InsightsAiAnalysis | null): HomeInsightCard[] {
+function buildHomeInsightCards(analysis: InsightsAiAnalysisReady | null): HomeInsightCard[] {
   if (!analysis) {
     return [];
   }
@@ -413,8 +415,12 @@ export default function HomeScreen({
 }: HomeScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const stage = useAppStore(state => state.stage);
   const setActiveTab = useAppStore(state => state.setActiveTab);
   const openInsightsTab = useAppStore(state => state.openInsightsTab);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
   const shouldAnimateMood = typeof jest === "undefined";
@@ -479,13 +485,23 @@ export default function HomeScreen({
 
   const greeting = getGreeting();
   const displayedMood = selectedMood || savedMood;
+  const readyHomeAiAnalysis =
+    homeAiAnalysis && "window" in homeAiAnalysis && "bigFive" in homeAiAnalysis
+      ? homeAiAnalysis
+      : null;
+  const pendingHomeAiAnalysis =
+    homeAiAnalysis && "readiness" in homeAiAnalysis && "quickAnalysis" in homeAiAnalysis
+      ? homeAiAnalysis
+      : null;
   const homeInsightCards = useMemo(
-    () => buildHomeInsightCards(homeAiAnalysis),
-    [homeAiAnalysis]
+    () => buildHomeInsightCards(readyHomeAiAnalysis),
+    [readyHomeAiAnalysis]
   );
   const isAiInsightEnabled = isPremiumUser && isAiOptedIn;
   const insightIndicators = isAiInsightEnabled
-    ? homeInsightCards
+    ? pendingHomeAiAnalysis
+      ? [0]
+      : homeInsightCards
     : isPremiumUser
       ? [0]
       : [0, 1, 2];
@@ -1042,7 +1058,17 @@ export default function HomeScreen({
 
   const handleAdvanceInsight = () => {
     if (!isPremiumUser) {
-      setActiveTab("profile");
+      trackPaywallEvent({
+        placementKey: "home_ai_card_locked",
+        screenKey: "home",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "home_ai_card_locked",
+        returnStage: "main-app",
+        screenKey: "home",
+      });
       return;
     }
 
@@ -1056,6 +1082,11 @@ export default function HomeScreen({
       return;
     }
 
+    if (pendingHomeAiAnalysis) {
+      openInsightsTab("analysis");
+      return;
+    }
+
     if (homeInsightCards.length < 2) {
       return;
     }
@@ -1065,12 +1096,54 @@ export default function HomeScreen({
 
   const handleOpenFullAiAnalysis = () => {
     if (!isPremiumUser) {
-      setActiveTab("profile");
+      trackPaywallEvent({
+        placementKey: "home_ai_card_locked",
+        screenKey: "home",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "home_ai_card_locked",
+        returnStage: "main-app",
+        screenKey: "home",
+      });
       return;
     }
 
     openInsightsTab("analysis");
   };
+
+  useEffect(() => {
+    if (isPremiumUser || stage !== "main-app") {
+      return;
+    }
+
+    let cancelled = false;
+
+    getPaywallConfig({
+      placementKey: "home_interruptive",
+      screenKey: "home",
+      currentStage: stage,
+      triggerMode: "interruptive",
+    })
+      .then(result => {
+        if (cancelled || !result.shouldShow) {
+          return;
+        }
+
+        openPaywallForPlacement({
+          placementKey: result.placementKey,
+          returnStage: "main-app",
+          screenKey: result.screenKey || "home",
+          triggerMode: "interruptive",
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPremiumUser, openPaywallForPlacement, stage]);
 
   const handleFavoriteToggle = async (
     entryId: string,
@@ -1517,7 +1590,7 @@ export default function HomeScreen({
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Open full editor"
-                        onPress={onOpenNewEntry}
+                        onPress={() => onOpenNewEntry()}
                         style={({ pressed }) => [
                           styles.smallIconButton,
                           pressed && styles.pressed,
@@ -1706,6 +1779,8 @@ export default function HomeScreen({
                         ? "Unlock AI insights"
                         : !isAiOptedIn
                           ? "AI insights are off"
+                        : pendingHomeAiAnalysis
+                          ? "Open weekly analysis warm-up"
                         : homeAiInsightError
                           ? "Retry AI insight"
                           : "Next insight"
@@ -1780,6 +1855,8 @@ export default function HomeScreen({
                         ? "Premium AI Insight"
                         : !isAiOptedIn
                           ? "AI insights are turned off"
+                        : pendingHomeAiAnalysis
+                          ? pendingHomeAiAnalysis.summary.headline
                         : isLoadingHomeAiInsight
                           ? "Loading weekly signal"
                           : homeAiInsightError
@@ -1796,6 +1873,8 @@ export default function HomeScreen({
                         ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
                         : !isAiOptedIn
                           ? "AI reflections are off for this account, so weekly AI insight cards stay hidden."
+                        : pendingHomeAiAnalysis
+                          ? `${pendingHomeAiAnalysis.summary.narrative} ${pendingHomeAiAnalysis.quickAnalysis.title}.`
                         : isLoadingHomeAiInsight
                           ? "Pulling a short read from your latest AI analysis."
                           : homeAiInsightError
@@ -1803,7 +1882,10 @@ export default function HomeScreen({
                             : activeHomeInsight?.body ||
                               "Your latest weekly patterns will appear here."}
                     </Text>
-                    {isAiInsightEnabled && !isLoadingHomeAiInsight && !homeAiInsightError ? (
+                    {isAiInsightEnabled &&
+                    !isLoadingHomeAiInsight &&
+                    !homeAiInsightError &&
+                    !pendingHomeAiAnalysis ? (
                       <View style={styles.insightCtaRow}>
                         <Text
                           style={[
@@ -1812,6 +1894,18 @@ export default function HomeScreen({
                           ]}
                         >
                           {activeHomeInsight?.ctaLabel || "Open full AI analysis"}
+                        </Text>
+                        <ChevronRight size={14} color={theme.colors.primary} />
+                      </View>
+                    ) : pendingHomeAiAnalysis ? (
+                      <View style={styles.insightCtaRow}>
+                        <Text
+                          style={[
+                            styles.insightCtaText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          Use quick analysis on entries
                         </Text>
                         <ChevronRight size={14} color={theme.colors.primary} />
                       </View>

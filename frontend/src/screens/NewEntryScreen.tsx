@@ -36,6 +36,7 @@ import {
   createJournalEntry,
   suggestJournalTags as fetchSuggestedJournalTags,
 } from "../services/journalService";
+import { trackPaywallEvent } from "../services/paywallService";
 import {
   getWritingPrompts,
   type WritingPrompt,
@@ -278,6 +279,9 @@ export default function NewEntryScreen({
     state => state.addRecentJournalEntry
   );
   const setActiveTab = useAppStore(state => state.setActiveTab);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -578,7 +582,17 @@ export default function NewEntryScreen({
 
   const handleAutoTag = async () => {
     if (!isPremiumUser) {
-      setError("Premium membership is required for AI tag suggestions.");
+      trackPaywallEvent({
+        placementKey: "new_entry_auto_tag_locked",
+        screenKey: "new-entry",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "new_entry_auto_tag_locked",
+        returnStage: "new-entry",
+        screenKey: "new-entry",
+      });
       return;
     }
 

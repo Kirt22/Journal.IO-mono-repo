@@ -150,8 +150,24 @@ Paywall expectations:
 - feel calm, premium, and trustworthy rather than aggressive
 - explain premium value with concise feature copy
 - support plan selection, upgrade CTA, restore purchases, and dismiss
+- resolve the active paywall from the backend by placement so MongoDB can control template copy, offering mix, lifetime fallback, and interruptive cooldown behavior
+- keep two active backend-defined templates:
+  - `weekly-standard`
+  - `lifetime-launch`
+- let each backend template control exactly which pricing cards are visible so some templates can show one offer while others show two
+- treat the backend `subheadline` as stored merchandising copy, but do not require the mobile paywall UI to render it
+- render the premium preview area from structured backend feature cards with `title`, `body`, and optional `footer` fields instead of treating the feature list as plain strings
+- render pricing, badges, subtitles, and other merchandising copy from backend-configured offering metadata
+- for the dedicated lifetime-offer surface, also let the backend `lifetime-launch` template own supporting merchandising copy such as the hero badge, small one-time purchase chip, feature-carousel title, social-proof support line, and footer legal text so the screen stays in sync with Mongo-backed paywall configuration
+- use RevenueCat purchase and restore flows for checkout, then call the dedicated backend purchase-sync route so the authenticated premium state and purchased plan attribution update immediately
+- log paywall lifecycle and premium-intent events through the backend paywall events route so placements and cooldowns can be tuned without a client release
+- in development builds, support RevenueCat Test Store verification so billing can be checked before App Store / Play Store release
 - use the mascot subtly in the hero area or brand moments
 - preserve the existing app aesthetic rather than introducing a separate monetization style
+- after every successful post-auth entry for a non-premium user, show the standard weekly paywall first; if the user dismisses that initial screen without upgrading, immediately follow it with the dedicated lifetime-offer surface before continuing into the normal post-auth destination
+- keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
+- allow interruptive paywalls only on eligible Home or Insights entries after repeated premium-intent signals; never interrupt while the user is actively writing or editing
+- for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to paywall, while premium users can see a lightweight membership-management view
 
 ---
 
@@ -173,7 +189,10 @@ Home should support quick daily engagement:
 - the Home AI insight card should keep the copy compact and should fold supporting labels into the title/body instead of rendering standalone tag chips
 - the rotating Home AI insight snippets may change icon and CTA copy per card when that improves scanability without changing the card shell
 - AI surfaces should be premium-gated: non-premium users should see locked placeholders for the Home AI insight card and the Insights `AI Analysis` tab, with a clear upgrade handoff
-- New Entry should keep writing prompts available for everyone, but the `Auto-tag with AI` control should remain visible in a locked premium state for free users and must not call the suggestion API until premium is active
+- tapping the locked Home AI card as a free user should log a premium-intent event and open the backend-selected `home_ai_card_locked` paywall placement instead of routing generically to profile or subscription
+- after repeated premium-intent actions, eligible free users may see an interruptive paywall on a later Home entry if backend cooldown rules allow it
+- for premium users in their first 7 days, the Home AI insight card should show a warm-up state instead of weekly analysis content, explain that Journal.IO is still building enough journaling context, and point the user toward staying consistent plus using quick analysis on saved entries
+- New Entry should keep writing prompts available for everyone, but the `Auto-tag with AI` control should remain visible in a locked premium state for free users, log a premium-intent event, open the `new_entry_auto_tag_locked` paywall placement, and must not call the suggestion API until premium is active
 - the Home current-streak card should be API-backed and should use the lightweight `currentStreak` value returned by `GET /mood/today` rather than calling the full streak summary endpoints
 
 Shared journal-card rule:
@@ -187,6 +206,7 @@ Shared journal-card rule:
 - keep the Home preview slightly shorter than Calendar
 - do not seed Home or Calendar with fake journal entries at runtime; empty states should render until real local or backend-backed entries exist
 - entry detail and edit screens should show a stored `aiPrompt` prompt-used card when the journal record includes one
+- premium journal detail should offer an on-demand `Quick Analysis` card for the saved entry so users can get a short single-entry reflection while the weekly analysis is still warming up
 
 The first screen after setup should make journaling and check-in easy within one scroll.
 
@@ -208,6 +228,9 @@ Insights screen expectations:
 - the Insights screen should call only the overview API on initial page load; the `AI Analysis` API should be requested only after the user switches to that tab
 - the analysis tab should present structured, scan-friendly cards rather than a single text block
 - for non-premium users, keep the `AI Analysis` tab visible but locked, with a premium explainer instead of AI content
+- tapping the locked `AI Analysis` tab as a free user should log a premium-intent event and open the backend-selected `insights_ai_tab_locked` paywall placement
+- after repeated premium-intent actions, eligible free users may also see an interruptive paywall on a later Insights entry if backend cooldown rules allow it
+- for premium users who are still inside their first 7 days, keep the `AI Analysis` tab visible but show a supportive warm-up state with readiness progress, consistency encouragement, and a reminder that quick analysis is available on individual entries
 - keep AI-analysis copy concise and easy to skim; prefer a few strong signals over dense paragraphs
 - include visual pattern cues such as trait bars, supportive watchpoint meters, and tag-style chips when they help readability without making the screen noisy
 - any Big Five or dark-triad-adjacent language must be framed as weekly signals, not diagnoses or fixed identity labels
@@ -251,6 +274,7 @@ Settings and privacy expectations:
 - the Settings screen should keep the Make layout but avoid local-only placeholder toggles
 - the `Privacy Mode` toggle should map to the authenticated user's AI opt-out preference so Home and Insights AI surfaces respond immediately after the setting changes
 - `Privacy Mode` and `Hide Journal Previews` should be premium-gated controls in Settings; free users should see them as locked upgrade entry points instead of active toggles
+- locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
 - the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
 

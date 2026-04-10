@@ -9,6 +9,8 @@ import {
 } from "../../helpers/openai.helpers";
 import type {
   InsightTone,
+  InsightsAiAnalysisPendingResponse,
+  InsightsAiAnalysisReadyResponse,
   InsightsAiAnalysisResponse,
   InsightsOverviewResponse,
 } from "../../types/insights.types";
@@ -86,6 +88,7 @@ const DEFAULT_PROMPTS = [
     text: "What is one small thing you want to carry into tomorrow?",
   },
 ];
+const AI_ANALYSIS_WARMUP_DAYS = 7;
 const aiAnalysisEnhancementSchema = z.object({
   summary: z.object({
     headline: z.string().trim().min(1).max(90),
@@ -320,7 +323,7 @@ const SUPPORTING_KEYWORDS = {
 };
 
 const BIG_FIVE_LABELS: Record<
-  InsightsAiAnalysisResponse["bigFive"][number]["trait"],
+  InsightsAiAnalysisReadyResponse["bigFive"][number]["trait"],
   string
 > = {
   openness: "Openness",
@@ -331,7 +334,7 @@ const BIG_FIVE_LABELS: Record<
 };
 
 const DARK_TRIAD_LABELS: Record<
-  InsightsAiAnalysisResponse["darkTriad"][number]["trait"],
+  InsightsAiAnalysisReadyResponse["darkTriad"][number]["trait"],
   { label: string; supportiveLabel: string }
 > = {
   narcissism: {
@@ -373,6 +376,13 @@ const ensureAiAnalysisEnabled = async (userId: string) => {
 
 const startOfUtcDay = (date: Date) =>
   new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+const daysBetweenUtc = (start: Date, end: Date) => {
+  const startMs = startOfUtcDay(start).getTime();
+  const endMs = startOfUtcDay(end).getTime();
+
+  return Math.max(0, Math.floor((endMs - startMs) / 86400000));
+};
 
 const countWords = (content: string) => {
   return content.trim().split(/\s+/).filter(Boolean).length;
@@ -833,7 +843,7 @@ const buildBigFiveDescriptions = ({
 };
 
 const buildDarkTriadDescriptions = (
-  trait: InsightsAiAnalysisResponse["darkTriad"][number]["trait"],
+  trait: InsightsAiAnalysisReadyResponse["darkTriad"][number]["trait"],
   band: ReturnType<typeof bandDarkTriad>
 ) => {
   if (trait === "narcissism") {
@@ -877,8 +887,8 @@ const buildAiActionPlan = ({
   topTopic,
   currentStreak,
 }: {
-  bigFive: InsightsAiAnalysisResponse["bigFive"];
-  darkTriad: InsightsAiAnalysisResponse["darkTriad"];
+  bigFive: InsightsAiAnalysisReadyResponse["bigFive"];
+  darkTriad: InsightsAiAnalysisReadyResponse["darkTriad"];
   topTopic: { label: string } | null;
   currentStreak: number;
 }) => {
@@ -983,7 +993,7 @@ const buildWeeklyAiAnalysis = ({
   journals: WeeklyJournalSnapshot[];
   moods: WeeklyMoodSnapshot[];
   today?: Date;
-}): InsightsAiAnalysisResponse => {
+}): InsightsAiAnalysisReadyResponse => {
   const windowEnd = startOfUtcDay(today);
   const windowStart = addUtcDays(windowEnd, -6);
   const windowLabel = `${monthDayLabel(windowStart)} - ${monthDayLabel(windowEnd)}`;
@@ -1084,7 +1094,7 @@ const buildWeeklyAiAnalysis = ({
     dominantMood,
   });
 
-  const bigFive: InsightsAiAnalysisResponse["bigFive"] = [
+  const bigFive: InsightsAiAnalysisReadyResponse["bigFive"] = [
     {
       trait: "openness",
       label: BIG_FIVE_LABELS.openness,
@@ -1161,7 +1171,7 @@ const buildWeeklyAiAnalysis = ({
     confidenceDetailsResult.confidence
   );
 
-  const darkTriad: InsightsAiAnalysisResponse["darkTriad"] = [
+  const darkTriad: InsightsAiAnalysisReadyResponse["darkTriad"] = [
     {
       trait: "narcissism",
       ...DARK_TRIAD_LABELS.narcissism,
@@ -1220,6 +1230,7 @@ const buildWeeklyAiAnalysis = ({
     };
 
   return {
+    status: "ready",
     window: {
       startDate: getDateKey(windowStart),
       endDate: getDateKey(windowEnd),
@@ -1263,9 +1274,9 @@ const buildWeeklyAiAnalysis = ({
 };
 
 const mergeAiAnalysisEnhancement = (
-  analysis: InsightsAiAnalysisResponse,
+  analysis: InsightsAiAnalysisReadyResponse,
   enhancement: z.infer<typeof aiAnalysisEnhancementSchema>
-): InsightsAiAnalysisResponse => {
+): InsightsAiAnalysisReadyResponse => {
   return {
     ...analysis,
     summary: enhancement.summary,
@@ -1275,6 +1286,89 @@ const mergeAiAnalysisEnhancement = (
   };
 };
 
+const buildPendingAiAnalysis = ({
+  insights,
+  joinedAt,
+  today = new Date(),
+}: {
+  insights: IInsights;
+  joinedAt: Date;
+  today?: Date;
+}): InsightsAiAnalysisPendingResponse => {
+  const joinedDay = startOfUtcDay(joinedAt);
+  const eligibleOn = startOfUtcDay(addUtcDays(joinedDay, AI_ANALYSIS_WARMUP_DAYS));
+  const dailyJournalCounts = readCountMap(insights.dailyJournalCounts);
+  const totalEntries = Number(insights.totalEntries || 0);
+  const activeDays = Array.from(dailyJournalCounts.values()).filter(count => count > 0).length;
+  const currentStreak = computeCurrentStreak(dailyJournalCounts, today);
+  const daysSinceSignup = daysBetweenUtc(joinedDay, today);
+  const daysUntilReady = Math.max(0, AI_ANALYSIS_WARMUP_DAYS - daysSinceSignup);
+  const dayLabel = daysUntilReady === 1 ? "1 more day" : `${daysUntilReady} more days`;
+  const entryLabel = totalEntries === 1 ? "1 entry" : `${totalEntries} entries`;
+
+  return {
+    status: "pending",
+    readiness: {
+      joinedAt: joinedDay.toISOString(),
+      eligibleOn: eligibleOn.toISOString(),
+      daysSinceSignup,
+      daysUntilReady,
+      totalEntries,
+      activeDays,
+      currentStreak,
+    },
+    summary: {
+      headline: "Weekly analysis is warming up",
+      narrative:
+        totalEntries > 0
+          ? `Keep journaling for ${dayLabel} so Journal.IO can build a fuller week of context. You've logged ${entryLabel} across ${activeDays || 1} active day${activeDays === 1 ? "" : "s"} so far.`
+          : `Keep journaling for ${dayLabel} so Journal.IO has enough of your own writing rhythm to build a weekly read.`,
+      highlight:
+        currentStreak > 0
+          ? `Your ${currentStreak}-day streak is already helping the first weekly analysis feel more grounded.`
+          : totalEntries > 0
+            ? "Each honest entry you add this week helps the first analysis feel more useful and more personal."
+            : "Start with a few short, honest entries this week and the first analysis will follow automatically.",
+    },
+    quickAnalysis: {
+      available: true,
+      title: "Quick Analysis is available now",
+      description:
+        "Open any saved journal entry to generate a short entry-by-entry AI reflection while the weekly analysis is still warming up.",
+    },
+  };
+};
+
+const getPendingAiAnalysis = async ({
+  userId,
+  insights,
+  today = new Date(),
+}: {
+  userId: string;
+  insights: IInsights;
+  today?: Date;
+}) => {
+  const user = await userModel.findById(userId).select("createdAt").lean().exec();
+
+  if (!user?.createdAt) {
+    throw new Error("Unable to load AI analysis.");
+  }
+
+  const eligibleOn = startOfUtcDay(
+    addUtcDays(startOfUtcDay(new Date(user.createdAt)), AI_ANALYSIS_WARMUP_DAYS)
+  );
+
+  if (startOfUtcDay(today).getTime() >= eligibleOn.getTime()) {
+    return null;
+  }
+
+  return buildPendingAiAnalysis({
+    insights,
+    joinedAt: new Date(user.createdAt),
+    today,
+  });
+};
+
 const generateAiAnalysisEnhancement = async ({
   userId,
   analysis,
@@ -1282,7 +1376,7 @@ const generateAiAnalysisEnhancement = async ({
   moods,
 }: {
   userId: string;
-  analysis: InsightsAiAnalysisResponse;
+  analysis: InsightsAiAnalysisReadyResponse;
   journals: WeeklyJournalSnapshot[];
   moods: WeeklyMoodSnapshot[];
 }) => {
@@ -1606,7 +1700,7 @@ const refreshAiAnalysisCache = async (userId: string, insights: IInsights, today
       moodDateKey: mood.moodDateKey,
     })),
   });
-  const analysis = analysisEnhancement
+  const analysis: InsightsAiAnalysisReadyResponse = analysisEnhancement
     ? mergeAiAnalysisEnhancement(baselineAnalysis, analysisEnhancement)
     : baselineAnalysis;
 
@@ -1628,8 +1722,14 @@ const getInsightsAiAnalysis = async (userId: string): Promise<InsightsAiAnalysis
     throw new Error("Unable to load AI analysis.");
   }
 
+  const pendingAnalysis = await getPendingAiAnalysis({ userId, insights });
+
+  if (pendingAnalysis) {
+    return pendingAnalysis;
+  }
+
   const todayKey = getDateKey(new Date());
-  const cachedAnalysis = insights.aiAnalysis as InsightsAiAnalysisResponse | null;
+  const cachedAnalysis = insights.aiAnalysis as InsightsAiAnalysisReadyResponse | null;
 
   if (
     cachedAnalysis &&

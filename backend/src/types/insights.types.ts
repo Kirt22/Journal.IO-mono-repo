@@ -7,46 +7,31 @@ export type InsightTone =
   | "amber"
   | "slate";
 
-export type InsightsOverviewResponse = {
-  stats: {
+export type InsightsAiAnalysisPendingResponse = {
+  status: "pending";
+  readiness: {
+    joinedAt: string;
+    eligibleOn: string;
+    daysSinceSignup: number;
+    daysUntilReady: number;
     totalEntries: number;
+    activeDays: number;
     currentStreak: number;
-    averageWords: number;
-    totalFavorites: number;
   };
-  activity7d: {
-    dateKey: string;
-    label: string;
-    count: number;
-  }[];
-  moodDistribution: {
-    mood: MoodValue;
-    label: string;
-    count: number;
-    percentage: number;
-  }[];
-  popularTopics: {
-    tag: string;
-    label: string;
-    count: number;
-    percentage: number;
-  }[];
-  analysis: {
-    summary: string;
-    keyInsight: string;
-    growthPatterns: {
-      title: string;
-      subtitle: string;
-    }[];
-    personalizedPrompts: {
-      topic: string;
-      text: string;
-    }[];
+  summary: {
+    headline: string;
+    narrative: string;
+    highlight: string;
   };
-  updatedAt: string | null;
+  quickAnalysis: {
+    available: boolean;
+    title: string;
+    description: string;
+  };
 };
 
-export type InsightsAiAnalysisResponse = {
+export type InsightsAiAnalysisReadyResponse = {
+  status: "ready";
   window: {
     startDate: string;
     endDate: string;
@@ -107,4 +92,46 @@ export type InsightsAiAnalysisResponse = {
       description: string;
     }[];
   };
+};
+
+export type InsightsAiAnalysisResponse =
+  | InsightsAiAnalysisPendingResponse
+  | InsightsAiAnalysisReadyResponse;
+export type InsightsOverviewResponse = {
+  stats: {
+    totalEntries: number;
+    currentStreak: number;
+    averageWords: number;
+    totalFavorites: number;
+  };
+  activity7d: {
+    dateKey: string;
+    label: string;
+    count: number;
+  }[];
+  moodDistribution: {
+    mood: MoodValue;
+    label: string;
+    count: number;
+    percentage: number;
+  }[];
+  popularTopics: {
+    tag: string;
+    label: string;
+    count: number;
+    percentage: number;
+  }[];
+  analysis: {
+    summary: string;
+    keyInsight: string;
+    growthPatterns: {
+      title: string;
+      subtitle: string;
+    }[];
+    personalizedPrompts: {
+      topic: string;
+      text: string;
+    }[];
+  };
+  updatedAt: string | null;
 };

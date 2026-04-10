@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
+import { journalModel } from "../../schema/journal.schema";
 import { userModel } from "../../schema/user.schema";
 import {
+  getJournalQuickAnalysis,
+  PremiumQuickAnalysisRequiredError,
   PremiumTagSuggestionsRequiredError,
+  QuickAnalysisDisabledError,
   suggestJournalTags,
 } from "./journal.service";
 
@@ -17,8 +21,14 @@ type FindByIdQueryResult<T> = {
 const userTarget = userModel as unknown as {
   findById: (userId: string) => FindByIdQueryResult<unknown>;
 };
+const journalTarget = journalModel as unknown as {
+  findOne: (query: unknown) => {
+    exec: () => Promise<unknown>;
+  };
+};
 
 const originalFindById = userTarget.findById;
+const originalJournalFindOne = journalTarget.findOne;
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.OPENAI_API_KEY;
 
@@ -43,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   userTarget.findById = originalFindById;
+  journalTarget.findOne = originalJournalFindOne;
   globalThis.fetch = originalFetch;
 
   if (typeof originalApiKey === "string") {
@@ -70,6 +81,71 @@ test("suggestJournalTags rejects non-premium users before generating suggestions
       return true;
     }
   );
+});
+
+test("getJournalQuickAnalysis rejects non-premium users", async () => {
+  mockUserAiAccess(false);
+
+  await assert.rejects(
+    () =>
+      getJournalQuickAnalysis({
+        userId: "user-1",
+        journalId: "journal-1",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof PremiumQuickAnalysisRequiredError);
+      assert.equal(
+        (error as Error).message,
+        "Premium membership is required for quick analysis."
+      );
+      return true;
+    }
+  );
+});
+
+test("getJournalQuickAnalysis rejects opted-out users", async () => {
+  mockUserAiAccess(true, false);
+
+  await assert.rejects(
+    () =>
+      getJournalQuickAnalysis({
+        userId: "user-1",
+        journalId: "journal-1",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof QuickAnalysisDisabledError);
+      assert.equal(
+        (error as Error).message,
+        "Quick analysis is turned off for this account."
+      );
+      return true;
+    }
+  );
+});
+
+test("getJournalQuickAnalysis returns a short heuristic reflection for a saved entry", async () => {
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      _id: {
+        toString: () => "journal-1",
+      },
+      title: "Tough workday",
+      type: "journal",
+      content:
+        "Work felt heavy today and I noticed a lot of anxiety before the meeting. I needed a slower evening and more self-care after that.",
+      tags: ["work", "self-care", "mood:bad"],
+    }),
+  });
+
+  const analysis = await getJournalQuickAnalysis({
+    userId: "user-1",
+    journalId: "journal-1",
+  });
+
+  assert.ok(analysis);
+  assert.equal(analysis?.journalId, "journal-1");
+  assert.equal(analysis?.patternTags[0]?.label, "Work");
+  assert.match(analysis?.summary || "", /work/i);
 });
 
 test("suggestJournalTags returns ranked tags and excludes already selected tags", async () => {

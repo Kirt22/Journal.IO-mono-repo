@@ -13,12 +13,15 @@ import {
 import type {
   CreateJournalInput,
   JournalTagSuggestionsResponse,
+  JournalQuickAnalysisInput,
+  JournalQuickAnalysisResponse,
   JournalEntryResponse,
   JournalLookupInput,
   SuggestJournalTagsInput,
   ToggleJournalFavoriteInput,
   UpdateJournalInput,
 } from "../../types/journal.types";
+import type { InsightTone } from "../../types/insights.types";
 
 const journalTagKeywords: Record<string, string[]> = {
   gratitude: ["grateful", "thankful", "appreciate", "blessed", "thanks"],
@@ -70,6 +73,47 @@ const aiJournalTagJsonSchema = {
     },
   },
 } satisfies Record<string, unknown>;
+const journalQuickAnalysisSchema = z.object({
+  headline: z.string().trim().min(1).max(90),
+  summary: z.string().trim().min(1).max(260),
+  nextStep: z.string().trim().min(1).max(180),
+  patternTags: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(32),
+        tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+      })
+    )
+    .min(1)
+    .max(3),
+});
+const journalQuickAnalysisJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["headline", "summary", "nextStep", "patternTags"],
+  properties: {
+    headline: { type: "string" },
+    summary: { type: "string" },
+    nextStep: { type: "string" },
+    patternTags: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "tone"],
+        properties: {
+          label: { type: "string" },
+          tone: {
+            type: "string",
+            enum: ["coral", "blue", "sage", "amber", "slate"],
+          },
+        },
+      },
+    },
+  },
+} satisfies Record<string, unknown>;
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const positiveMoodTags = new Set(["gratitude", "happiness", "mindfulness", "growth"]);
@@ -85,6 +129,22 @@ const moodBoosts: Record<NonNullable<SuggestJournalTagsInput["mood"]>, string[]>
   okay: [],
   bad: ["sadness", "self-care"],
   terrible: ["sadness", "anxiety", "self-care"],
+};
+const quickAnalysisToneByTag: Record<string, InsightTone> = {
+  gratitude: "sage",
+  happiness: "coral",
+  sadness: "slate",
+  anxiety: "slate",
+  reflection: "blue",
+  goals: "amber",
+  mindfulness: "blue",
+  "self-care": "sage",
+  relationships: "coral",
+  work: "amber",
+  growth: "sage",
+  morning: "amber",
+  evening: "slate",
+  anger: "slate",
 };
 
 const scoreKeywordMatches = (content: string, keyword: string) => {
@@ -139,6 +199,27 @@ const sanitizeAiTags = (tags: string[], existingTagSet: Set<string>) => {
 
   return nextTags.slice(0, 5);
 };
+
+const formatTagLabel = (tag: string) =>
+  tag
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+
+const getMoodTag = (tags: string[]) =>
+  tags
+    .map(tag => tag.trim().toLowerCase())
+    .find(tag => tag.startsWith("mood:"))
+    ?.slice("mood:".length) || null;
+
+const getVisibleJournalTags = (tags: string[]) =>
+  tags
+    .map(tag => tag.trim().toLowerCase())
+    .filter(tag => Boolean(tag) && !tag.startsWith("mood:"));
+
+const getQuickAnalysisTone = (tag: string): InsightTone =>
+  quickAnalysisToneByTag[tag] || "blue";
 
 const buildHeuristicJournalTagSuggestions = ({
   content,
@@ -246,6 +327,139 @@ class PremiumTagSuggestionsRequiredError extends Error {
     this.name = "PremiumTagSuggestionsRequiredError";
   }
 }
+
+class PremiumQuickAnalysisRequiredError extends Error {
+  constructor() {
+    super("Premium membership is required for quick analysis.");
+    this.name = "PremiumQuickAnalysisRequiredError";
+  }
+}
+
+class QuickAnalysisDisabledError extends Error {
+  constructor() {
+    super("Quick analysis is turned off for this account.");
+    this.name = "QuickAnalysisDisabledError";
+  }
+}
+
+const ensureQuickAnalysisAccess = async (userId: string) => {
+  const accessState = await getUserAiAccessState(userId);
+
+  if (!accessState.isPremium) {
+    throw new PremiumQuickAnalysisRequiredError();
+  }
+
+  if (accessState.aiOptIn === false) {
+    throw new QuickAnalysisDisabledError();
+  }
+};
+
+const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnalysisResponse => {
+  const visibleTags = getVisibleJournalTags(journal.tags || []);
+  const moodTag = getMoodTag(journal.tags || []);
+  const inferredTags = buildHeuristicJournalTagSuggestions({
+    content: journal.content || "",
+    selectedTags: visibleTags,
+  }).tags;
+  const patternTagKeys = [...visibleTags, ...inferredTags].filter(
+    (tag, index, allTags) => Boolean(tag) && allTags.indexOf(tag) === index
+  );
+  const primaryTag = patternTagKeys[0] || null;
+  const primaryMoodLabel = moodTag ? formatTagLabel(moodTag) : null;
+  const wordCount = journal.content.trim().split(/\s+/).filter(Boolean).length;
+
+  let headline = "A reflective moment stood out here";
+  let summary =
+    "This entry reads like a personal check-in. The language may indicate you were trying to understand what felt most present in the moment.";
+  let nextStep =
+    "In your next entry, name what felt heavy, what helped, and what you need next.";
+
+  if (primaryTag && primaryMoodLabel) {
+    headline = `${formatTagLabel(primaryTag)} stood out in this ${primaryMoodLabel.toLowerCase()} check-in`;
+    summary = `This entry may indicate ${formatTagLabel(primaryTag).toLowerCase()} was closely tied to how you felt here. The writing suggests you were trying to make sense of that experience in real time.`;
+  } else if (primaryTag) {
+    headline = `${formatTagLabel(primaryTag)} stood out in this entry`;
+    summary = `This entry may indicate ${formatTagLabel(primaryTag).toLowerCase()} was the clearest thread in what you wrote. The language suggests it carried most of the emotional weight of this moment.`;
+  } else if (primaryMoodLabel) {
+    headline = `${primaryMoodLabel} energy came through clearly here`;
+    summary = `This entry reads like a ${primaryMoodLabel.toLowerCase()} check-in. The language may indicate you were naming the moment honestly, even if the bigger pattern is still unfolding.`;
+  }
+
+  if (visibleTags.includes("self-care") || visibleTags.includes("anxiety")) {
+    nextStep =
+      "In your next entry, note one small thing that helped you feel safer, steadier, or more supported.";
+  } else if (visibleTags.includes("work") || visibleTags.includes("goals")) {
+    nextStep =
+      "In your next entry, separate what felt in your control today from what can wait until later.";
+  } else if (visibleTags.includes("relationships")) {
+    nextStep =
+      "In your next entry, name one interaction that felt nourishing and one that felt draining.";
+  } else if (wordCount < 35) {
+    nextStep =
+      "Try adding a few more specifics next time about what happened, how it affected you, and what you needed.";
+  }
+
+  const patternTags = (patternTagKeys.length
+    ? patternTagKeys
+    : primaryMoodLabel
+      ? [primaryMoodLabel.toLowerCase()]
+      : ["reflection"]
+  )
+    .slice(0, 3)
+    .map(tag => ({
+      label: formatTagLabel(tag),
+      tone: getQuickAnalysisTone(tag),
+    }));
+
+  return {
+    journalId: journal._id.toString(),
+    headline,
+    summary,
+    patternTags,
+    nextStep,
+    generatedAt: new Date().toISOString(),
+  };
+};
+
+const generateOpenAiJournalQuickAnalysis = async ({
+  userId,
+  journal,
+  baseline,
+}: {
+  userId: string;
+  journal: IJournal;
+  baseline: JournalQuickAnalysisResponse;
+}) => {
+  if (!(await canUseOpenAiForUser(userId)) || journal.content.trim().length < 24) {
+    return null;
+  }
+
+  return requestStructuredOpenAi({
+    feature: "journal quick analysis",
+    schemaName: "journal_quick_analysis",
+    schema: journalQuickAnalysisJsonSchema,
+    parser: journalQuickAnalysisSchema,
+    maxOutputTokens: 260,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in the single entry only. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          title: journal.title,
+          type: journal.type,
+          moodTag: getMoodTag(journal.tags || []),
+          tags: getVisibleJournalTags(journal.tags || []),
+          entry: journal.content.trim().slice(0, 1200),
+          baseline,
+        }),
+      },
+    ],
+  });
+};
 
 const serializeJournal = (journal: IJournal): JournalEntryResponse => {
   const journalObject = journal.toObject();
@@ -478,9 +692,44 @@ const suggestJournalTags = async ({
   };
 };
 
+const getJournalQuickAnalysis = async ({
+  userId,
+  journalId,
+}: JournalQuickAnalysisInput): Promise<JournalQuickAnalysisResponse | null> => {
+  await ensureQuickAnalysisAccess(userId);
+
+  const journal = await journalModel.findOne({ _id: journalId, userId }).exec();
+
+  if (!journal) {
+    return null;
+  }
+
+  const baseline = buildHeuristicJournalQuickAnalysis(journal);
+  const aiAnalysis = await generateOpenAiJournalQuickAnalysis({
+    userId,
+    journal,
+    baseline,
+  });
+
+  if (!aiAnalysis) {
+    return baseline;
+  }
+
+  return {
+    journalId: journal._id.toString(),
+    headline: aiAnalysis.headline,
+    summary: aiAnalysis.summary,
+    patternTags: aiAnalysis.patternTags,
+    nextStep: aiAnalysis.nextStep,
+    generatedAt: new Date().toISOString(),
+  };
+};
+
 export type {
   CreateJournalInput,
   JournalTagSuggestionsResponse,
+  JournalQuickAnalysisInput,
+  JournalQuickAnalysisResponse,
   JournalEntryResponse,
   JournalLookupInput,
   SuggestJournalTagsInput,
@@ -491,8 +740,11 @@ export {
   createJournal,
   deleteJournal,
   getJournalDetails,
+  getJournalQuickAnalysis,
   getJournals,
   PremiumTagSuggestionsRequiredError,
+  PremiumQuickAnalysisRequiredError,
+  QuickAnalysisDisabledError,
   serializeJournal,
   suggestJournalTags,
   toggleJournalFavorite,

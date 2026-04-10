@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
+import { insightsModel } from "../../schema/insights.schema";
 import { userModel } from "../../schema/user.schema";
 import {
   AiAnalysisDisabledError,
@@ -19,11 +20,18 @@ type FindByIdQueryResult<T> = {
 const userTarget = userModel as unknown as {
   findById: (userId: string) => FindByIdQueryResult<unknown>;
 };
+const insightsTarget = insightsModel as unknown as {
+  findOne: (query: unknown) => {
+    exec: () => Promise<unknown>;
+  };
+};
 
 const originalFindById = userTarget.findById;
+const originalFindOne = insightsTarget.findOne;
 
 afterEach(() => {
   userTarget.findById = originalFindById;
+  insightsTarget.findOne = originalFindOne;
 });
 
 test("getInsightsAiAnalysis blocks opted-out users before loading AI analysis", async () => {
@@ -80,8 +88,54 @@ test("getInsightsAiAnalysis blocks non-premium users before loading AI analysis"
   );
 });
 
+test("getInsightsAiAnalysis returns a pending payload during the first week of premium usage", async () => {
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 2,
+      totalWords: 180,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map([
+        ["2026-04-05", 1],
+        ["2026-04-06", 1],
+      ]),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      aiAnalysis: null,
+      aiAnalysisStale: true,
+      aiAnalysisWindowEndDateKey: null,
+    }),
+  });
+
+  const analysis = await getInsightsAiAnalysis("user-123");
+
+  assert.equal(analysis.status, "pending");
+
+  if (analysis.status !== "pending") {
+    throw new Error("Expected pending AI analysis payload.");
+  }
+
+  assert.equal(analysis.readiness.daysUntilReady, 4);
+  assert.equal(analysis.readiness.totalEntries, 2);
+  assert.equal(analysis.quickAnalysis.available, true);
+});
+
 test("mergeAiAnalysisEnhancement only replaces the user-facing narrative sections", () => {
   const baseAnalysis = {
+    status: "ready" as const,
     window: {
       startDate: "2026-03-31",
       endDate: "2026-04-06",

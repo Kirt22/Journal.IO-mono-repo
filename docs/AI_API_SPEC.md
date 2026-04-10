@@ -290,6 +290,7 @@ Success `data`:
   "phoneNumber": "+15551234567",
   "email": null,
   "isPremium": false,
+  "premiumPlanKey": null,
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
@@ -322,6 +323,7 @@ Success `data`:
   "phoneNumber": "+15551234567",
   "email": null,
   "isPremium": true,
+  "premiumPlanKey": "yearly",
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
@@ -332,6 +334,183 @@ Success `data`:
 ```
 
 This route requires authentication.
+
+---
+
+## 3.2.1 Paywall Module (`/paywall`)
+
+MongoDB now owns the app paywall configuration for offering metadata, paywall templates, placement mapping, and interruptive cooldown rules. RevenueCat still executes purchases and restores, but the mobile app asks the backend which paywall template to show and then syncs the successful purchase back to the backend.
+
+### `GET /paywall/config`
+
+Return the resolved paywall decision for the authenticated user and requested placement.
+
+Query:
+
+- `placementKey` (required)
+- `screenKey` (optional)
+- `currentStage` (optional)
+- `triggerMode` (optional, `contextual` or `interruptive`)
+
+Success `data`:
+
+```json
+{
+  "shouldShow": true,
+  "placementKey": "post_auth",
+  "screenKey": "auth",
+  "triggerMode": "contextual",
+  "wasInterruptive": false,
+  "reason": "ready",
+  "template": {
+    "key": "weekly-standard",
+    "title": "Weekly Or Yearly Premium",
+    "headline": "Start flexibly now, or choose the longer premium path up front.",
+    "subheadline": "A two-card template with weekly access and the longer-term yearly option.",
+    "heroBadgeLabel": null,
+    "purchaseChipTitle": null,
+    "purchaseChipBody": null,
+    "featureCarouselTitle": null,
+    "socialProofLine": null,
+    "footerLegal": null,
+    "featureList": [
+      {
+        "title": "Choose your pace",
+        "body": "Start with weekly premium if you want a lighter commitment, or go yearly if you already know you will stay.",
+        "footer": "Two options, one calmer premium flow."
+      },
+      {
+        "title": "Weekly analysis stays unlocked",
+        "body": "Both options open AI tagging, saved-entry quick analysis, and the weekly behavior read across the app.",
+        "footer": "The feature set stays the same across the two plans."
+      }
+    ],
+    "primaryOfferingKey": "weekly",
+    "secondaryOfferingKeys": ["yearly"],
+    "visibleOfferingKeys": ["weekly", "yearly"]
+  },
+  "offerings": [
+    {
+      "key": "weekly",
+      "title": "WEEKLY",
+      "price": "$4.99",
+      "priceSuffix": "/week",
+      "subtitle": "Flexible access",
+      "badge": null,
+      "highlight": null,
+      "sortOrder": 1,
+      "revenueCatOfferingId": "journalio_offering_dev",
+      "revenueCatPackageId": "$rc_weekly",
+      "purchasedUsersCount": 0,
+      "purchaseLimit": null
+    },
+    {
+      "key": "yearly",
+      "title": "YEARLY",
+      "price": "$99.99",
+      "priceSuffix": "/year",
+      "subtitle": "Best for steady journaling",
+      "badge": "Most Value",
+      "highlight": "$8.33/month",
+      "sortOrder": 3,
+      "revenueCatOfferingId": "journalio_offering_dev",
+      "revenueCatPackageId": "$rc_annual",
+      "purchasedUsersCount": 0,
+      "purchaseLimit": null
+    }
+  ]
+}
+```
+
+Behavior notes:
+
+- returns `shouldShow: false` for premium users
+- `post_auth` resolves to the standard `weekly-standard` template; the dedicated lifetime offer is a separate frontend surface that is shown only after the user dismisses that first post-auth paywall
+- may return `shouldShow: false` for interruptive placements when thresholds, cooldowns, caps, or randomization do not pass
+- when the lifetime offering reaches its purchase limit, the backend falls back from `lifetime-launch` to its configured fallback template automatically
+- `featureList` is an ordered array of feature-card objects with `title`, `body`, and optional `footer`
+- `visibleOfferingKeys` controls which offering cards the frontend renders for the active template; a template may show one card or multiple cards
+- `subheadline` remains in the contract for merchandising control, but the mobile UI may choose not to render it
+- `heroBadgeLabel`, `purchaseChipTitle`, `purchaseChipBody`, `featureCarouselTitle`, `socialProofLine`, and `footerLegal` are optional merchandising fields currently used by the dedicated lifetime-offer screen so its hero/footer copy stays Mongo-backed instead of hardcoded in the app
+
+### `POST /paywall/events`
+
+Track authenticated paywall lifecycle and premium-intent events.
+
+Request:
+
+```json
+{
+  "placementKey": "home_ai_card_locked",
+  "screenKey": "home",
+  "eventType": "locked_feature_tap",
+  "wasInterruptive": false
+}
+```
+
+Supported `eventType` values:
+
+- `locked_feature_tap`
+- `upgrade_tap`
+- `paywall_impression`
+- `paywall_dismiss`
+- `plan_select`
+- `cta_tap`
+- `purchase_success`
+- `restore_success`
+- `purchase_failure`
+
+Success `data`:
+
+```json
+{
+  "eventId": "string",
+  "createdAt": "2026-04-08T12:00:00.000Z"
+}
+```
+
+### `POST /paywall/purchase-sync`
+
+Persist the purchased premium plan after a successful RevenueCat purchase or restore.
+
+Request:
+
+```json
+{
+  "offeringKey": "lifetime",
+  "revenueCatOfferingId": "journalio_offering_dev",
+  "revenueCatPackageId": "$rc_lifetime",
+  "store": "APP_STORE",
+  "entitlementId": "Journal.IO Pro",
+  "wasRestore": false
+}
+```
+
+Success `data`:
+
+```json
+{
+  "userId": "string",
+  "name": "Alex",
+  "phoneNumber": "+15551234567",
+  "email": null,
+  "isPremium": true,
+  "premiumPlanKey": "lifetime",
+  "avatarColor": "#8E4636",
+  "journalingGoals": ["Daily Reflection", "Personal Growth"],
+  "profileSetupCompleted": true,
+  "onboardingCompleted": true,
+  "profilePic": null,
+  "aiOptIn": true
+}
+```
+
+Behavior notes:
+
+- sets the authenticated user premium state and plan attribution
+- increments the lifetime offering purchase counter only once per user
+- should be the primary backend sync path after RevenueCat purchase or restore
+- `PATCH /users/premium-status` remains available as a compatibility fallback for boolean-only entitlement reconciliation
 
 ---
 
@@ -480,6 +659,49 @@ Notes:
 - when the authenticated user is premium, has AI enabled, and the backend is configured with OpenAI, tag suggestions are chosen through OpenAI against Journal.IO's allowed tag set
 - if a premium user has opted out of AI or OpenAI is unavailable, the backend falls back to deterministic keyword and mood-aware tag scoring
 - positive prompt words inside negated or distressed phrasing should not force a positive tag
+
+### `POST /journal/quick_analysis`
+
+Generate a short AI-assisted reflection for one saved journal entry.
+
+Request:
+
+```json
+{
+  "journalId": "string"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "journalId": "string",
+  "headline": "Work stood out in this bad check-in",
+  "summary": "This entry may indicate work pressure was closely tied to how you felt here.",
+  "patternTags": [
+    {
+      "label": "Work",
+      "tone": "amber"
+    },
+    {
+      "label": "Self Care",
+      "tone": "sage"
+    }
+  ],
+  "nextStep": "In your next entry, separate what felt in your control today from what can wait until later.",
+  "generatedAt": "2026-04-06T09:20:00.000Z"
+}
+```
+
+Notes:
+
+- protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- returns `403` with error code `QUICK_ANALYSIS_DISABLED` when the authenticated user has AI turned off
+- reads one saved journal only; it does not depend on the weekly analysis cache
+- when OpenAI is available for an eligible user, the backend refines the short reflection with OpenAI
+- if OpenAI is unavailable, the backend falls back to a deterministic, non-clinical quick reflection
 
 ### `GET /journal/get_journal_details`
 
@@ -870,7 +1092,7 @@ Behavior:
 
 ### `GET /insights/ai-analysis`
 
-Returns the cached weekly AI-analysis payload used by the mobile `AI Analysis` tab. The Home AI insight card also consumes this endpoint and derives short rotating snippets from the same response.
+Returns the weekly AI-analysis payload used by the mobile `AI Analysis` tab. The Home AI insight card also consumes this endpoint and derives short rotating snippets from the same response.
 
 Behavior:
 
@@ -878,16 +1100,49 @@ Behavior:
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
 - overview insights remain available even when AI analysis is disabled
+- during the first 7 days after account creation for an eligible premium user, the route returns a `pending` warm-up payload instead of a weekly analysis so the app can prompt the user to keep journaling consistently
 - when OpenAI is configured, the backend uses the cached deterministic weekly signal as a baseline and asks OpenAI to generate the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
 - if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
 
-Response:
+Pending response:
 
 ```json
 {
   "success": true,
   "message": "Insights AI analysis loaded",
   "data": {
+    "status": "pending",
+    "readiness": {
+      "joinedAt": "2026-04-03T00:00:00.000Z",
+      "eligibleOn": "2026-04-10T00:00:00.000Z",
+      "daysSinceSignup": 3,
+      "daysUntilReady": 4,
+      "totalEntries": 2,
+      "activeDays": 2,
+      "currentStreak": 2
+    },
+    "summary": {
+      "headline": "Weekly analysis is warming up",
+      "narrative": "Keep journaling for 4 more days so Journal.IO can build a fuller week of context.",
+      "highlight": "Your 2-day streak is already helping the first weekly analysis feel more grounded."
+    },
+    "quickAnalysis": {
+      "available": true,
+      "title": "Quick Analysis is available now",
+      "description": "Open any saved journal entry to generate a short entry-by-entry AI reflection while the weekly analysis is still warming up."
+    }
+  }
+}
+```
+
+Ready response:
+
+```json
+{
+  "success": true,
+  "message": "Insights AI analysis loaded",
+  "data": {
+    "status": "ready",
     "window": {
       "startDate": "2026-03-26",
       "endDate": "2026-04-01",

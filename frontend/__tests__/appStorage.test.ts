@@ -31,10 +31,13 @@ describe("appStorage", () => {
 
     const {
       clearOnboardingCompleted,
+      clearPostAuthPaywallSeen,
       getOnboardingCompleted,
+      getPostAuthPaywallSeen,
       hasSeenInstall,
       markInstallSeen,
       saveOnboardingCompleted,
+      savePostAuthPaywallSeen,
     } = require("../src/utils/tokenStorage");
 
     await expect(hasSeenInstall()).resolves.toBe(false);
@@ -43,9 +46,16 @@ describe("appStorage", () => {
 
     await saveOnboardingCompleted(true);
     await expect(getOnboardingCompleted()).resolves.toBe(true);
+    await expect(getPostAuthPaywallSeen()).resolves.toBeNull();
+    await savePostAuthPaywallSeen(false);
+    await expect(getPostAuthPaywallSeen()).resolves.toBe(false);
+    await savePostAuthPaywallSeen(true);
+    await expect(getPostAuthPaywallSeen()).resolves.toBe(true);
 
     await clearOnboardingCompleted();
     await expect(getOnboardingCompleted()).resolves.toBe(false);
+    await clearPostAuthPaywallSeen();
+    await expect(getPostAuthPaywallSeen()).resolves.toBeNull();
 
     expect(asyncStorage.setItem).toHaveBeenCalled();
     expect(asyncStorage.getItem).toHaveBeenCalled();

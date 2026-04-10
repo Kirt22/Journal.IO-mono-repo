@@ -10,9 +10,13 @@ import {
 } from "react-native";
 import {
   ArrowLeft,
+  Brain,
   Edit2,
   Heart,
+  Lock,
   Loader2,
+  RefreshCw,
+  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -26,10 +30,12 @@ import JournalPromptCard from "../../components/JournalPromptCard";
 import {
   deleteJournalEntry,
   getJournalEntry,
+  getJournalQuickAnalysis,
   toggleJournalFavorite,
 } from "../../services/journalService";
+import { trackPaywallEvent } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
-import type { JournalEntry } from "../../models/journalModels";
+import type { JournalEntry, JournalQuickAnalysis } from "../../models/journalModels";
 import { useTheme } from "../../theme/provider";
 import { getFilteredTags } from "../../utils/journalEntryCard";
 
@@ -40,6 +46,36 @@ function formatEntryDate(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "");
+
+  if (normalized.length !== 6) {
+    return hex;
+  }
+
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function getToneColor(tone: JournalQuickAnalysis["patternTags"][number]["tone"]) {
+  switch (tone) {
+    case "coral":
+      return "#E6816D";
+    case "sage":
+      return "#8AB39A";
+    case "amber":
+      return "#E9A15B";
+    case "slate":
+      return "#8E939A";
+    case "blue":
+    default:
+      return "#7D9FD6";
+  }
 }
 
 function JournalTags({ tags }: { tags: string[] }) {
@@ -87,6 +123,11 @@ export default function EntryDetailScreen() {
   const activeTab = useAppStore(state => state.activeTab);
   const entryId = useAppStore(state => state.selectedJournalEntryId);
   const entries = useAppStore(state => state.recentJournalEntries);
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
+  const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
   const closeJournalEntry = useAppStore(state => state.closeJournalEntry);
   const setActiveTab = useAppStore(state => state.setActiveTab);
   const openNewEntry = useAppStore(state => state.openNewEntry);
@@ -101,6 +142,9 @@ export default function EntryDetailScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [quickAnalysis, setQuickAnalysis] = useState<JournalQuickAnalysis | null>(null);
+  const [isQuickAnalysisLoading, setIsQuickAnalysisLoading] = useState(false);
+  const [quickAnalysisError, setQuickAnalysisError] = useState<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -115,6 +159,9 @@ export default function EntryDetailScreen() {
   useEffect(() => {
     if (!entryId) {
       setHydratedEntry(null);
+      setQuickAnalysis(null);
+      setQuickAnalysisError(null);
+      setIsQuickAnalysisLoading(false);
       return;
     }
 
@@ -144,6 +191,12 @@ export default function EntryDetailScreen() {
       isActive = false;
     };
   }, [entryId, updateRecentJournalEntry]);
+
+  useEffect(() => {
+    setQuickAnalysis(null);
+    setQuickAnalysisError(null);
+    setIsQuickAnalysisLoading(false);
+  }, [entryId]);
 
   const handleToggleFavorite = async () => {
     if (!entry || isTogglingFavorite) {
@@ -195,6 +248,47 @@ export default function EntryDetailScreen() {
         },
       ]
     );
+  };
+
+  const handleLoadQuickAnalysis = async ({ force = false }: { force?: boolean } = {}) => {
+    if (!entry || isQuickAnalysisLoading || !isAiOptedIn) {
+      return;
+    }
+
+    if (!isPremiumUser) {
+      trackPaywallEvent({
+        placementKey: "entry_quick_analysis_locked",
+        screenKey: "journal-detail",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "entry_quick_analysis_locked",
+        returnStage: "journal-detail",
+        screenKey: "journal-detail",
+      });
+      return;
+    }
+
+    if (!force && quickAnalysis?.journalId === entry._id) {
+      return;
+    }
+
+    setIsQuickAnalysisLoading(true);
+    setQuickAnalysisError(null);
+
+    try {
+      const nextQuickAnalysis = await getJournalQuickAnalysis(entry._id);
+      setQuickAnalysis(nextQuickAnalysis);
+    } catch (error) {
+      setQuickAnalysisError(
+        error instanceof Error
+          ? error.message
+          : "We could not load a quick analysis for this entry."
+      );
+    } finally {
+      setIsQuickAnalysisLoading(false);
+    }
   };
 
   const handleBottomNavPress = (nextTab: BottomNavKey) => {
@@ -310,6 +404,7 @@ export default function EntryDetailScreen() {
   const favoriteLabel = entry.isFavorite ? "Remove favorite" : "Add favorite";
   const visibleTags = getFilteredTags(entry.tags);
   const hasMoodTag = entry.tags.some(tag => tag.toLowerCase().startsWith("mood:"));
+  const shouldShowQuickAnalysis = true;
 
   return (
     <SafeAreaView
@@ -421,6 +516,243 @@ export default function EntryDetailScreen() {
                   <JournalPromptCard prompt={entry.aiPrompt} />
                 </View>
               ) : null}
+
+              {shouldShowQuickAnalysis ? (
+                <View
+                  style={[
+                    styles.quickAnalysisCard,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.quickAnalysisHeader}>
+                    <View style={styles.quickAnalysisTitleRow}>
+                      <Brain size={16} color={theme.colors.primary} />
+                      <Text
+                        style={[
+                          styles.quickAnalysisLabel,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        Quick Analysis
+                      </Text>
+                    </View>
+                    {isPremiumUser && isAiOptedIn ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Refresh quick analysis"
+                        onPress={() => {
+                          handleLoadQuickAnalysis({ force: true }).catch(() => undefined);
+                        }}
+                        disabled={isQuickAnalysisLoading}
+                        style={({ pressed }) => [
+                          styles.quickAnalysisRefresh,
+                          pressed && !isQuickAnalysisLoading && styles.pressed,
+                        ]}
+                      >
+                        {isQuickAnalysisLoading ? (
+                          <Loader2 size={14} color={theme.colors.primary} />
+                        ) : (
+                          <RefreshCw size={14} color={theme.colors.primary} />
+                        )}
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  {!isPremiumUser ? (
+                    <View style={styles.quickAnalysisStack}>
+                      <Text
+                        style={[
+                          styles.quickAnalysisBody,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        Premium unlocks a short single-entry reflection so you can read patterns
+                        without waiting for the full weekly analysis.
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Unlock quick analysis"
+                        onPress={() => {
+                          handleLoadQuickAnalysis().catch(() => undefined);
+                        }}
+                        style={({ pressed }) => [
+                          styles.quickAnalysisButton,
+                          { backgroundColor: theme.colors.primary },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Lock size={14} color={theme.colors.primaryForeground} />
+                        <Text
+                          style={[
+                            styles.quickAnalysisButtonText,
+                            { color: theme.colors.primaryForeground },
+                          ]}
+                        >
+                          Unlock Quick Analysis
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : !isAiOptedIn ? (
+                    <Text
+                      style={[
+                        styles.quickAnalysisBody,
+                        { color: theme.colors.mutedForeground },
+                      ]}
+                    >
+                      AI quick analysis is turned off for this account.
+                    </Text>
+                  ) : isQuickAnalysisLoading && !quickAnalysis ? (
+                    <View style={styles.quickAnalysisLoading}>
+                      <Loader2 size={16} color={theme.colors.primary} />
+                      <Text
+                        style={[
+                          styles.quickAnalysisBody,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        Building a short reflection from this entry.
+                      </Text>
+                    </View>
+                  ) : quickAnalysisError && !quickAnalysis ? (
+                    <View style={styles.quickAnalysisStack}>
+                      <Text
+                        style={[
+                          styles.quickAnalysisBody,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        {quickAnalysisError}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry quick analysis"
+                        onPress={() => {
+                          handleLoadQuickAnalysis({ force: true }).catch(() => undefined);
+                        }}
+                        style={({ pressed }) => [
+                          styles.quickAnalysisButton,
+                          { backgroundColor: theme.colors.primary },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.quickAnalysisButtonText,
+                            { color: theme.colors.primaryForeground },
+                          ]}
+                        >
+                          Retry
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : quickAnalysis ? (
+                    <View style={styles.quickAnalysisStack}>
+                      <Text
+                        style={[
+                          styles.quickAnalysisHeadline,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        {quickAnalysis.headline}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.quickAnalysisBody,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        {quickAnalysis.summary}
+                      </Text>
+                      <View style={styles.quickAnalysisTags}>
+                        {quickAnalysis.patternTags.map(tag => {
+                          const toneColor = getToneColor(tag.tone);
+
+                          return (
+                            <View
+                              key={tag.label}
+                              style={[
+                                styles.quickAnalysisTag,
+                                { backgroundColor: hexToRgba(toneColor, 0.12) },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.quickAnalysisTagText,
+                                  { color: toneColor },
+                                ]}
+                              >
+                                {tag.label}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      <View
+                        style={[
+                          styles.quickAnalysisNote,
+                          {
+                            backgroundColor: hexToRgba(theme.colors.primary, 0.08),
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.quickAnalysisNoteLabel,
+                            { color: theme.colors.mutedForeground },
+                          ]}
+                        >
+                          Gentle next step
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisNoteText,
+                            { color: theme.colors.foreground },
+                          ]}
+                        >
+                          {quickAnalysis.nextStep}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.quickAnalysisStack}>
+                      <Text
+                        style={[
+                          styles.quickAnalysisBody,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        Need a faster read on this single entry? Generate a short reflection while
+                        your weekly analysis is still building.
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Generate quick analysis"
+                        onPress={() => {
+                          handleLoadQuickAnalysis().catch(() => undefined);
+                        }}
+                        style={({ pressed }) => [
+                          styles.quickAnalysisButton,
+                          { backgroundColor: theme.colors.primary },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Sparkles size={14} color={theme.colors.primaryForeground} />
+                        <Text
+                          style={[
+                            styles.quickAnalysisButtonText,
+                            { color: theme.colors.primaryForeground },
+                          ]}
+                        >
+                          Generate Quick Analysis
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ) : null}
             </View>
           </ScrollView>
         </View>
@@ -501,6 +833,96 @@ const styles = StyleSheet.create({
   },
   promptBlock: {
     marginTop: 4,
+  },
+  quickAnalysisCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  quickAnalysisHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  quickAnalysisTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quickAnalysisLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  quickAnalysisRefresh: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickAnalysisStack: {
+    gap: 10,
+  },
+  quickAnalysisHeadline: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "600",
+  },
+  quickAnalysisBody: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  quickAnalysisButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quickAnalysisButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  quickAnalysisLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  quickAnalysisTags: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quickAnalysisTag: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  quickAnalysisTagText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  quickAnalysisNote: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  quickAnalysisNoteLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
+  quickAnalysisNoteText: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   tagSection: {
     gap: 12,

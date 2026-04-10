@@ -3,6 +3,7 @@ import {
   type CreateJournalPayload,
   type JournalEntry,
   type JournalEntryApiRecord,
+  type JournalQuickAnalysis,
   type JournalTagSuggestions,
   type UpdateJournalPayload,
 } from "../models/journalModels";
@@ -159,11 +160,21 @@ const suggestJournalTags = async (payload: {
   };
 };
 
+const getJournalQuickAnalysis = async (journalId: string) => {
+  const response = await request<JournalQuickAnalysis>("/journal/quick_analysis", {
+    method: "POST",
+    body: JSON.stringify({ journalId }),
+  });
+
+  return response.data;
+};
+
 export type { CreateJournalPayload, JournalEntry };
 export {
   createJournalEntry,
   deleteJournalEntry,
   getJournalEntry,
+  getJournalQuickAnalysis,
   getJournalEntries,
   suggestJournalTags,
   toggleJournalFavorite,

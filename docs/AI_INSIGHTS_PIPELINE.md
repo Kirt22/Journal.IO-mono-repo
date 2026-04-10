@@ -73,6 +73,7 @@ Current implemented non-AI overview aggregation:
 Current implemented weekly AI-analysis cache:
 
 - `GET /insights/ai-analysis` reads from the same per-user `insights` document
+- eligible premium users do not receive weekly AI analysis during their first 7 days after account creation; the route returns a supportive `pending` warm-up payload instead
 - journal and mood writes mark the weekly AI-analysis cache as stale without blocking the primary save flow
 - when the AI-analysis route is requested and the cache is stale or older than the current rolling week, the backend recomputes:
   - weekly summary metadata
@@ -86,11 +87,13 @@ Current implemented weekly AI-analysis cache:
   - deterministic weekly scoring still computes metadata, confidence, and trait/watchpoint scores
   - OpenAI then generates the user-facing weekly summary, pattern tags, action plan copy, and Journal.IO support guidance when the user has AI enabled and the backend is configured with `OPENAI_API_KEY`
   - if OpenAI is unavailable, the deterministic weekly copy remains the fallback
+- the warm-up payload includes quick-analysis availability so the frontend can direct the user toward single-entry reflections while the first weekly read is still building
 
 Current implemented prompt and tag generation:
 
 - `GET /prompts/writing` uses OpenAI to generate a fresh personalized prompt list from recent writing patterns and recent journal excerpts when AI is enabled
 - `POST /journal/suggest_tags` uses OpenAI to choose from Journal.IO's allowed tag set for the in-progress draft when AI is enabled
+- `POST /journal/quick_analysis` returns a short structured reflection for one saved entry; it is premium-gated, respects AI opt-out, uses OpenAI refinement when available, and falls back to deterministic wording otherwise
 - both routes fall back to deterministic prompt/tag generation when the user has opted out of AI or the backend is not configured for OpenAI
 
 ---

@@ -52,6 +52,7 @@ jest.mock("../src/services/insightsService", () => ({
     updatedAt: "2026-04-01T09:00:00.000Z",
   })),
   getInsightsAiAnalysis: jest.fn(async () => ({
+    status: "ready",
     window: {
       startDate: "2026-03-26",
       endDate: "2026-04-01",
@@ -252,7 +253,9 @@ async function waitForText(
     }
 
     await ReactTestRenderer.act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise<void>(resolve => {
+        setTimeout(resolve, 0);
+      });
     });
   }
 }
@@ -426,4 +429,63 @@ test("shows an AI opt-out state without fetching the analysis", async () => {
   expect(tree).toContain(
     "AI reflections are off for this account, so weekly AI analysis stays hidden."
   );
+});
+
+test("shows the premium warm-up state while weekly analysis is still pending", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  (getInsightsAiAnalysis as jest.Mock).mockImplementation(async () => ({
+    status: "pending",
+    readiness: {
+      joinedAt: "2026-04-03T00:00:00.000Z",
+      eligibleOn: "2026-04-10T00:00:00.000Z",
+      daysSinceSignup: 3,
+      daysUntilReady: 4,
+      totalEntries: 2,
+      activeDays: 2,
+      currentStreak: 2,
+    },
+    summary: {
+      headline: "Weekly analysis is warming up",
+      narrative:
+        "Keep journaling for 4 more days so Journal.IO can build a fuller week of context.",
+      highlight:
+        "Your 2-day streak is already helping the first weekly analysis feel more grounded.",
+    },
+    quickAnalysis: {
+      available: true,
+      title: "Quick Analysis is available now",
+      description:
+        "Open any saved journal entry to generate a short entry-by-entry AI reflection while the weekly analysis is still warming up.",
+    },
+  }));
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <InsightsScreen />
+      </SafeAreaProvider>
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
+  });
+
+  await waitForText(root!, "Weekly analysis is warming up");
+
+  const tree = extractText(root!.toJSON());
+
+  expect(tree).toContain("Weekly analysis is warming up");
+  expect(tree).toContain("4 days");
+  expect(tree).toContain("entries logged");
+  expect(tree).toContain("Quick Analysis is available now");
 });

@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react-native";
 import PrimaryButton from "../../components/PrimaryButton";
+import { trackPaywallEvent } from "../../services/paywallService";
 import { updateAiOptOutPreference } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
@@ -29,7 +30,8 @@ import type { ThemeMode } from "../../theme/theme";
 type SettingsScreenProps = {
   onBack: () => void;
   onOpenPrivacy: () => void;
-  onOpenPaywall: () => void;
+  onOpenPrivacyModePaywall: () => void;
+  onOpenHidePreviewsPaywall: () => void;
   onSignOut: () => Promise<void> | void;
   currentThemePreference: ThemeMode | "system";
   onToggleTheme: (nextMode: ThemeMode | null) => void;
@@ -129,7 +131,8 @@ function SettingRow({
 export default function SettingsScreen({
   onBack,
   onOpenPrivacy,
-  onOpenPaywall,
+  onOpenPrivacyModePaywall,
+  onOpenHidePreviewsPaywall,
   onSignOut,
   currentThemePreference,
   onToggleTheme,
@@ -229,9 +232,29 @@ export default function SettingsScreen({
     onOpenPrivacy();
   };
 
+  const handleOpenPrivacyModePaywall = () => {
+    trackPaywallEvent({
+      placementKey: "settings_privacy_mode_locked",
+      screenKey: "settings",
+      eventType: "locked_feature_tap",
+      wasInterruptive: false,
+    }).catch(() => undefined);
+    onOpenPrivacyModePaywall();
+  };
+
+  const handleOpenHidePreviewsPaywall = () => {
+    trackPaywallEvent({
+      placementKey: "settings_hide_previews_locked",
+      screenKey: "settings",
+      eventType: "locked_feature_tap",
+      wasInterruptive: false,
+    }).catch(() => undefined);
+    onOpenHidePreviewsPaywall();
+  };
+
   const handlePrivacyModeChange = async (nextValue: boolean) => {
     if (!isPremiumUser) {
-      onOpenPaywall();
+      handleOpenPrivacyModePaywall();
       return;
     }
 
@@ -258,7 +281,7 @@ export default function SettingsScreen({
 
   const handlePreviewPrivacyChange = async (nextValue: boolean) => {
     if (!isPremiumUser) {
-      onOpenPaywall();
+      handleOpenHidePreviewsPaywall();
       return;
     }
 
@@ -414,7 +437,7 @@ export default function SettingsScreen({
             accessibilityRole={isPremiumUser ? undefined : "button"}
             accessibilityLabel={isPremiumUser ? undefined : "Unlock Privacy Mode"}
             disabled={isPremiumUser}
-            onPress={isPremiumUser ? undefined : onOpenPaywall}
+            onPress={isPremiumUser ? undefined : handleOpenPrivacyModePaywall}
             style={({ pressed }) => [pressed && !isPremiumUser && styles.pressed]}
           >
             <View style={styles.settingRow}>
@@ -476,7 +499,7 @@ export default function SettingsScreen({
             onValueChange={handlePreviewPrivacyChange}
             disabled={isUpdatingPreviewPrivacy}
             locked={!isPremiumUser}
-            onLockedPress={onOpenPaywall}
+            onLockedPress={handleOpenHidePreviewsPaywall}
           />
         </View>
 

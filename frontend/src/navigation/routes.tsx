@@ -13,6 +13,7 @@ import {
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import PaywallScreen from "../screens/profile/PaywallScreen";
+import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
@@ -29,7 +30,8 @@ type AppFlowRoutesProps = {
   initialProfileName: string;
   pendingNewEntryPrompt: string | null;
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
-  onContinueFromPaywall: () => void;
+  onContinueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  onContinueFromLifetimeOffer: () => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
@@ -38,7 +40,7 @@ type AppFlowRoutesProps = {
   onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccountSuccess: () => void;
   onVerifyEmail: (code: string) => Promise<void>;
-  onVerificationSuccess: () => void;
+  onVerificationSuccess: () => void | Promise<void>;
   onResendCode: () => Promise<void>;
   onBackToAuth: () => void;
   onBackToCreateAccount: () => void;
@@ -62,6 +64,7 @@ export function AppFlowRoutes({
   pendingNewEntryPrompt,
   onOnboardingContinue,
   onContinueFromPaywall,
+  onContinueFromLifetimeOffer,
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
@@ -101,6 +104,8 @@ export function AppFlowRoutes({
       );
     case "paywall":
       return <PaywallScreen onBack={onContinueFromPaywall} />;
+    case "lifetime-offer":
+      return <LifetimeOfferPaywallScreen onBack={onContinueFromLifetimeOffer} />;
     case "sign-in":
       return (
         <SignInScreen

@@ -6,6 +6,7 @@ type UserProfilePayload = {
   phoneNumber: string | null;
   email: string | null;
   isPremium: boolean;
+  premiumPlanKey: "weekly" | "monthly" | "yearly" | "lifetime" | null;
   avatarColor: string | null;
   journalingGoals: string[];
   profileSetupCompleted: boolean;
@@ -31,6 +32,7 @@ const buildUserProfilePayload = (user: IUser): UserProfilePayload => {
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
     isPremium: Boolean(user.isPremium),
+    premiumPlanKey: user.premiumPlanKey || null,
     avatarColor: user.avatarColor || null,
     journalingGoals: user.journalingGoals || [],
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
@@ -89,6 +91,9 @@ const updatePremiumStatus = async (
   }
 
   user.isPremium = input.isPremium;
+  user.premiumPlanKey = input.isPremium ? user.premiumPlanKey || null : null;
+  user.premiumActivatedAt = input.isPremium ? user.premiumActivatedAt || new Date() : null;
+  user.premiumSource = input.isPremium ? user.premiumSource || null : null;
   await user.save();
 
   return buildUserProfilePayload(user);

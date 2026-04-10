@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import {
+  PURCHASES_ERROR_CODE,
+  type CustomerInfo,
+  type PurchasesError,
+} from "react-native-purchases";
+import {
   ArrowRight,
   CheckCircle2,
   Crown,
@@ -21,22 +26,45 @@ import {
 } from "lucide-react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import PrimaryButton from "../../components/PrimaryButton";
+import {
+  getRevenueCatActiveEntitlement,
+  getRevenueCatConfigurationError,
+  getRevenueCatCustomerInfo,
+  getRevenueCatOfferings,
+  getRevenueCatPaywallPlans,
+  hasRevenueCatPremiumAccess,
+  purchaseRevenueCatPackage,
+  restoreRevenueCatPurchases,
+  type RevenueCatPaywallPlan,
+} from "../../services/revenueCatService";
+import {
+  getPaywallConfig,
+  syncPaywallPurchase,
+  trackPaywallEvent,
+  type PaywallFeatureCard,
+  type PaywallOffering,
+  type ResolvedPaywallConfig,
+} from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 import mascotImage from "../../assets/png/Masscott.png";
 
 type PaywallScreenProps = {
-  onBack: () => void;
+  onBack: (reason?: "dismiss" | "continue") => void;
 };
 
 type Plan = {
-  id: "weekly" | "yearly";
+  id: string;
   durationLabel: string;
   title: string;
   price: string;
   subtitle: string;
   highlight?: string;
   badge?: string;
+  offeringKey?: PaywallOffering["key"];
+  revenueCatOfferingId?: string | null;
+  revenueCatPackageId?: string | null;
+  rcPackage?: RevenueCatPaywallPlan["rcPackage"];
 };
 
 type ScreenState = "paywall" | "success";
@@ -48,17 +76,17 @@ type ShowcaseCard = {
   icon: typeof Sparkles;
 };
 
-const plans: Plan[] = [
+const placeholderPlans: Plan[] = [
   {
     id: "weekly",
-    durationLabel: "7.99",
+    durationLabel: "$7.99",
     title: "WEEKLY",
     price: "$7.99/week",
     subtitle: "Flexible access",
   },
   {
     id: "yearly",
-    durationLabel: "299.99",
+    durationLabel: "$299.99",
     title: "YEARLY",
     price: "$299.99/year",
     subtitle: "Most value",
@@ -69,40 +97,71 @@ const plans: Plan[] = [
 
 const successTags = ["AI insights", "Weekly clarity"];
 
-const showcaseCards: ShowcaseCard[] = [
-  {
-    id: "ai-insights",
-    title: "AI insights in your pocket",
-    body:
-      "Journal.IO highlights recurring emotions, themes, and habits so your writing becomes easier to understand over time.",
-    footer: "Weekly analysis with concise pattern reads.",
-    icon: Sparkles,
-  },
-  {
-    id: "deeper-analytics",
-    title: "Deeper trend clarity",
-    body:
-      "See how your mood, energy, and reflection patterns connect across weeks instead of isolated journal entries.",
-    footer: "Richer analytics across your journaling rhythm.",
-    icon: TrendingUp,
-  },
-  {
-    id: "premium-prompts",
-    title: "Premium guided prompts",
-    body:
-      "Unlock better reflection prompts when you feel stuck, so opening the app always leads to a useful next step.",
-    footer: "Prompt support that keeps the writing flow moving.",
-    icon: Crown,
-  },
-  {
-    id: "private-control",
-    title: "Private control stays with you",
-    body:
-      "Keep ownership of your entries with export access and a premium experience built around calm, private reflection.",
-    footer: "Control, privacy, and premium support built in.",
-    icon: Lock,
-  },
-];
+const isPurchasesError = (error: unknown): error is PurchasesError =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  "message" in error;
+
+const getPurchaseErrorMessage = (error: unknown) => {
+  if (!isPurchasesError(error)) {
+    return error instanceof Error
+      ? error.message
+      : "We could not complete that purchase right now. Please try again.";
+  }
+
+  if (
+    error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
+    error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
+  ) {
+    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
+  }
+
+  if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
+    return "RevenueCat is configured, but the selected product or offering is not ready yet.";
+  }
+
+  if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
+    return "This payment is pending. RevenueCat will update the entitlement as soon as the store confirms it.";
+  }
+
+  return error.message;
+};
+
+const showcaseIcons = [Sparkles, TrendingUp, Crown, Lock] as const;
+
+const buildShowcaseCards = (
+  paywallConfig: ResolvedPaywallConfig | null
+): ShowcaseCard[] => {
+  const fallbackFeatures: PaywallFeatureCard[] = [
+    {
+      title: "AI insights in your pocket",
+      body: "Journal.IO highlights recurring emotions, themes, and habits so your writing becomes easier to understand over time.",
+      footer: "Premium tools that stay close to your journaling rhythm.",
+    },
+    {
+      title: "Weekly analysis with concise pattern reads",
+      body: "See a calmer summary of what your recent entries may be pointing toward each week.",
+      footer: "Short reads on Home, deeper context in Insights.",
+    },
+    {
+      title: "Prompt support that keeps writing moving",
+      body: "Use premium prompts and entry-level analysis when you want more structure without more effort.",
+      footer: "Designed to help, not interrupt.",
+    },
+  ];
+  const features = paywallConfig?.template?.featureList?.length
+    ? paywallConfig.template.featureList
+    : fallbackFeatures;
+
+  return features.slice(0, 4).map((feature, index) => ({
+    id: `${paywallConfig?.template?.key || "default"}-${index}`,
+    title: feature.title,
+    body: feature.body,
+    footer: feature.footer || "Premium tools that stay close to your journaling rhythm.",
+    icon: showcaseIcons[index] || Sparkles,
+  }));
+};
 
 function PlanCard({
   plan,
@@ -225,12 +284,32 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
+  const activePaywallPlacementKey = useAppStore(
+    state => state.activePaywallPlacementKey
+  );
+  const activePaywallScreenKey = useAppStore(state => state.activePaywallScreenKey);
+  const activePaywallTriggerMode = useAppStore(
+    state => state.activePaywallTriggerMode
+  );
   const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
+  const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const isCompact = width < 360;
   const horizontalPadding = isCompact ? 16 : width > 430 ? 28 : 22;
-  const [selectedPlan, setSelectedPlan] = useState<Plan["id"]>("yearly");
+  const [plans, setPlans] = useState<Plan[]>(placeholderPlans);
+  const [selectedPlan, setSelectedPlan] = useState<Plan["id"]>("weekly");
+  const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
+    null
+  );
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [plansError, setPlansError] = useState<string | null>(
+    getRevenueCatConfigurationError()
+  );
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>("paywall");
+  const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const heroAnim = useRef(new Animated.Value(0)).current;
@@ -246,11 +325,142 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const backgroundBubbleDrift = useRef(new Animated.Value(0)).current;
   const showcaseTransitionProgress = useRef(new Animated.Value(1)).current;
   const [showcaseIndex, setShowcaseIndex] = useState(0);
+  const paywallPlacementKey = activePaywallPlacementKey || "post_auth";
+  const showcaseCards = useMemo(
+    () => buildShowcaseCards(paywallConfig),
+    [paywallConfig]
+  );
 
   const selectedPlanDetails =
     plans.find(plan => plan.id === selectedPlan) ?? plans[plans.length - 1];
   const activeShowcaseCard = showcaseCards[showcaseIndex] ?? showcaseCards[0];
   const ActiveShowcaseIcon = activeShowcaseCard.icon;
+  const isBusy = isProcessing || isRestoring;
+  const canPurchaseSelectedPlan = Boolean(selectedPlanDetails?.rcPackage);
+  const successDisplayTags =
+    lastPurchaseStore === "TEST_STORE"
+      ? ["RevenueCat test", "AI insights"]
+      : successTags;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadPaywall = async () => {
+      setPlansError(getRevenueCatConfigurationError());
+      setIsLoadingPlans(true);
+
+      try {
+        const resolvedConfig = sessionUserId
+          ? await getPaywallConfig({
+              placementKey: paywallPlacementKey,
+              screenKey: activePaywallScreenKey || undefined,
+              triggerMode: activePaywallTriggerMode,
+            })
+          : null;
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (resolvedConfig) {
+          setPaywallConfig(resolvedConfig);
+        }
+
+        if (resolvedConfig && !resolvedConfig.shouldShow) {
+          onBack("continue");
+          return;
+        }
+
+        const offerings = await getRevenueCatOfferings(sessionUserId);
+        const livePlans = getRevenueCatPaywallPlans(
+          offerings,
+          resolvedConfig?.offerings
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (!livePlans.length) {
+          setPlansError(
+            "RevenueCat is connected, but the selected paywall template does not have a matching live package yet."
+          );
+          return;
+        }
+
+        const nextPlans: Plan[] = livePlans.map(plan => ({
+          id: plan.id,
+          durationLabel: plan.durationLabel,
+          title: plan.title,
+          price: plan.price,
+          subtitle: plan.subtitle,
+          highlight: plan.highlight,
+          badge: plan.badge,
+          offeringKey: resolvedConfig?.offerings.find(
+            configuredOffering => configuredOffering.key === plan.id
+          )?.key,
+          revenueCatOfferingId:
+            resolvedConfig?.offerings.find(
+              configuredOffering => configuredOffering.key === plan.id
+            )?.revenueCatOfferingId || null,
+          revenueCatPackageId:
+            resolvedConfig?.offerings.find(
+              configuredOffering => configuredOffering.key === plan.id
+            )?.revenueCatPackageId || null,
+          rcPackage: plan.rcPackage,
+        }));
+
+        setPlans(nextPlans);
+        setSelectedPlan(previous =>
+          nextPlans.some(plan => plan.id === previous)
+            ? previous
+            : nextPlans[0]?.id ?? previous
+        );
+        setPlansError(
+          nextPlans.some(plan => plan.rcPackage)
+            ? null
+            : "The selected paywall is visible, but its live RevenueCat package is not available yet."
+        );
+
+        if (resolvedConfig?.template) {
+          trackPaywallEvent({
+            placementKey: resolvedConfig.placementKey,
+            screenKey: resolvedConfig.screenKey || undefined,
+            eventType: "paywall_impression",
+            templateKey: resolvedConfig.template.key,
+            offeringKey: resolvedConfig.template.primaryOfferingKey,
+            wasInterruptive: resolvedConfig.wasInterruptive,
+          }).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setPlansError(
+          error instanceof Error
+            ? error.message
+            : "We could not load live billing plans from RevenueCat."
+        );
+      } finally {
+        if (isMounted) {
+          setIsLoadingPlans(false);
+        }
+      }
+    };
+
+    loadPaywall().catch(() => undefined);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    activePaywallScreenKey,
+    activePaywallTriggerMode,
+    onBack,
+    paywallPlacementKey,
+    sessionUserId,
+  ]);
 
   useEffect(() => {
     Animated.stagger(90, [
@@ -433,6 +643,20 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   }, [screenState, successAnim, successHeroFloat, successPulse, successSceneDrift]);
 
   useEffect(() => {
+    if (screenState !== "success") {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      onBack("continue");
+    }, 900);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [onBack, screenState]);
+
+  useEffect(() => {
     if (showcaseCards.length < 2) {
       return;
     }
@@ -444,7 +668,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     return () => {
       clearInterval(intervalId);
     };
-  }, []);
+  }, [showcaseCards.length]);
 
   useEffect(() => {
     showcaseTransitionProgress.stopAnimation();
@@ -457,20 +681,199 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }).start();
   }, [activeShowcaseCard, showcaseTransitionProgress]);
 
+  useEffect(() => {
+    if (isPremiumUser) {
+      setScreenState("success");
+    }
+  }, [isPremiumUser]);
+
+  const handleClose = () => {
+    if (paywallConfig?.template) {
+      trackPaywallEvent({
+        placementKey: paywallConfig.placementKey,
+        screenKey: paywallConfig.screenKey || undefined,
+        eventType: "paywall_dismiss",
+        templateKey: paywallConfig.template.key,
+        offeringKey: selectedPlanDetails?.offeringKey,
+        wasInterruptive: paywallConfig.wasInterruptive,
+      }).catch(() => undefined);
+    }
+
+    onBack("dismiss");
+  };
+
+  const handleContinueFromSuccess = () => {
+    onBack("continue");
+  };
+
+  const completePremiumActivation = async (
+    customerInfo: Awaited<ReturnType<typeof restoreRevenueCatPurchases>>,
+    options: { wasRestore?: boolean } = {}
+  ) => {
+    const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
+    const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+
+    setLastPurchaseStore(activeEntitlement?.store ?? null);
+
+    if (!hasPremiumAccess) {
+      return false;
+    }
+
+    if (!selectedPlanDetails?.offeringKey) {
+      await setSessionPremiumStatus(true);
+      setScreenState("success");
+      return true;
+    }
+
+    const updatedProfile = await syncPaywallPurchase({
+      offeringKey: selectedPlanDetails.offeringKey,
+      revenueCatOfferingId:
+        selectedPlanDetails.revenueCatOfferingId || paywallConfig?.placementKey || "unknown",
+      revenueCatPackageId:
+        selectedPlanDetails.revenueCatPackageId ||
+        selectedPlanDetails.rcPackage?.identifier ||
+        "unknown",
+      store: activeEntitlement?.store || "unknown",
+      entitlementId: activeEntitlement?.identifier || "unknown",
+      wasRestore: Boolean(options.wasRestore),
+    });
+
+    setSessionUserProfile(updatedProfile);
+    setScreenState("success");
+    return true;
+  };
+
+  const finalizePremiumActivation = async (
+    customerInfo: CustomerInfo,
+    options: { wasRestore?: boolean } = {}
+  ) => {
+    const activated = await completePremiumActivation(customerInfo, options);
+
+    if (activated || !sessionUserId) {
+      return activated;
+    }
+
+    const refreshedCustomerInfo = await getRevenueCatCustomerInfo(sessionUserId);
+
+    if (!refreshedCustomerInfo) {
+      return false;
+    }
+
+    return completePremiumActivation(refreshedCustomerInfo, options);
+  };
+
   const handleUpgrade = async () => {
+    if (!selectedPlanDetails?.rcPackage) {
+      Alert.alert(
+        "Billing unavailable",
+        plansError ||
+          "A live RevenueCat package is not available for the selected plan yet."
+      );
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1800));
-      setSessionPremiumStatus(true);
-      setScreenState("success");
+      if (paywallConfig?.template) {
+        trackPaywallEvent({
+          placementKey: paywallConfig.placementKey,
+          screenKey: paywallConfig.screenKey || undefined,
+          eventType: "cta_tap",
+          templateKey: paywallConfig.template.key,
+          offeringKey: selectedPlanDetails.offeringKey,
+          wasInterruptive: paywallConfig.wasInterruptive,
+        }).catch(() => undefined);
+      }
+
+      const purchaseResult = await purchaseRevenueCatPackage(
+        selectedPlanDetails.rcPackage,
+        sessionUserId
+      );
+      const activated = await finalizePremiumActivation(purchaseResult.customerInfo);
+
+      if (!activated) {
+        Alert.alert(
+          "Purchase completed",
+          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
+        );
+      } else if (paywallConfig?.template) {
+        trackPaywallEvent({
+          placementKey: paywallConfig.placementKey,
+          screenKey: paywallConfig.screenKey || undefined,
+          eventType: "purchase_success",
+          templateKey: paywallConfig.template.key,
+          offeringKey: selectedPlanDetails.offeringKey,
+          wasInterruptive: paywallConfig.wasInterruptive,
+        }).catch(() => undefined);
+      }
+    } catch (error) {
+      if (
+        isPurchasesError(error) &&
+        error.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR
+      ) {
+        return;
+      }
+
+      Alert.alert(
+        "Premium activation unavailable",
+        getPurchaseErrorMessage(error)
+      );
+
+      if (paywallConfig?.template) {
+        trackPaywallEvent({
+          placementKey: paywallConfig.placementKey,
+          screenKey: paywallConfig.screenKey || undefined,
+          eventType: "purchase_failure",
+          templateKey: paywallConfig.template.key,
+          offeringKey: selectedPlanDetails.offeringKey,
+          wasInterruptive: paywallConfig.wasInterruptive,
+          metadata: {
+            message: getPurchaseErrorMessage(error),
+          },
+        }).catch(() => undefined);
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleRestore = () => {
-    Alert.alert("Restore purchases", "Restore purchases is not connected yet.");
+  const handleRestore = async () => {
+    setIsRestoring(true);
+
+    try {
+      const customerInfo = await restoreRevenueCatPurchases(sessionUserId);
+      const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+
+      if (!hasPremiumAccess) {
+        if (isPremiumUser) {
+          await setSessionPremiumStatus(false);
+        }
+
+        Alert.alert(
+          "No purchases found",
+          "RevenueCat did not return an active premium entitlement for this account."
+        );
+        return;
+      }
+
+      await finalizePremiumActivation(customerInfo, { wasRestore: true });
+
+      if (paywallConfig?.template) {
+        trackPaywallEvent({
+          placementKey: paywallConfig.placementKey,
+          screenKey: paywallConfig.screenKey || undefined,
+          eventType: "restore_success",
+          templateKey: paywallConfig.template.key,
+          offeringKey: selectedPlanDetails.offeringKey,
+          wasInterruptive: paywallConfig.wasInterruptive,
+        }).catch(() => undefined);
+      }
+    } catch (error) {
+      Alert.alert("Restore purchases", getPurchaseErrorMessage(error));
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   const headerTranslate = headerAnim.interpolate({
@@ -722,7 +1125,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               </View>
 
               <View style={styles.successTagRow}>
-                {successTags.map(tag => (
+                {successDisplayTags.map(tag => (
                   <View
                     key={tag}
                     style={[
@@ -757,7 +1160,9 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                       { color: theme.colors.foreground },
                     ]}
                   >
-                    Premium is now active
+                    {lastPurchaseStore === "TEST_STORE"
+                      ? "RevenueCat Test Store purchase tracked"
+                      : "Premium is now active"}
                   </Text>
                 </View>
               </View>
@@ -777,7 +1182,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           >
             <PrimaryButton
               label="Continue to Journal.IO"
-              onPress={onBack}
+              onPress={handleContinueFromSuccess}
               tone="accent"
               icon={<ArrowRight size={16} color={theme.colors.primaryForeground} />}
             />
@@ -837,7 +1242,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           <View />
           <Pressable
             accessibilityRole="button"
-            onPress={onBack}
+            onPress={handleClose}
             style={({ pressed }) => [
               styles.closeButton,
               {
@@ -890,17 +1295,12 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
             </View>
 
             <Text style={[styles.appName, { color: theme.colors.foreground }]}>
-              Get Journal.IO Premium
+              {paywallConfig?.template?.title || "Get Journal.IO Premium"}
             </Text>
             <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>
-              Get personalized insights to understand your journaling patterns better.
+              {paywallConfig?.template?.headline ||
+                "Get personalized insights to understand your journaling patterns better."}
             </Text>
-            <View style={styles.supportLine}>
-              <Lock size={14} color={theme.colors.mutedForeground} />
-              <Text style={[styles.supportText, { color: theme.colors.mutedForeground }]}>
-                Private reflections. Weekly clarity.
-              </Text>
-            </View>
           </Animated.View>
 
           <Animated.View
@@ -947,41 +1347,43 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
             </Animated.View>
           </Animated.View>
 
-          <Animated.View
-            style={[
-              styles.dotsRow,
-              {
-                opacity: cardAnim,
-              },
-            ]}
-          >
-            {showcaseCards.map((_, index) => (
-              <Pressable
-                key={index}
-                accessibilityRole="button"
-                accessibilityLabel={`Preview ${index + 1}`}
-                onPress={() => setShowcaseIndex(index)}
-                style={[
-                  styles.dot,
-                  index === showcaseIndex
-                    ? [styles.dotActive, { backgroundColor: theme.colors.foreground }]
-                    : { backgroundColor: `${theme.colors.foreground}2B` },
-                ]}
-              />
-            ))}
-          </Animated.View>
+          {showcaseCards.length > 1 ? (
+            <Animated.View
+              style={[
+                styles.dotsRow,
+                {
+                  opacity: cardAnim,
+                },
+              ]}
+            >
+              {showcaseCards.map((_, index) => (
+                <Pressable
+                  key={index}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Preview ${index + 1}`}
+                  onPress={() => setShowcaseIndex(index)}
+                  style={[
+                    styles.dot,
+                    index === showcaseIndex
+                      ? [styles.dotActive, { backgroundColor: theme.colors.foreground }]
+                      : { backgroundColor: `${theme.colors.foreground}2B` },
+                  ]}
+                />
+              ))}
+            </Animated.View>
+          ) : null}
 
         </View>
 
-        <Animated.View
-          style={[
-            styles.footer,
-            footerStyle,
-          ]}
-        >
           <Animated.View
-            style={{
-              opacity: plansAnim,
+            style={[
+              styles.footer,
+              footerStyle,
+            ]}
+          >
+            <Animated.View
+              style={{
+                opacity: plansAnim,
               transform: [{ translateY: plansTranslate }],
             }}
           >
@@ -991,7 +1393,20 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                   key={plan.id}
                   plan={plan}
                   selected={selectedPlan === plan.id}
-                  onPress={() => setSelectedPlan(plan.id)}
+                  onPress={() => {
+                    setSelectedPlan(plan.id);
+
+                    if (paywallConfig?.template) {
+                      trackPaywallEvent({
+                        placementKey: paywallConfig.placementKey,
+                        screenKey: paywallConfig.screenKey || undefined,
+                        eventType: "plan_select",
+                        templateKey: paywallConfig.template.key,
+                        offeringKey: plan.offeringKey,
+                        wasInterruptive: paywallConfig.wasInterruptive,
+                      }).catch(() => undefined);
+                    }
+                  }}
                   delay={120 + index * 90}
                 />
               ))}
@@ -999,15 +1414,22 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           </Animated.View>
 
           <PrimaryButton
-            label={isProcessing ? "Processing..." : "Start Journal.IO Premium"}
+            label={
+              isProcessing
+                ? "Processing..."
+                : isLoadingPlans
+                  ? "Loading plans..."
+                  : "Start Journal.IO Premium"
+            }
             onPress={handleUpgrade}
             loading={isProcessing}
             tone="accent"
+            disabled={!canPurchaseSelectedPlan || isLoadingPlans || isRestoring}
           />
 
           <View style={styles.footerLinks}>
-            <Pressable onPress={handleRestore} disabled={isProcessing}>
-              {isProcessing ? (
+            <Pressable onPress={handleRestore} disabled={isBusy || isLoadingPlans}>
+              {isRestoring ? (
                 <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
               ) : (
                 <Text style={[styles.footerLinkText, { color: theme.colors.mutedForeground }]}>
@@ -1107,16 +1529,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
-  },
-  supportLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 14,
-  },
-  supportText: {
-    fontSize: 12,
-    fontWeight: "500",
   },
   previewCard: {
     borderRadius: 24,

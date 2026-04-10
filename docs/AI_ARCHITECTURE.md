@@ -31,6 +31,7 @@ Expected feature services:
 - `journal`
 - `prompts`
 - `insights`
+- `paywall`
 - `plans`
 - `safety`
 - `reminders`
@@ -216,6 +217,16 @@ Current prompts and tag architecture:
 - `GET /prompts/writing` uses the backend prompts service to assemble writing-pattern context, then calls OpenAI for fresh prompt generation when AI is enabled
 - `POST /journal/suggest_tags` uses the backend journal service to call OpenAI for allowed-tag selection on the draft entry when AI is enabled
 - both services keep deterministic fallbacks so journaling and prompt loading still work if OpenAI is disabled, unavailable, or the user has opted out
+
+Current paywall architecture:
+
+- MongoDB stores paywall offerings, templates, placement mappings, raw paywall events, and the singleton interruptive/cooldown configuration
+- the mobile client asks `GET /paywall/config` for a placement-specific paywall decision before opening the paywall screen
+- the backend resolves lifetime-launch eligibility, template fallback, and interruptive eligibility from stored config plus recent user event history
+- the mobile paywall UI renders backend-provided copy and offer metadata, while RevenueCat still executes the actual purchase or restore
+- after a successful checkout or restore, the client calls `POST /paywall/purchase-sync` so backend user premium state, purchased plan attribution, and lifetime sold counts stay authoritative
+- premium-intent and paywall lifecycle events are written through `POST /paywall/events` and used for cooldown gating and future paywall tuning
+- the user schema stores premium attribution fields such as `premiumPlanKey`, `premiumActivatedAt`, `premiumSource`, and `lifetimePurchaseRecordedAt` so premium gating and campaign limits are not inferred only from local client state
 
 Current streaks architecture:
 

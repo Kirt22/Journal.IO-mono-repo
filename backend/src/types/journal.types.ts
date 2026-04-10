@@ -1,3 +1,5 @@
+import type { InsightTone } from "./insights.types";
+
 export type JournalEntryResponse = {
   _id: string;
   title: string;
@@ -53,4 +55,21 @@ export type SuggestJournalTagsInput = {
 
 export type JournalTagSuggestionsResponse = {
   tags: string[];
+};
+
+export type JournalQuickAnalysisInput = {
+  userId: string;
+  journalId: string;
+};
+
+export type JournalQuickAnalysisResponse = {
+  journalId: string;
+  headline: string;
+  summary: string;
+  patternTags: {
+    label: string;
+    tone: InsightTone;
+  }[];
+  nextStep: string;
+  generatedAt: string | null;
 };

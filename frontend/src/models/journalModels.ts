@@ -40,3 +40,15 @@ export type JournalEntryApiRecord = Omit<JournalEntry, "tags"> & {
 export type JournalTagSuggestions = {
   tags: string[];
 };
+
+export type JournalQuickAnalysis = {
+  journalId: string;
+  headline: string;
+  summary: string;
+  patternTags: {
+    label: string;
+    tone: "coral" | "blue" | "sage" | "amber" | "slate";
+  }[];
+  nextStep: string;
+  generatedAt: string | null;
+};

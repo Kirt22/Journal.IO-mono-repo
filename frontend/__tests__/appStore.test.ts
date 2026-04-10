@@ -38,7 +38,7 @@ describe("appStore", () => {
     resetAppStore();
   });
 
-  it("preserves onboarding data and advances into paywall after the handoff delay", async () => {
+  it("preserves onboarding data and advances into auth after the handoff delay", async () => {
     const store = useAppStore;
 
     await act(async () => {
@@ -53,7 +53,7 @@ describe("appStore", () => {
     });
 
     expect(store.getState().isCompletingOnboarding).toBe(false);
-    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().stage).toBe("auth");
     expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
   });
 
@@ -104,6 +104,117 @@ describe("appStore", () => {
 
     expect(store.getState().stage).toBe("main-app");
     expect(store.getState().paywallReturnStage).toBeNull();
+  });
+
+  it("stores placement context when opening a paywall for a specific surface", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "main-app" });
+      store.getState().openPaywallForPlacement({
+        placementKey: "home_ai_card_locked",
+        returnStage: "main-app",
+        screenKey: "home",
+      });
+    });
+
+    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().activePaywallPlacementKey).toBe("home_ai_card_locked");
+    expect(store.getState().activePaywallScreenKey).toBe("home");
+
+    act(() => {
+      store.getState().continueFromPaywall();
+    });
+
+    expect(store.getState().activePaywallPlacementKey).toBeNull();
+    expect(store.getState().activePaywallScreenKey).toBeNull();
+  });
+
+  it("saves auth tokens before syncing pending premium activation after sign-in", async () => {
+    jest.resetModules();
+
+    const callOrder: string[] = [];
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => {
+        callOrder.push("saveTokens");
+      }),
+    }));
+
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithEmail: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        user: {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          isPremium: false,
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        },
+      })),
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+      type: {},
+    }));
+
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(),
+      updateProfile: jest.fn(),
+      updatePremiumStatus: jest.fn(async () => {
+        callOrder.push("updatePremiumStatus");
+        return {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          isPremium: true,
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        };
+      }),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({ pendingPremiumActivation: true });
+    });
+
+    await act(async () => {
+      await freshStore.getState().signIn({
+        email: "alex@example.com",
+        password: "password-123",
+      });
+    });
+
+    expect(callOrder).toEqual(["saveTokens", "updatePremiumStatus"]);
+    expect(freshStore.getState().session?.user.isPremium).toBe(true);
+    expect(freshStore.getState().pendingPremiumActivation).toBe(false);
   });
 
   it("clears local reminders when onboarding selects no reminders", async () => {
@@ -195,6 +306,63 @@ describe("appStore", () => {
     expect(store.getState().session?.user.aiOptIn).toBe(false);
   });
 
+  it("persists premium activation immediately when a signed-in user upgrades", async () => {
+    jest.resetModules();
+
+    const updatePremiumStatus = jest.fn(async () => ({
+      userId: "user-123",
+      name: "Alex",
+      phoneNumber: null,
+      email: "alex@example.com",
+      isPremium: true,
+      journalingGoals: [],
+      avatarColor: "#8E4636",
+      profileSetupCompleted: false,
+      onboardingCompleted: true,
+      profilePic: null,
+      aiOptIn: true,
+    }));
+
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(),
+      updatePremiumStatus,
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({
+        pendingPremiumActivation: true,
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: true,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
+
+    await act(async () => {
+      await freshStore.getState().setSessionPremiumStatus(true);
+    });
+
+    expect(updatePremiumStatus).toHaveBeenCalledWith({ isPremium: true });
+    expect(freshStore.getState().session?.user.isPremium).toBe(true);
+    expect(freshStore.getState().pendingPremiumActivation).toBe(false);
+  });
+
   it("stores the hide journal previews device preference", async () => {
     const store = useAppStore;
 
@@ -209,13 +377,16 @@ describe("appStore", () => {
     jest.resetModules();
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens: jest.fn(async () => undefined),
       getAccessToken: jest.fn(async () => null),
       getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => null),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
 
@@ -234,9 +405,11 @@ describe("appStore", () => {
 
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens: jest.fn(async () => undefined),
       getAccessToken: jest.fn(async () => "access-token"),
       getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => ({
         accessToken: "access-token",
@@ -244,6 +417,7 @@ describe("appStore", () => {
       })),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/services/userService", () => ({
@@ -273,6 +447,54 @@ describe("appStore", () => {
     expect(freshStore.getState().session?.user.email).toBe("alex@example.com");
   });
 
+  it("marks existing installs as already having seen the post-auth paywall", async () => {
+    jest.resetModules();
+
+    const savePostAuthPaywallSeen = jest.fn(async () => undefined);
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => null),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen,
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => ({
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        profilePic: null,
+        aiOptIn: true,
+      })),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().stage).toBe("main-app");
+  });
+
   it("boots into onboarding on a fresh install even if keychain still has a token", async () => {
     jest.resetModules();
 
@@ -280,9 +502,11 @@ describe("appStore", () => {
 
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens,
       getAccessToken: jest.fn(async () => "stale-access-token"),
       getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => null),
       hasSeenInstall: jest.fn(async () => false),
       getTokens: jest.fn(async () => ({
         accessToken: "stale-access-token",
@@ -290,6 +514,7 @@ describe("appStore", () => {
       })),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/services/userService", () => ({
@@ -315,9 +540,11 @@ describe("appStore", () => {
 
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens,
       getAccessToken: jest.fn(async () => "stale-access-token"),
       getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => ({
         accessToken: "stale-access-token",
@@ -325,6 +552,7 @@ describe("appStore", () => {
       })),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
 
@@ -349,10 +577,64 @@ describe("appStore", () => {
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
   });
 
+  it("routes verified email users into the one-time paywall before profile setup", async () => {
+    jest.resetModules();
+
+    const savePostAuthPaywallSeen = jest.fn(async () => undefined);
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => false),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen,
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: true,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
+
+    await act(async () => {
+      await freshStore.getState().finishEmailVerification();
+    });
+
+    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().stage).toBe("paywall");
+    expect(freshStore.getState().paywallReturnStage).toBe("profile");
+  });
+
   it("persists the onboarding flag returned by sign in", async () => {
     jest.resetModules();
 
     const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const savePostAuthPaywallSeen = jest.fn(async () => undefined);
     const saveTokens = jest.fn(async () => undefined);
     const signInWithEmail = jest.fn(async () => ({
       accessToken: "access-token",
@@ -381,13 +663,16 @@ describe("appStore", () => {
     }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens: jest.fn(async () => undefined),
       getAccessToken: jest.fn(async () => null),
       getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => false),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => null),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted,
+      savePostAuthPaywallSeen,
       saveTokens,
     }));
 
@@ -406,7 +691,9 @@ describe("appStore", () => {
       onboardingCompleted: true,
     });
     expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
-    expect(freshStore.getState().stage).toBe("main-app");
+    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().stage).toBe("paywall");
+    expect(freshStore.getState().paywallReturnStage).toBe("main-app");
   });
 
   it("continues with Google using the shared session persistence flow", async () => {
@@ -414,6 +701,7 @@ describe("appStore", () => {
 
     const getGoogleIdToken = jest.fn(async () => "google-id-token");
     const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const savePostAuthPaywallSeen = jest.fn(async () => undefined);
     const saveTokens = jest.fn(async () => undefined);
     const signInWithGoogle = jest.fn(async () => ({
       accessToken: "access-token",
@@ -445,13 +733,16 @@ describe("appStore", () => {
     }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens: jest.fn(async () => undefined),
       getAccessToken: jest.fn(async () => null),
       getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => false),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => null),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted,
+      savePostAuthPaywallSeen,
       saveTokens,
     }));
 
@@ -489,8 +780,10 @@ describe("appStore", () => {
       refreshToken: "refresh-token",
     });
     expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
     expect(freshStore.getState().authSource).toBe("google");
-    expect(freshStore.getState().stage).toBe("profile");
+    expect(freshStore.getState().stage).toBe("paywall");
+    expect(freshStore.getState().paywallReturnStage).toBe("profile");
   });
 
   it("signs out through the backend and clears the local session state", async () => {
@@ -508,9 +801,11 @@ describe("appStore", () => {
     }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
       clearTokens: jest.fn(async () => undefined),
       getAccessToken: jest.fn(async () => "access-token"),
       getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
       hasSeenInstall: jest.fn(async () => true),
       getTokens: jest.fn(async () => ({
         accessToken: "access-token",
@@ -518,6 +813,7 @@ describe("appStore", () => {
       })),
       markInstallSeen: jest.fn(async () => undefined),
       saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/services/userService", () => ({

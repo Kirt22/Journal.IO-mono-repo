@@ -140,6 +140,14 @@ const request = async <T>(
     headers.set("Content-Type", "application/json");
   }
 
+  if (!headers.has("X-Client-Timezone")) {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+
+    if (timeZone) {
+      headers.set("X-Client-Timezone", timeZone);
+    }
+  }
+
   const requestUrl = `${getBaseUrl()}${path}`;
 
   if (__DEV__) {

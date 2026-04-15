@@ -117,6 +117,64 @@ function JournalTags({ tags }: { tags: string[] }) {
   );
 }
 
+function QuickAnalysisSignalCard({
+  title,
+  signal,
+}: {
+  title: string;
+  signal: JournalQuickAnalysis["signals"][keyof JournalQuickAnalysis["signals"]];
+}) {
+  const theme = useTheme();
+  const toneColor = getToneColor(signal.tone);
+
+  return (
+    <View
+      style={[
+        styles.quickAnalysisSignalCard,
+        {
+          backgroundColor: hexToRgba(toneColor, 0.08),
+          borderColor: hexToRgba(toneColor, 0.22),
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.quickAnalysisSignalLabel,
+          { color: theme.colors.mutedForeground },
+        ]}
+      >
+        {title}
+      </Text>
+      <Text style={[styles.quickAnalysisSignalTitle, { color: theme.colors.foreground }]}>
+        {signal.title}
+      </Text>
+      <Text
+        style={[
+          styles.quickAnalysisSignalBody,
+          { color: theme.colors.mutedForeground },
+        ]}
+      >
+        {signal.description}
+      </Text>
+      <View style={styles.quickAnalysisEvidenceRow}>
+        {signal.evidence.map(item => (
+          <View
+            key={`${title}-${item}`}
+            style={[
+              styles.quickAnalysisEvidenceChip,
+              { backgroundColor: hexToRgba(toneColor, 0.14) },
+            ]}
+          >
+            <Text style={[styles.quickAnalysisEvidenceText, { color: toneColor }]}>
+              {item}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function EntryDetailScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -650,22 +708,84 @@ export default function EntryDetailScreen() {
                     </View>
                   ) : quickAnalysis ? (
                     <View style={styles.quickAnalysisStack}>
-                      <Text
+                      <View
                         style={[
-                          styles.quickAnalysisHeadline,
-                          { color: theme.colors.foreground },
+                          styles.quickAnalysisHero,
+                          {
+                            backgroundColor: hexToRgba(
+                              getToneColor(quickAnalysis.scorecard.vibeTone),
+                              0.08
+                            ),
+                          },
                         ]}
                       >
-                        {quickAnalysis.headline}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.quickAnalysisBody,
-                          { color: theme.colors.mutedForeground },
-                        ]}
-                      >
-                        {quickAnalysis.summary}
-                      </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisHeroKicker,
+                            { color: theme.colors.mutedForeground },
+                          ]}
+                        >
+                          {quickAnalysis.scorecard.vibeLabel}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisHeadline,
+                            { color: theme.colors.foreground },
+                          ]}
+                        >
+                          {quickAnalysis.summary.headline}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisBody,
+                            { color: theme.colors.mutedForeground },
+                          ]}
+                        >
+                          {quickAnalysis.summary.narrative}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisHighlight,
+                            { color: theme.colors.foreground },
+                          ]}
+                        >
+                          {quickAnalysis.summary.highlight}
+                        </Text>
+                      </View>
+                      <View style={styles.quickAnalysisScorecardRow}>
+                        {quickAnalysis.scorecard.cards.map(card => {
+                          const toneColor = getToneColor(card.tone);
+
+                          return (
+                            <View
+                              key={card.key}
+                              style={[
+                                styles.quickAnalysisScorecard,
+                                {
+                                  backgroundColor: hexToRgba(toneColor, 0.09),
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.quickAnalysisScoreLabel,
+                                  { color: theme.colors.mutedForeground },
+                                ]}
+                              >
+                                {card.label}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.quickAnalysisScoreValue,
+                                  { color: theme.colors.foreground },
+                                ]}
+                              >
+                                {card.value}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
                       <View style={styles.quickAnalysisTags}>
                         {quickAnalysis.patternTags.map(tag => {
                           const toneColor = getToneColor(tag.tone);
@@ -690,6 +810,18 @@ export default function EntryDetailScreen() {
                           );
                         })}
                       </View>
+                      <QuickAnalysisSignalCard
+                        title="What Stood Out"
+                        signal={quickAnalysis.signals.whatStoodOut}
+                      />
+                      <QuickAnalysisSignalCard
+                        title="What Needs Care"
+                        signal={quickAnalysis.signals.whatNeedsCare}
+                      />
+                      <QuickAnalysisSignalCard
+                        title="What To Carry Forward"
+                        signal={quickAnalysis.signals.whatToCarryForward}
+                      />
                       <View
                         style={[
                           styles.quickAnalysisNote,
@@ -708,11 +840,27 @@ export default function EntryDetailScreen() {
                         </Text>
                         <Text
                           style={[
+                            styles.quickAnalysisFocus,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          {quickAnalysis.nextStep.focus}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickAnalysisNoteTitle,
+                            { color: theme.colors.foreground },
+                          ]}
+                        >
+                          {quickAnalysis.nextStep.title}
+                        </Text>
+                        <Text
+                          style={[
                             styles.quickAnalysisNoteText,
                             { color: theme.colors.foreground },
                           ]}
                         >
-                          {quickAnalysis.nextStep}
+                          {quickAnalysis.nextStep.description}
                         </Text>
                       </View>
                     </View>
@@ -866,6 +1014,19 @@ const styles = StyleSheet.create({
   quickAnalysisStack: {
     gap: 10,
   },
+  quickAnalysisHero: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  quickAnalysisHeroKicker: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
   quickAnalysisHeadline: {
     fontSize: 18,
     lineHeight: 24,
@@ -874,6 +1035,11 @@ const styles = StyleSheet.create({
   quickAnalysisBody: {
     fontSize: 13,
     lineHeight: 19,
+  },
+  quickAnalysisHighlight: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
   },
   quickAnalysisButton: {
     alignSelf: "flex-start",
@@ -894,6 +1060,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  quickAnalysisScorecardRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quickAnalysisScorecard: {
+    minWidth: "47%",
+    flexGrow: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 4,
+  },
+  quickAnalysisScoreLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
+  quickAnalysisScoreValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
   quickAnalysisTags: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -909,6 +1098,44 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "600",
   },
+  quickAnalysisSignalCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 7,
+  },
+  quickAnalysisSignalLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.35,
+  },
+  quickAnalysisSignalTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  quickAnalysisSignalBody: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  quickAnalysisEvidenceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quickAnalysisEvidenceChip: {
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  quickAnalysisEvidenceText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
   quickAnalysisNote: {
     borderRadius: 14,
     paddingHorizontal: 12,
@@ -919,6 +1146,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "600",
+  },
+  quickAnalysisFocus: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  quickAnalysisNoteTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
   },
   quickAnalysisNoteText: {
     fontSize: 13,

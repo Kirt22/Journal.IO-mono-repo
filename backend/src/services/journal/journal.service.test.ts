@@ -144,8 +144,40 @@ test("getJournalQuickAnalysis returns a short heuristic reflection for a saved e
 
   assert.ok(analysis);
   assert.equal(analysis?.journalId, "journal-1");
+  assert.equal(analysis?.summary.headline, "Work carried this bad moment");
+  assert.equal(analysis?.scorecard.cards[1]?.value, "Bad");
   assert.equal(analysis?.patternTags[0]?.label, "Work");
-  assert.match(analysis?.summary || "", /work/i);
+  assert.match(analysis?.summary.narrative || "", /work/i);
+  assert.equal(analysis?.signals.whatNeedsCare.tone, "slate");
+  assert.equal(analysis?.nextStep.focus, "Support");
+});
+
+test("getJournalQuickAnalysis marks prompt-led gibberish as low signal", async () => {
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      _id: {
+        toString: () => "journal-2",
+      },
+      title: "Trying to answer",
+      type: "journal",
+      content: "What felt most steady or grounding in your day?\n\nasdf qwer",
+      aiPrompt: "What felt most steady or grounding in your day?",
+      tags: ["work", "mood:okay"],
+    }),
+  });
+
+  const analysis = await getJournalQuickAnalysis({
+    userId: "user-1",
+    journalId: "journal-2",
+  });
+
+  assert.ok(analysis);
+  assert.equal(analysis?.summary.headline, "This entry is still mostly prompt carryover");
+  assert.equal(analysis?.scorecard.vibeLabel, "Prompt-led note");
+  assert.equal(analysis?.scorecard.cards[2]?.value, "Prompt carryover");
+  assert.equal(analysis?.patternTags[0]?.label, "Prompt Carryover");
+  assert.match(analysis?.signals.whatNeedsCare.title || "", /clearer pass/i);
+  assert.equal(analysis?.nextStep.focus, "Specificity");
 });
 
 test("suggestJournalTags returns ranked tags and excludes already selected tags", async () => {

@@ -18,7 +18,7 @@ afterEach(() => {
 
 test("resolveTemplateForPlacement falls back when the lifetime offer is sold out", () => {
   const placement = {
-    key: "post_auth",
+    key: "profile_upgrade_banner",
     templateKey: "lifetime-launch",
     fallbackTemplateKey: "weekly-standard",
     enabled: true,
@@ -37,6 +37,7 @@ test("resolveTemplateForPlacement falls back when the lifetime offer is sold out
         secondaryOfferingKeys: [],
         visibleOfferingKeys: ["lifetime"],
         fallbackTemplateKey: "weekly-standard",
+        placementKeys: ["profile_upgrade_banner"],
       },
     ],
     [
@@ -49,6 +50,7 @@ test("resolveTemplateForPlacement falls back when the lifetime offer is sold out
         secondaryOfferingKeys: ["yearly"],
         visibleOfferingKeys: ["weekly", "yearly"],
         fallbackTemplateKey: null,
+        placementKeys: ["profile_upgrade_banner"],
       },
     ],
   ]) as any;
@@ -98,8 +100,8 @@ test("resolveTemplateForPlacement falls back when the lifetime offer is sold out
 
 test("resolveTemplateForPlacement uses visibleOfferingKeys to control rendered plans", () => {
   const placement = {
-    key: "post_auth",
-    templateKey: "lifetime-launch",
+    key: "post_auth_exit_offer",
+    templateKey: "post-auth-exit-offer",
     fallbackTemplateKey: "weekly-standard",
     enabled: true,
     interruptiveEnabled: false,
@@ -108,28 +110,29 @@ test("resolveTemplateForPlacement uses visibleOfferingKeys to control rendered p
 
   const templatesByKey = new Map([
     [
-      "lifetime-launch",
+      "post-auth-exit-offer",
       {
-        key: "lifetime-launch",
+        key: "post-auth-exit-offer",
         enabled: true,
         featureList: [],
-        primaryOfferingKey: "lifetime",
+        primaryOfferingKey: "yearly_exit_offer",
         secondaryOfferingKeys: ["monthly"],
-        visibleOfferingKeys: ["lifetime"],
+        visibleOfferingKeys: ["yearly_exit_offer"],
         fallbackTemplateKey: "weekly-standard",
+        placementKeys: ["post_auth_exit_offer"],
       },
     ],
   ]) as any;
 
   const offeringsByKey = new Map([
     [
-      "lifetime",
+      "yearly_exit_offer",
       {
-        key: "lifetime",
+        key: "yearly_exit_offer",
         enabled: true,
-        purchasedUsersCount: 42,
-        purchaseLimit: 500,
-        sortOrder: 4,
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+        sortOrder: 3,
       },
     ],
     [
@@ -150,10 +153,72 @@ test("resolveTemplateForPlacement uses visibleOfferingKeys to control rendered p
     offeringsByKey,
   });
 
-  assert.equal(resolved.template?.key, "lifetime-launch");
+  assert.equal(resolved.template?.key, "post-auth-exit-offer");
   assert.deepEqual(
     resolved.offerings.map(offering => offering.key),
-    ["lifetime"]
+    ["yearly_exit_offer"]
+  );
+});
+
+test("resolveTemplateForPlacement keeps post-auth-trial on weekly and yearly", () => {
+  const placement = {
+    key: "post_auth",
+    templateKey: "post-auth-trial",
+    fallbackTemplateKey: null,
+    enabled: true,
+    interruptiveEnabled: false,
+    interruptiveTemplateKey: null,
+  } as any;
+
+  const templatesByKey = new Map([
+    [
+      "post-auth-trial",
+      {
+        key: "post-auth-trial",
+        enabled: true,
+        featureList: [],
+        primaryOfferingKey: "weekly",
+        secondaryOfferingKeys: ["yearly"],
+        visibleOfferingKeys: ["weekly", "yearly"],
+        fallbackTemplateKey: "weekly-standard",
+        placementKeys: ["post_auth"],
+      },
+    ],
+  ]) as any;
+
+  const offeringsByKey = new Map([
+    [
+      "weekly",
+      {
+        key: "weekly",
+        enabled: true,
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+        sortOrder: 1,
+      },
+    ],
+    [
+      "yearly",
+      {
+        key: "yearly",
+        enabled: true,
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+        sortOrder: 3,
+      },
+    ],
+  ]) as any;
+
+  const resolved = resolveTemplateForPlacement({
+    placement,
+    templatesByKey,
+    offeringsByKey,
+  });
+
+  assert.equal(resolved.template?.key, "post-auth-trial");
+  assert.deepEqual(
+    resolved.offerings.map(offering => offering.key),
+    ["weekly", "yearly"]
   );
 });
 

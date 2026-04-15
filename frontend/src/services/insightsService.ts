@@ -3,6 +3,38 @@ import { request } from "../utils/apiClient";
 type InsightMood = "amazing" | "good" | "okay" | "bad" | "terrible";
 type InsightTone = "coral" | "blue" | "sage" | "amber" | "slate";
 
+type InsightsAiAnalysisWindow = {
+  startDate: string;
+  endDate: string;
+  label: string;
+  entryCount: number;
+  activeDays: number;
+  totalWords: number;
+  minimumActiveDays: number;
+};
+
+type InsightsAiAnalysisProgress = {
+  currentDayOfWindow: number;
+  daysRemaining: number;
+  minimumActiveDays: number;
+  activeDays: number;
+  entriesNeeded: number;
+  completionPercentage: number;
+  promptState: "zero_entries" | "building" | "almost_ready" | "missed";
+};
+
+type InsightsAiAnalysisSummary = {
+  headline: string;
+  narrative: string;
+  highlight: string;
+};
+
+type InsightsAiAnalysisQuickAnalysis = {
+  available: boolean;
+  title: string;
+  description: string;
+};
+
 type InsightsOverview = {
   stats: {
     totalEntries: number;
@@ -42,54 +74,90 @@ type InsightsOverview = {
   updatedAt: string | null;
 };
 
-type InsightsAiAnalysisPending = {
-  status: "pending";
-  readiness: {
-    joinedAt: string;
-    eligibleOn: string;
-    daysSinceSignup: number;
-    daysUntilReady: number;
-    totalEntries: number;
-    activeDays: number;
-    currentStreak: number;
+type InsightsAiAnalysisCollecting = {
+  status: "collecting";
+  window: InsightsAiAnalysisWindow;
+  progress: InsightsAiAnalysisProgress;
+  summary: InsightsAiAnalysisSummary;
+  quickAnalysis: InsightsAiAnalysisQuickAnalysis;
+};
+
+type InsightsAiAnalysisInsufficient = {
+  status: "insufficient";
+  window: InsightsAiAnalysisWindow;
+  progress: InsightsAiAnalysisProgress & {
+    nextWindowStartDate: string;
+    nextWindowEndDate: string;
+    nextWindowLabel: string;
   };
-  summary: {
-    headline: string;
-    narrative: string;
-    highlight: string;
-  };
-  quickAnalysis: {
-    available: boolean;
-    title: string;
-    description: string;
-  };
+  summary: InsightsAiAnalysisSummary;
+  quickAnalysis: InsightsAiAnalysisQuickAnalysis;
 };
 
 type InsightsAiAnalysisReady = {
   status: "ready";
-  window: {
-    startDate: string;
-    endDate: string;
-    label: string;
-    entryCount: number;
-    activeDays: number;
-    totalWords: number;
-  };
+  window: InsightsAiAnalysisWindow;
   freshness: {
     generatedAt: string | null;
     confidence: "low" | "medium" | "high";
     confidenceLabel: string;
     note: string;
   };
-  summary: {
-    headline: string;
-    narrative: string;
-    highlight: string;
-  };
+  summary: InsightsAiAnalysisSummary;
   patternTags: {
     label: string;
     tone: InsightTone;
   }[];
+  scoreboard: {
+    vibeLabel: string;
+    vibeTone: InsightTone;
+    cards: {
+      key: "activeDays" | "entries" | "words" | "mood";
+      label: string;
+      value: string;
+      tone: InsightTone;
+    }[];
+  };
+  emotionTrend: {
+    headline: string;
+    days: {
+      dateKey: string;
+      label: string;
+      moodLabel: string | null;
+      moodScore: number | null;
+      entryCount: number;
+      tone: InsightTone;
+    }[];
+  };
+  themeBreakdown: {
+    headline: string;
+    items: {
+      label: string;
+      count: number;
+      percentage: number;
+      tone: InsightTone;
+    }[];
+  };
+  signals: {
+    whatHelped: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    }[];
+    whatDrained: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    }[];
+    whatKeptShowingUp: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    }[];
+  };
   bigFive: {
     trait:
       | "openness"
@@ -129,18 +197,43 @@ type InsightsAiAnalysisReady = {
   };
 };
 
-type InsightsAiAnalysis = InsightsAiAnalysisPending | InsightsAiAnalysisReady;
+type InsightsAiAnalysis =
+  | InsightsAiAnalysisCollecting
+  | InsightsAiAnalysisInsufficient
+  | InsightsAiAnalysisReady;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function hasPendingShape(value: unknown): value is Omit<InsightsAiAnalysisPending, "status"> {
+function hasCollectingShape(
+  value: unknown
+): value is Omit<InsightsAiAnalysisCollecting, "status"> {
   if (!isRecord(value)) {
     return false;
   }
 
-  return isRecord(value.readiness) && isRecord(value.summary) && isRecord(value.quickAnalysis);
+  return (
+    isRecord(value.window) &&
+    isRecord(value.progress) &&
+    isRecord(value.summary) &&
+    isRecord(value.quickAnalysis)
+  );
+}
+
+function hasInsufficientShape(
+  value: unknown
+): value is Omit<InsightsAiAnalysisInsufficient, "status"> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isRecord(value.window) &&
+    isRecord(value.progress) &&
+    isRecord(value.summary) &&
+    isRecord(value.quickAnalysis)
+  );
 }
 
 function hasReadyShape(value: unknown): value is Omit<InsightsAiAnalysisReady, "status"> {
@@ -153,6 +246,10 @@ function hasReadyShape(value: unknown): value is Omit<InsightsAiAnalysisReady, "
     isRecord(value.freshness) &&
     isRecord(value.summary) &&
     Array.isArray(value.patternTags) &&
+    isRecord(value.scoreboard) &&
+    isRecord(value.emotionTrend) &&
+    isRecord(value.themeBreakdown) &&
+    isRecord(value.signals) &&
     Array.isArray(value.bigFive) &&
     Array.isArray(value.darkTriad) &&
     isRecord(value.actionPlan) &&
@@ -161,18 +258,29 @@ function hasReadyShape(value: unknown): value is Omit<InsightsAiAnalysisReady, "
 }
 
 function normalizeInsightsAiAnalysis(data: unknown): InsightsAiAnalysis {
-  if (isRecord(data) && data.status === "pending" && hasPendingShape(data)) {
-    return data as InsightsAiAnalysisPending;
+  if (isRecord(data) && data.status === "collecting" && hasCollectingShape(data)) {
+    return data as InsightsAiAnalysisCollecting;
+  }
+
+  if (isRecord(data) && data.status === "insufficient" && hasInsufficientShape(data)) {
+    return data as InsightsAiAnalysisInsufficient;
   }
 
   if (isRecord(data) && data.status === "ready" && hasReadyShape(data)) {
     return data as InsightsAiAnalysisReady;
   }
 
-  if (hasPendingShape(data)) {
+  if (hasCollectingShape(data)) {
     return {
-      status: "pending",
-      ...(data as Omit<InsightsAiAnalysisPending, "status">),
+      status: "collecting",
+      ...(data as Omit<InsightsAiAnalysisCollecting, "status">),
+    };
+  }
+
+  if (hasInsufficientShape(data)) {
+    return {
+      status: "insufficient",
+      ...(data as Omit<InsightsAiAnalysisInsufficient, "status">),
     };
   }
 
@@ -208,6 +316,7 @@ export type {
   InsightTone,
   InsightsOverview,
   InsightsAiAnalysis,
-  InsightsAiAnalysisPending,
+  InsightsAiAnalysisCollecting,
+  InsightsAiAnalysisInsufficient,
   InsightsAiAnalysisReady,
 };

@@ -1,12 +1,19 @@
 import { request } from "../utils/apiClient";
 import type { AuthUser } from "./authService";
 
-type PaywallOfferingKey = "weekly" | "monthly" | "yearly" | "lifetime";
+type PaywallOfferingKey =
+  | "weekly"
+  | "monthly"
+  | "yearly"
+  | "yearly_exit_offer"
+  | "lifetime";
 type PaywallTriggerMode = "contextual" | "interruptive";
 type PaywallTemplateKey =
   | "weekly-standard"
   | "monthly-standard"
   | "yearly-commitment"
+  | "post-auth-trial"
+  | "post-auth-exit-offer"
   | "lifetime-launch";
 
 type PaywallFeatureCard = {

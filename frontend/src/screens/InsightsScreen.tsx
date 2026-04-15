@@ -36,11 +36,16 @@ import {
   getInsightsOverview,
   type InsightTone,
   type InsightsAiAnalysis,
-  type InsightsAiAnalysisPending,
+  type InsightsAiAnalysisCollecting,
+  type InsightsAiAnalysisInsufficient,
   type InsightsAiAnalysisReady,
   type InsightsOverview,
 } from "../services/insightsService";
 import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
+import {
+  cancelWeeklyInsightNotifications,
+  syncWeeklyInsightNotifications,
+} from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
@@ -55,13 +60,6 @@ const MOOD_COLORS: Record<string, string> = {
 };
 
 const TOPIC_COLORS = ["#E6816D", "#7D9FD6", "#8AB39A", "#E9A15B", "#A47BD6"];
-const TRAIT_BAR_COLORS = ["#E6816D", "#7D9FD6", "#8AB39A", "#E9A15B", "#A47BD6"];
-
-const WATCHPOINT_COLORS = {
-  low: "#8AB39A",
-  watch: "#E9A15B",
-  elevated: "#D26A6A",
-} as const;
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -858,7 +856,7 @@ function AnalysisHeroCard({
   analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
-  const conciseHighlight = truncateWords(analysis.summary.highlight, 18);
+  const conciseHighlight = truncateWords(analysis.summary.highlight, 20);
 
   return (
     <View
@@ -918,7 +916,7 @@ function AnalysisHeroCard({
           ]}
         >
           <Text style={[styles.keyInsightLabel, { color: theme.colors.mutedForeground }]}>
-            Key Insight
+            One-glance read
           </Text>
           <Text style={[styles.keyInsightText, { color: theme.colors.foreground }]}>
             {conciseHighlight}
@@ -927,45 +925,35 @@ function AnalysisHeroCard({
       </View>
 
       <View style={styles.analysisStatsRow}>
-        <View
-          style={[
-            styles.analysisStatCard,
-            { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.06) },
-          ]}
-        >
-          <Text style={[styles.analysisStatValue, { color: theme.colors.foreground }]}>
-            {analysis.window.entryCount}
-          </Text>
-          <Text style={[styles.analysisStatLabel, { color: theme.colors.mutedForeground }]}>
-            entries
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.analysisStatCard,
-            { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.06) },
-          ]}
-        >
-          <Text style={[styles.analysisStatValue, { color: theme.colors.foreground }]}>
-            {analysis.window.activeDays}
-          </Text>
-          <Text style={[styles.analysisStatLabel, { color: theme.colors.mutedForeground }]}>
-            active days
-          </Text>
-        </View>
+        {analysis.scoreboard.cards.map(card => (
+          <View
+            key={card.key}
+            style={[
+              styles.analysisStatCard,
+              { backgroundColor: hexToRgba(getToneColor(card.tone), 0.08) },
+            ]}
+          >
+            <Text style={[styles.analysisStatValue, { color: theme.colors.foreground }]}>
+              {card.value}
+            </Text>
+            <Text style={[styles.analysisStatLabel, { color: theme.colors.mutedForeground }]}>
+              {card.label}
+            </Text>
+          </View>
+        ))}
       </View>
 
       <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
-        {analysis.freshness.note}
+        {analysis.scoreboard.vibeLabel}. {analysis.freshness.note}
       </Text>
 
       <View style={styles.patternTagRow}>
-        {analysis.patternTags.slice(0, 3).map(tag => {
+        {analysis.themeBreakdown.items.slice(0, 3).map(tag => {
           const toneColor = getToneColor(tag.tone);
 
           return (
             <View
-              key={tag.label}
+              key={`${tag.label}-${tag.count}`}
               style={[
                 styles.patternTagPill,
                 { backgroundColor: hexToRgba(toneColor, 0.12) },
@@ -982,15 +970,13 @@ function AnalysisHeroCard({
   );
 }
 
-function PersonalityTraitsCard({
+function PatternSnapshotCard({
   analysis,
 }: {
   analysis: InsightsAiAnalysisReady;
 }) {
   const theme = useTheme();
-  const topTraits = [...analysis.bigFive]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 3);
+  const topThemes = analysis.themeBreakdown.items.slice(0, 3);
 
   return (
     <View
@@ -1005,77 +991,85 @@ function PersonalityTraitsCard({
       <View style={styles.summaryTitleRow}>
         <TrendingUp color={theme.colors.primary} size={18} />
         <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          Big Five Signals
+          Pattern snapshot
         </Text>
       </View>
       <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
-        Top weekly trait signals from recent writing language.
+        Weekly pace plus the themes that mattered most.
       </Text>
 
-      <View style={styles.traitList}>
-        {topTraits.map((item, index) => {
-          const toneColor = TRAIT_BAR_COLORS[index % TRAIT_BAR_COLORS.length];
+      <View style={styles.activityColumnChart}>
+        {analysis.emotionTrend.days.map(day => {
+          const barHeight = day.moodScore ? Math.max(32, day.moodScore * 22) : 22;
+          const toneColor = getToneColor(day.tone);
 
           return (
-            <View key={item.trait} style={styles.traitCard}>
-              <View style={styles.traitHeaderRow}>
-                <Text style={[styles.traitLabel, { color: theme.colors.foreground }]}>
-                  {item.label}
-                </Text>
-                <View
-                  style={[
-                    styles.traitBandPill,
-                    { backgroundColor: hexToRgba(toneColor, 0.12) },
-                  ]}
-                >
-                  <Text style={[styles.traitBandText, { color: toneColor }]}>
-                    {item.band}
-                  </Text>
-                </View>
-              </View>
+            <View key={day.dateKey} style={styles.activityColumn}>
               <View
                 style={[
-                  styles.traitTrack,
+                  styles.activityColumnTrack,
                   { backgroundColor: hexToRgba(toneColor, 0.12) },
                 ]}
               >
                 <View
                   style={[
-                    styles.traitFill,
+                    styles.activityColumnFill,
                     {
-                      width: `${item.score}%`,
+                      height: barHeight,
                       backgroundColor: toneColor,
                     },
                   ]}
                 />
               </View>
-              <View style={styles.traitScoreRow}>
-                <Text style={[styles.traitScoreText, { color: theme.colors.foreground }]}>
-                  {item.score}
+              <Text style={[styles.axisLabel, { color: theme.colors.mutedForeground }]}>
+                {day.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.chartFooter}>
+        <Text style={[styles.chartFooterLabel, { color: theme.colors.mutedForeground }]}>
+          Weekly vibe
+        </Text>
+        <Text style={[styles.chartFooterValue, { color: theme.colors.foreground }]}>
+          {analysis.scoreboard.cards.find(card => card.key === "mood")?.value || "Mixed"} •{" "}
+          {analysis.window.entryCount} entries
+        </Text>
+      </View>
+
+      <View style={styles.actionList}>
+        {topThemes.map(item => {
+          const toneColor = getToneColor(item.tone);
+
+          return (
+            <View key={`${item.label}-${item.count}`} style={styles.topicRow}>
+              <View style={styles.topicCopy}>
+                <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
+                  {item.label}
                 </Text>
-                <Text style={[styles.traitSupportText, { color: theme.colors.mutedForeground }]}>
-                  /100 weekly signal
+                <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
+                  {item.count} mentions • {item.percentage}%
                 </Text>
               </View>
-              <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
-                {getFirstSentence(item.description)}
-              </Text>
-              <View style={styles.traitEvidenceRow}>
-                {item.evidenceTags.slice(0, 2).map(tag => (
+              <View style={styles.topicMeter}>
+                <View
+                  style={[
+                    styles.topicMeterTrack,
+                    { backgroundColor: hexToRgba(toneColor, 0.12) },
+                  ]}
+                >
                   <View
-                    key={`${item.trait}-${tag}`}
                     style={[
-                      styles.traitEvidencePill,
-                      { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.traitEvidenceText, { color: theme.colors.mutedForeground }]}
-                    >
-                      {tag}
-                    </Text>
-                  </View>
-                ))}
+                    styles.topicMeterFill,
+                    {
+                      width: `${Math.max(14, item.percentage)}%`,
+                      backgroundColor: toneColor,
+                    },
+                  ]}
+                />
+                </View>
               </View>
             </View>
           );
@@ -1085,15 +1079,16 @@ function PersonalityTraitsCard({
   );
 }
 
-function WatchpointsCard({
-  analysis,
+function SignalsOverviewCard({
+  title,
+  items,
+  icon: Icon,
 }: {
-  analysis: InsightsAiAnalysisReady;
+  title: string;
+  items: InsightsAiAnalysisReady["signals"]["whatHelped"];
+  icon: typeof Sparkles;
 }) {
   const theme = useTheme();
-  const primaryWatchpoints = [...analysis.darkTriad]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 2);
 
   return (
     <View
@@ -1106,80 +1101,44 @@ function WatchpointsCard({
       ]}
     >
       <View style={styles.summaryTitleRow}>
-        <Sparkles color={theme.colors.primary} size={18} />
+        <Icon color={theme.colors.primary} size={18} />
         <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          Self-Protection Watchpoints
+          {title}
         </Text>
       </View>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
-        Gentle watchpoints for the week, framed as temporary coping signals.
-      </Text>
 
-      <View style={styles.watchpointList}>
-        {primaryWatchpoints.map(item => {
-          const toneColor = WATCHPOINT_COLORS[item.band];
+      <View style={styles.actionList}>
+        {items.slice(0, 1).map(item => {
+          const toneColor = getToneColor(item.tone);
 
           return (
             <View
-              key={item.trait}
+              key={`${title}-${item.title}`}
               style={[
-                styles.watchpointCard,
+                styles.signalCard,
                 { backgroundColor: hexToRgba(toneColor, 0.08) },
               ]}
             >
-              <View style={styles.watchpointHeaderRow}>
-                <View style={styles.watchpointTitleWrap}>
-                  <Text style={[styles.watchpointTitle, { color: theme.colors.foreground }]}>
-                    {item.label}
-                  </Text>
-                  <Text
-                    style={[styles.watchpointSubtitle, { color: theme.colors.mutedForeground }]}
-                  >
-                    {item.supportiveLabel}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.traitBandPill,
-                    { backgroundColor: hexToRgba(toneColor, 0.14) },
-                  ]}
-                >
-                  <Text style={[styles.traitBandText, { color: toneColor }]}>
-                    {item.band}
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={[
-                  styles.traitTrack,
-                  { backgroundColor: hexToRgba(toneColor, 0.14) },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.traitFill,
-                    {
-                      width: `${item.score}%`,
-                      backgroundColor: toneColor,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
-                {getFirstSentence(item.description)}
+              <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
+                {item.title}
               </Text>
-              <View
-                style={[
-                  styles.watchpointTipCard,
-                  { backgroundColor: hexToRgba(theme.colors.card, 0.78) },
-                ]}
-              >
-                <Text style={[styles.keyInsightLabel, { color: theme.colors.mutedForeground }]}>
-                  Gentle counter-step
-                </Text>
-                <Text style={[styles.watchpointTipText, { color: theme.colors.foreground }]}>
-                  {item.supportTip}
-                </Text>
+              <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
+                {truncateWords(item.description, 18)}
+              </Text>
+              <View style={styles.traitEvidenceRow}>
+                {item.evidence.slice(0, 2).map(evidence => (
+                  <View
+                    key={`${item.title}-${evidence}`}
+                    style={[
+                      styles.traitEvidencePill,
+                      { backgroundColor: hexToRgba(toneColor, 0.14) },
+                    ]}
+                  >
+                    <Text style={[styles.traitEvidenceText, { color: toneColor }]}>
+                      {evidence}
+                    </Text>
+                  </View>
+                ))}
               </View>
             </View>
           );
@@ -1217,7 +1176,7 @@ function ActionPlanCard({
       </Text>
 
       <View style={styles.actionList}>
-        {analysis.actionPlan.steps.map((step, index) => (
+        {analysis.actionPlan.steps.slice(0, 2).map((step, index) => (
           <View
             key={step.title}
             style={[
@@ -1262,56 +1221,6 @@ function ActionPlanCard({
   );
 }
 
-function AppSupportCard({
-  analysis,
-}: {
-  analysis: InsightsAiAnalysisReady;
-}) {
-  const theme = useTheme();
-  const supportItems = analysis.appSupport.items.slice(0, 2);
-
-  return (
-    <View
-      style={[
-        styles.sectionCard,
-        {
-          backgroundColor: theme.colors.card,
-          borderColor: theme.colors.border,
-        },
-      ]}
-    >
-      <View style={styles.summaryTitleRow}>
-        <Leaf color={theme.colors.primary} size={18} />
-        <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          How Journal.IO Helps
-        </Text>
-      </View>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
-        {truncateWords(analysis.appSupport.headline, 12)}
-      </Text>
-
-      <View style={styles.appSupportList}>
-        {supportItems.map(item => (
-          <View
-            key={item.title}
-            style={[
-              styles.appSupportCard,
-              { backgroundColor: hexToRgba(theme.colors.primary, 0.06) },
-            ]}
-          >
-            <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
-              {item.title}
-            </Text>
-            <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
-              {truncateWords(item.description, 16)}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 function AnalysisSection({
   analysis,
 }: {
@@ -1320,10 +1229,18 @@ function AnalysisSection({
   return (
     <View style={styles.sectionStack}>
       <AnalysisHeroCard analysis={analysis} />
-      <PersonalityTraitsCard analysis={analysis} />
-      <WatchpointsCard analysis={analysis} />
+      <PatternSnapshotCard analysis={analysis} />
+      <SignalsOverviewCard
+        title="What Helped"
+        items={analysis.signals.whatHelped}
+        icon={Sparkles}
+      />
+      <SignalsOverviewCard
+        title="What Drained"
+        items={analysis.signals.whatDrained}
+        icon={Brain}
+      />
       <ActionPlanCard analysis={analysis} />
-      <AppSupportCard analysis={analysis} />
     </View>
   );
 }
@@ -1458,18 +1375,14 @@ function DisabledAiAnalysisCard() {
   );
 }
 
-function PendingAiAnalysisCard({
-  pending,
+function CollectingAiAnalysisCard({
+  collecting,
   onKeepJournaling,
 }: {
-  pending: InsightsAiAnalysisPending;
+  collecting: InsightsAiAnalysisCollecting;
   onKeepJournaling: () => void;
 }) {
   const theme = useTheme();
-  const daysLabel =
-    pending.readiness.daysUntilReady === 1
-      ? "1 day"
-      : `${pending.readiness.daysUntilReady} days`;
 
   return (
     <View style={styles.sectionStack}>
@@ -1484,10 +1397,10 @@ function PendingAiAnalysisCard({
             <Brain color={theme.colors.primary} size={22} />
           </View>
           <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
-            {pending.summary.headline}
+            {collecting.summary.headline}
           </Text>
           <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
-            {pending.summary.narrative}
+            {collecting.summary.narrative}
           </Text>
           <View style={styles.pendingStatsRow}>
             <View
@@ -1497,10 +1410,10 @@ function PendingAiAnalysisCard({
               ]}
             >
               <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
-                {daysLabel}
+                {collecting.progress.activeDays}/{collecting.progress.minimumActiveDays}
               </Text>
               <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
-                until ready
+                active days
               </Text>
             </View>
             <View
@@ -1510,15 +1423,15 @@ function PendingAiAnalysisCard({
               ]}
             >
               <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
-                {pending.readiness.totalEntries}
+                {collecting.progress.daysRemaining}
               </Text>
               <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
-                entries logged
+                days left
               </Text>
             </View>
           </View>
           <Text style={[styles.pendingHighlightText, { color: theme.colors.mutedForeground }]}>
-            {pending.summary.highlight}
+            {collecting.summary.highlight}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -1542,11 +1455,109 @@ function PendingAiAnalysisCard({
           <View style={styles.summaryTitleRow}>
             <Sparkles color={theme.colors.primary} size={18} />
             <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-              {pending.quickAnalysis.title}
+              {collecting.quickAnalysis.title}
             </Text>
           </View>
           <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
-            {pending.quickAnalysis.description}
+            {collecting.quickAnalysis.description}
+          </Text>
+          <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
+            Week window: {collecting.window.label}
+          </Text>
+        </View>
+      </SectionCard>
+    </View>
+  );
+}
+
+function InsufficientAiAnalysisCard({
+  analysis,
+  onKeepJournaling,
+}: {
+  analysis: InsightsAiAnalysisInsufficient;
+  onKeepJournaling: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.sectionStack}>
+      <SectionCard>
+        <View style={styles.lockedState}>
+          <View
+            style={[
+              styles.lockedIconWrap,
+              { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+            ]}
+          >
+            <Brain color={theme.colors.primary} size={22} />
+          </View>
+          <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+            {analysis.summary.headline}
+          </Text>
+          <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+            {analysis.summary.narrative}
+          </Text>
+          <View style={styles.pendingStatsRow}>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {analysis.window.activeDays}/{analysis.window.minimumActiveDays}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                active days
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {analysis.window.entryCount}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                entries logged
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.pendingHighlightText, { color: theme.colors.mutedForeground }]}>
+            {analysis.summary.highlight}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep journaling"
+            onPress={onKeepJournaling}
+            style={({ pressed }) => [
+              styles.retryButton,
+              { backgroundColor: theme.colors.primary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+              Start The Next Week
+            </Text>
+          </Pressable>
+        </View>
+      </SectionCard>
+
+      <SectionCard>
+        <View style={styles.pendingQuickAnalysisCard}>
+          <View style={styles.summaryTitleRow}>
+            <Sparkles color={theme.colors.primary} size={18} />
+            <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              {analysis.quickAnalysis.title}
+            </Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+            {analysis.quickAnalysis.description}
+          </Text>
+          <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
+            Next week: {analysis.progress.nextWindowLabel}
           </Text>
         </View>
       </SectionCard>
@@ -1603,12 +1614,11 @@ export default function InsightsScreen() {
   const horizontalPadding = useMemo(() => Math.max(16, Math.min(24, width * 0.05)), [width]);
   const layoutMaxWidth = width >= 430 ? 470 : 430;
   const thumbWidth = segmentedWidth > 0 ? (segmentedWidth - 6 - 4) / 2 : 0;
-  const readyAnalysis =
-    aiAnalysis && "window" in aiAnalysis && "bigFive" in aiAnalysis ? aiAnalysis : null;
-  const pendingAnalysis =
-    aiAnalysis && "readiness" in aiAnalysis && "quickAnalysis" in aiAnalysis
-      ? aiAnalysis
-      : null;
+  const readyAnalysis = aiAnalysis?.status === "ready" ? aiAnalysis : null;
+  const collectingAnalysis =
+    aiAnalysis?.status === "collecting" ? aiAnalysis : null;
+  const insufficientAnalysis =
+    aiAnalysis?.status === "insufficient" ? aiAnalysis : null;
 
   const loadInsights = async () => {
     setIsLoading(true);
@@ -1649,12 +1659,16 @@ export default function InsightsScreen() {
       try {
         const nextAnalysis = await getInsightsAiAnalysis();
         setAiAnalysis(nextAnalysis);
+        await syncWeeklyInsightNotifications(
+          nextAnalysis.status === "collecting" ? nextAnalysis : null
+        );
       } catch (loadError) {
         setAnalysisError(
           loadError instanceof Error
             ? loadError.message
             : "Unable to load AI analysis right now."
         );
+        cancelWeeklyInsightNotifications().catch(() => undefined);
       } finally {
         setIsAnalysisLoading(false);
       }
@@ -1932,9 +1946,14 @@ export default function InsightsScreen() {
                   loadAiAnalysis({ force: true }).catch(() => undefined);
                 }}
               />
-            ) : pendingAnalysis ? (
-              <PendingAiAnalysisCard
-                pending={pendingAnalysis}
+            ) : collectingAnalysis ? (
+              <CollectingAiAnalysisCard
+                collecting={collectingAnalysis}
+                onKeepJournaling={() => setMainAppTab("home")}
+              />
+            ) : insufficientAnalysis ? (
+              <InsufficientAiAnalysisCard
+                analysis={insufficientAnalysis}
                 onKeepJournaling={() => setMainAppTab("home")}
               />
             ) : readyAnalysis ? (
@@ -2242,6 +2261,29 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingRight: 30,
   },
+  topicCopy: {
+    flex: 1,
+  },
+  topicMeter: {
+    width: 128,
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  topicMeterTrack: {
+    width: "100%",
+    height: 8,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  topicMeterFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  topicMeterValue: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
   topicLabel: {
     fontSize: 14,
     lineHeight: 19,
@@ -2320,11 +2362,13 @@ const styles = StyleSheet.create({
   analysisStatsRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: 10,
     marginBottom: 12,
   },
   analysisStatCard: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "47%",
     minWidth: 120,
     borderRadius: 14,
     paddingHorizontal: 12,
@@ -2349,6 +2393,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 12,
+  },
+  activityColumnChart: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+    height: 184,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  activityColumn: {
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
+  },
+  activityColumnTrack: {
+    width: "100%",
+    minWidth: 24,
+    maxWidth: 34,
+    height: 150,
+    borderRadius: 999,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  activityColumnFill: {
+    width: "100%",
+    borderRadius: 999,
+    minHeight: 14,
   },
   patternTagRow: {
     flexDirection: "row",
@@ -2512,6 +2584,11 @@ const styles = StyleSheet.create({
   patternSubtitle: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  signalCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
   },
   watchpointList: {
     gap: 12,

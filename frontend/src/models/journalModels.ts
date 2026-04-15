@@ -43,12 +43,49 @@ export type JournalTagSuggestions = {
 
 export type JournalQuickAnalysis = {
   journalId: string;
-  headline: string;
-  summary: string;
+  summary: {
+    headline: string;
+    narrative: string;
+    highlight: string;
+  };
+  scorecard: {
+    vibeLabel: string;
+    vibeTone: "coral" | "blue" | "sage" | "amber" | "slate";
+    cards: {
+      key: "words" | "mood" | "focus" | "depth";
+      label: string;
+      value: string;
+      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+    }[];
+  };
   patternTags: {
     label: string;
     tone: "coral" | "blue" | "sage" | "amber" | "slate";
   }[];
-  nextStep: string;
+  signals: {
+    whatStoodOut: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+    };
+    whatNeedsCare: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+    };
+    whatToCarryForward: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+    };
+  };
+  nextStep: {
+    title: string;
+    description: string;
+    focus: string;
+  };
   generatedAt: string | null;
 };

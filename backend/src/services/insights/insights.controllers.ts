@@ -42,7 +42,14 @@ const getInsightsAiAnalysisController = async (
       return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
-    const analysis = await getInsightsAiAnalysis(userId);
+    const timezoneHeader =
+      typeof req.headers["x-client-timezone"] === "string"
+        ? req.headers["x-client-timezone"]
+        : undefined;
+    const analysis = await getInsightsAiAnalysis(
+      userId,
+      timezoneHeader ? { timeZone: timezoneHeader } : undefined
+    );
 
     return res
       .status(200)

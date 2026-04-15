@@ -407,11 +407,11 @@ Success `data`:
     {
       "key": "yearly",
       "title": "YEARLY",
-      "price": "$99.99",
+      "price": "$59.99",
       "priceSuffix": "/year",
       "subtitle": "Best for steady journaling",
       "badge": "Most Value",
-      "highlight": "$8.33/month",
+      "highlight": "$5.00/month",
       "sortOrder": 3,
       "revenueCatOfferingId": "journalio_offering_dev",
       "revenueCatPackageId": "$rc_annual",
@@ -677,8 +677,41 @@ Success `data`:
 ```json
 {
   "journalId": "string",
-  "headline": "Work stood out in this bad check-in",
-  "summary": "This entry may indicate work pressure was closely tied to how you felt here.",
+  "summary": {
+    "headline": "Work carried this bad moment",
+    "narrative": "This entry may indicate work pressure was closely tied to how the moment felt. You were not just logging the day, you were trying to make sense of it while it was still live.",
+    "highlight": "Work looks like the clearest thread to keep tracking if this feeling or situation comes back."
+  },
+  "scorecard": {
+    "vibeLabel": "Heavy moment",
+    "vibeTone": "slate",
+    "cards": [
+      {
+        "key": "words",
+        "label": "Words",
+        "value": "26",
+        "tone": "blue"
+      },
+      {
+        "key": "mood",
+        "label": "Mood",
+        "value": "Bad",
+        "tone": "slate"
+      },
+      {
+        "key": "focus",
+        "label": "Focus",
+        "value": "Work",
+        "tone": "amber"
+      },
+      {
+        "key": "depth",
+        "label": "Depth",
+        "value": "Quick note",
+        "tone": "amber"
+      }
+    ]
+  },
   "patternTags": [
     {
       "label": "Work",
@@ -689,7 +722,31 @@ Success `data`:
       "tone": "sage"
     }
   ],
-  "nextStep": "In your next entry, separate what felt in your control today from what can wait until later.",
+  "signals": {
+    "whatStoodOut": {
+      "title": "Work was the clearest signal",
+      "description": "This entry may indicate work carried most of the meaning in the moment, not just the background context around it.",
+      "evidence": ["Work", "Bad"],
+      "tone": "amber"
+    },
+    "whatNeedsCare": {
+      "title": "This moment deserves a softer read",
+      "description": "The entry carries enough strain that it makes sense to treat this as a real stress moment, not something to brush past.",
+      "evidence": ["Bad", "Self Care"],
+      "tone": "slate"
+    },
+    "whatToCarryForward": {
+      "title": "There is still something useful to keep",
+      "description": "The entry does not just flag friction. It also shows a thread that could help you build the next reflection with a little more steadiness.",
+      "evidence": ["Quick note", "Work"],
+      "tone": "sage"
+    }
+  },
+  "nextStep": {
+    "title": "Track what steadied you",
+    "description": "Next time, note one small thing that helped you feel safer, steadier, or more supported so the pattern is easier to reuse.",
+    "focus": "Support"
+  },
   "generatedAt": "2026-04-06T09:20:00.000Z"
 }
 ```
@@ -700,7 +757,10 @@ Notes:
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - returns `403` with error code `QUICK_ANALYSIS_DISABLED` when the authenticated user has AI turned off
 - reads one saved journal only; it does not depend on the weekly analysis cache
-- when OpenAI is available for an eligible user, the backend refines the short reflection with OpenAI
+- the response is visual-first and signal-first for the entry-detail screen: summary, compact scorecard, pattern tags, three signal cards, and one grounded next step
+- the backend strips any saved `aiPrompt` text from the journal before reading it so the prompt itself is not mistaken for the user's reflection
+- if the remaining text is too short, too noisy, or obviously prompt-led, the response stays intentionally light and surfaces that as a low-signal read instead of forcing a stronger topic or personality interpretation
+- when OpenAI is available for an eligible user, the backend refines the single-entry reflection with OpenAI
 - if OpenAI is unavailable, the backend falls back to a deterministic, non-clinical quick reflection
 
 ### `GET /journal/get_journal_details`
@@ -1100,36 +1160,86 @@ Behavior:
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
 - overview insights remain available even when AI analysis is disabled
-- during the first 7 days after account creation for an eligible premium user, the route returns a `pending` warm-up payload instead of a weekly analysis so the app can prompt the user to keep journaling consistently
-- when OpenAI is configured, the backend uses the cached deterministic weekly signal as a baseline and asks OpenAI to generate the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
+- request header `X-Client-Timezone` is accepted and used to anchor the premium-week window in the user’s local timezone; invalid or missing values fall back to `UTC`
+- weekly windows are anchored to `premiumActivatedAt`, not account creation time
+- example: if premium starts on `2026-04-11` in the user’s local timezone, the first analysis week is `2026-04-11` through `2026-04-17`, and the first closed-week result becomes available on `2026-04-18`
+- the route uses three states:
+  - `collecting`: the current premium week is still open
+  - `insufficient`: the most recent closed premium week ended with fewer than 4 active journal days
+  - `ready`: the most recent closed premium week had at least 4 active journal days and has a full report
+- minimum threshold for a report is `4` active journal days inside the closed 7-day premium week
+- when OpenAI is configured, the backend uses the deterministic weekly signal as a baseline and asks OpenAI to refine the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
 - if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
+- the AI-analysis cache key is scoped to `window start + window end + timezone + status`, so the route no longer behaves like a rolling last-7-days cache
+- before weekly synthesis, the backend strips prompt carryover from saved journal content and down-weights low-signal entries such as filler or obvious gibberish so those entries lower confidence and appear as a clarity signal instead of dominating the topic read
 
-Pending response:
+Collecting response:
 
 ```json
 {
   "success": true,
   "message": "Insights AI analysis loaded",
   "data": {
-    "status": "pending",
-    "readiness": {
-      "joinedAt": "2026-04-03T00:00:00.000Z",
-      "eligibleOn": "2026-04-10T00:00:00.000Z",
-      "daysSinceSignup": 3,
-      "daysUntilReady": 4,
-      "totalEntries": 2,
+    "status": "collecting",
+    "window": {
+      "startDate": "2026-04-11",
+      "endDate": "2026-04-17",
+      "label": "Apr 11 - Apr 17",
+      "entryCount": 2,
       "activeDays": 2,
-      "currentStreak": 2
+      "totalWords": 248
+    },
+    "progress": {
+      "activeDays": 2,
+      "minimumActiveDays": 4,
+      "entriesNeeded": 2,
+      "daysRemaining": 4
     },
     "summary": {
-      "headline": "Weekly analysis is warming up",
-      "narrative": "Keep journaling for 4 more days so Journal.IO can build a fuller week of context.",
-      "highlight": "Your 2-day streak is already helping the first weekly analysis feel more grounded."
+      "headline": "Your first weekly read is still collecting signal",
+      "narrative": "You’re still inside this premium week, so Journal.IO is waiting for a little more texture before it turns the week into a real read.",
+      "highlight": "Two active days are already on the board. Hit four and the week becomes eligible for AI insights."
     },
     "quickAnalysis": {
       "available": true,
       "title": "Quick Analysis is available now",
-      "description": "Open any saved journal entry to generate a short entry-by-entry AI reflection while the weekly analysis is still warming up."
+      "description": "Open any saved journal entry to get a short AI reflection while the weekly view is still collecting."
+    }
+  }
+}
+```
+
+Insufficient response:
+
+```json
+{
+  "success": true,
+  "message": "Insights AI analysis loaded",
+  "data": {
+    "status": "insufficient",
+    "window": {
+      "startDate": "2026-04-11",
+      "endDate": "2026-04-17",
+      "label": "Apr 11 - Apr 17",
+      "entryCount": 3,
+      "activeDays": 3,
+      "totalWords": 312
+    },
+    "progress": {
+      "activeDays": 3,
+      "minimumActiveDays": 4,
+      "entriesNeeded": 1,
+      "daysRemaining": 0
+    },
+    "summary": {
+      "headline": "This week stayed a little too light for a full AI read",
+      "narrative": "Journal.IO only turns a closed week into weekly insights when it has at least 4 active journal days to work from.",
+      "highlight": "You still logged 3 active days, so the next week is close to being analysis-ready if you stay consistent."
+    },
+    "quickAnalysis": {
+      "available": true,
+      "title": "Quick Analysis can still help between weekly reports",
+      "description": "Use it on any saved entry if you want a short read while the next full week is still building."
     }
   }
 }
@@ -1158,7 +1268,7 @@ Ready response:
       "note": "string"
     },
     "summary": {
-      "headline": "Conscientiousness stood out most this week",
+      "headline": "Morning Routines kept shaping your week",
       "narrative": "string",
       "highlight": "string"
     },
@@ -1168,6 +1278,74 @@ Ready response:
         "tone": "amber"
       }
     ],
+    "scoreboard": {
+      "vibeLabel": "Steadier week",
+      "vibeTone": "sage",
+      "cards": [
+        {
+          "key": "activeDays",
+          "label": "Active days",
+          "value": "5/7",
+          "tone": "sage"
+        },
+        {
+          "key": "entries",
+          "label": "Entries",
+          "value": "6",
+          "tone": "blue"
+        }
+      ]
+    },
+    "emotionTrend": {
+      "headline": "Emotional pace across the week",
+      "days": [
+        {
+          "dateKey": "2026-03-26",
+          "label": "Thu",
+          "moodLabel": "Good",
+          "moodScore": 4,
+          "entryCount": 1,
+          "tone": "sage"
+        }
+      ]
+    },
+    "themeBreakdown": {
+      "headline": "Themes that kept resurfacing",
+      "items": [
+        {
+          "label": "Morning Routines",
+          "count": 4,
+          "percentage": 36,
+          "tone": "coral"
+        }
+      ]
+    },
+    "signals": {
+      "whatHelped": [
+        {
+          "title": "Consistency gave the week more shape",
+          "description": "string",
+          "evidence": ["5/7 active days", "6 entries"],
+          "tone": "sage"
+        }
+      ],
+      "whatDrained": [
+        {
+          "title": "Work Stress kept pulling focus",
+          "description": "string",
+          "evidence": ["3 mentions", "Work Stress"],
+          "tone": "amber"
+        }
+      ],
+      "whatKeptShowingUp": [
+        {
+          "title": "Morning Routines",
+          "description": "string",
+          "evidence": ["4 mentions", "36% topic share"],
+          "tone": "coral"
+        }
+      ]
+    },
     "bigFive": [
       {
         "trait": "conscientiousness",
@@ -1217,8 +1395,10 @@ Behavior:
 - protected route
 - reads from the same per-user cached `insights` document as the overview route
 - cache is marked stale by journal create/edit/delete/favorite changes and mood check-ins
-- if the weekly AI-analysis cache is stale or missing, the backend recomputes it from recent journal content, recent tags, and recent mood check-ins, then stores the result back on the `insights` document
-- output language must remain supportive, uncertainty-aware, and non-clinical even when surfacing Big Five or dark-triad-adjacent signals
+- if the AI-analysis cache is stale or missing, the backend recomputes it from the relevant premium-week window’s journal content, tags, and mood check-ins, then stores the result back on the `insights` document
+- the primary mobile surface is signal-first and visual-first: summary, scoreboard, emotion trend, theme breakdown, signals, action plan, and app support
+- legacy `bigFive` and `darkTriad` fields may still be present for continuity, but they are no longer the primary mobile framing
+- output language must remain supportive, uncertainty-aware, non-clinical, and grounded in what the user actually wrote that week
 
 ## 4.5 Plans and Reminders
 

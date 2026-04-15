@@ -11,6 +11,7 @@ import {
   suggestJournalTags,
 } from "../src/services/journalService";
 import { getWritingPrompts } from "../src/services/promptsService";
+import { cancelWeeklyInsightNotifications } from "../src/services/reminderNotificationsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
 jest.mock("../src/services/journalService", () => ({
@@ -61,6 +62,7 @@ jest.mock("../src/services/remindersService", () => ({
 
 jest.mock("../src/services/reminderNotificationsService", () => ({
   syncReminderNotifications: jest.fn(async () => undefined),
+  cancelWeeklyInsightNotifications: jest.fn(async () => undefined),
 }));
 
 beforeEach(() => {
@@ -70,6 +72,7 @@ beforeEach(() => {
   (createJournalEntry as jest.Mock).mockClear();
   (suggestJournalTags as jest.Mock).mockClear();
   (getWritingPrompts as jest.Mock).mockClear();
+  (cancelWeeklyInsightNotifications as jest.Mock).mockClear();
 });
 
 const setPremiumSession = (isPremium: boolean) => {
@@ -108,6 +111,17 @@ const safeAreaMetrics = {
     right: 0,
   },
 };
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
 
 function extractText(node: unknown): string {
   if (node == null) {
@@ -216,6 +230,7 @@ test("saves an entry and returns to home", async () => {
       aiPrompt: "What are you grateful for today?",
     })
   );
+  expect(cancelWeeklyInsightNotifications).toHaveBeenCalledTimes(1);
   expect(onBack).toHaveBeenCalled();
 });
 
@@ -260,11 +275,60 @@ test("saves blank titles as untitled entries instead of a generated date title",
       aiPrompt: "What are you grateful for today?",
     })
   );
+  expect(cancelWeeklyInsightNotifications).toHaveBeenCalledTimes(1);
   expect(createJournalEntry).not.toHaveBeenCalledWith(
     expect.objectContaining({
       title: expect.stringMatching(/^Entry for /),
     })
   );
+});
+
+test("shows a loading spinner while personalized prompts are being fetched", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const deferred = createDeferred<Awaited<ReturnType<typeof getWritingPrompts>>>();
+
+  (getWritingPrompts as jest.Mock).mockImplementationOnce(() => deferred.promise);
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NewEntryScreen onBack={jest.fn()} />
+      </SafeAreaProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Show writing prompts" }).props.onPress();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Loading writing prompts" })
+  ).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    deferred.resolve({
+      featuredPrompt: {
+        id: "gratitude-1",
+        topic: "Gratitude",
+        text: "What are you grateful for today?",
+      },
+      prompts: [
+        {
+          id: "gratitude-1",
+          topic: "Gratitude",
+          text: "What are you grateful for today?",
+        },
+      ],
+      source: "personalized",
+      generatedAt: "2026-04-06T10:00:00.000Z",
+    });
+    await Promise.resolve();
+  });
+
+  expect(
+    root!.root.findAllByProps({ accessibilityLabel: "Loading writing prompts" })
+      .length
+  ).toBe(0);
 });
 
 test("keeps the entry screen open when saving fails", async () => {
@@ -299,6 +363,51 @@ test("keeps the entry screen open when saving fails", async () => {
 
   expect(errorTree).toContain("Server unavailable");
   expect(onBack).not.toHaveBeenCalled();
+});
+
+test("shows a loading spinner while AI tag suggestions are being generated", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const deferred = createDeferred<Awaited<ReturnType<typeof suggestJournalTags>>>();
+
+  ReactTestRenderer.act(() => {
+    setPremiumSession(true);
+  });
+
+  (suggestJournalTags as jest.Mock).mockImplementationOnce(() => deferred.promise);
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NewEntryScreen onBack={jest.fn()} />
+      </SafeAreaProvider>
+    );
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Entry content" })
+      .props.onChangeText("I am sorting through a hard week and need some structure.");
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Auto-tag with AI" }).props.onPress();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Generating AI tags" })
+  ).toBeTruthy();
+
+  await ReactTestRenderer.act(async () => {
+    deferred.resolve({
+      tags: ["reflection", "self-care"],
+    });
+    await Promise.resolve();
+  });
+
+  expect(
+    root!.root.findAllByProps({ accessibilityLabel: "Generating AI tags" }).length
+  ).toBe(0);
+  expect(extractText(root!.toJSON())).toContain("self-care");
 });
 
 test("loads backend-backed auto tag suggestions into the suggestions card", async () => {
@@ -368,8 +477,9 @@ test("locks AI auto-tagging for non-premium users and does not call the API", as
   });
 
   expect(suggestJournalTags).not.toHaveBeenCalled();
-  expect(extractText(root!.toJSON())).toContain(
-    "Premium membership is required for AI tag suggestions."
+  expect(useAppStore.getState().stage).toBe("paywall");
+  expect(useAppStore.getState().activePaywallPlacementKey).toBe(
+    "new_entry_auto_tag_locked"
   );
 });
 

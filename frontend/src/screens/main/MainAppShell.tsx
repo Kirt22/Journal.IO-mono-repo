@@ -42,6 +42,7 @@ export default function MainAppShell({
   const themeModeOverride = useAppStore(state => state.themeModeOverride);
   const signOut = useAppStore(state => state.signOut);
   const setPaywallContext = useAppStore(state => state.setPaywallContext);
+  const clearPaywallContext = useAppStore(state => state.clearPaywallContext);
   const onboardingGoals = useAppStore(
     state => state.onboardingData?.goals ?? EMPTY_GOALS
   );
@@ -89,6 +90,15 @@ export default function MainAppShell({
       triggerMode: "contextual",
     });
     openProfileSection("paywall");
+  };
+
+  const openProfileSubscriptionPaywall = () => {
+    openInAppPaywall("subscription_screen", "profile");
+  };
+
+  const closeProfilePaywallFlow = () => {
+    clearPaywallContext();
+    closeProfileSection();
   };
 
   const openSearch = () => {
@@ -204,11 +214,17 @@ export default function MainAppShell({
                   />
                 );
               case "paywall":
-                return <PaywallScreen onBack={closeProfileSection} />;
+                return (
+                  <PaywallScreen
+                    onBack={() => {
+                      closeProfilePaywallFlow();
+                    }}
+                  />
+                );
               case "lifetime-offer":
                 return (
                   <LifetimeOfferPaywallScreen
-                    onBack={closeProfileSection}
+                    onBack={closeProfilePaywallFlow}
                     currentPlanKey={session?.user.premiumPlanKey}
                   />
                 );
@@ -241,7 +257,7 @@ export default function MainAppShell({
                       return;
                     }
 
-                    openInAppPaywall("subscription_screen", "profile");
+                    openProfileSubscriptionPaywall();
                   }}
                   onOpenPrivacy={() => openProfileSection("privacy")}
                   onOpenPaywall={() => openProfileSection("lifetime-offer")}

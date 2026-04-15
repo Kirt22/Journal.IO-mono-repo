@@ -885,6 +885,21 @@ const styles = StyleSheet.create({
   menuList: {
     gap: 12,
   },
+  devButton: {
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  devButtonText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+  },
   menuRow: {
     borderRadius: 18,
     borderWidth: 1,

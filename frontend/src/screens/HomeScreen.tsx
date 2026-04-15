@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Alert,
   Animated,
   Easing,
   Pressable,
@@ -54,6 +55,10 @@ import {
 } from "../services/moodService";
 import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
 import { getWritingPrompts, type WritingPrompt } from "../services/promptsService";
+import {
+  cancelWeeklyInsightNotifications,
+  syncWeeklyInsightNotifications,
+} from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import { getJournalEntries } from "../services/journalService";
@@ -185,10 +190,9 @@ function buildHomeInsightCards(analysis: InsightsAiAnalysisReady | null): HomeIn
   }
 
   const cards: HomeInsightCard[] = [];
-  const topTrait = [...analysis.bigFive].sort((left, right) => right.score - left.score)[0];
-  const topWatchpoint = [...analysis.darkTriad].sort(
-    (left, right) => right.score - left.score
-  )[0];
+  const firstHelpfulSignal = analysis.signals.whatHelped[0];
+  const firstDrainSignal = analysis.signals.whatDrained[0];
+  const firstRecurringSignal = analysis.signals.whatKeptShowingUp[0];
   const firstActionStep = analysis.actionPlan.steps[0];
   const firstSupportItem = analysis.appSupport.items[0];
 
@@ -202,27 +206,37 @@ function buildHomeInsightCards(analysis: InsightsAiAnalysisReady | null): HomeIn
     ctaLabel: "Open weekly analysis",
   });
 
-  if (topTrait) {
+  if (firstHelpfulSignal) {
     cards.push({
-      id: `trait-${topTrait.trait}`,
-      title: `${topTrait.label} stood out`,
-      body: `${getFirstSentence(topTrait.description)}${
-        topTrait.evidenceTags[0]
-          ? ` ${topTrait.evidenceTags[0]} helped shape this read.`
+      id: "what-helped",
+      title: firstHelpfulSignal.title,
+      body: `${getFirstSentence(firstHelpfulSignal.description)}${
+        firstHelpfulSignal.evidence[0]
+          ? ` ${firstHelpfulSignal.evidence[0]} stood out most.`
           : ""
       }`,
       icon: Sparkles,
-      ctaLabel: "View full trait read",
+      ctaLabel: "See what helped",
     });
   }
 
-  if (topWatchpoint) {
+  if (firstDrainSignal) {
     cards.push({
-      id: `watchpoint-${topWatchpoint.trait}`,
-      title: topWatchpoint.supportiveLabel,
-      body: getFirstSentence(topWatchpoint.supportTip || topWatchpoint.description),
+      id: "what-drained",
+      title: firstDrainSignal.title,
+      body: getFirstSentence(firstDrainSignal.description),
       icon: Heart,
-      ctaLabel: "See the full support view",
+      ctaLabel: "See the pressure points",
+    });
+  }
+
+  if (firstRecurringSignal) {
+    cards.push({
+      id: "recurring-theme",
+      title: firstRecurringSignal.title,
+      body: getFirstSentence(firstRecurringSignal.description),
+      icon: BookOpen,
+      ctaLabel: "Open recurring themes",
     });
   }
 
@@ -314,7 +328,7 @@ function ActionTile({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      onPress={onPress}
+      onPress={() => onPress()}
       style={({ pressed }) => [
         styles.actionTile,
         {
@@ -372,7 +386,7 @@ function EmptyState({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={actionAccessibilityLabel}
-          onPress={onActionPress}
+          onPress={() => onActionPress?.()}
           style={({ pressed }) => [
             styles.emptyStateAction,
             {
@@ -486,20 +500,18 @@ export default function HomeScreen({
   const greeting = getGreeting();
   const displayedMood = selectedMood || savedMood;
   const readyHomeAiAnalysis =
-    homeAiAnalysis && "window" in homeAiAnalysis && "bigFive" in homeAiAnalysis
-      ? homeAiAnalysis
-      : null;
-  const pendingHomeAiAnalysis =
-    homeAiAnalysis && "readiness" in homeAiAnalysis && "quickAnalysis" in homeAiAnalysis
-      ? homeAiAnalysis
-      : null;
+    homeAiAnalysis?.status === "ready" ? homeAiAnalysis : null;
+  const collectingHomeAiAnalysis =
+    homeAiAnalysis?.status === "collecting" ? homeAiAnalysis : null;
+  const insufficientHomeAiAnalysis =
+    homeAiAnalysis?.status === "insufficient" ? homeAiAnalysis : null;
   const homeInsightCards = useMemo(
     () => buildHomeInsightCards(readyHomeAiAnalysis),
     [readyHomeAiAnalysis]
   );
   const isAiInsightEnabled = isPremiumUser && isAiOptedIn;
   const insightIndicators = isAiInsightEnabled
-    ? pendingHomeAiAnalysis
+    ? collectingHomeAiAnalysis || insufficientHomeAiAnalysis
       ? [0]
       : homeInsightCards
     : isPremiumUser
@@ -522,6 +534,7 @@ export default function HomeScreen({
       setHomeAiAnalysis(null);
       setHomeAiInsightError(null);
       setIsLoadingHomeAiInsight(false);
+      cancelWeeklyInsightNotifications().catch(() => undefined);
       return;
     }
 
@@ -537,6 +550,10 @@ export default function HomeScreen({
         if (isActive) {
           setHomeAiAnalysis(analysis);
         }
+
+        await syncWeeklyInsightNotifications(
+          analysis.status === "collecting" ? analysis : null
+        );
       } catch (error) {
         if (!isActive) {
           return;
@@ -547,6 +564,7 @@ export default function HomeScreen({
             ? error.message
             : "We could not load your latest AI insight right now."
         );
+        cancelWeeklyInsightNotifications().catch(() => undefined);
       } finally {
         if (isActive) {
           setIsLoadingHomeAiInsight(false);
@@ -724,6 +742,10 @@ export default function HomeScreen({
     moodStageProgress,
     moodTickProgress,
   ]);
+
+  const handleOpenPromptsComingSoon = () => {
+    Alert.alert("Coming soon", "Prompt shortcuts are coming soon.");
+  };
 
   const resetMoodAnimations = () => {
     moodSelectionProgress.stopAnimation();
@@ -1043,6 +1065,9 @@ export default function HomeScreen({
     getInsightsAiAnalysis()
       .then(analysis => {
         setHomeAiAnalysis(analysis);
+        return syncWeeklyInsightNotifications(
+          analysis.status === "collecting" ? analysis : null
+        );
       })
       .catch(error => {
         setHomeAiInsightError(
@@ -1050,6 +1075,7 @@ export default function HomeScreen({
             ? error.message
             : "We could not load your latest AI insight right now."
         );
+        cancelWeeklyInsightNotifications().catch(() => undefined);
       })
       .finally(() => {
         setIsLoadingHomeAiInsight(false);
@@ -1082,7 +1108,7 @@ export default function HomeScreen({
       return;
     }
 
-    if (pendingHomeAiAnalysis) {
+    if (collectingHomeAiAnalysis || insufficientHomeAiAnalysis) {
       openInsightsTab("analysis");
       return;
     }
@@ -1779,8 +1805,8 @@ export default function HomeScreen({
                         ? "Unlock AI insights"
                         : !isAiOptedIn
                           ? "AI insights are off"
-                        : pendingHomeAiAnalysis
-                          ? "Open weekly analysis warm-up"
+                        : collectingHomeAiAnalysis || insufficientHomeAiAnalysis
+                          ? "Open weekly analysis"
                         : homeAiInsightError
                           ? "Retry AI insight"
                           : "Next insight"
@@ -1855,11 +1881,13 @@ export default function HomeScreen({
                         ? "Premium AI Insight"
                         : !isAiOptedIn
                           ? "AI insights are turned off"
-                        : pendingHomeAiAnalysis
-                          ? pendingHomeAiAnalysis.summary.headline
+                        : collectingHomeAiAnalysis
+                          ? collectingHomeAiAnalysis.summary.headline
+                        : insufficientHomeAiAnalysis
+                          ? insufficientHomeAiAnalysis.summary.headline
                         : isLoadingHomeAiInsight
                           ? "Loading weekly signal"
-                          : homeAiInsightError
+                        : homeAiInsightError
                             ? "AI analysis unavailable"
                             : activeHomeInsight?.title || "AI Insight"}
                     </Text>
@@ -1873,8 +1901,10 @@ export default function HomeScreen({
                         ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
                         : !isAiOptedIn
                           ? "AI reflections are off for this account, so weekly AI insight cards stay hidden."
-                        : pendingHomeAiAnalysis
-                          ? `${pendingHomeAiAnalysis.summary.narrative} ${pendingHomeAiAnalysis.quickAnalysis.title}.`
+                        : collectingHomeAiAnalysis
+                          ? `${collectingHomeAiAnalysis.summary.narrative} ${collectingHomeAiAnalysis.quickAnalysis.title}.`
+                        : insufficientHomeAiAnalysis
+                          ? `${insufficientHomeAiAnalysis.summary.narrative} ${insufficientHomeAiAnalysis.quickAnalysis.title}.`
                         : isLoadingHomeAiInsight
                           ? "Pulling a short read from your latest AI analysis."
                           : homeAiInsightError
@@ -1885,7 +1915,8 @@ export default function HomeScreen({
                     {isAiInsightEnabled &&
                     !isLoadingHomeAiInsight &&
                     !homeAiInsightError &&
-                    !pendingHomeAiAnalysis ? (
+                    !collectingHomeAiAnalysis &&
+                    !insufficientHomeAiAnalysis ? (
                       <View style={styles.insightCtaRow}>
                         <Text
                           style={[
@@ -1897,7 +1928,7 @@ export default function HomeScreen({
                         </Text>
                         <ChevronRight size={14} color={theme.colors.primary} />
                       </View>
-                    ) : pendingHomeAiAnalysis ? (
+                    ) : collectingHomeAiAnalysis ? (
                       <View style={styles.insightCtaRow}>
                         <Text
                           style={[
@@ -1905,7 +1936,19 @@ export default function HomeScreen({
                             { color: theme.colors.primary },
                           ]}
                         >
-                          Use quick analysis on entries
+                          Track this week's progress
+                        </Text>
+                        <ChevronRight size={14} color={theme.colors.primary} />
+                      </View>
+                    ) : insufficientHomeAiAnalysis ? (
+                      <View style={styles.insightCtaRow}>
+                        <Text
+                          style={[
+                            styles.insightCtaText,
+                            { color: theme.colors.primary },
+                          ]}
+                        >
+                          Start the next week stronger
                         </Text>
                         <ChevronRight size={14} color={theme.colors.primary} />
                       </View>
@@ -1991,7 +2034,7 @@ export default function HomeScreen({
                 icon={Plus}
                 label="New Entry"
                 accessibilityLabel="Create new entry"
-                onPress={onOpenNewEntry}
+                onPress={() => onOpenNewEntry()}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -2011,7 +2054,7 @@ export default function HomeScreen({
                 icon={Sparkles}
                 label="Prompts"
                 accessibilityLabel="Open prompts"
-                onPress={() => onOpenNewEntry(featuredPrompt.text)}
+                onPress={handleOpenPromptsComingSoon}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -2487,6 +2530,7 @@ const styles = StyleSheet.create({
   promptText: {
     fontSize: 14,
     lineHeight: 20,
+    marginTop: 4,
   },
   quickActionsGrid: {
     flexDirection: "row",

@@ -9,6 +9,8 @@ export const PAYWALL_TEMPLATE_KEYS = [
   "weekly-standard",
   "monthly-standard",
   "yearly-commitment",
+  "post-auth-trial",
+  "post-auth-exit-offer",
   "lifetime-launch",
 ] as const;
 

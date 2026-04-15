@@ -12,6 +12,208 @@ import {
 } from "../src/services/insightsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
+const readyAiAnalysis = {
+  status: "ready" as const,
+  window: {
+    startDate: "2026-03-26",
+    endDate: "2026-04-01",
+    label: "Mar 26 - Apr 1",
+    entryCount: 6,
+    activeDays: 5,
+    totalWords: 842,
+  },
+  freshness: {
+    generatedAt: "2026-04-01T09:05:00.000Z",
+    confidence: "high" as const,
+    confidenceLabel: "Clearer weekly pattern",
+    note: "This view is based on a fuller week of journaling language and mood check-ins.",
+  },
+  summary: {
+    headline: "Morning Routines kept shaping your week",
+    narrative:
+      "Your writing had more structure than it may have felt. Morning routines kept resurfacing, while work stress stayed close enough to deserve a gentler plan.",
+    highlight:
+      "The clearest thread was Morning Routines. Keep watching what triggers it, what softens it, and what you need around it next week.",
+  },
+  patternTags: [
+    { label: "Morning Routines", tone: "coral" as const },
+    { label: "Work Stress", tone: "amber" as const },
+    { label: "Connection Energy", tone: "sage" as const },
+  ],
+  scoreboard: {
+    vibeLabel: "Steadier week",
+    vibeTone: "sage" as const,
+    cards: [
+      { key: "activeDays" as const, label: "Active days", value: "5/7", tone: "sage" as const },
+      { key: "entries" as const, label: "Entries", value: "6", tone: "blue" as const },
+      { key: "words" as const, label: "Words", value: "842", tone: "amber" as const },
+      { key: "mood" as const, label: "Mood signal", value: "Good", tone: "sage" as const },
+    ],
+  },
+  emotionTrend: {
+    headline: "Emotional pace across the week",
+    days: [
+      {
+        dateKey: "2026-03-26",
+        label: "Thu",
+        moodLabel: "Good",
+        moodScore: 4,
+        entryCount: 1,
+        tone: "sage" as const,
+      },
+      {
+        dateKey: "2026-03-27",
+        label: "Fri",
+        moodLabel: null,
+        moodScore: null,
+        entryCount: 0,
+        tone: "blue" as const,
+      },
+      {
+        dateKey: "2026-03-28",
+        label: "Sat",
+        moodLabel: "Amazing",
+        moodScore: 5,
+        entryCount: 2,
+        tone: "sage" as const,
+      },
+      {
+        dateKey: "2026-03-29",
+        label: "Sun",
+        moodLabel: "Okay",
+        moodScore: 3,
+        entryCount: 1,
+        tone: "blue" as const,
+      },
+      {
+        dateKey: "2026-03-30",
+        label: "Mon",
+        moodLabel: "Good",
+        moodScore: 4,
+        entryCount: 1,
+        tone: "sage" as const,
+      },
+      {
+        dateKey: "2026-03-31",
+        label: "Tue",
+        moodLabel: "Bad",
+        moodScore: 2,
+        entryCount: 1,
+        tone: "slate" as const,
+      },
+      {
+        dateKey: "2026-04-01",
+        label: "Wed",
+        moodLabel: "Good",
+        moodScore: 4,
+        entryCount: 0,
+        tone: "sage" as const,
+      },
+    ],
+  },
+  themeBreakdown: {
+    headline: "Themes that kept resurfacing",
+    items: [
+      { label: "Morning Routines", count: 4, percentage: 36, tone: "coral" as const },
+      { label: "Work Stress", count: 3, percentage: 28, tone: "blue" as const },
+      { label: "Relationships", count: 2, percentage: 18, tone: "sage" as const },
+    ],
+  },
+  signals: {
+    whatHelped: [
+      {
+        title: "Consistency gave the week more shape",
+        description: "A 4-day streak kept your reflection rhythm steadier than usual.",
+        evidence: ["5/7 active days", "6 entries"],
+        tone: "sage" as const,
+      },
+    ],
+    whatDrained: [
+      {
+        title: "Work Stress kept pulling focus",
+        description:
+          "That topic returned often enough to look like a live friction point rather than a one-off mention.",
+        evidence: ["3 mentions", "Work Stress"],
+        tone: "amber" as const,
+      },
+    ],
+    whatKeptShowingUp: [
+      {
+        title: "Morning Routines",
+        description:
+          "This theme showed up most often, so it is probably the clearest thread to keep tracking next week.",
+        evidence: ["4 mentions", "36% topic share"],
+        tone: "coral" as const,
+      },
+    ],
+  },
+  bigFive: [
+    {
+      trait: "conscientiousness" as const,
+      label: "Conscientiousness",
+      score: 74,
+      band: "pronounced" as const,
+      description: "Your writing rhythm appears structured this week, supported by a 4-day streak.",
+      evidenceTags: ["4-day streak", "Routine"],
+    },
+  ],
+  darkTriad: [
+    {
+      trait: "machiavellianism" as const,
+      label: "Machiavellianism",
+      supportiveLabel: "Control-seeking signal",
+      score: 42,
+      band: "watch" as const,
+      description: "There are mild signs of control-seeking or strategic guarding in the week.",
+      supportTip:
+        "When planning next steps, add one sentence about flexibility or what you can let unfold naturally.",
+    },
+  ],
+  actionPlan: {
+    headline: "Keep the good structure, lower the friction, and stay with the clearest theme.",
+    steps: [
+      {
+        title: "Keep one reset you can repeat",
+        description:
+          "Pick one part of your routine that already feels steady and run it back for the next three days.",
+        focus: "Consistency",
+      },
+      {
+        title: "Name the stress sooner",
+        description:
+          "When work pressure starts climbing, write one line about the trigger before it turns into a whole spiral.",
+        focus: "Work Stress",
+      },
+      {
+        title: "Stay with the same thread",
+        description:
+          "Use morning routines as the lens for your next entry so you can spot what is actually shifting underneath it.",
+        focus: "Morning Routines",
+      },
+    ],
+  },
+  appSupport: {
+    headline: "Journal.IO can help make the next week easier to read at a glance.",
+    items: [
+      {
+        title: "Mood check-ins can catch the shift faster",
+        description:
+          "Keeping the mood tracker active helps confirm whether good stays steady or starts dipping around stress spikes.",
+      },
+      {
+        title: "Tags keep recurring themes visible",
+        description:
+          "Consistent tags make it easier to notice when morning routines or work stress keep circling back.",
+      },
+      {
+        title: "Short prompts help you go from venting to noticing",
+        description:
+          "A focused prompt can help you move from raw recap into the part that is actually useful next time.",
+      },
+    ],
+  },
+};
+
 jest.mock("../src/services/insightsService", () => ({
   getInsightsOverview: jest.fn(async () => ({
     stats: {
@@ -51,161 +253,7 @@ jest.mock("../src/services/insightsService", () => ({
     },
     updatedAt: "2026-04-01T09:00:00.000Z",
   })),
-  getInsightsAiAnalysis: jest.fn(async () => ({
-    status: "ready",
-    window: {
-      startDate: "2026-03-26",
-      endDate: "2026-04-01",
-      label: "Mar 26 - Apr 1",
-      entryCount: 6,
-      activeDays: 5,
-      totalWords: 842,
-    },
-    freshness: {
-      generatedAt: "2026-04-01T09:05:00.000Z",
-      confidence: "high",
-      confidenceLabel: "Clearer weekly pattern",
-      note: "This view is based on a fuller week of journaling language and mood check-ins.",
-    },
-    summary: {
-      headline: "Conscientiousness stood out most this week",
-      narrative:
-        "Looking at the last week of writing, journal language suggests conscientiousness may be the clearest pattern right now, while self-focus signal is the main area to keep gentle watch on.",
-      highlight:
-        "Morning Routines appears repeatedly across the week and may be a useful theme for your next few reflections.",
-    },
-    patternTags: [
-      { label: "Morning Routines", tone: "coral" },
-      { label: "Routine Seeking", tone: "amber" },
-      { label: "Connection Energy", tone: "sage" },
-    ],
-    bigFive: [
-      {
-        trait: "conscientiousness",
-        label: "Conscientiousness",
-        score: 74,
-        band: "pronounced",
-        description:
-          "Your writing rhythm appears structured this week, supported by a 4-day streak.",
-        evidenceTags: ["4-day streak", "Routine"],
-      },
-      {
-        trait: "openness",
-        label: "Openness",
-        score: 63,
-        band: "steady",
-        description:
-          "Your writing suggests a balanced openness this week, with room for both novelty and familiar anchors.",
-        evidenceTags: ["Morning Routines", "New perspectives"],
-      },
-      {
-        trait: "extraversion",
-        label: "Extraversion",
-        score: 58,
-        band: "steady",
-        description:
-          "Your writing shows a balanced social orientation, with attention to both connection and personal space.",
-        evidenceTags: ["Connection", "Good"],
-      },
-      {
-        trait: "agreeableness",
-        label: "Agreeableness",
-        score: 61,
-        band: "steady",
-        description:
-          "Your entries suggest a balanced tone between caring for others and staying clear about your own needs.",
-        evidenceTags: ["Care", "Relationships"],
-      },
-      {
-        trait: "neuroticism",
-        label: "Emotional Sensitivity",
-        score: 41,
-        band: "emerging",
-        description:
-          "Your writing suggests a steadier emotional tone this week, with fewer signs of strain dominating the page.",
-        evidenceTags: ["Good", "Stress cues"],
-      },
-    ],
-    darkTriad: [
-      {
-        trait: "narcissism",
-        label: "Narcissism",
-        supportiveLabel: "Self-focus signal",
-        score: 31,
-        band: "low",
-        description:
-          "Very little in the recent writing points toward image-protection or approval-seeking dominating the week.",
-        supportTip:
-          "Balance one self-focused reflection with one note about shared effort or support you received.",
-      },
-      {
-        trait: "machiavellianism",
-        label: "Machiavellianism",
-        supportiveLabel: "Control-seeking signal",
-        score: 42,
-        band: "watch",
-        description:
-          "There are mild signs of control-seeking or strategic guarding in the week. That can be a normal response to pressure.",
-        supportTip:
-          "When planning next steps, add one sentence about flexibility or what you can let unfold naturally.",
-      },
-      {
-        trait: "psychopathy",
-        label: "Psychopathy",
-        supportiveLabel: "Emotional detachment signal",
-        score: 18,
-        band: "low",
-        description:
-          "Recent entries show very little language associated with detachment or emotional bluntness.",
-        supportTip:
-          "If you notice yourself going numb, try naming one feeling and one body sensation before the next entry ends.",
-      },
-    ],
-    actionPlan: {
-      headline:
-        "Focus on steadier routines, clearer emotional naming, and one recurring theme this week.",
-      steps: [
-        {
-          title: "Keep one signal you can repeat",
-          description:
-            "Pick one part of your current journaling rhythm that already feels steady and repeat it for the next three days.",
-          focus: "Consistency",
-        },
-        {
-          title: "Protect the streak without raising the bar",
-          description:
-            "You already have momentum with a 4-day streak. Keep it going with short but honest entries rather than waiting for a perfect moment.",
-          focus: "Momentum",
-        },
-        {
-          title: "Use Morning Routines as a reflection thread",
-          description:
-            "Revisit the same theme across a few entries and notice whether the tone, triggers, or needs underneath it start to shift.",
-          focus: "Morning Routines",
-        },
-      ],
-    },
-    appSupport: {
-      headline: "Journal.IO can help turn these patterns into gentler habits over time.",
-      items: [
-        {
-          title: "Daily mood check-ins add emotional context",
-          description:
-            "Keeping the mood tracker active helps confirm whether good is staying steady or shifting across the week.",
-        },
-        {
-          title: "Tags make recurring topics easier to spot",
-          description:
-            "Tagging entries consistently helps the app notice when themes like morning routines keep returning.",
-        },
-        {
-          title: "Short prompts can sharpen the next entry",
-          description:
-            "When a pattern starts to repeat, a focused prompt can help you move from description into clearer self-observation and action.",
-        },
-      ],
-    },
-  })),
+  getInsightsAiAnalysis: jest.fn(async () => readyAiAnalysis),
 }));
 
 const safeAreaMetrics = {
@@ -350,15 +398,18 @@ test("renders the insights screen from API data and switches tabs", async () => 
   const analysisTree = extractText(root!.toJSON());
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(1);
   expect(analysisTree).toContain("Weekly Analysis");
-  expect(analysisTree).toContain("Conscientiousness stood out most this week");
-  expect(analysisTree).toContain("Big Five Signals");
-  expect(analysisTree).toContain("Conscientiousness");
-  expect(analysisTree).toContain("Self-Protection Watchpoints");
-  expect(analysisTree).toContain("Narcissism");
+  expect(analysisTree).toContain("Morning Routines kept shaping your week");
+  expect(analysisTree).toContain("Steadier week");
+  expect(analysisTree).toContain("Pattern snapshot");
+  expect(analysisTree).toContain("What Helped");
+  expect(analysisTree).toContain("Consistency gave the week more shape");
+  expect(analysisTree).toContain("What Drained");
+  expect(analysisTree).toContain("Work Stress kept pulling focus");
+  expect(analysisTree).toContain("Morning Routines");
   expect(analysisTree).toContain("Actionable Steps");
-  expect(analysisTree).toContain("Protect the streak without raising the bar");
-  expect(analysisTree).toContain("How Journal.IO Helps");
-  expect(analysisTree).toContain("Tags make recurring topics easier to spot");
+  expect(analysisTree).toContain("Keep one reset you can repeat");
+  expect(analysisTree).not.toContain("What Kept Showing Up");
+  expect(analysisTree).not.toContain("How Journal.IO Helps");
 });
 
 test("shows a locked AI analysis state for non-premium users", async () => {
@@ -388,14 +439,12 @@ test("shows a locked AI analysis state for non-premium users", async () => {
 
   expect(getInsightsOverview).toHaveBeenCalledTimes(1);
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
-  expect(tree).toContain("AI Analysis is a premium feature");
-  expect(tree).toContain("Open Subscription");
-
-  ReactTestRenderer.act(() => {
-    root!.root.findByProps({ accessibilityLabel: "Open subscription" }).props.onPress();
-  });
-
-  expect(useAppStore.getState().activeTab).toBe("profile");
+  expect(useAppStore.getState().stage).toBe("paywall");
+  expect(useAppStore.getState().activePaywallPlacementKey).toBe(
+    "insights_ai_tab_locked"
+  );
+  expect(tree).toContain("Insights");
+  expect(tree).toContain("AI Analysis");
 });
 
 test("shows an AI opt-out state without fetching the analysis", async () => {
@@ -431,32 +480,37 @@ test("shows an AI opt-out state without fetching the analysis", async () => {
   );
 });
 
-test("shows the premium warm-up state while weekly analysis is still pending", async () => {
+test("shows the collecting state while the current premium week is still open", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   (getInsightsAiAnalysis as jest.Mock).mockImplementation(async () => ({
-    status: "pending",
-    readiness: {
-      joinedAt: "2026-04-03T00:00:00.000Z",
-      eligibleOn: "2026-04-10T00:00:00.000Z",
-      daysSinceSignup: 3,
-      daysUntilReady: 4,
-      totalEntries: 2,
+    status: "collecting",
+    window: {
+      startDate: "2026-04-11",
+      endDate: "2026-04-17",
+      label: "Apr 11 - Apr 17",
+      entryCount: 2,
       activeDays: 2,
-      currentStreak: 2,
+      totalWords: 248,
+    },
+    progress: {
+      activeDays: 2,
+      minimumActiveDays: 4,
+      entriesNeeded: 2,
+      daysRemaining: 4,
     },
     summary: {
-      headline: "Weekly analysis is warming up",
+      headline: "Your first weekly read is still collecting signal",
       narrative:
-        "Keep journaling for 4 more days so Journal.IO can build a fuller week of context.",
+        "You’re still inside this premium week, so Journal.IO is waiting for a little more texture before it turns the week into a real read.",
       highlight:
-        "Your 2-day streak is already helping the first weekly analysis feel more grounded.",
+        "Two active days are already on the board. Hit four and the week becomes eligible for AI insights.",
     },
     quickAnalysis: {
       available: true,
       title: "Quick Analysis is available now",
       description:
-        "Open any saved journal entry to generate a short entry-by-entry AI reflection while the weekly analysis is still warming up.",
+        "Open any saved journal entry to get a short AI reflection while the weekly view is still collecting.",
     },
   }));
 
@@ -480,12 +534,13 @@ test("shows the premium warm-up state while weekly analysis is still pending", a
     root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
   });
 
-  await waitForText(root!, "Weekly analysis is warming up");
+  await waitForText(root!, "Your first weekly read is still collecting signal");
 
   const tree = extractText(root!.toJSON());
 
-  expect(tree).toContain("Weekly analysis is warming up");
-  expect(tree).toContain("4 days");
-  expect(tree).toContain("entries logged");
+  expect(tree).toContain("Your first weekly read is still collecting signal");
+  expect(tree).toContain("4days left");
+  expect(tree).toContain("active days");
   expect(tree).toContain("Quick Analysis is available now");
+  expect(tree).toContain("Week window: Apr 11 - Apr 17");
 });

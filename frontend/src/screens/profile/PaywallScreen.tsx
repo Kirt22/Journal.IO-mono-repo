@@ -4,286 +4,433 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from "react-native";
 import {
-  PURCHASES_ERROR_CODE,
-  type CustomerInfo,
-  type PurchasesError,
-} from "react-native-purchases";
-import {
-  ArrowRight,
+  BellRing,
+  Brain,
+  Check,
   CheckCircle2,
-  Crown,
-  Lock,
+  CreditCard,
+  Download,
+  LockOpen,
   Sparkles,
-  TrendingUp,
+  Star,
   X,
 } from "lucide-react-native";
+import {
+  PURCHASES_ERROR_CODE,
+  type CustomerInfo,
+} from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import PrimaryButton from "../../components/PrimaryButton";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
-  getRevenueCatCustomerInfo,
   getRevenueCatOfferings,
   getRevenueCatPaywallPlans,
-  hasRevenueCatPremiumAccess,
+  hasPremiumAccess,
   purchaseRevenueCatPackage,
+  refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
-  type RevenueCatPaywallPlan,
 } from "../../services/revenueCatService";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
   trackPaywallEvent,
-  type PaywallFeatureCard,
-  type PaywallOffering,
   type ResolvedPaywallConfig,
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
-import mascotImage from "../../assets/png/Masscott.png";
+import {
+  buildFeatureCards,
+  buildPaywallPlans,
+  getPurchaseErrorMessage,
+  getTrialFootnote,
+  isPurchasesError,
+  type PaywallPlan,
+} from "./paywallShared";
+
+const mascotImage = require("../../assets/png/Masscott.png");
 
 type PaywallScreenProps = {
   onBack: (reason?: "dismiss" | "continue") => void;
 };
 
-type Plan = {
-  id: string;
-  durationLabel: string;
-  title: string;
-  price: string;
-  subtitle: string;
-  highlight?: string;
-  badge?: string;
-  offeringKey?: PaywallOffering["key"];
-  revenueCatOfferingId?: string | null;
-  revenueCatPackageId?: string | null;
-  rcPackage?: RevenueCatPaywallPlan["rcPackage"];
-};
-
 type ScreenState = "paywall" | "success";
-type ShowcaseCard = {
-  id: string;
-  title: string;
-  body: string;
-  footer: string;
-  icon: typeof Sparkles;
-};
+type PostAuthStep = "trial" | "reminder" | "purchase";
 
-const placeholderPlans: Plan[] = [
+const POST_AUTH_INTRO_FEATURES = [
+  { icon: Sparkles, text: "Unlimited AI insights" },
+  { icon: Brain, text: "Personalized daily prompts" },
+  { icon: Download, text: "Export all your entries" },
+] as const;
+
+const POST_AUTH_TIMELINE = [
   {
-    id: "weekly",
-    durationLabel: "$7.99",
-    title: "WEEKLY",
-    price: "$7.99/week",
-    subtitle: "Flexible access",
+    icon: LockOpen,
+    title: "Today",
+    description: "Unlock Premium",
+    color: "success" as const,
   },
   {
-    id: "yearly",
-    durationLabel: "$299.99",
-    title: "YEARLY",
-    price: "$299.99/year",
-    subtitle: "Most value",
-    highlight: "Save 22%",
-    badge: "Most Value",
+    icon: BellRing,
+    title: "Day 5",
+    description: "Reminder sent",
+    color: "warning" as const,
   },
-];
+  {
+    icon: CreditCard,
+    title: "Day 7",
+    description: "Trial ends",
+    color: "primary" as const,
+  },
+] as const;
 
-const successTags = ["AI insights", "Weekly clarity"];
+const POST_AUTH_BENEFITS = [
+  "Unlimited AI insights & personalized prompts",
+  "Advanced analytics & emotion tracking",
+  "Securely export all your entries",
+] as const;
 
-const isPurchasesError = (error: unknown): error is PurchasesError =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  "message" in error;
+const isAnnualPaywallPlan = (plan: PaywallPlan) =>
+  plan.planKey === "annual" || plan.offeringKey === "yearly";
 
-const getPurchaseErrorMessage = (error: unknown) => {
-  if (!isPurchasesError(error)) {
-    return error instanceof Error
-      ? error.message
-      : "We could not complete that purchase right now. Please try again.";
+const isWeeklyPaywallPlan = (plan: PaywallPlan) =>
+  plan.planKey === "weekly" || plan.offeringKey === "weekly";
+
+const getPostAuthPlanName = (plan: PaywallPlan) => {
+  if (isAnnualPaywallPlan(plan)) {
+    return "Yearly";
   }
 
-  if (
-    error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
-    error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
-  ) {
-    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
+  if (isWeeklyPaywallPlan(plan)) {
+    return "Weekly";
   }
 
-  if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
-    return "RevenueCat is configured, but the selected product or offering is not ready yet.";
-  }
-
-  if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-    return "This payment is pending. RevenueCat will update the entitlement as soon as the store confirms it.";
-  }
-
-  return error.message;
+  return plan.title
+    .toLowerCase()
+    .replace(/^\w/, character => character.toUpperCase());
 };
 
-const showcaseIcons = [Sparkles, TrendingUp, Crown, Lock] as const;
+const getPostAuthPlanPeriod = (plan: PaywallPlan) => {
+  if (isAnnualPaywallPlan(plan)) {
+    return "/yr";
+  }
 
-const buildShowcaseCards = (
-  paywallConfig: ResolvedPaywallConfig | null
-): ShowcaseCard[] => {
-  const fallbackFeatures: PaywallFeatureCard[] = [
-    {
-      title: "AI insights in your pocket",
-      body: "Journal.IO highlights recurring emotions, themes, and habits so your writing becomes easier to understand over time.",
-      footer: "Premium tools that stay close to your journaling rhythm.",
-    },
-    {
-      title: "Weekly analysis with concise pattern reads",
-      body: "See a calmer summary of what your recent entries may be pointing toward each week.",
-      footer: "Short reads on Home, deeper context in Insights.",
-    },
-    {
-      title: "Prompt support that keeps writing moving",
-      body: "Use premium prompts and entry-level analysis when you want more structure without more effort.",
-      footer: "Designed to help, not interrupt.",
-    },
-  ];
-  const features = paywallConfig?.template?.featureList?.length
-    ? paywallConfig.template.featureList
-    : fallbackFeatures;
+  if (isWeeklyPaywallPlan(plan)) {
+    return "/wk";
+  }
 
-  return features.slice(0, 4).map((feature, index) => ({
-    id: `${paywallConfig?.template?.key || "default"}-${index}`,
-    title: feature.title,
-    body: feature.body,
-    footer: feature.footer || "Premium tools that stay close to your journaling rhythm.",
-    icon: showcaseIcons[index] || Sparkles,
-  }));
+  return "";
 };
+
+const getPostAuthPlanDescription = (plan: PaywallPlan) => {
+  if (isAnnualPaywallPlan(plan)) {
+    return "Billed annually";
+  }
+
+  if (isWeeklyPaywallPlan(plan)) {
+    return "Billed weekly";
+  }
+
+  return plan.subtitle;
+};
+
+const getPostAuthTrialBadgeLabel = (plan: PaywallPlan | null) => {
+  if (!plan || !isAnnualPaywallPlan(plan)) {
+    return "Instantly unlock premium";
+  }
+
+  return "7-DAY FREE TRIAL INCLUDED";
+};
+
+const getTimelineAccentColors = (
+  color: "success" | "warning" | "primary",
+  palette: ReturnType<typeof useTheme>["colors"]
+) => {
+  if (color === "success") {
+    return {
+      icon: palette.success,
+      background: `${palette.success}14`,
+    };
+  }
+
+  if (color === "warning") {
+    return {
+      icon: palette.warning,
+      background: `${palette.warning}14`,
+    };
+  }
+
+  return {
+    icon: palette.primary,
+    background: `${palette.primary}14`,
+  };
+};
+
+function StepActionButton({
+  label,
+  onPress,
+  disabled = false,
+  loading = false,
+  elevated = true,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  elevated?: boolean;
+}) {
+  const theme = useTheme();
+  const isDisabled = disabled || loading;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      disabled={isDisabled}
+      style={({ pressed }) => [
+        styles.stepActionButton,
+        {
+          backgroundColor: theme.colors.primary,
+        },
+        elevated && {
+          shadowColor: theme.colors.primary,
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 3,
+        },
+        isDisabled && styles.disabledButton,
+        pressed && !isDisabled && styles.pressed,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={theme.colors.primaryForeground} />
+      ) : (
+        <Text
+          style={[
+            styles.stepActionButtonLabel,
+            { color: theme.colors.primaryForeground },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
 
 function PlanCard({
   plan,
   selected,
   onPress,
-  delay,
 }: {
-  plan: Plan;
+  plan: PaywallPlan;
   selected: boolean;
   onPress: () => void;
-  delay: number;
 }) {
   const theme = useTheme();
-  const entryAnim = useRef(new Animated.Value(0)).current;
-  const selectedAnim = useRef(new Animated.Value(selected ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.timing(entryAnim, {
-      toValue: 1,
-      duration: 320,
-      delay,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [delay, entryAnim]);
-
-  useEffect(() => {
-    Animated.spring(selectedAnim, {
-      toValue: selected ? 1 : 0,
-      friction: 8,
-      tension: 86,
-      useNativeDriver: true,
-    }).start();
-  }, [selected, selectedAnim]);
-
-  const scale = selectedAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.03],
-  });
-  const checkScale = selectedAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.8, 1],
-  });
-  const containerStyle = {
-    backgroundColor: selected ? theme.colors.primary : theme.colors.card,
-    borderColor: selected ? theme.colors.primary : theme.colors.border,
-    shadowColor: theme.colors.primary,
-  };
-  const durationStyle = {
-    color: selected ? theme.colors.primaryForeground : theme.colors.foreground,
-  };
-  const titleStyle = {
-    color: selected ? theme.colors.primaryForeground : theme.colors.foreground,
-  };
-  const subtitleStyle = {
-    color: selected ? `${theme.colors.primaryForeground}CC` : theme.colors.mutedForeground,
-  };
-  const priceStyle = {
-    color: selected ? theme.colors.primaryForeground : theme.colors.foreground,
-  };
 
   return (
-    <Animated.View
-      style={[
-        styles.planCardWrap,
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.planCard,
         {
-          opacity: entryAnim,
-          transform: [{ scale }],
+          backgroundColor: selected ? theme.colors.accent : theme.colors.card,
+          borderColor: selected ? theme.colors.primary : theme.colors.border,
         },
+        pressed && styles.pressed,
       ]}
     >
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        style={({ pressed }) => [styles.planCard, containerStyle, pressed && styles.pressed]}
-      >
-        {plan.badge ? (
+      <View style={styles.planHeaderRow}>
+        <View style={styles.planTitleWrap}>
+          <Text style={[styles.planTitle, { color: theme.colors.foreground }]}>
+            {plan.title}
+          </Text>
+          <Text style={[styles.planSubtitle, { color: theme.colors.mutedForeground }]}>
+            {plan.subtitle}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.radioOuter,
+            { borderColor: selected ? theme.colors.primary : theme.colors.border },
+          ]}
+        >
+          {selected ? (
+            <View
+              style={[
+                styles.radioInner,
+                { backgroundColor: theme.colors.primary },
+              ]}
+            />
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={[styles.planPrice, { color: theme.colors.foreground }]}>
+        {plan.durationLabel}
+      </Text>
+
+      {plan.badge ? (
+        <View
+          style={[
+            styles.planBadge,
+            { backgroundColor: `${theme.colors.primary}16` },
+          ]}
+        >
+          <Text style={[styles.planBadgeText, { color: theme.colors.primary }]}>
+            {plan.badge}
+          </Text>
+        </View>
+      ) : null}
+
+      {plan.highlight ? (
+        <Text style={[styles.planHighlight, { color: theme.colors.mutedForeground }]}>
+          {plan.highlight}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function PostAuthPlanCard({
+  plan,
+  selected,
+  onPress,
+}: {
+  plan: PaywallPlan;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const isYearlyPlan = isAnnualPaywallPlan(plan);
+  const badgeText = isYearlyPlan ? plan.badge || "Most Popular" : null;
+  const savingsText = isYearlyPlan ? plan.highlight : null;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.postAuthPlanCard,
+        {
+          backgroundColor: selected ? `${theme.colors.primary}0D` : `${theme.colors.card}E6`,
+          borderColor: selected ? theme.colors.primary : `${theme.colors.border}80`,
+          shadowColor: selected ? theme.colors.primary : theme.colors.foreground,
+        },
+        pressed && styles.postAuthPlanPressed,
+      ]}
+    >
+      {badgeText ? (
+        <View
+          style={[
+            styles.postAuthPlanBadge,
+            { backgroundColor: theme.colors.primary },
+          ]}
+        >
+          <Text
+            style={[
+              styles.postAuthPlanBadgeText,
+              { color: theme.colors.primaryForeground },
+            ]}
+          >
+            {badgeText}
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.postAuthPlanContent}>
+        <View style={styles.postAuthPlanLeft}>
           <View
             style={[
-              styles.planBadge,
-              {
-                backgroundColor: selected
-                  ? `${theme.colors.primaryForeground}24`
-                  : `${theme.colors.foreground}10`,
-              },
+              styles.postAuthRadioOuter,
+              { borderColor: selected ? theme.colors.primary : theme.colors.border },
             ]}
           >
-            <Text style={[styles.planBadgeText, durationStyle]}>{plan.badge}</Text>
+            {selected ? (
+              <View
+                style={[
+                  styles.postAuthRadioFill,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                <View style={styles.postAuthRadioInner} />
+              </View>
+            ) : null}
           </View>
-        ) : (
-          <View style={styles.planBadgeSpacer} />
-        )}
 
-        {selected ? (
-          <Animated.View
+          <View style={styles.postAuthPlanTextWrap}>
+            <View style={styles.postAuthPlanNameRow}>
+              <Text
+                style={[styles.postAuthPlanName, { color: theme.colors.foreground }]}
+              >
+                {getPostAuthPlanName(plan)}
+              </Text>
+              {savingsText ? (
+                <View
+                  style={[
+                    styles.postAuthSavingsPill,
+                    { backgroundColor: `${theme.colors.success}14` },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.postAuthSavingsText,
+                      { color: theme.colors.success },
+                    ]}
+                  >
+                    {savingsText}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <Text
+              style={[
+                styles.postAuthPlanDescription,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              {getPostAuthPlanDescription(plan)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.postAuthPriceWrap}>
+          <Text style={[styles.postAuthPlanPrice, { color: theme.colors.foreground }]}>
+            {plan.durationLabel}
+          </Text>
+          <Text
             style={[
-              styles.planCheck,
-              {
-                backgroundColor: theme.colors.primaryForeground,
-                transform: [{ scale: checkScale }],
-              },
+              styles.postAuthPlanPeriod,
+              { color: theme.colors.mutedForeground },
             ]}
           >
-            <CheckCircle2 size={14} color={theme.colors.primary} />
-          </Animated.View>
-        ) : null}
-
-        <Text style={[styles.planDuration, durationStyle]}>{plan.durationLabel}</Text>
-        <Text style={[styles.planTitle, titleStyle]}>{plan.title}</Text>
-        <Text style={[styles.planPrice, priceStyle]}>{plan.price}</Text>
-        <Text style={[styles.planSubtitle, subtitleStyle]}>
-          {plan.highlight ?? plan.subtitle}
-        </Text>
-      </Pressable>
-    </Animated.View>
+            {getPostAuthPlanPeriod(plan)}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
 export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 360;
+  const horizontalPadding = isCompact ? 16 : width > 430 ? 28 : 22;
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const activePaywallPlacementKey = useAppStore(
@@ -295,59 +442,76 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   );
   const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 16 : width > 430 ? 28 : 22;
-  const [plans, setPlans] = useState<Plan[]>(placeholderPlans);
-  const [selectedPlan, setSelectedPlan] = useState<Plan["id"]>("weekly");
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
   );
-  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [plans, setPlans] = useState<PaywallPlan[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [plansError, setPlansError] = useState<string | null>(
     getRevenueCatConfigurationError()
   );
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>("paywall");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
+  const [postAuthStep, setPostAuthStep] = useState<PostAuthStep>("trial");
+  const introHeroProgress = useRef(new Animated.Value(0)).current;
+  const introMascotFloat = useRef(new Animated.Value(0)).current;
+  const introFeatureProgress = useRef(
+    POST_AUTH_INTRO_FEATURES.map(() => new Animated.Value(0))
+  ).current;
+  const reminderScreenProgress = useRef(new Animated.Value(0)).current;
+  const reminderBellSwing = useRef(new Animated.Value(0)).current;
+  const reminderTimelineProgress = useRef(
+    POST_AUTH_TIMELINE.map(() => new Animated.Value(0))
+  ).current;
 
-  const headerAnim = useRef(new Animated.Value(0)).current;
-  const heroAnim = useRef(new Animated.Value(0)).current;
-  const cardAnim = useRef(new Animated.Value(0)).current;
-  const plansAnim = useRef(new Animated.Value(0)).current;
-  const footerAnim = useRef(new Animated.Value(0)).current;
-  const successAnim = useRef(new Animated.Value(0)).current;
-  const successPulse = useRef(new Animated.Value(0)).current;
-  const successHeroFloat = useRef(new Animated.Value(0)).current;
-  const successSceneDrift = useRef(new Animated.Value(0)).current;
-  const mascotFloat = useRef(new Animated.Value(0)).current;
-  const haloPulse = useRef(new Animated.Value(0)).current;
-  const backgroundBubbleDrift = useRef(new Animated.Value(0)).current;
-  const showcaseTransitionProgress = useRef(new Animated.Value(1)).current;
-  const [showcaseIndex, setShowcaseIndex] = useState(0);
   const paywallPlacementKey = activePaywallPlacementKey || "post_auth";
-  const showcaseCards = useMemo(
-    () => buildShowcaseCards(paywallConfig),
-    [paywallConfig]
-  );
+  const isPostAuthPaywall = paywallPlacementKey === "post_auth";
+  const isModernPurchasePaywall =
+    paywallPlacementKey !== "profile_upgrade_banner" &&
+    paywallPlacementKey !== "post_auth_exit_offer";
+  const featureCards = useMemo(() => buildFeatureCards(paywallConfig), [paywallConfig]);
 
-  const selectedPlanDetails =
-    plans.find(plan => plan.id === selectedPlan) ?? plans[plans.length - 1];
-  const activeShowcaseCard = showcaseCards[showcaseIndex] ?? showcaseCards[0];
-  const ActiveShowcaseIcon = activeShowcaseCard.icon;
+  const visiblePlans = useMemo(() => {
+    if (!isModernPurchasePaywall) {
+      return plans;
+    }
+
+    const filteredPlans = plans
+      .filter(plan => isAnnualPaywallPlan(plan) || isWeeklyPaywallPlan(plan))
+      .sort((left, right) => {
+        const leftPriority = isAnnualPaywallPlan(left) ? 0 : isWeeklyPaywallPlan(left) ? 1 : 2;
+        const rightPriority = isAnnualPaywallPlan(right)
+          ? 0
+          : isWeeklyPaywallPlan(right)
+            ? 1
+            : 2;
+
+        return leftPriority - rightPriority;
+      });
+
+    return filteredPlans.length ? filteredPlans : plans;
+  }, [isModernPurchasePaywall, plans]);
+
+  const selectedPlan =
+    visiblePlans.find(plan => plan.id === selectedPlanId) ?? visiblePlans[0] ?? null;
+  const trialFootnote = getTrialFootnote(selectedPlan ?? undefined, selectedPlan?.introOffer);
   const isBusy = isProcessing || isRestoring;
-  const canPurchaseSelectedPlan = Boolean(selectedPlanDetails?.rcPackage);
-  const successDisplayTags =
-    lastPurchaseStore === "TEST_STORE"
-      ? ["RevenueCat test", "AI insights"]
-      : successTags;
+  const selectedPlanHasTrial = Boolean(
+    selectedPlan && isAnnualPaywallPlan(selectedPlan)
+  );
+  const yearlyTrialPlan =
+    visiblePlans.find(plan => isAnnualPaywallPlan(plan)) ?? null;
+  const introButtonLabel = "Start 7-day free trial";
 
   useEffect(() => {
     let isMounted = true;
 
     const loadPaywall = async () => {
-      setPlansError(getRevenueCatConfigurationError());
       setIsLoadingPlans(true);
+      setPlansError(getRevenueCatConfigurationError());
 
       try {
         const resolvedConfig = sessionUserId
@@ -376,50 +540,17 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           offerings,
           resolvedConfig?.offerings
         );
+        const nextPlans = buildPaywallPlans(livePlans, resolvedConfig);
 
         if (!isMounted) {
           return;
         }
 
-        if (!livePlans.length) {
-          setPlansError(
-            "RevenueCat is connected, but the selected paywall template does not have a matching live package yet."
-          );
-          return;
-        }
-
-        const nextPlans: Plan[] = livePlans.map(plan => ({
-          id: plan.id,
-          durationLabel: plan.durationLabel,
-          title: plan.title,
-          price: plan.price,
-          subtitle: plan.subtitle,
-          highlight: plan.highlight,
-          badge: plan.badge,
-          offeringKey: resolvedConfig?.offerings.find(
-            configuredOffering => configuredOffering.key === plan.id
-          )?.key,
-          revenueCatOfferingId:
-            resolvedConfig?.offerings.find(
-              configuredOffering => configuredOffering.key === plan.id
-            )?.revenueCatOfferingId || null,
-          revenueCatPackageId:
-            resolvedConfig?.offerings.find(
-              configuredOffering => configuredOffering.key === plan.id
-            )?.revenueCatPackageId || null,
-          rcPackage: plan.rcPackage,
-        }));
-
         setPlans(nextPlans);
-        setSelectedPlan(previous =>
-          nextPlans.some(plan => plan.id === previous)
-            ? previous
-            : nextPlans[0]?.id ?? previous
-        );
         setPlansError(
           nextPlans.some(plan => plan.rcPackage)
             ? null
-            : "The selected paywall is visible, but its live RevenueCat package is not available yet."
+            : "A live RevenueCat package is not available for this paywall yet."
         );
 
         if (resolvedConfig?.template) {
@@ -428,7 +559,9 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
             screenKey: resolvedConfig.screenKey || undefined,
             eventType: "paywall_impression",
             templateKey: resolvedConfig.template.key,
-            offeringKey: resolvedConfig.template.primaryOfferingKey,
+            offeringKey:
+              nextPlans.find(plan => plan.planKey === "annual")?.offeringKey ||
+              nextPlans[0]?.offeringKey,
             wasInterruptive: resolvedConfig.wasInterruptive,
           }).catch(() => undefined);
         }
@@ -440,7 +573,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         setPlansError(
           error instanceof Error
             ? error.message
-            : "We could not load live billing plans from RevenueCat."
+            : "We could not load live billing plans right now."
         );
       } finally {
         if (isMounted) {
@@ -463,223 +596,28 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   ]);
 
   useEffect(() => {
-    Animated.stagger(90, [
-      Animated.timing(headerAnim, {
-        toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(heroAnim, {
-        toValue: 1,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardAnim, {
-        toValue: 1,
-        duration: 340,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(plansAnim, {
-        toValue: 1,
-        duration: 340,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(footerAnim, {
-        toValue: 1,
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    const floatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(mascotFloat, {
-          toValue: 1,
-          duration: 1700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(mascotFloat, {
-          toValue: 0,
-          duration: 1700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const haloLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(haloPulse, {
-          toValue: 1,
-          duration: 1600,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(haloPulse, {
-          toValue: 0,
-          duration: 1600,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const backgroundBubbleLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(backgroundBubbleDrift, {
-          toValue: 1,
-          duration: 3200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(backgroundBubbleDrift, {
-          toValue: 0,
-          duration: 3200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    floatLoop.start();
-    haloLoop.start();
-    backgroundBubbleLoop.start();
-
-    return () => {
-      floatLoop.stop();
-      haloLoop.stop();
-      backgroundBubbleLoop.stop();
-    };
-  }, [
-    backgroundBubbleDrift,
-    cardAnim,
-    footerAnim,
-    haloPulse,
-    headerAnim,
-    heroAnim,
-    mascotFloat,
-    plansAnim,
-  ]);
-
-  useEffect(() => {
-    if (screenState !== "success") {
+    if (!visiblePlans.length) {
+      setSelectedPlanId(null);
       return;
     }
 
-    successAnim.setValue(0);
-    Animated.timing(successAnim, {
-      toValue: 1,
-      duration: 420,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+    setSelectedPlanId(currentValue => {
+      if (currentValue && visiblePlans.some(plan => plan.id === currentValue)) {
+        return currentValue;
+      }
 
-    const successLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(successPulse, {
-          toValue: 1,
-          duration: 1500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(successPulse, {
-          toValue: 0,
-          duration: 1500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
+      if (isModernPurchasePaywall) {
+        return (
+          visiblePlans.find(plan => isAnnualPaywallPlan(plan))?.id ||
+          visiblePlans.find(plan => isWeeklyPaywallPlan(plan))?.id ||
+          visiblePlans[0]?.id ||
+          null
+        );
+      }
 
-    const successFloatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(successHeroFloat, {
-          toValue: 1,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(successHeroFloat, {
-          toValue: 0,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const successSceneLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(successSceneDrift, {
-          toValue: 1,
-          duration: 3400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(successSceneDrift, {
-          toValue: 0,
-          duration: 3400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    successLoop.start();
-    successFloatLoop.start();
-    successSceneLoop.start();
-
-    return () => {
-      successLoop.stop();
-      successFloatLoop.stop();
-      successSceneLoop.stop();
-    };
-  }, [screenState, successAnim, successHeroFloat, successPulse, successSceneDrift]);
-
-  useEffect(() => {
-    if (screenState !== "success") {
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      onBack("continue");
-    }, 900);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [onBack, screenState]);
-
-  useEffect(() => {
-    if (showcaseCards.length < 2) {
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      setShowcaseIndex(previous => (previous + 1) % showcaseCards.length);
-    }, 2800);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [showcaseCards.length]);
-
-  useEffect(() => {
-    showcaseTransitionProgress.stopAnimation();
-    showcaseTransitionProgress.setValue(0);
-    Animated.timing(showcaseTransitionProgress, {
-      toValue: 1,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [activeShowcaseCard, showcaseTransitionProgress]);
+      return visiblePlans[0]?.id || null;
+    });
+  }, [isModernPurchasePaywall, visiblePlans]);
 
   useEffect(() => {
     if (isPremiumUser) {
@@ -687,52 +625,186 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }
   }, [isPremiumUser]);
 
-  const handleClose = () => {
-    if (paywallConfig?.template) {
-      trackPaywallEvent({
-        placementKey: paywallConfig.placementKey,
-        screenKey: paywallConfig.screenKey || undefined,
-        eventType: "paywall_dismiss",
-        templateKey: paywallConfig.template.key,
-        offeringKey: selectedPlanDetails?.offeringKey,
-        wasInterruptive: paywallConfig.wasInterruptive,
-      }).catch(() => undefined);
+  useEffect(() => {
+    introHeroProgress.stopAnimation();
+    introMascotFloat.stopAnimation();
+    introFeatureProgress.forEach(value => value.stopAnimation());
+
+    if (!isPostAuthPaywall || postAuthStep !== "trial" || screenState !== "paywall") {
+      introHeroProgress.setValue(0);
+      introMascotFloat.setValue(0);
+      introFeatureProgress.forEach(value => value.setValue(0));
+      return;
     }
 
-    onBack("dismiss");
-  };
+    introHeroProgress.setValue(0);
+    introMascotFloat.setValue(0);
+    introFeatureProgress.forEach(value => value.setValue(0));
 
-  const handleContinueFromSuccess = () => {
-    onBack("continue");
-  };
+    const heroEntrance = Animated.timing(introHeroProgress, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    const featureEntrance = Animated.stagger(
+      110,
+      introFeatureProgress.map(value =>
+        Animated.timing(value, {
+          toValue: 1,
+          duration: 420,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        })
+      )
+    );
+
+    const mascotFloatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(introMascotFloat, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(introMascotFloat, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    heroEntrance.start();
+    featureEntrance.start();
+    mascotFloatLoop.start();
+
+    return () => {
+      heroEntrance.stop();
+      featureEntrance.stop();
+      mascotFloatLoop.stop();
+    };
+  }, [
+    introFeatureProgress,
+    introHeroProgress,
+    introMascotFloat,
+    isPostAuthPaywall,
+    postAuthStep,
+    screenState,
+  ]);
+
+  useEffect(() => {
+    reminderScreenProgress.stopAnimation();
+    reminderBellSwing.stopAnimation();
+    reminderTimelineProgress.forEach(value => value.stopAnimation());
+
+    if (!isPostAuthPaywall || postAuthStep !== "reminder" || screenState !== "paywall") {
+      reminderScreenProgress.setValue(0);
+      reminderBellSwing.setValue(0);
+      reminderTimelineProgress.forEach(value => value.setValue(0));
+      return;
+    }
+
+    reminderScreenProgress.setValue(0);
+    reminderBellSwing.setValue(0);
+    reminderTimelineProgress.forEach(value => value.setValue(0));
+
+    const reminderEntrance = Animated.timing(reminderScreenProgress, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    const timelineEntrance = Animated.stagger(
+      120,
+      reminderTimelineProgress.map(value =>
+        Animated.timing(value, {
+          toValue: 1,
+          duration: 420,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        })
+      )
+    );
+
+    const bellLoop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(300),
+        Animated.timing(reminderBellSwing, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(reminderBellSwing, {
+          toValue: -1,
+          duration: 220,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(reminderBellSwing, {
+          toValue: 0.75,
+          duration: 180,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(reminderBellSwing, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay(2200),
+      ])
+    );
+
+    reminderEntrance.start();
+    timelineEntrance.start();
+    bellLoop.start();
+
+    return () => {
+      reminderEntrance.stop();
+      timelineEntrance.stop();
+      bellLoop.stop();
+    };
+  }, [
+    isPostAuthPaywall,
+    postAuthStep,
+    reminderBellSwing,
+    reminderScreenProgress,
+    reminderTimelineProgress,
+    screenState,
+  ]);
 
   const completePremiumActivation = async (
-    customerInfo: Awaited<ReturnType<typeof restoreRevenueCatPurchases>>,
+    customerInfo: CustomerInfo,
+    targetPlan: PaywallPlan,
     options: { wasRestore?: boolean } = {}
   ) => {
     const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
-    const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+    const premiumAccess = hasPremiumAccess(customerInfo);
 
     setLastPurchaseStore(activeEntitlement?.store ?? null);
 
-    if (!hasPremiumAccess) {
+    if (!premiumAccess) {
       return false;
     }
 
-    if (!selectedPlanDetails?.offeringKey) {
+    if (!targetPlan.offeringKey) {
       await setSessionPremiumStatus(true);
       setScreenState("success");
       return true;
     }
 
     const updatedProfile = await syncPaywallPurchase({
-      offeringKey: selectedPlanDetails.offeringKey,
+      offeringKey: targetPlan.offeringKey,
       revenueCatOfferingId:
-        selectedPlanDetails.revenueCatOfferingId || paywallConfig?.placementKey || "unknown",
+        targetPlan.revenueCatOfferingId || paywallPlacementKey,
       revenueCatPackageId:
-        selectedPlanDetails.revenueCatPackageId ||
-        selectedPlanDetails.rcPackage?.identifier ||
-        "unknown",
+        targetPlan.revenueCatPackageId || targetPlan.rcPackage?.identifier || "unknown",
       store: activeEntitlement?.store || "unknown",
       entitlementId: activeEntitlement?.identifier || "unknown",
       wasRestore: Boolean(options.wasRestore),
@@ -745,29 +817,69 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
   const finalizePremiumActivation = async (
     customerInfo: CustomerInfo,
+    targetPlan: PaywallPlan,
     options: { wasRestore?: boolean } = {}
   ) => {
-    const activated = await completePremiumActivation(customerInfo, options);
+    const activated = await completePremiumActivation(customerInfo, targetPlan, options);
 
     if (activated || !sessionUserId) {
       return activated;
     }
 
-    const refreshedCustomerInfo = await getRevenueCatCustomerInfo(sessionUserId);
+    const refreshedEntitlementState = await refreshRevenueCatEntitlementState(
+      sessionUserId
+    );
 
-    if (!refreshedCustomerInfo) {
+    if (!refreshedEntitlementState.customerInfo) {
       return false;
     }
 
-    return completePremiumActivation(refreshedCustomerInfo, options);
+    return completePremiumActivation(
+      refreshedEntitlementState.customerInfo,
+      targetPlan,
+      options
+    );
+  };
+
+  const trackEvent = (
+    eventType:
+      | "paywall_dismiss"
+      | "plan_select"
+      | "cta_tap"
+      | "purchase_success"
+      | "restore_success"
+      | "purchase_failure",
+    metadata?: Record<string, unknown>
+  ) => {
+    if (!paywallConfig?.template) {
+      return;
+    }
+
+    trackPaywallEvent({
+      placementKey: paywallConfig.placementKey,
+      screenKey: paywallConfig.screenKey || undefined,
+      eventType,
+      templateKey: paywallConfig.template.key,
+      offeringKey: selectedPlan?.offeringKey,
+      wasInterruptive: paywallConfig.wasInterruptive,
+      metadata,
+    }).catch(() => undefined);
+  };
+
+  const handleDismiss = () => {
+    trackEvent("paywall_dismiss", isPostAuthPaywall ? { step: postAuthStep } : undefined);
+    onBack("dismiss");
+  };
+
+  const handleContinueFromSuccess = () => {
+    onBack("continue");
   };
 
   const handleUpgrade = async () => {
-    if (!selectedPlanDetails?.rcPackage) {
+    if (!selectedPlan?.rcPackage) {
       Alert.alert(
         "Billing unavailable",
-        plansError ||
-          "A live RevenueCat package is not available for the selected plan yet."
+        plansError || "A live package is not available for the selected plan yet."
       );
       return;
     }
@@ -775,37 +887,23 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     setIsProcessing(true);
 
     try {
-      if (paywallConfig?.template) {
-        trackPaywallEvent({
-          placementKey: paywallConfig.placementKey,
-          screenKey: paywallConfig.screenKey || undefined,
-          eventType: "cta_tap",
-          templateKey: paywallConfig.template.key,
-          offeringKey: selectedPlanDetails.offeringKey,
-          wasInterruptive: paywallConfig.wasInterruptive,
-        }).catch(() => undefined);
-      }
-
+      trackEvent("cta_tap", isPostAuthPaywall ? { step: postAuthStep } : undefined);
       const purchaseResult = await purchaseRevenueCatPackage(
-        selectedPlanDetails.rcPackage,
+        selectedPlan.rcPackage,
         sessionUserId
       );
-      const activated = await finalizePremiumActivation(purchaseResult.customerInfo);
+      const activated = await finalizePremiumActivation(
+        purchaseResult.customerInfo,
+        selectedPlan
+      );
 
       if (!activated) {
         Alert.alert(
           "Purchase completed",
-          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
+          "The store completed the purchase, but no active premium entitlement was returned yet."
         );
-      } else if (paywallConfig?.template) {
-        trackPaywallEvent({
-          placementKey: paywallConfig.placementKey,
-          screenKey: paywallConfig.screenKey || undefined,
-          eventType: "purchase_success",
-          templateKey: paywallConfig.template.key,
-          offeringKey: selectedPlanDetails.offeringKey,
-          wasInterruptive: paywallConfig.wasInterruptive,
-        }).catch(() => undefined);
+      } else {
+        trackEvent("purchase_success");
       }
     } catch (error) {
       if (
@@ -815,60 +913,39 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         return;
       }
 
-      Alert.alert(
-        "Premium activation unavailable",
-        getPurchaseErrorMessage(error)
-      );
+      Alert.alert("Premium activation unavailable", getPurchaseErrorMessage(error));
 
-      if (paywallConfig?.template) {
-        trackPaywallEvent({
-          placementKey: paywallConfig.placementKey,
-          screenKey: paywallConfig.screenKey || undefined,
-          eventType: "purchase_failure",
-          templateKey: paywallConfig.template.key,
-          offeringKey: selectedPlanDetails.offeringKey,
-          wasInterruptive: paywallConfig.wasInterruptive,
-          metadata: {
-            message: getPurchaseErrorMessage(error),
-          },
-        }).catch(() => undefined);
-      }
+      trackEvent("purchase_failure", {
+        message: getPurchaseErrorMessage(error),
+      });
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleRestore = async () => {
+    if (!selectedPlan) {
+      return;
+    }
+
     setIsRestoring(true);
 
     try {
       const customerInfo = await restoreRevenueCatPurchases(sessionUserId);
-      const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+      const premiumAccess = hasPremiumAccess(customerInfo);
 
-      if (!hasPremiumAccess) {
-        if (isPremiumUser) {
-          await setSessionPremiumStatus(false);
-        }
-
+      if (!premiumAccess) {
         Alert.alert(
           "No purchases found",
-          "RevenueCat did not return an active premium entitlement for this account."
+          "The store did not return an active premium entitlement for this account."
         );
         return;
       }
 
-      await finalizePremiumActivation(customerInfo, { wasRestore: true });
-
-      if (paywallConfig?.template) {
-        trackPaywallEvent({
-          placementKey: paywallConfig.placementKey,
-          screenKey: paywallConfig.screenKey || undefined,
-          eventType: "restore_success",
-          templateKey: paywallConfig.template.key,
-          offeringKey: selectedPlanDetails.offeringKey,
-          wasInterruptive: paywallConfig.wasInterruptive,
-        }).catch(() => undefined);
-      }
+      await finalizePremiumActivation(customerInfo, selectedPlan, {
+        wasRestore: true,
+      });
+      trackEvent("restore_success");
     } catch (error) {
       Alert.alert("Restore purchases", getPurchaseErrorMessage(error));
     } finally {
@@ -876,572 +953,764 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }
   };
 
-  const headerTranslate = headerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-12, 0],
-  });
-  const heroTranslate = heroAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
-  const cardTranslate = cardAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [20, 0],
-  });
-  const plansTranslate = plansAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [22, 0],
-  });
-  const footerTranslate = footerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [16, 0],
-  });
-  const mascotTranslate = mascotFloat.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -7],
-  });
-  const haloScale = haloPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.12],
-  });
-  const haloOpacity = haloPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.34, 0.58],
-  });
-  const backgroundBubbleOneShift = backgroundBubbleDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-12, 12],
-  });
-  const backgroundBubbleTwoShift = backgroundBubbleDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, -14],
-  });
-  const backgroundBubbleThreeShift = backgroundBubbleDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-8, 16],
-  });
-  const successTranslate = successAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [20, 0],
-  });
-  const successGlowScale = successPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.14],
-  });
-  const successGlowOpacity = successPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.24, 0.48],
-  });
-  const successHeroFloatTranslate = successHeroFloat.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -8],
-  });
-  const successHeroTranslate = successAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
-  const successBubbleOneShift = successSceneDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-12, 12],
-  });
-  const successBubbleOneLift = successSceneDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -12],
-  });
-  const successBubbleTwoShift = successSceneDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, -14],
-  });
-  const successBubbleTwoLift = successSceneDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 14],
-  });
-  const showcaseTranslate = showcaseTransitionProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [14, 0],
-  });
-  const contentStyle = {
-    paddingHorizontal: horizontalPadding,
-    paddingBottom: 8,
-  };
-  const footerStyle = {
-    backgroundColor: theme.colors.background,
-    borderTopColor: theme.colors.border,
-    paddingHorizontal: horizontalPadding,
-    paddingBottom: 4,
-    opacity: footerAnim,
-    transform: [{ translateY: footerTranslate }],
+  const handlePlanPress = (plan: PaywallPlan) => {
+    setSelectedPlanId(plan.id);
+    trackEvent("plan_select", {
+      planKey: plan.planKey,
+    });
   };
 
-  if (screenState === "success") {
-    return (
-      <SafeAreaView
-        edges={["top", "right", "bottom", "left"]}
-        style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
-      >
-        <View style={styles.successContainer}>
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.successBackgroundBubbleTop,
-              {
-                backgroundColor: `${theme.colors.primary}12`,
-                transform: [
-                  { translateX: successBubbleOneShift },
-                  { translateY: successBubbleOneLift },
-                ],
-              },
-            ]}
-          />
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.successBackgroundBubbleMiddle,
-              {
-                backgroundColor: `${theme.colors.primary}08`,
-                transform: [
-                  { translateX: successBubbleTwoShift },
-                  { translateY: successBubbleTwoLift },
-                ],
-              },
-            ]}
-          />
-
-          <Animated.View
-            style={[
-              styles.successContent,
-              {
-                paddingHorizontal: horizontalPadding,
-                opacity: successAnim,
-                transform: [{ translateY: successTranslate }],
-              },
-            ]}
-          >
-            <View />
-            <Animated.View
-              style={[
-                styles.successHero,
-                {
-                  transform: [{ translateY: successHeroTranslate }],
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.successPill,
-                  {
-                    backgroundColor: `${theme.colors.primary}12`,
-                    borderColor: `${theme.colors.primary}16`,
-                  },
-                ]}
-              >
-                <Sparkles size={14} color={theme.colors.primary} />
-                <Text style={[styles.successPillText, { color: theme.colors.primary }]}>
-                  Premium unlocked
-                </Text>
-              </View>
-
-              <Animated.View
-                style={[
-                  styles.successMascotWrap,
-                  {
-                    transform: [{ translateY: successHeroFloatTranslate }],
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.successMascotOrbit,
-                    { borderColor: `${theme.colors.primary}18` },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.successGlow,
-                    {
-                      backgroundColor: `${theme.colors.primary}20`,
-                      opacity: successGlowOpacity,
-                      transform: [{ scale: successGlowScale }],
-                    },
-                  ]}
-                />
-                <Animated.Image
-                  source={mascotImage}
-                  resizeMode="contain"
-                  style={styles.successMascot}
-                />
-                <View
-                  style={[
-                    styles.successCheck,
-                    { backgroundColor: theme.colors.primary },
-                  ]}
-                >
-                  <CheckCircle2 size={16} color={theme.colors.primaryForeground} />
-                </View>
-              </Animated.View>
-
-              <Text style={[styles.successEyebrow, { color: theme.colors.primary }]}>
-                Membership active
-              </Text>
-              <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
-                You&apos;re now a member of Journal.IO.
-              </Text>
-              <Text style={[styles.successText, { color: theme.colors.mutedForeground }]}>
-                Your {selectedPlanDetails.title.toLowerCase()} plan is live, and premium
-                insights are now part of your journaling flow.
-              </Text>
-            </Animated.View>
-
-            <Animated.View
-              style={[
-                styles.successMetaBlock,
-                {
-                  opacity: successAnim,
-                },
-              ]}
-            >
-              <View style={styles.successMetaRow}>
-                <View
-                  style={[
-                    styles.successMetaPill,
-                    {
-                      backgroundColor: `${theme.colors.primary}12`,
-                    },
-                  ]}
-                >
-                  <Crown size={14} color={theme.colors.primary} />
-                  <Text
-                    style={[
-                      styles.successMetaPillText,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    {selectedPlanDetails.title}
-                  </Text>
-                </View>
-                <Text style={[styles.successMetaPrice, { color: theme.colors.foreground }]}>
-                  {selectedPlanDetails.price}
-                </Text>
-              </View>
-
-              <View style={styles.successTagRow}>
-                {successDisplayTags.map(tag => (
-                  <View
-                    key={tag}
-                    style={[
-                      styles.successTag,
-                      { backgroundColor: `${theme.colors.primary}10` },
-                    ]}
-                  >
-                    <Sparkles size={12} color={theme.colors.primary} />
-                    <Text
-                      style={[
-                        styles.successTagText,
-                        { color: theme.colors.foreground },
-                      ]}
-                    >
-                      {tag}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.successMicroNoteRow}>
-                <View
-                  style={[
-                    styles.successMicroNote,
-                    { backgroundColor: `${theme.colors.primary}0D` },
-                  ]}
-                >
-                  <CheckCircle2 size={12} color={theme.colors.primary} />
-                  <Text
-                    style={[
-                      styles.successMicroNoteText,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    {lastPurchaseStore === "TEST_STORE"
-                      ? "RevenueCat Test Store purchase tracked"
-                      : "Premium is now active"}
-                  </Text>
-                </View>
-              </View>
-            </Animated.View>
-
-            <View />
-          </Animated.View>
-
+  const renderPostAuthBackground = () => (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {postAuthStep === "trial" ? (
+        <View
+          style={[
+            styles.postAuthGlow,
+            styles.postAuthTrialGlow,
+            { backgroundColor: `${theme.colors.primary}12` },
+          ]}
+        />
+      ) : null}
+      {postAuthStep === "reminder" ? (
+        <View
+          style={[
+            styles.postAuthGlow,
+            styles.postAuthReminderGlow,
+            { backgroundColor: `${theme.colors.warning}10` },
+          ]}
+        />
+      ) : null}
+      {postAuthStep === "purchase" ? (
+        <>
           <View
             style={[
-              styles.successFooter,
-              {
-                paddingHorizontal: horizontalPadding,
-                paddingBottom: insets.bottom + 14,
-              },
+              styles.postAuthGlow,
+              styles.postAuthPurchaseGlowTop,
+              { backgroundColor: `${theme.colors.primary}12` },
             ]}
-          >
-            <PrimaryButton
-              label="Continue to Journal.IO"
-              onPress={handleContinueFromSuccess}
-              tone="accent"
-              icon={<ArrowRight size={16} color={theme.colors.primaryForeground} />}
-            />
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
+          />
+          <View
+            style={[
+              styles.postAuthGlow,
+              styles.postAuthPurchaseGlowSide,
+              { backgroundColor: `${theme.colors.accent}90` },
+            ]}
+          />
+        </>
+      ) : null}
+    </View>
+  );
 
-  return (
-    <SafeAreaView
-      edges={["top", "right", "bottom", "left"]}
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
-    >
-      <View style={styles.container}>
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.backgroundBubbleTopRight,
-            {
-              backgroundColor: `${theme.colors.primary}12`,
-              transform: [{ translateX: backgroundBubbleOneShift }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.backgroundBubbleMidLeft,
-            {
-              backgroundColor: `${theme.colors.primary}0D`,
-              transform: [{ translateX: backgroundBubbleTwoShift }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.backgroundBubbleBottomRight,
-            {
-              backgroundColor: `${theme.colors.primary}10`,
-              transform: [{ translateX: backgroundBubbleThreeShift }],
-            },
-          ]}
-        />
+  const renderPostAuthTrialStep = () => {
+    const heroAnimatedStyle = {
+      opacity: introHeroProgress,
+      transform: [
+        {
+          translateY: introHeroProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [18, 0],
+          }),
+        },
+      ],
+    };
+    const mascotAnimatedStyle = {
+      opacity: introHeroProgress,
+      transform: [
+        {
+          scale: introHeroProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.92, 1],
+          }),
+        },
+        {
+          translateY: introMascotFloat.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, -8],
+          }),
+        },
+      ],
+    };
+    const footerAnimatedStyle = {
+      opacity: introHeroProgress,
+      transform: [
+        {
+          translateY: introHeroProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [22, 0],
+          }),
+        },
+      ],
+    };
 
-        <Animated.View
+    return (
+      <View style={styles.postAuthScreen}>
+        {renderPostAuthBackground()}
+
+        <View
           style={[
-            styles.header,
+            styles.postAuthStageInner,
             {
+              paddingTop: insets.top,
+              paddingBottom: insets.bottom,
               paddingHorizontal: horizontalPadding,
-              opacity: headerAnim,
-              transform: [{ translateY: headerTranslate }],
             },
           ]}
         >
-          <View />
+          <Animated.View style={[styles.postAuthTrialContent, heroAnimatedStyle]}>
+            <Animated.View style={[styles.postAuthMascotWrap, mascotAnimatedStyle]}>
+              <Image
+                source={mascotImage}
+                resizeMode="contain"
+                style={styles.postAuthMascotImage}
+              />
+            </Animated.View>
+
+            <Text style={[styles.postAuthHeroTitle, { color: theme.colors.foreground }]}>
+              Unlock your mind
+            </Text>
+
+            <View style={styles.postAuthFeatureList}>
+              {POST_AUTH_INTRO_FEATURES.map((feature, index) => {
+                const Icon = feature.icon;
+                const featureAnimatedStyle = {
+                  opacity: introFeatureProgress[index],
+                  transform: [
+                    {
+                      translateX: introFeatureProgress[index].interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-14, 0],
+                      }),
+                    },
+                    {
+                      translateY: introFeatureProgress[index].interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [8, 0],
+                      }),
+                    },
+                  ],
+                };
+
+                return (
+                  <Animated.View
+                    key={feature.text}
+                    style={[
+                      styles.postAuthFeatureCard,
+                      {
+                        backgroundColor: `${theme.colors.card}D9`,
+                        borderColor: `${theme.colors.border}80`,
+                      },
+                      featureAnimatedStyle,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.postAuthFeatureIconWrap,
+                        { backgroundColor: `${theme.colors.primary}14` },
+                      ]}
+                    >
+                      <Icon size={20} color={theme.colors.primary} />
+                    </View>
+                    <Text
+                      style={[
+                        styles.postAuthFeatureText,
+                        { color: `${theme.colors.foreground}E6` },
+                      ]}
+                    >
+                      {feature.text}
+                    </Text>
+                  </Animated.View>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          <Animated.View style={[styles.postAuthFooter, footerAnimatedStyle]}>
+            <StepActionButton
+              label={yearlyTrialPlan ? introButtonLabel : "Continue to premium"}
+              onPress={() => setPostAuthStep("reminder")}
+              elevated={false}
+            />
+          </Animated.View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderPostAuthReminderStep = () => {
+    const reminderContentAnimatedStyle = {
+      opacity: reminderScreenProgress,
+      transform: [
+        {
+          translateY: reminderScreenProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [20, 0],
+          }),
+        },
+      ],
+    };
+    const reminderBellAnimatedStyle = {
+      opacity: reminderScreenProgress,
+      transform: [
+        {
+          scale: reminderScreenProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.9, 1],
+          }),
+        },
+        {
+          rotate: reminderBellSwing.interpolate({
+            inputRange: [-1, 0, 1],
+            outputRange: ["-10deg", "0deg", "10deg"],
+          }),
+        },
+      ],
+    };
+    const reminderFooterAnimatedStyle = {
+      opacity: reminderScreenProgress,
+      transform: [
+        {
+          translateY: reminderScreenProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [24, 0],
+          }),
+        },
+      ],
+    };
+
+    return (
+      <View style={styles.postAuthScreen}>
+        {renderPostAuthBackground()}
+
+        <View
+          style={[
+            styles.postAuthStageInner,
+            {
+              paddingTop: insets.top,
+              paddingBottom: insets.bottom,
+              paddingHorizontal: horizontalPadding,
+            },
+          ]}
+        >
+          <Animated.View
+            style={[styles.postAuthReminderContent, reminderContentAnimatedStyle]}
+          >
+            <Animated.View
+              style={[
+                styles.postAuthBellWrap,
+                {
+                  backgroundColor: `${theme.colors.warning}14`,
+                  borderColor: `${theme.colors.warning}30`,
+                  shadowColor: theme.colors.warning,
+                },
+                reminderBellAnimatedStyle,
+              ]}
+            >
+              <BellRing size={40} color={theme.colors.warning} strokeWidth={1.6} />
+            </Animated.View>
+
+            <Text style={[styles.postAuthHeroTitle, { color: theme.colors.foreground }]}>
+              No surprises
+            </Text>
+
+            <Text
+              style={[
+                styles.postAuthReminderBody,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              We'll send you a push notification before your trial ends. Cancel anytime.
+            </Text>
+
+            <View style={styles.postAuthTimelineWrap}>
+              <View
+                style={[
+                  styles.postAuthTimelineLine,
+                  { backgroundColor: theme.colors.border },
+                ]}
+              />
+
+              {POST_AUTH_TIMELINE.map((step, index) => {
+                const Icon = step.icon;
+                const colors = getTimelineAccentColors(step.color, theme.colors);
+                const timelineAnimatedStyle = {
+                  opacity: reminderTimelineProgress[index],
+                  transform: [
+                    {
+                      translateX: reminderTimelineProgress[index].interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-16, 0],
+                      }),
+                    },
+                  ],
+                };
+
+                return (
+                  <Animated.View
+                    key={step.title}
+                    style={[styles.postAuthTimelineItem, timelineAnimatedStyle]}
+                  >
+                    <View
+                      style={[
+                        styles.postAuthTimelineIconWrap,
+                        { backgroundColor: colors.background },
+                      ]}
+                    >
+                      <Icon size={22} color={colors.icon} />
+                    </View>
+                    <View style={styles.postAuthTimelineTextWrap}>
+                      <Text
+                        style={[
+                          styles.postAuthTimelineTitle,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        {step.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.postAuthTimelineDescription,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        {step.description}
+                      </Text>
+                    </View>
+                  </Animated.View>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          <Animated.View style={[styles.postAuthFooter, reminderFooterAnimatedStyle]}>
+            <StepActionButton
+              label="Continue"
+              onPress={() => setPostAuthStep("purchase")}
+              elevated={false}
+            />
+          </Animated.View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderPostAuthPurchaseStep = () => (
+    <View style={styles.postAuthScreen}>
+      {renderPostAuthBackground()}
+
+      <View
+        style={[
+          styles.postAuthStageInner,
+          {
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
+            paddingHorizontal: horizontalPadding,
+          },
+        ]}
+      >
+        <View style={styles.postAuthPurchaseHeader}>
+          <View style={styles.postAuthBrandRow}>
+            <View
+              style={[
+                styles.postAuthBrandIconWrap,
+                { backgroundColor: `${theme.colors.primary}14` },
+              ]}
+            >
+              <Star size={14} color={theme.colors.primary} fill={theme.colors.primary} />
+            </View>
+            <Text style={[styles.postAuthBrandText, { color: theme.colors.foreground }]}>
+              Journal.IO Premium
+            </Text>
+          </View>
+
           <Pressable
             accessibilityRole="button"
-            onPress={handleClose}
+            accessibilityLabel="Close paywall"
+            onPress={handleDismiss}
             style={({ pressed }) => [
-              styles.closeButton,
+              styles.purchaseCloseButton,
               {
-                backgroundColor: `${theme.colors.foreground}10`,
-                borderColor: `${theme.colors.foreground}12`,
+                backgroundColor: `${theme.colors.card}E6`,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
               },
               pressed && styles.pressed,
             ]}
           >
             <X size={18} color={theme.colors.mutedForeground} />
           </Pressable>
-        </Animated.View>
+        </View>
 
-        <View
-          style={[
-            styles.content,
-            contentStyle,
-          ]}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={styles.postAuthPurchaseScroll}
+          contentContainerStyle={styles.postAuthPurchaseScrollContent}
         >
-          <Animated.View
-            style={[
-              styles.hero,
-              {
-                opacity: heroAnim,
-                transform: [{ translateY: heroTranslate }],
-              },
-            ]}
-          >
-            <View style={styles.mascotWrap}>
-              <Animated.View
+          <View style={styles.postAuthTrialBannerSlot}>
+            {selectedPlanHasTrial ? (
+              <View
                 style={[
-                  styles.mascotHalo,
-                  {
-                    backgroundColor: `${theme.colors.primary}18`,
-                    opacity: haloOpacity,
-                    transform: [{ scale: haloScale }],
-                  },
+                  styles.postAuthTrialBanner,
+                  { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary },
                 ]}
-              />
-              <Animated.Image
-                source={mascotImage}
-                resizeMode="contain"
+              >
+                <Sparkles size={12} color={theme.colors.primaryForeground} />
+                <Text
+                  style={[
+                    styles.postAuthTrialBannerText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  {getPostAuthTrialBadgeLabel(selectedPlan)}
+                </Text>
+              </View>
+            ) : (
+              <View
                 style={[
-                  styles.mascot,
-                  {
-                    transform: [{ translateY: mascotTranslate }],
-                  },
+                  styles.postAuthInstantBanner,
+                  { backgroundColor: theme.colors.secondary },
                 ]}
+              >
+                <Text
+                  style={[
+                    styles.postAuthInstantBannerText,
+                    { color: theme.colors.secondaryForeground },
+                  ]}
+                >
+                  Instantly unlock premium
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.postAuthPurchasePlanList}>
+            {visiblePlans.map(plan => (
+              <PostAuthPlanCard
+                key={plan.id}
+                plan={plan}
+                selected={selectedPlan?.id === plan.id}
+                onPress={() => handlePlanPress(plan)}
               />
-            </View>
+            ))}
+          </View>
 
-            <Text style={[styles.appName, { color: theme.colors.foreground }]}>
-              {paywallConfig?.template?.title || "Get Journal.IO Premium"}
-            </Text>
-            <Text style={[styles.subtitle, { color: theme.colors.mutedForeground }]}>
-              {paywallConfig?.template?.headline ||
-                "Get personalized insights to understand your journaling patterns better."}
-            </Text>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.previewCard,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-                opacity: cardAnim,
-                transform: [{ translateY: cardTranslate }],
-              },
-            ]}
-          >
-            <Animated.View
-              style={{
-                opacity: showcaseTransitionProgress,
-                transform: [{ translateX: showcaseTranslate }],
-              }}
-            >
-              <View style={styles.previewFeatureHeader}>
+          <View style={styles.postAuthBenefitsList}>
+            {POST_AUTH_BENEFITS.map(benefit => (
+              <View key={benefit} style={styles.postAuthBenefitRow}>
                 <View
                   style={[
-                    styles.previewFeatureIconWrap,
+                    styles.postAuthBenefitIconWrap,
                     { backgroundColor: `${theme.colors.primary}14` },
                   ]}
                 >
-                  <ActiveShowcaseIcon size={16} color={theme.colors.primary} />
+                  <Check size={12} color={theme.colors.primary} strokeWidth={3} />
                 </View>
-                <Text style={[styles.previewFeatureTitle, { color: theme.colors.foreground }]}>
-                  {activeShowcaseCard.title}
+                <Text
+                  style={[
+                    styles.postAuthBenefitText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  {benefit}
                 </Text>
               </View>
+            ))}
+          </View>
 
-              <Text style={[styles.previewBody, { color: theme.colors.foreground }]}>
-                {activeShowcaseCard.body}
-              </Text>
-
-              <View style={styles.previewFooter}>
-                <TrendingUp size={14} color={theme.colors.mutedForeground} />
-                <Text style={[styles.previewFooterText, { color: theme.colors.mutedForeground }]}>
-                  {activeShowcaseCard.footer}
-                </Text>
-              </View>
-            </Animated.View>
-          </Animated.View>
-
-          {showcaseCards.length > 1 ? (
-            <Animated.View
+          {plansError ? (
+            <View
               style={[
-                styles.dotsRow,
+                styles.messageCard,
                 {
-                  opacity: cardAnim,
+                  backgroundColor: `${theme.colors.warning}12`,
+                  borderColor: `${theme.colors.warning}30`,
                 },
               ]}
             >
-              {showcaseCards.map((_, index) => (
-                <Pressable
-                  key={index}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Preview ${index + 1}`}
-                  onPress={() => setShowcaseIndex(index)}
-                  style={[
-                    styles.dot,
-                    index === showcaseIndex
-                      ? [styles.dotActive, { backgroundColor: theme.colors.foreground }]
-                      : { backgroundColor: `${theme.colors.foreground}2B` },
-                  ]}
-                />
-              ))}
-            </Animated.View>
+              <Text style={[styles.messageText, { color: theme.colors.foreground }]}>
+                {plansError}
+              </Text>
+            </View>
           ) : null}
+        </ScrollView>
 
-        </View>
-
-          <Animated.View
+        <View
+          style={[
+            styles.postAuthPurchaseFooter,
+            {
+              backgroundColor: `${theme.colors.background}F2`,
+              borderTopColor: `${theme.colors.border}66`,
+            },
+          ]}
+        >
+          <Text
             style={[
-              styles.footer,
-              footerStyle,
+              styles.postAuthDynamicPriceText,
+              { color: theme.colors.foreground },
             ]}
           >
-            <Animated.View
-              style={{
-                opacity: plansAnim,
-              transform: [{ translateY: plansTranslate }],
-            }}
-          >
-            <View style={styles.planRow}>
-              {plans.map((plan, index) => (
-                <PlanCard
-                  key={plan.id}
-                  plan={plan}
-                  selected={selectedPlan === plan.id}
-                  onPress={() => {
-                    setSelectedPlan(plan.id);
+            {selectedPlan
+              ? selectedPlanHasTrial
+                ? `0 today, then ${selectedPlan.durationLabel}${getPostAuthPlanPeriod(selectedPlan)}`
+                : `Billed ${selectedPlan.durationLabel} today`
+              : "Select a premium plan"}
+          </Text>
 
-                    if (paywallConfig?.template) {
-                      trackPaywallEvent({
-                        placementKey: paywallConfig.placementKey,
-                        screenKey: paywallConfig.screenKey || undefined,
-                        eventType: "plan_select",
-                        templateKey: paywallConfig.template.key,
-                        offeringKey: plan.offeringKey,
-                        wasInterruptive: paywallConfig.wasInterruptive,
-                      }).catch(() => undefined);
-                    }
-                  }}
-                  delay={120 + index * 90}
-                />
-              ))}
+          <View style={styles.postAuthPurchaseActions}>
+            <StepActionButton
+              label={
+                isProcessing
+                  ? "Processing..."
+                  : selectedPlanHasTrial
+                    ? introButtonLabel
+                    : "Subscribe Now"
+              }
+              onPress={() => {
+                handleUpgrade().catch(() => undefined);
+              }}
+              disabled={!selectedPlan?.rcPackage || isLoadingPlans || isRestoring}
+              loading={isProcessing}
+              elevated={false}
+            />
+
+            <View style={styles.postAuthFooterMetaRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleRestore}
+                disabled={isBusy || isLoadingPlans}
+                style={({ pressed }) => [pressed && styles.pressed]}
+              >
+                {isRestoring ? (
+                  <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.postAuthRestoreText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Restore purchases
+                  </Text>
+                )}
+              </Pressable>
+
+              <Text
+                style={[
+                  styles.postAuthRenewalText,
+                  { color: `${theme.colors.mutedForeground}99` },
+                ]}
+              >
+                Cancel anytime. Auto-renews.
+              </Text>
             </View>
-          </Animated.View>
-
-          <PrimaryButton
-            label={
-              isProcessing
-                ? "Processing..."
-                : isLoadingPlans
-                  ? "Loading plans..."
-                  : "Start Journal.IO Premium"
-            }
-            onPress={handleUpgrade}
-            loading={isProcessing}
-            tone="accent"
-            disabled={!canPurchaseSelectedPlan || isLoadingPlans || isRestoring}
-          />
-
-          <View style={styles.footerLinks}>
-            <Pressable onPress={handleRestore} disabled={isBusy || isLoadingPlans}>
-              {isRestoring ? (
-                <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
-              ) : (
-                <Text style={[styles.footerLinkText, { color: theme.colors.mutedForeground }]}>
-                  Restore Purchases
-                </Text>
-              )}
-            </Pressable>
-            <Text style={[styles.footerLegalText, { color: theme.colors.mutedForeground }]}>
-              By continuing, you agree to our privacy approach.
-            </Text>
           </View>
-        </Animated.View>
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderStandardPurchaseStep = () => (
+    <View style={styles.standardPurchaseLayout}>
+      <View style={styles.purchaseHero}>
+        <Text style={[styles.purchaseTitle, { color: theme.colors.foreground }]}>
+          {paywallConfig?.template?.title || "Unlock Journal.IO Premium"}
+        </Text>
+        <Text style={[styles.purchaseBody, { color: theme.colors.mutedForeground }]}>
+          {paywallConfig?.template?.headline ||
+            "Choose the premium plan that fits your journaling rhythm."}
+        </Text>
+      </View>
+
+      <View style={styles.planList}>
+        {visiblePlans.map(plan => (
+          <PlanCard
+            key={plan.id}
+            plan={plan}
+            selected={selectedPlan?.id === plan.id}
+            onPress={() => handlePlanPress(plan)}
+          />
+        ))}
+      </View>
+
+      <View style={styles.featureList}>
+        {featureCards.slice(0, 4).map(feature => (
+          <View
+            key={feature.title}
+            style={[
+              styles.featureRow,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.featureBullet,
+                { backgroundColor: `${theme.colors.success}18` },
+              ]}
+            >
+              <Check size={14} color={theme.colors.success} />
+            </View>
+            <View style={styles.featureCopy}>
+              <Text style={[styles.featureTitle, { color: theme.colors.foreground }]}>
+                {feature.title}
+              </Text>
+              <Text style={[styles.featureBody, { color: theme.colors.mutedForeground }]}>
+                {feature.body}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {plansError ? (
+        <View
+          style={[
+            styles.messageCard,
+            {
+              backgroundColor: `${theme.colors.warning}12`,
+              borderColor: `${theme.colors.warning}30`,
+            },
+          ]}
+        >
+          <Text style={[styles.messageText, { color: theme.colors.foreground }]}>
+            {plansError}
+          </Text>
+        </View>
+      ) : null}
+
+      {trialFootnote ? (
+        <Text style={[styles.helperText, { color: theme.colors.mutedForeground }]}>
+          {trialFootnote}
+        </Text>
+      ) : null}
+
+      <View style={styles.footer}>
+        <PrimaryButton
+          label={
+            isProcessing
+              ? "Processing..."
+              : selectedPlanHasTrial
+                ? introButtonLabel
+                : "Continue"
+          }
+          onPress={() => {
+            handleUpgrade().catch(() => undefined);
+          }}
+          loading={isProcessing}
+          tone="accent"
+          disabled={!selectedPlan?.rcPackage || isLoadingPlans || isRestoring}
+        />
+
+        <Pressable
+          onPress={handleRestore}
+          disabled={isBusy || isLoadingPlans}
+          style={styles.restoreAction}
+        >
+          {isRestoring ? (
+            <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
+          ) : (
+            <Text style={[styles.restoreText, { color: theme.colors.mutedForeground }]}>
+              Restore Purchases
+            </Text>
+          )}
+        </Pressable>
+
+        <Text style={[styles.legalText, { color: theme.colors.mutedForeground }]}>
+          {paywallConfig?.template?.footerLegal ||
+            "Cancel anytime from your store subscription settings."}
+        </Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView
+      edges={
+        isModernPurchasePaywall && screenState === "paywall"
+          ? []
+          : ["top", "right", "bottom", "left"]
+      }
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
+      <View
+        style={[
+          styles.container,
+          !(isModernPurchasePaywall && screenState === "paywall") && {
+            paddingHorizontal: horizontalPadding,
+          },
+        ]}
+      >
+        {screenState === "success" ? (
+          <View
+            style={[
+              styles.successCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.successIconWrap,
+                { backgroundColor: `${theme.colors.success}18` },
+              ]}
+            >
+              <CheckCircle2 size={30} color={theme.colors.success} />
+            </View>
+            <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
+              Premium is active
+            </Text>
+            <Text style={[styles.successBody, { color: theme.colors.mutedForeground }]}>
+              {lastPurchaseStore === "TEST_STORE"
+                ? "The test purchase is active. You can continue into Journal.IO."
+                : "Your premium access is now active on this account."}
+            </Text>
+            <PrimaryButton
+              label="Continue"
+              onPress={handleContinueFromSuccess}
+              tone="accent"
+            />
+          </View>
+        ) : isModernPurchasePaywall ? (
+          isPostAuthPaywall ? (
+            postAuthStep === "trial"
+              ? renderPostAuthTrialStep()
+              : postAuthStep === "reminder"
+                ? renderPostAuthReminderStep()
+                : renderPostAuthPurchaseStep()
+          ) : (
+            renderPostAuthPurchaseStep()
+          )
+        ) : (
+          <>
+            <View style={styles.standardHeader}>
+              <View style={styles.standardHeaderSpacer} />
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleDismiss}
+                style={({ pressed }) => [
+                  styles.roundIconButton,
+                  {
+                    backgroundColor: theme.colors.card,
+                    borderColor: theme.colors.border,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={18} color={theme.colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+            >
+              {renderStandardPurchaseStep()}
+            </ScrollView>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -1454,391 +1723,613 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  backgroundBubbleTopRight: {
-    position: "absolute",
-    top: 118,
-    right: -26,
-    width: 150,
-    height: 150,
-    borderRadius: 999,
-  },
-  backgroundBubbleMidLeft: {
-    position: "absolute",
-    top: 340,
-    left: -42,
-    width: 110,
-    height: 110,
-    borderRadius: 999,
-  },
-  backgroundBubbleBottomRight: {
-    position: "absolute",
-    bottom: 116,
-    right: -30,
-    width: 126,
-    height: 126,
-    borderRadius: 999,
-  },
-  header: {
-    alignItems: "flex-end",
+  scrollContent: {
     paddingTop: 8,
-    paddingBottom: 4,
+    paddingBottom: 24,
   },
-  closeButton: {
+  standardHeader: {
+    alignItems: "flex-end",
+    paddingVertical: 4,
+  },
+  standardHeaderSpacer: {
+    width: 36,
+    height: 36,
+  },
+  roundIconButton: {
     width: 40,
     height: 40,
-    borderRadius: 999,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  content: {
+  purchaseCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pressed: {
+    opacity: 0.9,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  stepActionButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepActionButtonLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  postAuthScreen: {
     flex: 1,
-    justifyContent: "flex-start",
+    overflow: "hidden",
   },
-  hero: {
-    alignItems: "center",
-    paddingTop: 2,
+  postAuthStageInner: {
+    flex: 1,
   },
-  mascotWrap: {
-    width: 108,
-    height: 108,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    marginBottom: 12,
-  },
-  mascotHalo: {
+  postAuthGlow: {
     position: "absolute",
-    width: 96,
-    height: 96,
     borderRadius: 999,
   },
-  mascot: {
-    width: 92,
-    height: 92,
+  postAuthTrialGlow: {
+    width: 300,
+    height: 300,
+    top: "22%",
+    left: "50%",
+    marginLeft: -150,
   },
-  appName: {
-    fontSize: 28,
-    fontWeight: "800",
+  postAuthReminderGlow: {
+    width: 340,
+    height: 340,
+    top: -40,
+    right: -130,
+  },
+  postAuthPurchaseGlowTop: {
+    width: 280,
+    height: 280,
+    top: -140,
+    right: -120,
+  },
+  postAuthPurchaseGlowSide: {
+    width: 180,
+    height: 180,
+    top: "34%",
+    left: -90,
+  },
+  postAuthHeaderEnd: {
+    alignItems: "flex-end",
+    paddingTop: 4,
+  },
+  postAuthTrialContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 32,
+  },
+  postAuthMascotWrap: {
+    marginBottom: 32,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postAuthMascotHalo: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  postAuthMascotImage: {
+    width: 112,
+    height: 112,
+  },
+  postAuthHeroTitle: {
+    fontSize: 32,
+    fontWeight: "700",
+    lineHeight: 38,
     textAlign: "center",
-    letterSpacing: -0.6,
+    marginBottom: 24,
   },
-  subtitle: {
-    marginTop: 8,
-    maxWidth: 300,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
+  postAuthFeatureList: {
+    width: "100%",
+    gap: 14,
+    maxWidth: 280,
   },
-  previewCard: {
-    borderRadius: 24,
+  postAuthFeatureCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 22,
     borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    marginTop: 14,
   },
-  previewBody: {
-    marginTop: 10,
+  postAuthFeatureIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postAuthFeatureText: {
+    flex: 1,
     fontSize: 14,
+    fontWeight: "500",
     lineHeight: 20,
+  },
+  postAuthFooter: {
+    gap: 14,
+    paddingBottom: 12,
+  },
+  laterAction: {
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  laterActionText: {
+    fontSize: 14,
     fontWeight: "500",
   },
-  previewFeatureHeader: {
+  postAuthReminderContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 44,
+  },
+  postAuthBellWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 38,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
+  },
+  postAuthReminderBody: {
+    fontSize: 16,
+    lineHeight: 24,
+    textAlign: "center",
+    maxWidth: 300,
+    marginBottom: 34,
+  },
+  postAuthTimelineWrap: {
+    width: "100%",
+    maxWidth: 280,
+    gap: 24,
+    position: "relative",
+  },
+  postAuthTimelineLine: {
+    position: "absolute",
+    left: 23,
+    top: 24,
+    bottom: 24,
+    width: 2,
+    borderRadius: 999,
+  },
+  postAuthTimelineItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginTop: 10,
+    gap: 20,
+    zIndex: 1,
   },
-  previewFeatureIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
+  postAuthTimelineIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
-  previewFeatureTitle: {
+  postAuthTimelineTextWrap: {
     flex: 1,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "700",
+    gap: 2,
   },
-  previewFooter: {
+  postAuthTimelineTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  postAuthTimelineDescription: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 20,
+  },
+  postAuthPurchaseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 2,
+    paddingBottom: 8,
+  },
+  postAuthBrandRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 12,
   },
-  previewFooterText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  dotsRow: {
-    flexDirection: "row",
+  postAuthBrandIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginTop: 12,
   },
-  dot: {
-    width: 8,
-    height: 8,
+  postAuthBrandText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  postAuthPurchaseScroll: {
+    flex: 1,
+  },
+  postAuthPurchaseScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingBottom: 12,
+  },
+  postAuthTrialBannerSlot: {
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  postAuthTrialBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     borderRadius: 999,
-  },
-  dotActive: {
-    width: 10,
-    height: 10,
-  },
-  planRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  planCardWrap: {
-    flex: 1,
-  },
-  planCard: {
-    minHeight: 110,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    shadowOpacity: 0.08,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    shadowOpacity: 0.16,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    elevation: 3,
   },
-  planBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
-    marginBottom: 6,
-  },
-  planBadgeSpacer: {
-    height: 18,
-    marginBottom: 6,
-  },
-  planBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-  },
-  planCheck: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  planDuration: {
-    fontSize: 28,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-  planTitle: {
-    marginTop: 2,
-    fontSize: 12,
+  postAuthTrialBannerText: {
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.4,
   },
-  planPrice: {
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: "700",
+  postAuthInstantBanner: {
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
   },
-  planSubtitle: {
-    marginTop: 4,
-    fontSize: 10,
-    lineHeight: 13,
-    textAlign: "center",
-  },
-  footer: {
-    backgroundColor: "#F6F7F2",
-    borderTopWidth: 1,
-    paddingTop: 12,
-    gap: 10,
-  },
-  footerLinks: {
-    alignItems: "center",
-    gap: 4,
-  },
-  footerLinkText: {
-    fontSize: 13,
+  postAuthInstantBannerText: {
+    fontSize: 12,
     fontWeight: "600",
   },
-  footerLegalText: {
+  postAuthPurchasePlanList: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  postAuthPlanCard: {
+    borderRadius: 24,
+    borderWidth: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    position: "relative",
+    overflow: "hidden",
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  postAuthPlanPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  postAuthPlanBadge: {
+    position: "absolute",
+    top: 0,
+    right: 16,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 1,
+  },
+  postAuthPlanBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  postAuthPlanContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  postAuthPlanLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingRight: 8,
+  },
+  postAuthRadioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  postAuthRadioFill: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  postAuthRadioInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FFFFFF",
+  },
+  postAuthPlanTextWrap: {
+    flex: 1,
+    gap: 3,
+  },
+  postAuthPlanNameRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+  },
+  postAuthPlanName: {
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  postAuthSavingsPill: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  postAuthSavingsText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  postAuthPlanDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  postAuthPriceWrap: {
+    alignItems: "flex-end",
+    minWidth: 58,
+  },
+  postAuthPlanPrice: {
+    fontSize: 22,
+    fontWeight: "700",
+    lineHeight: 24,
+  },
+  postAuthPlanPeriod: {
+    fontSize: 10,
+    marginTop: 4,
+  },
+  postAuthBenefitsList: {
+    gap: 10,
+    paddingHorizontal: 2,
+  },
+  postAuthBenefitRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  postAuthBenefitIconWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  postAuthBenefitText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  postAuthPurchaseFooter: {
+    paddingTop: 10,
+    paddingBottom: 6,
+    gap: 10,
+    borderTopWidth: 1,
+  },
+  postAuthDynamicPriceText: {
+    fontSize: 12,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  postAuthPurchaseActions: {
+    gap: 10,
+  },
+  postAuthFooterMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 2,
+  },
+  postAuthRestoreText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  postAuthRenewalText: {
+    fontSize: 10,
+    textAlign: "right",
+  },
+  postAuthLegalText: {
     fontSize: 11,
     lineHeight: 16,
     textAlign: "center",
   },
-  pressed: {
-    opacity: 0.88,
+  standardPurchaseLayout: {
+    gap: 18,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
-  successContainer: {
-    flex: 1,
-    justifyContent: "space-between",
-    position: "relative",
-    overflow: "hidden",
-  },
-  successBackgroundBubbleTop: {
-    position: "absolute",
-    top: 84,
-    right: -44,
-    width: 164,
-    height: 164,
-    borderRadius: 999,
-  },
-  successBackgroundBubbleMiddle: {
-    position: "absolute",
-    bottom: 142,
-    left: -34,
-    width: 96,
-    height: 96,
-    borderRadius: 999,
-  },
-  successContent: {
-    flex: 1,
-    justifyContent: "space-between",
-    paddingTop: 12,
-  },
-  successHero: {
+  purchaseHero: {
     alignItems: "center",
+    gap: 10,
   },
-  successPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginBottom: 18,
-  },
-  successPillText: {
-    fontSize: 12,
+  purchaseTitle: {
+    fontSize: 28,
     fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  successMascotWrap: {
-    width: 132,
-    height: 132,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    marginBottom: 18,
-  },
-  successMascotOrbit: {
-    position: "absolute",
-    width: 118,
-    height: 118,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  successGlow: {
-    position: "absolute",
-    width: 118,
-    height: 118,
-    borderRadius: 999,
-  },
-  successMascot: {
-    width: 92,
-    height: 92,
-  },
-  successCheck: {
-    position: "absolute",
-    right: 16,
-    bottom: 14,
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successEyebrow: {
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  successTitle: {
-    marginTop: 12,
-    fontSize: 24,
-    lineHeight: 31,
-    fontWeight: "800",
-    textAlign: "center",
-    letterSpacing: -0.5,
-  },
-  successText: {
-    marginTop: 12,
-    maxWidth: 300,
-    fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 34,
     textAlign: "center",
   },
-  successMetaBlock: {
-    alignItems: "center",
-    marginTop: 10,
+  purchaseBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 330,
   },
-  successMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  planList: {
     gap: 12,
   },
-  successMetaPill: {
+  planCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 16,
+    gap: 8,
+  },
+  planHeaderRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  planTitleWrap: {
+    flex: 1,
+    gap: 4,
+  },
+  planTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  planSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  radioOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  planPrice: {
+    fontSize: 26,
+    fontWeight: "800",
+    lineHeight: 30,
+  },
+  planBadge: {
+    alignSelf: "flex-start",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  successMetaPillText: {
-    fontSize: 11,
+  planBadgeText: {
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.3,
   },
-  successMetaPrice: {
+  planHighlight: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  featureList: {
+    gap: 12,
+  },
+  featureRow: {
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  featureBullet: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  featureCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  featureTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  featureBody: {
     fontSize: 13,
-    fontWeight: "700",
+    lineHeight: 19,
   },
-  successTagRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 16,
+  messageCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
   },
-  successTag: {
-    flexDirection: "row",
+  messageText: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  helperText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  footer: {
+    gap: 12,
+  },
+  restoreAction: {
     alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
-  successTagText: {
-    fontSize: 11,
-    fontWeight: "700",
+  restoreText: {
+    fontSize: 13,
+    fontWeight: "500",
   },
-  successMicroNoteRow: {
-    marginTop: 14,
+  legalText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
   },
-  successMicroNote: {
-    flexDirection: "row",
+  successCard: {
+    flex: 1,
+    borderRadius: 24,
+    borderWidth: 1,
     alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    justifyContent: "center",
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
-  successMicroNoteText: {
-    fontSize: 10,
+  successIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successTitle: {
+    fontSize: 24,
     fontWeight: "700",
+    textAlign: "center",
   },
-  successFooter: {
-    paddingTop: 10,
+  successBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
   },
 });

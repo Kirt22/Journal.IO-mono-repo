@@ -5,6 +5,7 @@ import {
   getUserAiAccessState,
   requestStructuredOpenAi,
 } from "../../helpers/openai.helpers";
+import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
 import {
   syncJournalCreatedInsights,
   syncJournalDeletedInsights,
@@ -74,9 +75,25 @@ const aiJournalTagJsonSchema = {
   },
 } satisfies Record<string, unknown>;
 const journalQuickAnalysisSchema = z.object({
-  headline: z.string().trim().min(1).max(90),
-  summary: z.string().trim().min(1).max(260),
-  nextStep: z.string().trim().min(1).max(180),
+  summary: z.object({
+    headline: z.string().trim().min(1).max(90),
+    narrative: z.string().trim().min(1).max(220),
+    highlight: z.string().trim().min(1).max(180),
+  }),
+  scorecard: z.object({
+    vibeLabel: z.string().trim().min(1).max(40),
+    vibeTone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+    cards: z
+      .array(
+        z.object({
+          key: z.enum(["words", "mood", "focus", "depth"]),
+          label: z.string().trim().min(1).max(20),
+          value: z.string().trim().min(1).max(28),
+          tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+        })
+      )
+      .length(4),
+  }),
   patternTags: z
     .array(
       z.object({
@@ -86,15 +103,81 @@ const journalQuickAnalysisSchema = z.object({
     )
     .min(1)
     .max(3),
+  signals: z.object({
+    whatStoodOut: z.object({
+      title: z.string().trim().min(1).max(60),
+      description: z.string().trim().min(1).max(180),
+      evidence: z.array(z.string().trim().min(1).max(40)).min(1).max(3),
+      tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+    }),
+    whatNeedsCare: z.object({
+      title: z.string().trim().min(1).max(60),
+      description: z.string().trim().min(1).max(180),
+      evidence: z.array(z.string().trim().min(1).max(40)).min(1).max(3),
+      tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+    }),
+    whatToCarryForward: z.object({
+      title: z.string().trim().min(1).max(60),
+      description: z.string().trim().min(1).max(180),
+      evidence: z.array(z.string().trim().min(1).max(40)).min(1).max(3),
+      tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+    }),
+  }),
+  nextStep: z.object({
+    title: z.string().trim().min(1).max(60),
+    description: z.string().trim().min(1).max(180),
+    focus: z.string().trim().min(1).max(36),
+  }),
 });
 const journalQuickAnalysisJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["headline", "summary", "nextStep", "patternTags"],
+  required: ["summary", "scorecard", "patternTags", "signals", "nextStep"],
   properties: {
-    headline: { type: "string" },
-    summary: { type: "string" },
-    nextStep: { type: "string" },
+    summary: {
+      type: "object",
+      additionalProperties: false,
+      required: ["headline", "narrative", "highlight"],
+      properties: {
+        headline: { type: "string" },
+        narrative: { type: "string" },
+        highlight: { type: "string" },
+      },
+    },
+    scorecard: {
+      type: "object",
+      additionalProperties: false,
+      required: ["vibeLabel", "vibeTone", "cards"],
+      properties: {
+        vibeLabel: { type: "string" },
+        vibeTone: {
+          type: "string",
+          enum: ["coral", "blue", "sage", "amber", "slate"],
+        },
+        cards: {
+          type: "array",
+          minItems: 4,
+          maxItems: 4,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["key", "label", "value", "tone"],
+            properties: {
+              key: {
+                type: "string",
+                enum: ["words", "mood", "focus", "depth"],
+              },
+              label: { type: "string" },
+              value: { type: "string" },
+              tone: {
+                type: "string",
+                enum: ["coral", "blue", "sage", "amber", "slate"],
+              },
+            },
+          },
+        },
+      },
+    },
     patternTags: {
       type: "array",
       minItems: 1,
@@ -110,6 +193,80 @@ const journalQuickAnalysisJsonSchema = {
             enum: ["coral", "blue", "sage", "amber", "slate"],
           },
         },
+      },
+    },
+    signals: {
+      type: "object",
+      additionalProperties: false,
+      required: ["whatStoodOut", "whatNeedsCare", "whatToCarryForward"],
+      properties: {
+        whatStoodOut: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "description", "evidence", "tone"],
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            evidence: {
+              type: "array",
+              minItems: 1,
+              maxItems: 3,
+              items: { type: "string" },
+            },
+            tone: {
+              type: "string",
+              enum: ["coral", "blue", "sage", "amber", "slate"],
+            },
+          },
+        },
+        whatNeedsCare: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "description", "evidence", "tone"],
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            evidence: {
+              type: "array",
+              minItems: 1,
+              maxItems: 3,
+              items: { type: "string" },
+            },
+            tone: {
+              type: "string",
+              enum: ["coral", "blue", "sage", "amber", "slate"],
+            },
+          },
+        },
+        whatToCarryForward: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "description", "evidence", "tone"],
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            evidence: {
+              type: "array",
+              minItems: 1,
+              maxItems: 3,
+              items: { type: "string" },
+            },
+            tone: {
+              type: "string",
+              enum: ["coral", "blue", "sage", "amber", "slate"],
+            },
+          },
+        },
+      },
+    },
+    nextStep: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "description", "focus"],
+      properties: {
+        title: { type: "string" },
+        description: { type: "string" },
+        focus: { type: "string" },
       },
     },
   },
@@ -220,6 +377,44 @@ const getVisibleJournalTags = (tags: string[]) =>
 
 const getQuickAnalysisTone = (tag: string): InsightTone =>
   quickAnalysisToneByTag[tag] || "blue";
+
+const getQuickAnalysisMoodLabel = (moodTag: string | null) =>
+  moodTag ? formatTagLabel(moodTag) : "Mixed";
+
+const getQuickAnalysisMoodTone = (moodTag: string | null): InsightTone => {
+  if (moodTag === "amazing" || moodTag === "good") {
+    return "sage";
+  }
+
+  if (moodTag === "bad" || moodTag === "terrible") {
+    return "slate";
+  }
+
+  return "blue";
+};
+
+const getQuickAnalysisDepthLabel = (wordCount: number) => {
+  if (wordCount >= 140) {
+    return "Deep unpack";
+  }
+
+  if (wordCount >= 70) {
+    return "Solid detail";
+  }
+
+  return "Quick note";
+};
+
+const getQuickAnalysisFirstSentence = (text: string) => {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const match = normalized.match(/^[^.?!]+[.?!]?/);
+  return (match?.[0] || normalized).trim();
+};
 
 const buildHeuristicJournalTagSuggestions = ({
   content,
@@ -355,68 +550,295 @@ const ensureQuickAnalysisAccess = async (userId: string) => {
 };
 
 const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnalysisResponse => {
-  const visibleTags = getVisibleJournalTags(journal.tags || []);
+  const textQuality = analyzeJournalTextQuality({
+    content: journal.content || "",
+    aiPrompt: journal.aiPrompt,
+  });
+  const analysisText = textQuality.analysisText || textQuality.strippedText;
+  const visibleTags = textQuality.lowSignalDetected
+    ? []
+    : getVisibleJournalTags(journal.tags || []);
   const moodTag = getMoodTag(journal.tags || []);
   const inferredTags = buildHeuristicJournalTagSuggestions({
-    content: journal.content || "",
+    content: analysisText,
     selectedTags: visibleTags,
   }).tags;
-  const patternTagKeys = [...visibleTags, ...inferredTags].filter(
-    (tag, index, allTags) => Boolean(tag) && allTags.indexOf(tag) === index
-  );
+  const patternTagKeys = textQuality.lowSignalDetected
+    ? []
+    : [...visibleTags, ...inferredTags].filter(
+        (tag, index, allTags) => Boolean(tag) && allTags.indexOf(tag) === index
+      );
   const primaryTag = patternTagKeys[0] || null;
+  const secondaryTag = patternTagKeys[1] || null;
   const primaryMoodLabel = moodTag ? formatTagLabel(moodTag) : null;
-  const wordCount = journal.content.trim().split(/\s+/).filter(Boolean).length;
-
-  let headline = "A reflective moment stood out here";
-  let summary =
-    "This entry reads like a personal check-in. The language may indicate you were trying to understand what felt most present in the moment.";
-  let nextStep =
-    "In your next entry, name what felt heavy, what helped, and what you need next.";
-
-  if (primaryTag && primaryMoodLabel) {
-    headline = `${formatTagLabel(primaryTag)} stood out in this ${primaryMoodLabel.toLowerCase()} check-in`;
-    summary = `This entry may indicate ${formatTagLabel(primaryTag).toLowerCase()} was closely tied to how you felt here. The writing suggests you were trying to make sense of that experience in real time.`;
-  } else if (primaryTag) {
-    headline = `${formatTagLabel(primaryTag)} stood out in this entry`;
-    summary = `This entry may indicate ${formatTagLabel(primaryTag).toLowerCase()} was the clearest thread in what you wrote. The language suggests it carried most of the emotional weight of this moment.`;
-  } else if (primaryMoodLabel) {
-    headline = `${primaryMoodLabel} energy came through clearly here`;
-    summary = `This entry reads like a ${primaryMoodLabel.toLowerCase()} check-in. The language may indicate you were naming the moment honestly, even if the bigger pattern is still unfolding.`;
-  }
-
-  if (visibleTags.includes("self-care") || visibleTags.includes("anxiety")) {
-    nextStep =
-      "In your next entry, note one small thing that helped you feel safer, steadier, or more supported.";
-  } else if (visibleTags.includes("work") || visibleTags.includes("goals")) {
-    nextStep =
-      "In your next entry, separate what felt in your control today from what can wait until later.";
-  } else if (visibleTags.includes("relationships")) {
-    nextStep =
-      "In your next entry, name one interaction that felt nourishing and one that felt draining.";
-  } else if (wordCount < 35) {
-    nextStep =
-      "Try adding a few more specifics next time about what happened, how it affected you, and what you needed.";
-  }
-
-  const patternTags = (patternTagKeys.length
-    ? patternTagKeys
-    : primaryMoodLabel
-      ? [primaryMoodLabel.toLowerCase()]
-      : ["reflection"]
+  const wordCount = textQuality.analysisWordCount;
+  const patternTags = (
+    textQuality.lowSignalDetected
+      ? [
+          textQuality.promptEchoDetected ? "prompt carryover" : "low signal",
+          ...(primaryMoodLabel ? [primaryMoodLabel.toLowerCase()] : []),
+        ]
+      : patternTagKeys.length
+        ? patternTagKeys
+        : primaryMoodLabel
+          ? [primaryMoodLabel.toLowerCase()]
+          : ["reflection"]
   )
     .slice(0, 3)
     .map(tag => ({
       label: formatTagLabel(tag),
-      tone: getQuickAnalysisTone(tag),
+      tone:
+        tag === "prompt carryover" || tag === "low signal"
+          ? "slate"
+          : getQuickAnalysisTone(tag),
     }));
+
+  const focusLabel = textQuality.lowSignalDetected
+    ? textQuality.promptEchoDetected
+      ? "Prompt carryover"
+      : "Low signal"
+    : primaryTag
+      ? formatTagLabel(primaryTag)
+      : "Reflection";
+  const moodLabel = getQuickAnalysisMoodLabel(moodTag);
+  const moodTone = getQuickAnalysisMoodTone(moodTag);
+  const depthLabel = textQuality.lowSignalDetected
+    ? "Hard to read"
+    : getQuickAnalysisDepthLabel(wordCount);
+  const vibeLabel = textQuality.lowSignalDetected
+    ? textQuality.promptEchoDetected
+      ? "Prompt-led note"
+      : "Unclear note"
+    : moodTag === "bad" || moodTag === "terrible"
+      ? "Heavy moment"
+      : moodTag === "amazing" || moodTag === "good"
+        ? "Steadier moment"
+        : wordCount >= 90
+          ? "Thoughtful unpack"
+          : "Quiet check-in";
+
+  let summaryHeadline = "A clear emotional thread showed up here";
+  let summaryNarrative =
+    "This entry reads like an honest check-in. The language may indicate you were trying to get closer to what felt most true in the moment.";
+  let summaryHighlight =
+    "The strongest signal here is the part of the entry you kept circling back to, not just the surface event itself.";
+
+  if (textQuality.lowSignalDetected) {
+    summaryHeadline = textQuality.promptEchoDetected
+      ? "This entry is still mostly prompt carryover"
+      : "This entry is still too unclear to read deeply";
+    summaryNarrative = textQuality.promptEchoDetected
+      ? "The saved text appears to lean more on the selected prompt or placeholder wording than on your own usable reflection, so this read stays intentionally light."
+      : "The saved text is too short or too noisy to support a deeper read yet, so Journal.IO is treating it as a low-signal note instead of forcing a bigger meaning onto it.";
+    summaryHighlight =
+      "A little more plain, specific language in your own words will make the next quick read much sharper.";
+  } else if (primaryTag && primaryMoodLabel) {
+    summaryHeadline = `${focusLabel} carried this ${primaryMoodLabel.toLowerCase()} moment`;
+    summaryNarrative = `This entry may indicate ${focusLabel.toLowerCase()} was closely tied to how the moment felt. You were not just logging the day, you were trying to make sense of it while it was still live.`;
+    summaryHighlight = `${focusLabel} looks like the clearest thread to keep tracking if this feeling or situation comes back.`;
+  } else if (primaryTag) {
+    summaryHeadline = `${focusLabel} kept pulling your attention`;
+    summaryNarrative = `This entry may indicate ${focusLabel.toLowerCase()} carried most of the emotional weight here. The writing suggests that was the part your mind kept returning to.`;
+    summaryHighlight = `${focusLabel} is probably the sharpest lens for understanding what this entry was really about.`;
+  } else if (primaryMoodLabel) {
+    summaryHeadline = `${primaryMoodLabel} energy came through clearly here`;
+    summaryNarrative = `This entry reads like a ${primaryMoodLabel.toLowerCase()} check-in. The language may indicate you were naming the moment honestly, even if the bigger pattern is still unfolding.`;
+    summaryHighlight = "The emotional tone is already clear enough here to build a useful next step from it.";
+  }
+
+  let nextStepTitle = "Name the need underneath it";
+  let nextStepDescription =
+    "In your next entry, name what felt heavy, what helped even a little, and what you needed more of.";
+  let nextStepFocus = "Clarity";
+
+  if (textQuality.lowSignalDetected) {
+    nextStepTitle = "Answer the prompt in one clean line";
+    nextStepDescription = textQuality.promptEchoDetected
+      ? "Keep the prompt if it helps, but add one direct sentence in your own words about what actually happened and how it landed."
+      : "Next time, add one clear sentence about what happened, one about how it felt, and one about what you needed right after.";
+    nextStepFocus = "Specificity";
+  } else if (visibleTags.includes("self-care") || visibleTags.includes("anxiety")) {
+    nextStepTitle = "Track what steadied you";
+    nextStepDescription =
+      "Next time, note one small thing that helped you feel safer, steadier, or more supported so the pattern is easier to reuse.";
+    nextStepFocus = "Support";
+  } else if (visibleTags.includes("work") || visibleTags.includes("goals")) {
+    nextStepTitle = "Separate pressure from control";
+    nextStepDescription =
+      "In your next entry, split what felt in your control today from what can wait. That usually lowers the mental pile-up fast.";
+    nextStepFocus = "Work Stress";
+  } else if (visibleTags.includes("relationships")) {
+    nextStepTitle = "Map the interaction more clearly";
+    nextStepDescription =
+      "In your next entry, name one interaction that felt nourishing and one that felt draining so the social pattern gets easier to read.";
+    nextStepFocus = "Relationships";
+  } else if (wordCount < 35) {
+    nextStepTitle = "Add one layer more detail";
+    nextStepDescription =
+      "Next time, add one extra line about what happened, how it landed in you, and what you needed right after.";
+    nextStepFocus = "Specificity";
+  }
+
+  const whatStoodOut = textQuality.lowSignalDetected
+    ? {
+        title: textQuality.promptEchoDetected
+          ? "The prompt is louder than the reflection"
+          : "There is not enough clean language yet",
+        description: textQuality.promptEchoDetected
+          ? "Most of the usable text still looks shaped by the prompt itself, so the strongest signal here is that the entry needs more of your own wording."
+          : "The entry does not hold enough grounded detail yet for Journal.IO to treat it like a strong emotional or topic signal.",
+        evidence: [
+          textQuality.promptEchoDetected ? "Prompt echo detected" : "Low-signal text",
+          `${wordCount} usable words`,
+        ],
+        tone: "slate" as const,
+      }
+    : {
+        title: primaryTag
+          ? `${focusLabel} was the clearest signal`
+          : "The emotional tone was the clearest signal",
+        description: primaryTag
+          ? `This entry may indicate ${focusLabel.toLowerCase()} carried most of the meaning in the moment, not just the background context around it.`
+          : "Even without a single dominant theme, the entry still gives a readable emotional signal to work with.",
+        evidence: [
+          focusLabel,
+          secondaryTag ? formatTagLabel(secondaryTag) : moodLabel,
+        ].filter(Boolean),
+        tone: primaryTag ? getQuickAnalysisTone(primaryTag) : moodTone,
+      };
+
+  const whatNeedsCare = (
+    textQuality.lowSignalDetected
+      ? {
+          title: "This one needs a clearer pass",
+          description: textQuality.promptEchoDetected
+            ? "Prompt carryover or filler text is making the entry hard to read, so any deeper interpretation would risk overreaching."
+            : "The wording is too thin or too noisy right now, so the useful next move is clarity rather than a bigger interpretation.",
+          evidence: [
+            textQuality.promptEchoDetected ? "Prompt carryover" : "Low-signal note",
+            depthLabel,
+          ],
+          tone: "slate" as const,
+        }
+      : {
+          title:
+            moodTag === "bad" || moodTag === "terrible"
+              ? "This moment deserves a softer read"
+              : visibleTags.includes("work")
+                ? "Pressure looked close to the surface"
+                : "There may be a subtle friction point here",
+          description:
+            moodTag === "bad" || moodTag === "terrible"
+              ? "The entry carries enough strain that it makes sense to treat this as a real stress moment, not something to brush past."
+              : visibleTags.includes("work") || visibleTags.includes("goals")
+                ? "The writing suggests responsibility or pressure may have been crowding the page a bit."
+                : "Nothing looks extreme here, but there is still a useful tension point to notice before it turns repetitive.",
+          evidence: [
+            moodLabel,
+            visibleTags.includes("work")
+              ? "Work"
+              : visibleTags.includes("self-care")
+                ? "Self Care"
+                : depthLabel,
+          ],
+          tone:
+            moodTag === "bad" || moodTag === "terrible"
+              ? "slate"
+              : visibleTags.includes("work") || visibleTags.includes("goals")
+                ? "amber"
+                : "blue",
+        }
+  ) satisfies JournalQuickAnalysisResponse["signals"]["whatNeedsCare"];
+
+  const whatToCarryForward = (
+    textQuality.lowSignalDetected
+      ? {
+          title: "A clearer note will unlock more here",
+          description:
+            "The useful move is not a deeper label right now. It is one cleaner pass in your own words so the next reflection has something solid to work with.",
+          evidence: [
+            textQuality.promptEchoDetected ? "Use your own wording" : "Add concrete detail",
+            "Specificity",
+          ],
+          tone: "coral" as const,
+        }
+      : {
+          title:
+            visibleTags.includes("gratitude") || visibleTags.includes("growth")
+              ? "There is something useful to keep"
+              : "The honesty itself is worth carrying forward",
+          description:
+            visibleTags.includes("gratitude") || visibleTags.includes("growth")
+              ? "The entry does not just flag friction. It also shows a thread that could help you build the next reflection with a little more steadiness."
+              : "You already named this moment clearly enough to work with. That kind of directness is what makes the next entry more useful, too.",
+          evidence: [
+            depthLabel,
+            primaryTag ? focusLabel : "Reflection",
+          ],
+          tone:
+            visibleTags.includes("gratitude") || visibleTags.includes("growth")
+              ? "sage"
+              : "coral",
+        }
+  ) satisfies JournalQuickAnalysisResponse["signals"]["whatToCarryForward"];
 
   return {
     journalId: journal._id.toString(),
-    headline,
-    summary,
+    summary: {
+      headline: summaryHeadline,
+      narrative: summaryNarrative,
+      highlight: summaryHighlight,
+    },
+    scorecard: {
+      vibeLabel,
+      vibeTone:
+        moodTag === "bad" || moodTag === "terrible"
+          ? "slate"
+          : moodTag === "amazing" || moodTag === "good"
+            ? "sage"
+            : "blue",
+      cards: [
+        {
+          key: "words",
+          label: "Words",
+          value: `${wordCount}`,
+          tone: "blue",
+        },
+        {
+          key: "mood",
+          label: "Mood",
+          value: moodLabel,
+          tone: moodTone,
+        },
+        {
+          key: "focus",
+          label: "Focus",
+          value: focusLabel,
+          tone: textQuality.lowSignalDetected
+            ? "slate"
+            : primaryTag
+              ? getQuickAnalysisTone(primaryTag)
+              : "coral",
+        },
+        {
+          key: "depth",
+          label: "Depth",
+          value: depthLabel,
+          tone: textQuality.lowSignalDetected ? "slate" : wordCount >= 70 ? "sage" : "amber",
+        },
+      ],
+    },
     patternTags,
-    nextStep,
+    signals: {
+      whatStoodOut,
+      whatNeedsCare,
+      whatToCarryForward,
+    },
+    nextStep: {
+      title: nextStepTitle,
+      description: nextStepDescription,
+      focus: nextStepFocus,
+    },
     generatedAt: new Date().toISOString(),
   };
 };
@@ -430,7 +852,16 @@ const generateOpenAiJournalQuickAnalysis = async ({
   journal: IJournal;
   baseline: JournalQuickAnalysisResponse;
 }) => {
-  if (!(await canUseOpenAiForUser(userId)) || journal.content.trim().length < 24) {
+  const textQuality = analyzeJournalTextQuality({
+    content: journal.content,
+    aiPrompt: journal.aiPrompt,
+  });
+
+  if (
+    !(await canUseOpenAiForUser(userId)) ||
+    textQuality.lowSignalDetected ||
+    textQuality.analysisText.length < 24
+  ) {
     return null;
   }
 
@@ -444,7 +875,7 @@ const generateOpenAiJournalQuickAnalysis = async ({
       {
         role: "system",
         content:
-          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in the single entry only. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card.",
+          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in the single entry only. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card. Use a warm, sharp, soft Gen Z psychologist tone: modern and emotionally aware, but not slang-heavy. Prefer signals, friction points, and useful next steps over personality labels.",
       },
       {
         role: "user",
@@ -453,7 +884,7 @@ const generateOpenAiJournalQuickAnalysis = async ({
           type: journal.type,
           moodTag: getMoodTag(journal.tags || []),
           tags: getVisibleJournalTags(journal.tags || []),
-          entry: journal.content.trim().slice(0, 1200),
+          entry: textQuality.analysisText.trim().slice(0, 1200),
           baseline,
         }),
       },
@@ -717,9 +1148,10 @@ const getJournalQuickAnalysis = async ({
 
   return {
     journalId: journal._id.toString(),
-    headline: aiAnalysis.headline,
     summary: aiAnalysis.summary,
+    scorecard: aiAnalysis.scorecard,
     patternTags: aiAnalysis.patternTags,
+    signals: aiAnalysis.signals,
     nextStep: aiAnalysis.nextStep,
     generatedAt: new Date().toISOString(),
   };

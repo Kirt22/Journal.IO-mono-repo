@@ -13,6 +13,7 @@ import {
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import PaywallScreen from "../screens/profile/PaywallScreen";
+import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
 import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
@@ -31,6 +32,7 @@ type AppFlowRoutesProps = {
   pendingNewEntryPrompt: string | null;
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
   onContinueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  onContinueFromDiscountOffer: () => void;
   onContinueFromLifetimeOffer: () => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
@@ -64,6 +66,7 @@ export function AppFlowRoutes({
   pendingNewEntryPrompt,
   onOnboardingContinue,
   onContinueFromPaywall,
+  onContinueFromDiscountOffer,
   onContinueFromLifetimeOffer,
   onContinueWithEmail,
   onContinueWithGoogle,
@@ -104,6 +107,8 @@ export function AppFlowRoutes({
       );
     case "paywall":
       return <PaywallScreen onBack={onContinueFromPaywall} />;
+    case "discount-offer":
+      return <DiscountOfferPaywallScreen onBack={onContinueFromDiscountOffer} />;
     case "lifetime-offer":
       return <LifetimeOfferPaywallScreen onBack={onContinueFromLifetimeOffer} />;
     case "sign-in":

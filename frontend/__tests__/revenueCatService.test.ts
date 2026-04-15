@@ -115,6 +115,10 @@ describe("revenueCatService", () => {
   });
 
   it("returns a setup error when no RevenueCat public key is configured", async () => {
+    const { env } = require("../src/config/env");
+    env.revenueCatIosApiKey = null;
+    env.revenueCatAndroidApiKey = null;
+
     const { getRevenueCatConfigurationError } = require(
       "../src/services/revenueCatService"
     );
@@ -204,6 +208,14 @@ describe("revenueCatService", () => {
                 product: {
                   priceString: "$4.99",
                   pricePerMonthString: null,
+                  introPrice: {
+                    price: 0,
+                    priceString: "$0.00",
+                    cycles: 1,
+                    period: "P7D",
+                    periodUnit: "DAY",
+                    periodNumberOfUnits: 7,
+                  },
                   title: "Weekly Premium",
                 },
               },
@@ -232,6 +244,14 @@ describe("revenueCatService", () => {
               product: {
                 priceString: "$4.99",
                 pricePerMonthString: null,
+                introPrice: {
+                  price: 0,
+                  priceString: "$0.00",
+                  cycles: 1,
+                  period: "P7D",
+                  periodUnit: "DAY",
+                  periodNumberOfUnits: 7,
+                },
                 title: "Weekly Premium",
               },
             },
@@ -248,7 +268,7 @@ describe("revenueCatService", () => {
         {
           key: "weekly",
           title: "WEEKLY",
-          price: "$4.99",
+          price: "$7.99",
           priceSuffix: "/week",
           subtitle: "Flexible access",
           badge: null,
@@ -279,7 +299,308 @@ describe("revenueCatService", () => {
     expect(plans).toHaveLength(2);
     expect(plans.map((plan: any) => plan.id)).toEqual(["weekly", "yearly"]);
     expect(plans[0]?.rcPackage?.identifier).toBe("$rc_weekly");
+    expect(plans[0]?.price).toBe("$4.99/week");
+    expect(plans[0]?.introOffer).toMatchObject({
+      isFreeTrial: true,
+      durationLabel: "7 days",
+    });
     expect(plans[1]?.rcPackage?.identifier).toBe("$rc_annual");
+  });
+
+  it("picks the cheapest annual package for the exit-offer yearly plan across offerings", async () => {
+    const { getRevenueCatPaywallPlans, getRevenueCatPackagesForPlanKey } = require(
+      "../src/services/revenueCatService"
+    );
+
+    const offerings = {
+      current: {
+        identifier: "journalio_offering_dev",
+        serverDescription: "Default offering",
+        metadata: {},
+        availablePackages: [
+          {
+            identifier: "$rc_annual",
+            packageType: "ANNUAL",
+            product: {
+              priceString: "$59.99",
+              pricePerMonthString: "$5.00",
+              title: "Yearly Premium",
+            },
+          },
+        ],
+        annual: {
+          identifier: "$rc_annual",
+          packageType: "ANNUAL",
+          product: {
+            priceString: "$59.99",
+            pricePerMonthString: "$5.00",
+            title: "Yearly Premium",
+          },
+        },
+        weekly: null,
+        monthly: null,
+        twoMonth: null,
+        threeMonth: null,
+        sixMonth: null,
+        lifetime: null,
+        webCheckoutUrl: null,
+      },
+      all: {
+        journalio_offering_dev: {
+          identifier: "journalio_offering_dev",
+          serverDescription: "Default offering",
+          metadata: {},
+          availablePackages: [
+            {
+              identifier: "$rc_annual",
+              packageType: "ANNUAL",
+              product: {
+                priceString: "$59.99",
+                pricePerMonthString: "$5.00",
+                title: "Yearly Premium",
+              },
+            },
+          ],
+          annual: {
+            identifier: "$rc_annual",
+            packageType: "ANNUAL",
+            product: {
+              priceString: "$59.99",
+              pricePerMonthString: "$5.00",
+              title: "Yearly Premium",
+            },
+          },
+          weekly: null,
+          monthly: null,
+          twoMonth: null,
+          threeMonth: null,
+          sixMonth: null,
+          lifetime: null,
+          webCheckoutUrl: null,
+        },
+        journalio_exit_offer_dev: {
+          identifier: "journalio_exit_offer_dev",
+          serverDescription: "Exit offer",
+          metadata: {},
+          availablePackages: [
+            {
+              identifier: "$rc_annual",
+              packageType: "ANNUAL",
+              product: {
+                priceString: "$29.99",
+                pricePerMonthString: "$2.50",
+                title: "Yearly Premium",
+              },
+            },
+          ],
+          annual: {
+            identifier: "$rc_annual",
+            packageType: "ANNUAL",
+            product: {
+              priceString: "$29.99",
+              pricePerMonthString: "$2.50",
+              title: "Yearly Premium",
+            },
+          },
+          weekly: null,
+          monthly: null,
+          twoMonth: null,
+          threeMonth: null,
+          sixMonth: null,
+          lifetime: null,
+          webCheckoutUrl: null,
+        },
+      },
+    } as any;
+
+    const plans = getRevenueCatPaywallPlans(offerings, [
+      {
+        key: "yearly_exit_offer",
+        title: "YEARLY",
+        price: "$29.99",
+        priceSuffix: "/year",
+        subtitle: "Discounted yearly access",
+        badge: "Limited Time",
+        highlight: "$2.50/month",
+        sortOrder: 1,
+        revenueCatOfferingId: null,
+        revenueCatPackageId: "$rc_annual",
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+      },
+    ]);
+
+    const annualPackages = getRevenueCatPackagesForPlanKey(offerings, "annual");
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0]?.planKey).toBe("annual");
+    expect(plans[0]?.durationLabel).toBe("$29.99");
+    expect(plans[0]?.rcPackage?.product.priceString).toBe("$29.99");
+    expect(annualPackages.map((pkg: any) => pkg.product.priceString)).toEqual([
+      "$29.99",
+      "$59.99",
+    ]);
+  });
+
+  it("prefers the annual package whose live price matches the configured exit-offer price", async () => {
+    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
+
+    const plans = getRevenueCatPaywallPlans(
+      {
+        current: null,
+        all: {
+          journalio_offering_dev: {
+            identifier: "journalio_offering_dev",
+            serverDescription: "Default offering",
+            metadata: {},
+            availablePackages: [
+              {
+                identifier: "$rc_annual",
+                packageType: "ANNUAL",
+                product: {
+                  priceString: "$59.99",
+                  pricePerMonthString: "$5.00",
+                  title: "Yearly Premium",
+                },
+              },
+            ],
+            annual: {
+              identifier: "$rc_annual",
+              packageType: "ANNUAL",
+              product: {
+                priceString: "$59.99",
+                pricePerMonthString: "$5.00",
+                title: "Yearly Premium",
+              },
+            },
+            weekly: null,
+            monthly: null,
+            twoMonth: null,
+            threeMonth: null,
+            sixMonth: null,
+            lifetime: null,
+            webCheckoutUrl: null,
+          },
+          journalio_exit_offer_dev: {
+            identifier: "journalio_exit_offer_dev",
+            serverDescription: "Exit offer",
+            metadata: {},
+            availablePackages: [
+              {
+                identifier: "discounted_annual",
+                packageType: "ANNUAL",
+                product: {
+                  priceString: "$29.99",
+                  pricePerMonthString: "$2.50",
+                  title: "Yearly Premium",
+                },
+              },
+            ],
+            annual: {
+              identifier: "discounted_annual",
+              packageType: "ANNUAL",
+              product: {
+                priceString: "$29.99",
+                pricePerMonthString: "$2.50",
+                title: "Yearly Premium",
+              },
+            },
+            weekly: null,
+            monthly: null,
+            twoMonth: null,
+            threeMonth: null,
+            sixMonth: null,
+            lifetime: null,
+            webCheckoutUrl: null,
+          },
+        },
+      } as any,
+      [
+        {
+          key: "yearly_exit_offer",
+          title: "YEARLY",
+          price: "$29.99",
+          priceSuffix: "/year",
+          subtitle: "Discounted yearly access",
+          badge: "Limited Time",
+          highlight: "$2.50/month",
+          sortOrder: 1,
+          revenueCatOfferingId: null,
+          revenueCatPackageId: "$rc_annual",
+          purchasedUsersCount: 0,
+          purchaseLimit: null,
+        },
+      ]
+    );
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0]?.durationLabel).toBe("$29.99");
+    expect(plans[0]?.rcPackage?.identifier).toBe("discounted_annual");
+  });
+
+  it("resolves package metadata for a plan key from the current offering", async () => {
+    const { getRevenueCatPackageMetadataForPlanKey } = require(
+      "../src/services/revenueCatService"
+    );
+
+    const metadata = getRevenueCatPackageMetadataForPlanKey(
+      {
+        current: {
+          identifier: "journalio_offering_dev",
+          serverDescription: "Journal.IO Offering Dev",
+          metadata: {},
+          availablePackages: [
+            {
+              identifier: "$rc_weekly",
+              packageType: "WEEKLY",
+              product: {
+                identifier: "journal.weekly",
+                priceString: "$4.99",
+                pricePerMonthString: null,
+                presentedOfferingContext: {
+                  offeringIdentifier: "journalio_offering_dev",
+                },
+                title: "Weekly Premium",
+              },
+              presentedOfferingContext: {
+                offeringIdentifier: "journalio_offering_dev",
+              },
+            },
+          ],
+          annual: null,
+          weekly: {
+            identifier: "$rc_weekly",
+            packageType: "WEEKLY",
+            product: {
+              identifier: "journal.weekly",
+              priceString: "$4.99",
+              pricePerMonthString: null,
+              presentedOfferingContext: {
+                offeringIdentifier: "journalio_offering_dev",
+              },
+              title: "Weekly Premium",
+            },
+            presentedOfferingContext: {
+              offeringIdentifier: "journalio_offering_dev",
+            },
+          },
+          monthly: null,
+          twoMonth: null,
+          threeMonth: null,
+          sixMonth: null,
+          lifetime: null,
+          webCheckoutUrl: null,
+        },
+        all: {},
+      } as any,
+      "weekly"
+    );
+
+    expect(metadata).toMatchObject({
+      planKey: "weekly",
+      revenueCatOfferingId: "journalio_offering_dev",
+      revenueCatPackageId: "$rc_weekly",
+    });
   });
 
   it("keeps Mongo-driven pricing cards visible when RevenueCat package matching is missing", async () => {

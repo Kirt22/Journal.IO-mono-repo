@@ -139,11 +139,11 @@ const DEFAULT_OFFERINGS: Array<
   {
     key: "yearly",
     title: "YEARLY",
-    price: "$99.99",
+    price: "$59.99",
     priceSuffix: "/year",
     subtitle: "Best for steady journaling",
     badge: "Most Value",
-    highlight: "$8.33/month",
+    highlight: "$5.00/month",
     enabled: true,
     sortOrder: 3,
     revenueCatOfferingId: "journalio_offering_dev",
@@ -151,15 +151,29 @@ const DEFAULT_OFFERINGS: Array<
     purchaseLimit: null,
   },
   {
+    key: "yearly_exit_offer",
+    title: "YEARLY",
+    price: "$29.99",
+    priceSuffix: "/year",
+    subtitle: "Discounted yearly access",
+    badge: "Limited Time",
+    highlight: "$2.50/month",
+    enabled: true,
+    sortOrder: 4,
+    revenueCatOfferingId: null,
+    revenueCatPackageId: "$rc_annual",
+    purchaseLimit: null,
+  },
+  {
     key: "lifetime",
     title: "LIFETIME",
-    price: "$200",
+    price: "$149.99",
     priceSuffix: " one-time",
     subtitle: "One-time unlock",
     badge: "One time offer",
     highlight: "First 100 users",
     enabled: true,
-    sortOrder: 4,
+    sortOrder: 5,
     revenueCatOfferingId: "journalio_offering_dev",
     revenueCatPackageId: "$rc_lifetime",
     purchaseLimit: 100,
@@ -330,6 +344,81 @@ const DEFAULT_TEMPLATES: Array<
     ],
   },
   {
+    key: "post-auth-trial",
+    title: "Choose your premium path",
+    headline: "Start with a weekly plan or choose the longer yearly path up front.",
+    subheadline:
+      "Post-auth premium introduces the weekly plan first, while yearly stays available with the store-backed trial path when eligible.",
+    heroBadgeLabel: "Free trial available",
+    purchaseChipTitle: null,
+    purchaseChipBody: null,
+    featureCarouselTitle: null,
+    socialProofLine: null,
+    footerLegal:
+      "Yearly trial eligibility is confirmed by the store at checkout. Weekly does not include a trial.",
+    featureList: [
+      {
+        title: "Start with the weekly plan",
+        body: "Guide new users through the lighter premium path first, while yearly remains available for people who want the longer commitment.",
+        footer: "Weekly stays free of trial language.",
+      },
+      {
+        title: "Keep the messaging calmer before pricing",
+        body: "The mobile flow can lead with a free-trial explanation and reminder reassurance before the actual pricing choice appears.",
+        footer: "A softer post-auth upsell sequence.",
+      },
+      {
+        title: "Weekly and yearly only",
+        body: "This template is reserved for the post-auth paywall and renders only the weekly and yearly pricing cards from backend offering metadata.",
+        footer: "Contextual locked-feature paywalls can keep their simpler monthly flow.",
+      },
+    ],
+    primaryOfferingKey: "weekly",
+    secondaryOfferingKeys: ["yearly"],
+    visibleOfferingKeys: ["weekly", "yearly"],
+    enabled: true,
+    fallbackTemplateKey: "weekly-standard",
+    showIfOfferingKeysAvailable: ["weekly", "yearly"],
+    placementKeys: ["post_auth"],
+  },
+  {
+    key: "post-auth-exit-offer",
+    title: "Keep the yearly premium path open",
+    headline: "Before you continue, the yearly plan is still available with the trial path if the store allows it.",
+    subheadline: "A dedicated post-auth exit offer that keeps the focus on the yearly premium option only.",
+    heroBadgeLabel: "Exit offer",
+    purchaseChipTitle: null,
+    purchaseChipBody: null,
+    featureCarouselTitle: null,
+    socialProofLine: null,
+    footerLegal:
+      "Yearly trial eligibility is still confirmed by the store at checkout.",
+    featureList: [
+      {
+        title: "One quieter exit step",
+        body: "If the user dismisses the main post-auth paywall, this template keeps a final yearly offer available before they continue into the app.",
+        footer: "The screen is reserved for the post-auth exit flow only.",
+      },
+      {
+        title: "Yearly only",
+        body: "This template renders only the yearly premium card, so the exit offer stays focused instead of reopening the full plan comparison.",
+        footer: "A simpler follow-up surface after dismissal.",
+      },
+      {
+        title: "Still store-backed and truthful",
+        body: "The app should render the live RevenueCat package price and any real introductory trial details returned by the store.",
+        footer: "No fabricated discount copy outside the configured offer metadata.",
+      },
+    ],
+    primaryOfferingKey: "yearly_exit_offer",
+    secondaryOfferingKeys: [],
+    visibleOfferingKeys: ["yearly_exit_offer"],
+    enabled: true,
+    fallbackTemplateKey: "weekly-standard",
+    showIfOfferingKeysAvailable: ["yearly_exit_offer"],
+    placementKeys: ["post_auth_exit_offer"],
+  },
+  {
     key: "lifetime-launch",
     title: "Lifetime Offer",
     headline: "A one-time unlock for the first 100 Journal.IO members.",
@@ -401,8 +490,16 @@ const DEFAULT_CONFIG: Pick<
   placements: [
     {
       key: "post_auth",
-      templateKey: "weekly-standard",
+      templateKey: "post-auth-trial",
       fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
+      key: "post_auth_exit_offer",
+      templateKey: "post-auth-exit-offer",
+      fallbackTemplateKey: "weekly-standard",
       enabled: true,
       interruptiveEnabled: false,
       interruptiveTemplateKey: null,
@@ -510,6 +607,11 @@ const normalizeActiveTemplateKey = (
   return LEGACY_TEMPLATE_KEYS.has(key) ? "weekly-standard" : key;
 };
 
+const getMembershipPlanKeyFromOfferingKey = (
+  offeringKey: PaywallOfferingKey
+): "weekly" | "monthly" | "yearly" | "lifetime" =>
+  offeringKey === "yearly_exit_offer" ? "yearly" : offeringKey;
+
 const ensureDefaultPaywallSetup = async () => {
   await Promise.all(
     DEFAULT_OFFERINGS.map(async offering => {
@@ -523,12 +625,14 @@ const ensureDefaultPaywallSetup = async () => {
         weekly: ["weekly_standard"],
         monthly: ["monthly_standard"],
         yearly: ["yearly_commitment"],
+        yearly_exit_offer: [],
         lifetime: ["lifetime_launch"],
       };
       const legacyPricesByKey: Record<PaywallOfferingKey, string[]> = {
         weekly: ["$7.99"],
         monthly: ["$14.99"],
         yearly: ["$59.99"],
+        yearly_exit_offer: [],
         lifetime: ["$99.99", "$250"],
       };
 
@@ -662,6 +766,60 @@ const ensureDefaultPaywallSetup = async () => {
         );
       }
 
+      if (template.key === "post-auth-trial") {
+        await paywallTemplateModel.updateOne(
+          { key: "post-auth-trial" },
+          {
+            $set: {
+              title: template.title,
+              headline: template.headline,
+              subheadline: template.subheadline,
+              heroBadgeLabel: template.heroBadgeLabel,
+              purchaseChipTitle: template.purchaseChipTitle,
+              purchaseChipBody: template.purchaseChipBody,
+              featureCarouselTitle: template.featureCarouselTitle,
+              socialProofLine: template.socialProofLine,
+              footerLegal: template.footerLegal,
+              featureList: template.featureList,
+              primaryOfferingKey: "weekly",
+              secondaryOfferingKeys: ["yearly"],
+              visibleOfferingKeys: ["weekly", "yearly"],
+              fallbackTemplateKey: "weekly-standard",
+              showIfOfferingKeysAvailable: ["weekly", "yearly"],
+              placementKeys: template.placementKeys,
+              enabled: true,
+            },
+          }
+        );
+      }
+
+      if (template.key === "post-auth-exit-offer") {
+        await paywallTemplateModel.updateOne(
+          { key: template.key },
+          {
+            $set: {
+              title: template.title,
+              headline: template.headline,
+              subheadline: template.subheadline,
+              heroBadgeLabel: template.heroBadgeLabel,
+              purchaseChipTitle: template.purchaseChipTitle,
+              purchaseChipBody: template.purchaseChipBody,
+              featureCarouselTitle: template.featureCarouselTitle,
+              socialProofLine: template.socialProofLine,
+              footerLegal: template.footerLegal,
+              featureList: template.featureList,
+              primaryOfferingKey: "yearly_exit_offer",
+              secondaryOfferingKeys: [],
+              visibleOfferingKeys: ["yearly_exit_offer"],
+              fallbackTemplateKey: template.fallbackTemplateKey,
+              showIfOfferingKeysAvailable: ["yearly_exit_offer"],
+              placementKeys: template.placementKeys,
+              enabled: template.enabled,
+            },
+          }
+        );
+      }
+
       if (template.key === "monthly-standard" || template.key === "yearly-commitment") {
         await paywallTemplateModel.updateOne(
           { key: template.key },
@@ -721,10 +879,29 @@ const ensureDefaultPaywallSetup = async () => {
       { key: DEFAULT_CONFIG.key, "placements.key": "post_auth" },
       {
         $set: {
-          "placements.$.templateKey": "weekly-standard",
+          "placements.$.templateKey": "post-auth-trial",
           "placements.$.fallbackTemplateKey": null,
           "placements.$.interruptiveEnabled": false,
           "placements.$.interruptiveTemplateKey": null,
+        },
+      }
+    );
+
+    await paywallConfigModel.updateOne(
+      {
+        key: DEFAULT_CONFIG.key,
+        placements: { $not: { $elemMatch: { key: "post_auth_exit_offer" } } },
+      },
+      {
+        $push: {
+          placements: {
+            key: "post_auth_exit_offer",
+            templateKey: "post-auth-exit-offer",
+            fallbackTemplateKey: "weekly-standard",
+            enabled: true,
+            interruptiveEnabled: false,
+            interruptiveTemplateKey: null,
+          },
         },
       }
     );
@@ -1184,7 +1361,7 @@ const syncPaywallPurchase = async (
   const now = new Date();
   const premiumUpdate = {
     isPremium: true,
-    premiumPlanKey: input.offeringKey,
+    premiumPlanKey: getMembershipPlanKeyFromOfferingKey(input.offeringKey),
     premiumActivatedAt: now,
     premiumSource: "revenuecat_client_sync",
   };

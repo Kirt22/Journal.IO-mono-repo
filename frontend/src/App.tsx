@@ -1,12 +1,12 @@
 import { type ComponentProps, useEffect } from "react";
 import { StatusBar, StyleSheet, View } from "react-native";
-import Purchases, { type CustomerInfo } from "react-native-purchases";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppFlowRoutes } from "./navigation/routes";
 import ScreenTransitionHost from "./components/ScreenTransition";
 import {
-  getRevenueCatCustomerInfo,
-  hasRevenueCatPremiumAccess,
+  addRevenueCatCustomerInfoUpdateListener,
+  hasPremiumAccess,
+  refreshRevenueCatEntitlementState,
   syncRevenueCatIdentity,
 } from "./services/revenueCatService";
 import { ThemeProvider, useTheme } from "./theme/provider";
@@ -36,6 +36,9 @@ function AppContent() {
   const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
   const continueWithEmail = useAppStore(state => state.continueWithEmail);
   const continueFromPaywall = useAppStore(state => state.continueFromPaywall);
+  const continueFromDiscountOffer = useAppStore(
+    state => state.continueFromDiscountOffer
+  );
   const continueFromLifetimeOffer = useAppStore(
     state => state.continueFromLifetimeOffer
   );
@@ -79,6 +82,7 @@ function AppContent() {
     pendingNewEntryPrompt,
     onOnboardingContinue: completeOnboarding,
     onContinueFromPaywall: continueFromPaywall,
+    onContinueFromDiscountOffer: continueFromDiscountOffer,
     onContinueFromLifetimeOffer: continueFromLifetimeOffer,
     onContinueWithEmail: continueWithEmail,
     onContinueWithGoogle: continueWithGoogle,
@@ -108,20 +112,20 @@ function AppContent() {
     const appUserId = session?.user.userId ?? null;
     const sessionPremiumStatus = Boolean(session?.user.isPremium);
     let isMounted = true;
-    let customerInfoListener: ((customerInfo: CustomerInfo) => void) | null = null;
+    let removeCustomerInfoListener: (() => void) | null = null;
 
-    const syncPremiumFromCustomerInfo = async (customerInfo: CustomerInfo | null) => {
-      if (!isMounted || !appUserId || !customerInfo) {
+    const syncPremiumFromCustomerInfo = async (
+      nextPremiumStatus: boolean | null
+    ) => {
+      if (!isMounted || !appUserId) {
         return;
       }
 
-      const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
-
-      if (hasPremiumAccess === sessionPremiumStatus) {
+      if (nextPremiumStatus === null || nextPremiumStatus === sessionPremiumStatus) {
         return;
       }
 
-      await setSessionPremiumStatus(hasPremiumAccess);
+      await setSessionPremiumStatus(nextPremiumStatus);
     };
 
     const setupRevenueCat = async () => {
@@ -131,14 +135,16 @@ function AppContent() {
         return;
       }
 
-      const customerInfo = await getRevenueCatCustomerInfo(appUserId);
-      await syncPremiumFromCustomerInfo(customerInfo);
+      const entitlementState = await refreshRevenueCatEntitlementState(appUserId);
+      await syncPremiumFromCustomerInfo(entitlementState.hasPremiumAccess);
 
-      customerInfoListener = nextCustomerInfo => {
-        syncPremiumFromCustomerInfo(nextCustomerInfo).catch(() => undefined);
-      };
-
-      Purchases.addCustomerInfoUpdateListener(customerInfoListener);
+      removeCustomerInfoListener = addRevenueCatCustomerInfoUpdateListener(
+        nextCustomerInfo => {
+          syncPremiumFromCustomerInfo(hasPremiumAccess(nextCustomerInfo)).catch(
+            () => undefined
+          );
+        }
+      );
     };
 
     setupRevenueCat().catch(() => undefined);
@@ -146,9 +152,7 @@ function AppContent() {
     return () => {
       isMounted = false;
 
-      if (customerInfoListener) {
-        Purchases.removeCustomerInfoUpdateListener(customerInfoListener);
-      }
+      removeCustomerInfoListener?.();
     };
   }, [session?.user.userId, session?.user.isPremium, setSessionPremiumStatus]);
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   KeyboardAvoidingView,
@@ -19,7 +20,6 @@ import {
   Heart,
   Image as ImageIcon,
   Lock,
-  Loader2,
   Mic,
   Save,
   Search,
@@ -42,7 +42,10 @@ import {
   type WritingPrompt,
 } from "../services/promptsService";
 import { getPrimaryDailyReminder } from "../services/remindersService";
-import { syncReminderNotifications } from "../services/reminderNotificationsService";
+import {
+  cancelWeeklyInsightNotifications,
+  syncReminderNotifications,
+} from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import { ApiError } from "../utils/apiClient";
@@ -488,6 +491,7 @@ export default function NewEntryScreen({
 
       addRecentJournalEntry(savedEntry);
       await maybeSkipTodaysReminder();
+      await cancelWeeklyInsightNotifications();
 
       if (__DEV__) {
         console.log("[NewEntryScreen] Recent entry stored locally", {
@@ -751,7 +755,11 @@ export default function NewEntryScreen({
               ]}
             >
               {isSaving ? (
-                <Loader2 size={14} color={theme.colors.primary} />
+                <ActivityIndicator
+                  accessibilityLabel="Saving entry"
+                  color={theme.colors.primary}
+                  size="small"
+                />
               ) : (
                 <Save size={14} color={theme.colors.primary} />
               )}
@@ -869,7 +877,11 @@ export default function NewEntryScreen({
                           },
                         ]}
                       >
-                        <Loader2 size={16} color={theme.colors.primary} />
+                        <ActivityIndicator
+                          accessibilityLabel="Loading writing prompts"
+                          color={theme.colors.primary}
+                          size="small"
+                        />
                         <Text
                           style={[
                             styles.promptStatusText,
@@ -998,7 +1010,11 @@ export default function NewEntryScreen({
                   ]}
                 >
                   {isAutoTagging ? (
-                    <Loader2 size={18} color={theme.colors.primary} />
+                    <ActivityIndicator
+                      accessibilityLabel="Generating AI tags"
+                      color={theme.colors.primary}
+                      size="small"
+                    />
                   ) : !isPremiumUser ? (
                     <Lock size={18} color={theme.colors.mutedForeground} />
                   ) : (

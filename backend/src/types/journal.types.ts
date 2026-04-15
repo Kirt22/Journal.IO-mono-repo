@@ -64,12 +64,49 @@ export type JournalQuickAnalysisInput = {
 
 export type JournalQuickAnalysisResponse = {
   journalId: string;
-  headline: string;
-  summary: string;
+  summary: {
+    headline: string;
+    narrative: string;
+    highlight: string;
+  };
+  scorecard: {
+    vibeLabel: string;
+    vibeTone: InsightTone;
+    cards: {
+      key: "words" | "mood" | "focus" | "depth";
+      label: string;
+      value: string;
+      tone: InsightTone;
+    }[];
+  };
   patternTags: {
     label: string;
     tone: InsightTone;
   }[];
-  nextStep: string;
+  signals: {
+    whatStoodOut: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    };
+    whatNeedsCare: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    };
+    whatToCarryForward: {
+      title: string;
+      description: string;
+      evidence: string[];
+      tone: InsightTone;
+    };
+  };
+  nextStep: {
+    title: string;
+    description: string;
+    focus: string;
+  };
   generatedAt: string | null;
 };

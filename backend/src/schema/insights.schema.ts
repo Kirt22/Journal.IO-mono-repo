@@ -1,7 +1,7 @@
 import mongoose, { Document, Model } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 import type { MoodValue } from "../types/mood.types";
-import type { InsightsAiAnalysisReadyResponse } from "../types/insights.types";
+import type { InsightsAiAnalysisResponse } from "../types/insights.types";
 
 export interface IInsights extends Document {
   toObject(): Record<string, unknown>;
@@ -15,10 +15,11 @@ export interface IInsights extends Document {
   moodCounts: Map<MoodValue, number>;
   lastJournalDateKey: string | null;
   lastCalculatedAt: Date | null;
-  aiAnalysis: InsightsAiAnalysisReadyResponse | null;
+  aiAnalysis: InsightsAiAnalysisResponse | null;
   aiAnalysisStale: boolean;
   aiAnalysisComputedAt: Date | null;
   aiAnalysisWindowEndDateKey: string | null;
+  aiAnalysisCacheKey: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -55,6 +56,7 @@ const insightsSchema = new mongoose.Schema<IInsights>(
     aiAnalysisStale: { type: Boolean, required: true, default: true },
     aiAnalysisComputedAt: { type: Date, default: null },
     aiAnalysisWindowEndDateKey: { type: String, default: null, trim: true },
+    aiAnalysisCacheKey: { type: String, default: null, trim: true },
   },
   { timestamps: true }
 );

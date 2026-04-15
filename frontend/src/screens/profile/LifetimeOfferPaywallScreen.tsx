@@ -22,11 +22,11 @@ import PrimaryButton from "../../components/PrimaryButton";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
-  getRevenueCatCustomerInfo,
   getRevenueCatOfferings,
   getRevenueCatPaywallPlans,
-  hasRevenueCatPremiumAccess,
+  hasPremiumAccess,
   purchaseRevenueCatPackage,
+  refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
   type RevenueCatPaywallPlan,
 } from "../../services/revenueCatService";
@@ -103,7 +103,7 @@ const DEFAULT_TEMPLATE = {
 const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
   key: "lifetime",
   title: "LIFETIME",
-  price: "$200",
+  price: "$149.99",
   priceSuffix: "one-time",
   subtitle: "One-time unlock",
   badge: "One time offer",
@@ -204,7 +204,6 @@ export default function LifetimeOfferPaywallScreen({
   const horizontalPadding = isCompact ? 16 : width >= 430 ? 26 : 22;
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const sessionUserName = useAppStore(state => state.session?.user.name || "you");
-  const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
@@ -582,11 +581,11 @@ export default function LifetimeOfferPaywallScreen({
   const completePremiumActivation = useCallback(
     async (customerInfo: CustomerInfo, options: { wasRestore?: boolean } = {}) => {
       const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
-      const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+      const premiumAccess = hasPremiumAccess(customerInfo);
 
       setLastPurchaseStore(activeEntitlement?.store ?? null);
 
-      if (!hasPremiumAccess) {
+      if (!premiumAccess) {
         return false;
       }
 
@@ -621,13 +620,18 @@ export default function LifetimeOfferPaywallScreen({
         return activated;
       }
 
-      const refreshedCustomerInfo = await getRevenueCatCustomerInfo(sessionUserId);
+      const refreshedEntitlementState = await refreshRevenueCatEntitlementState(
+        sessionUserId
+      );
 
-      if (!refreshedCustomerInfo) {
+      if (!refreshedEntitlementState.customerInfo) {
         return false;
       }
 
-      return completePremiumActivation(refreshedCustomerInfo, options);
+      return completePremiumActivation(
+        refreshedEntitlementState.customerInfo,
+        options
+      );
     },
     [completePremiumActivation, sessionUserId]
   );
@@ -670,8 +674,12 @@ export default function LifetimeOfferPaywallScreen({
       const activated = await finalizePremiumActivation(result.customerInfo);
 
       if (!activated) {
-        await setSessionPremiumStatus(true);
-        setScreenState("success");
+        Alert.alert(
+          "Purchase completed",
+          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
+        );
+        resetSwipe();
+        return;
       }
 
       purchaseCompleted = true;
@@ -680,6 +688,20 @@ export default function LifetimeOfferPaywallScreen({
         store: getRevenueCatActiveEntitlement(result.customerInfo)?.store || "unknown",
       });
     } catch (error) {
+      if (
+        isPurchasesError(error) &&
+        error.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR
+      ) {
+        if (__DEV__) {
+          console.info("[RevenueCat] Lifetime paywall purchase cancelled by user.");
+        }
+        return;
+      }
+
+      if (__DEV__) {
+        console.warn("[RevenueCat] Lifetime paywall purchase failed.", error);
+      }
+
       await trackLifetimeEvent("purchase_failure", {
         message: getPurchaseErrorMessage(error),
       });
@@ -698,7 +720,6 @@ export default function LifetimeOfferPaywallScreen({
     plan.rcPackage,
     resetSwipe,
     sessionUserId,
-    setSessionPremiumStatus,
     trackLifetimeEvent,
   ]);
 
@@ -723,6 +744,10 @@ export default function LifetimeOfferPaywallScreen({
         store: getRevenueCatActiveEntitlement(customerInfo)?.store || "unknown",
       });
     } catch (error) {
+      if (__DEV__) {
+        console.warn("[RevenueCat] Lifetime paywall restore failed.", error);
+      }
+
       Alert.alert(
         "Restore failed",
         error instanceof Error

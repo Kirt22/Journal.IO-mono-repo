@@ -29,9 +29,10 @@ The current design flow is:
 3. Create account (email path)
 4. Verify email (email path)
 5. Sign in (returning users)
-6. Profile setup
-7. Home dashboard
-8. Supporting flows:
+6. Post-auth paywall sequence for non-premium users
+7. Profile setup
+8. Home dashboard
+9. Supporting flows:
    - new entry
    - entry detail
    - journal edit
@@ -164,8 +165,15 @@ Paywall expectations:
 - in development builds, support RevenueCat Test Store verification so billing can be checked before App Store / Play Store release
 - use the mascot subtly in the hero area or brand moments
 - preserve the existing app aesthetic rather than introducing a separate monetization style
-- after every successful post-auth entry for a non-premium user, show the standard weekly paywall first; if the user dismisses that initial screen without upgrading, immediately follow it with the dedicated lifetime-offer surface before continuing into the normal post-auth destination
+- after every successful post-auth entry for a non-premium user, show a dedicated 3-step post-auth paywall first:
+  - free-trial introduction step
+  - reminder reassurance step
+  - purchase step with monthly and yearly plans only
+- on the post-auth purchase step, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
+- if the user dismisses the post-auth paywall, immediately follow it with a dedicated yearly-only exit-offer screen before continuing into the normal post-auth destination
+- keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
+- keep contextual locked-feature paywalls simpler than the post-auth flow; they can continue to open directly on a purchase surface instead of replaying the full 3-step sequence
 - allow interruptive paywalls only on eligible Home or Insights entries after repeated premium-intent signals; never interrupt while the user is actively writing or editing
 - for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to paywall, while premium users can see a lightweight membership-management view
 
@@ -191,7 +199,9 @@ Home should support quick daily engagement:
 - AI surfaces should be premium-gated: non-premium users should see locked placeholders for the Home AI insight card and the Insights `AI Analysis` tab, with a clear upgrade handoff
 - tapping the locked Home AI card as a free user should log a premium-intent event and open the backend-selected `home_ai_card_locked` paywall placement instead of routing generically to profile or subscription
 - after repeated premium-intent actions, eligible free users may see an interruptive paywall on a later Home entry if backend cooldown rules allow it
-- for premium users in their first 7 days, the Home AI insight card should show a warm-up state instead of weekly analysis content, explain that Journal.IO is still building enough journaling context, and point the user toward staying consistent plus using quick analysis on saved entries
+- for premium users, the Home AI insight card should follow premium-week windows anchored to `premiumActivatedAt` in the user’s local timezone, not account creation time
+- while the current 7-day premium week is still open, the Home AI card should show a collecting state with progress toward the 4-active-day minimum and point the user toward quick analysis on saved entries
+- if a closed premium week ends with fewer than 4 active journal days, the Home AI card should show a supportive insufficient-data recap and encourage the next week rather than forcing a partial report
 - New Entry should keep writing prompts available for everyone, but the `Auto-tag with AI` control should remain visible in a locked premium state for free users, log a premium-intent event, open the `new_entry_auto_tag_locked` paywall placement, and must not call the suggestion API until premium is active
 - the Home current-streak card should be API-backed and should use the lightweight `currentStreak` value returned by `GET /mood/today` rather than calling the full streak summary endpoints
 
@@ -206,7 +216,8 @@ Shared journal-card rule:
 - keep the Home preview slightly shorter than Calendar
 - do not seed Home or Calendar with fake journal entries at runtime; empty states should render until real local or backend-backed entries exist
 - entry detail and edit screens should show a stored `aiPrompt` prompt-used card when the journal record includes one
-- premium journal detail should offer an on-demand `Quick Analysis` card for the saved entry so users can get a short single-entry reflection while the weekly analysis is still warming up
+- premium journal detail should offer an on-demand `Quick Analysis` card for the saved entry so users can get a visual, scan-first single-entry reflection while the weekly analysis is still collecting or between weekly reports
+- quick analysis should feel like the single-entry version of `AI Analysis`: compact hero summary, a small stat strip, pattern chips, three signal cards, and one lightweight next-step card
 
 The first screen after setup should make journaling and check-in easy within one scroll.
 
@@ -230,11 +241,13 @@ Insights screen expectations:
 - for non-premium users, keep the `AI Analysis` tab visible but locked, with a premium explainer instead of AI content
 - tapping the locked `AI Analysis` tab as a free user should log a premium-intent event and open the backend-selected `insights_ai_tab_locked` paywall placement
 - after repeated premium-intent actions, eligible free users may also see an interruptive paywall on a later Insights entry if backend cooldown rules allow it
-- for premium users who are still inside their first 7 days, keep the `AI Analysis` tab visible but show a supportive warm-up state with readiness progress, consistency encouragement, and a reminder that quick analysis is available on individual entries
+- for premium users, AI Analysis should be based on the most recent closed premium-week window in the user’s local timezone
+- if the current premium week is still open, show a supportive collecting state with progress toward the 4-active-day minimum, remaining days, and a reminder that quick analysis is available on individual entries
+- if the most recent closed premium week ended with only 0-3 active journal days, show an insufficient-data recap instead of a partial weekly report
 - keep AI-analysis copy concise and easy to skim; prefer a few strong signals over dense paragraphs
-- include visual pattern cues such as trait bars, supportive watchpoint meters, and tag-style chips when they help readability without making the screen noisy
-- any Big Five or dark-triad-adjacent language must be framed as weekly signals, not diagnoses or fixed identity labels
-- dark-triad content must stay emotionally safe: direct but non-shaming, with a balancing explanation and a gentle counter-step
+- make the primary AI-analysis read visual-first: hero summary, compact metric strip, emotion trend chart, theme breakdown, signal cards, short action trio, and a concise app-support card
+- use one-glance language that feels like a smart, emotionally-aware Gen Z psychologist: warm, current, lightly conversational, and grounded in the user’s own week without sounding clinical or slang-heavy
+- Big Five and dark-triad-adjacent heuristics may still exist behind the scenes, but they should not be the main user-facing frame on mobile
 - actionable steps should feel lightweight and achievable within the existing journaling habit
 - include a card that explains how Journal.IO features can help the user work with the surfaced patterns over time
 - include loading and recoverable error states when insight data cannot be fetched

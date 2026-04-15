@@ -5,6 +5,7 @@ export const PAYWALL_OFFERING_KEYS = [
   "weekly",
   "monthly",
   "yearly",
+  "yearly_exit_offer",
   "lifetime",
 ] as const;
 

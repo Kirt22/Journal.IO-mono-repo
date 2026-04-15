@@ -20,8 +20,10 @@ import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 import { useTheme } from "../../theme/provider";
 import {
   getRevenueCatActiveEntitlement,
-  getRevenueCatCustomerInfo,
-  hasRevenueCatPremiumAccess,
+  getRevenueCatOfferings,
+  getRevenueCatPackageMetadataForPlanKey,
+  hasPremiumAccess,
+  refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
 } from "../../services/revenueCatService";
 import { syncPaywallPurchase } from "../../services/paywallService";
@@ -94,32 +96,16 @@ const getManageSubscriptionUrl = (planKey?: SubscriptionPlanKey) => {
   return null;
 };
 
-const getRevenueCatOfferingMetadata = (planKey?: SubscriptionPlanKey) => {
+const getRevenueCatPlanKey = (planKey?: SubscriptionPlanKey) => {
   switch (planKey) {
     case "weekly":
-      return {
-        offeringKey: "weekly" as const,
-        revenueCatOfferingId: "journalio_offering_dev",
-        revenueCatPackageId: "$rc_weekly",
-      };
+      return "weekly" as const;
     case "monthly":
-      return {
-        offeringKey: "monthly" as const,
-        revenueCatOfferingId: "journalio_offering_dev",
-        revenueCatPackageId: "$rc_monthly",
-      };
+      return "monthly" as const;
     case "yearly":
-      return {
-        offeringKey: "yearly" as const,
-        revenueCatOfferingId: "journalio_offering_dev",
-        revenueCatPackageId: "$rc_annual",
-      };
+      return "annual" as const;
     case "lifetime":
-      return {
-        offeringKey: "lifetime" as const,
-        revenueCatOfferingId: "journalio_offering_dev",
-        revenueCatPackageId: "$rc_lifetime",
-      };
+      return "lifetime" as const;
     default:
       return null;
   }
@@ -210,13 +196,15 @@ export default function SubscriptionScreen({
       setIsCheckingMembership(true);
 
       try {
-        const customerInfo = await getRevenueCatCustomerInfo(sessionUserId);
+        const entitlementState = await refreshRevenueCatEntitlementState(
+          sessionUserId
+        );
 
         if (!isActive) {
           return;
         }
 
-        setHasActiveEntitlement(hasRevenueCatPremiumAccess(customerInfo));
+        setHasActiveEntitlement(entitlementState.hasPremiumAccess);
       } catch {
         if (!isActive) {
           return;
@@ -265,9 +253,9 @@ export default function SubscriptionScreen({
       return;
     }
 
-    const offeringMetadata = getRevenueCatOfferingMetadata(currentPlanKey);
+    const revenueCatPlanKey = getRevenueCatPlanKey(currentPlanKey);
 
-    if (!offeringMetadata) {
+    if (!revenueCatPlanKey) {
       Alert.alert(
         "Restore unavailable",
         "This membership is missing plan metadata, so restore cannot sync safely right now."
@@ -275,14 +263,19 @@ export default function SubscriptionScreen({
       return;
     }
 
+    const offeringKey = currentPlanKey as Exclude<
+      SubscriptionPlanKey,
+      null | undefined
+    >;
+
     setIsRestoring(true);
 
     try {
       const customerInfo = await restoreRevenueCatPurchases(sessionUserId);
       const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
-      const hasPremiumAccess = hasRevenueCatPremiumAccess(customerInfo);
+      const premiumAccess = hasPremiumAccess(customerInfo);
 
-      if (!hasPremiumAccess || !activeEntitlement) {
+      if (!premiumAccess || !activeEntitlement) {
         Alert.alert(
           "No active purchase found",
           "RevenueCat did not return an active premium entitlement for this account."
@@ -290,10 +283,24 @@ export default function SubscriptionScreen({
         return;
       }
 
+      const offerings = await getRevenueCatOfferings(sessionUserId);
+      const packageMetadata = getRevenueCatPackageMetadataForPlanKey(
+        offerings,
+        revenueCatPlanKey
+      );
+
+      if (!packageMetadata.revenueCatOfferingId || !packageMetadata.revenueCatPackageId) {
+        Alert.alert(
+          "Restore unavailable",
+          "RevenueCat returned an active entitlement, but the live package metadata could not be matched safely for this plan."
+        );
+        return;
+      }
+
       const updatedProfile = await syncPaywallPurchase({
-        offeringKey: offeringMetadata.offeringKey,
-        revenueCatOfferingId: offeringMetadata.revenueCatOfferingId,
-        revenueCatPackageId: offeringMetadata.revenueCatPackageId,
+        offeringKey,
+        revenueCatOfferingId: packageMetadata.revenueCatOfferingId,
+        revenueCatPackageId: packageMetadata.revenueCatPackageId,
         store: activeEntitlement.store || "unknown",
         entitlementId: activeEntitlement.identifier || "unknown",
         wasRestore: true,
@@ -307,6 +314,10 @@ export default function SubscriptionScreen({
         "Your premium membership has been refreshed on this account."
       );
     } catch (error) {
+      if (__DEV__) {
+        console.warn("[RevenueCat] Subscription restore failed.", error);
+      }
+
       Alert.alert(
         "Restore failed",
         error instanceof Error

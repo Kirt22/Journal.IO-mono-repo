@@ -277,6 +277,23 @@ describe("appStore", () => {
     expect(store.getState().pendingNewEntryPrompt).toBeNull();
   });
 
+  it("ignores invalid prompt payloads when opening a new entry", () => {
+    const store = useAppStore;
+
+    act(() => {
+      (
+        store.getState().openNewEntry as (options?: {
+          initialPrompt?: unknown;
+        }) => void
+      )({
+        initialPrompt: { source: "press-event" },
+      });
+    });
+
+    expect(store.getState().stage).toBe("new-entry");
+    expect(store.getState().pendingNewEntryPrompt).toBeNull();
+  });
+
   it("updates ai opt-in on the active session user", () => {
     const store = useAppStore;
 

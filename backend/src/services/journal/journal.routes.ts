@@ -78,4 +78,23 @@ journalRouter.delete(
   journalController.deleteJournalController
 );
 
+/**
+ * @route   POST /suggest_tags
+ * @desc    Suggests tags for journal content.
+ * @access  Private (Requires JWT authentication)
+ */
+journalRouter.post(
+  "/suggest_tags",
+  verifyJwtToken,
+  validateRequest(journalValidators.suggestJournalTagsSchema),
+  journalController.suggestJournalTagsController
+);
+
+journalRouter.post(
+  "/quick_analysis",
+  verifyJwtToken,
+  validateRequest(journalValidators.getJournalQuickAnalysisSchema),
+  journalController.getJournalQuickAnalysisController
+);
+
 export default journalRouter;

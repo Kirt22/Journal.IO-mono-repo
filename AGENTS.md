@@ -119,23 +119,23 @@ Avoid leaving placeholder TODOs for critical logic.
 
 When working in this repo, consult these documents when relevant:
 
-- `AI_PRODUCT.md` → product goals, scope, non-goals
-- `AI_ARCHITECTURE.md` → backend and AI architecture
-- `AI_API_SPEC.md` → API contracts
-- `AI_UI_UX_CONTEXT.md` → design system and screen behavior
-- `CODING_STANDARDS.md` → conventions and guardrails
-- `FEATURE_DEVELOPMENT_WORKFLOW.md` → implementation workflow
-- `AI_INSIGHTS_PIPELINE.md` → AI extraction and aggregation flow
-- `SECURITY_MODEL.md` → privacy and security rules
-- `AI_TASKS.md` → roadmap and feature order
+- `docs/AI_PRODUCT.md` → product goals, scope, non-goals
+- `docs/AI_ARCHITECTURE.md` → backend and AI architecture
+- `docs/AI_API_SPEC.md` → API contracts
+- `docs/AI_UI_UX_CONTEXT.md` → design system and screen behavior
+- `docs/CODING_STANDARDS.md` → conventions and guardrails
+- `docs/FEATURE_DEVELOPMENT_WORKFLOW.md` → implementation workflow
+- `docs/AI_INSIGHTS_PIPELINE.md` → AI extraction and aggregation flow
+- `docs/SECURITY_MODEL.md` → privacy and security rules
+- `docs/AI_TASKS.md` → roadmap and feature order
 
 If these docs conflict, use this priority order:
 
 1. `AGENTS.md`
-2. `AI_API_SPEC.md`
-3. `CODING_STANDARDS.md`
-4. `AI_ARCHITECTURE.md`
-5. `AI_UI_UX_CONTEXT.md`
+2. `docs/AI_API_SPEC.md`
+3. `docs/CODING_STANDARDS.md`
+4. `docs/AI_ARCHITECTURE.md`
+5. `docs/AI_UI_UX_CONTEXT.md`
 6. remaining docs
 
 Do not invent requirements that contradict these files.
@@ -200,18 +200,13 @@ Each service module should follow this pattern where applicable:
 ### Frontend
 Expected structure:
 
-- `frontend/src/screens/{flow}`
-- `frontend/src/screens/{flow}/{ScreenName}.tsx`
-- `frontend/src/utils`
+- `frontend/src/screens`
 - `frontend/src/components`
 - `frontend/src/services`
 - `frontend/src/hooks`
 - `frontend/src/store`
 - `frontend/src/navigation`
 
-Keep screens grouped by flow folder, such as `onboarding`, `auth`, and `profile`.
-Keep low-level helpers like API clients and token storage in `frontend/src/utils`.
-Keep global state in `frontend/src/store` when introduced.
 Keep files in the correct feature area.
 
 Do not create duplicate parallel architectures.
@@ -369,25 +364,6 @@ The app should feel:
 
 Avoid noisy UI, heavy animation, and gamification overload.
 
-### Responsive Rules
-
-All mobile screens must be responsive across iOS and Android phone sizes.
-
-Required baseline:
-
-- support compact phones (about `320-359` logical width) without clipped content
-- support standard phones (`360-429` logical width) as default layout target
-- support larger phones (`430+` logical width) without overly narrow content
-- use adaptive spacing/sizing (for paddings, title sizes, key controls) instead of fixed assumptions for one device size
-- keep content in safe areas and maintain keyboard-safe forms across sizes
-
-### Theme Rules
-
-- keep all screen colors sourced from the centralized frontend theme tokens
-- use the theme provider to resolve system light/dark mode by default
-- avoid introducing new hardcoded screen colors unless they are added to the shared theme first
-- when implementing new screens, wire them to theme tokens in the same slice (do not defer this)
-
 ---
 
 ## 11) Naming And Code Style
@@ -419,7 +395,7 @@ Do not leave commented-out legacy code in commits.
 
 ## 12) API Contract Rules
 
-`AI_API_SPEC.md` is the contract source of truth.
+`docs/AI_API_SPEC.md` is the contract source of truth.
 
 When implementing endpoints:
 
@@ -658,11 +634,13 @@ For refactors:
 - keep diffs focused
 - avoid aesthetic-only churn
 
-For commit/push requests, use this branch-routing rule unless the user explicitly overrides it:
+For commit/push requests, use this branch model unless the user explicitly overrides it:
 
-- commit and push `frontend/**` changes to the `frontend` branch
-- commit and push `backend/**` changes to the `backend` branch
-- commit and push repo-level markdown files, skills, and other global/shared config changes to the `global` branch
+- `main` is the shared development branch and must not be edited directly during branch-management tasks unless the user explicitly asks
+- `codex` is the default working branch for local feature, bug-fix, frontend, backend, and docs changes
+- `prod` is the production-ready branch
+- commit related work together on `codex` instead of splitting frontend, backend, and global changes across separate branches
+- when the user asks to commit and push current work, push the complete validated change set in one go from `codex` unless they ask for a different branch
 
 ---
 
@@ -692,7 +670,7 @@ Rules:
 
 - when implementing or updating a screen, Codex must fetch the latest relevant screen data from this Figma Make project first
 - do not switch to a different Figma file or project unless the user explicitly asks
-- after every screen implementation task, update `SCREEN_IMPLEMENTATION_STATUS.md`
+- after every screen implementation task, update `docs/SCREEN_IMPLEMENTATION_STATUS.md`
 - the tracker must record the latest known completion state and any relevant notes/blockers for the touched screens
 
 ---

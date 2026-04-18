@@ -12,6 +12,9 @@ import {
 } from "../screens/onboarding/OnboardingScreen";
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
+import PaywallScreen from "../screens/profile/PaywallScreen";
+import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
+import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
 import type { ThemeMode } from "../theme/theme";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
@@ -26,17 +29,20 @@ type AppFlowRoutesProps = {
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
+  pendingNewEntryPrompt: string | null;
   onOnboardingContinue: (data: OnboardingCompletionData) => void;
+  onContinueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  onContinueFromDiscountOffer: () => void;
+  onContinueFromLifetimeOffer: () => void;
   onContinueWithEmail: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
-  onSkipToHome: () => void;
   onGoToCreateAccount: () => void;
   onSignIn: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccountSuccess: () => void;
   onVerifyEmail: (code: string) => Promise<void>;
-  onVerificationSuccess: () => void;
+  onVerificationSuccess: () => void | Promise<void>;
   onResendCode: () => Promise<void>;
   onBackToAuth: () => void;
   onBackToCreateAccount: () => void;
@@ -45,7 +51,7 @@ type AppFlowRoutesProps = {
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onCloseNewEntry: () => void;
-  onToggleTheme: (nextMode: ThemeMode) => void;
+  onToggleTheme: (nextMode: ThemeMode | null) => void;
 };
 
 export function AppFlowRoutes({
@@ -57,11 +63,14 @@ export function AppFlowRoutes({
   authSource,
   session,
   initialProfileName,
+  pendingNewEntryPrompt,
   onOnboardingContinue,
+  onContinueFromPaywall,
+  onContinueFromDiscountOffer,
+  onContinueFromLifetimeOffer,
   onContinueWithEmail,
   onContinueWithGoogle,
   onGoToSignIn,
-  onSkipToHome,
   onGoToCreateAccount,
   onSignIn,
   onCreateAccount,
@@ -94,9 +103,14 @@ export function AppFlowRoutes({
           onContinueWithEmail={onContinueWithEmail}
           onContinueWithGoogle={onContinueWithGoogle}
           onGoToSignIn={onGoToSignIn}
-          onSkipToHome={onSkipToHome}
         />
       );
+    case "paywall":
+      return <PaywallScreen onBack={onContinueFromPaywall} />;
+    case "discount-offer":
+      return <DiscountOfferPaywallScreen onBack={onContinueFromDiscountOffer} />;
+    case "lifetime-offer":
+      return <LifetimeOfferPaywallScreen onBack={onContinueFromLifetimeOffer} />;
     case "sign-in":
       return (
         <SignInScreen
@@ -140,7 +154,12 @@ export function AppFlowRoutes({
     case "main-app":
       return <MainAppShell onToggleTheme={onToggleTheme} />;
     case "new-entry":
-      return <NewEntryScreen onBack={onCloseNewEntry} />;
+      return (
+        <NewEntryScreen
+          onBack={onCloseNewEntry}
+          initialPrompt={pendingNewEntryPrompt}
+        />
+      );
     case "journal-detail":
       return <EntryDetailScreen />;
     case "journal-edit":

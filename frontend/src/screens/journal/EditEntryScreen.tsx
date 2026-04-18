@@ -12,81 +12,42 @@ import {
 } from "react-native";
 import {
   ArrowLeft,
+  Heart,
   Loader2,
-  Plus,
   Save,
   Tag,
   X,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { updateJournalEntry } from "../../services/journalService";
+import BottomNav, {
+  BOTTOM_NAV_CONTENT_PADDING,
+  type BottomNavKey,
+} from "../../components/BottomNav";
+import JournalPromptCard from "../../components/JournalPromptCard";
+import { getJournalEntry, updateJournalEntry } from "../../services/journalService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import { getFilteredTags } from "../../utils/journalEntryCard";
 
 function formatEntryDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
 }
 
-function AddTagInput({
-  value,
-  onChangeText,
-  onAdd,
-  placeholder,
-}: {
-  value: string;
-  onChangeText: (value: string) => void;
-  onAdd: () => void;
-  placeholder: string;
-}) {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.tagInputRow}>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.colors.mutedForeground}
-        autoCapitalize="none"
-        autoCorrect={false}
-        onSubmitEditing={onAdd}
-        style={[
-          styles.tagInput,
-          {
-            color: theme.colors.foreground,
-            borderColor: theme.colors.border,
-            backgroundColor: theme.colors.card,
-          },
-        ]}
-      />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Add tag"
-        onPress={onAdd}
-        style={({ pressed }) => [
-          styles.tagAddButton,
-          {
-            backgroundColor: theme.colors.primary,
-          },
-          pressed && styles.pressed,
-        ]}
-      >
-        <Plus size={16} color={theme.colors.primaryForeground} />
-      </Pressable>
-    </View>
-  );
-}
-
 export default function EditEntryScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const activeTab = useAppStore(state => state.activeTab);
   const entryId = useAppStore(state => state.selectedJournalEntryId);
   const entries = useAppStore(state => state.recentJournalEntries);
   const closeJournalEditor = useAppStore(state => state.closeJournalEditor);
+  const closeJournalEntry = useAppStore(state => state.closeJournalEntry);
+  const setActiveTab = useAppStore(state => state.setActiveTab);
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const openJournalEntry = useAppStore(state => state.openJournalEntry);
   const updateRecentJournalEntry = useAppStore(
     state => state.updateRecentJournalEntry
@@ -94,14 +55,15 @@ export default function EditEntryScreen() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
+  const [hiddenTags, setHiddenTags] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
-  const layoutMaxWidth = isWide ? 460 : 420;
+  const layoutMaxWidth = isWide ? 430 : 390;
 
   const entry = useMemo(
     () => entries.find(current => current._id === entryId) || null,
@@ -109,30 +71,56 @@ export default function EditEntryScreen() {
   );
 
   useEffect(() => {
-    if (!entry) {
+    if (!entryId) {
       return;
     }
 
-    setTitle(entry.title);
-    setContent(entry.content);
-    setTags(entry.tags);
-    setTagInput("");
-  }, [entry]);
+    let isActive = true;
 
-  const handleAddTag = () => {
-    const nextTag = tagInput.trim().toLowerCase();
-
-    if (!nextTag || tags.includes(nextTag)) {
-      return;
+    if (entry) {
+      setTitle(entry.title);
+      setContent(entry.content);
+      setTags(getFilteredTags(entry.tags));
+      setHiddenTags(
+        entry.tags.filter(tag => tag.toLowerCase().startsWith("mood:"))
+      );
+      setError(null);
+      setIsRefreshing(false);
+      return () => {
+        isActive = false;
+      };
     }
 
-    setTags(previous => [...previous, nextTag]);
-    setTagInput("");
-  };
+    setIsRefreshing(true);
 
-  const handleRemoveTag = (tag: string) => {
-    setTags(previous => previous.filter(current => current !== tag));
-  };
+    getJournalEntry(entryId)
+      .then(fetchedEntry => {
+        if (!isActive) {
+          return;
+        }
+
+        setTitle(fetchedEntry.title);
+        setContent(fetchedEntry.content);
+        setTags(getFilteredTags(fetchedEntry.tags));
+        setHiddenTags(
+          fetchedEntry.tags.filter(tag => tag.toLowerCase().startsWith("mood:"))
+        );
+        setError(null);
+        updateRecentJournalEntry(fetchedEntry);
+      })
+      .catch(() => {
+        // Keep the empty state if the fetch fails.
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsRefreshing(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [entry, entryId, updateRecentJournalEntry]);
 
   const handleSave = async () => {
     if (!entry) {
@@ -155,7 +143,7 @@ export default function EditEntryScreen() {
         title: title.trim() || `Entry for ${formatEntryDate(entry.createdAt)}`,
         content: trimmedContent,
         type: entry.type,
-        tags,
+        tags: Array.from(new Set([...hiddenTags, ...tags])),
         images: entry.images || [],
         isFavorite: entry.isFavorite ?? false,
       });
@@ -173,37 +161,74 @@ export default function EditEntryScreen() {
     }
   };
 
+  const handleBottomNavPress = (nextTab: BottomNavKey) => {
+    if (nextTab === "new") {
+      closeJournalEntry();
+      openNewEntry();
+      return;
+    }
+
+    closeJournalEntry();
+    setActiveTab(nextTab);
+  };
+
+  const renderBottomNav = (
+    <BottomNav activeKey={activeTab} onPress={handleBottomNavPress} />
+  );
+
   if (!entry) {
+    if (isRefreshing) {
+      return (
+        <SafeAreaView
+          edges={["top", "left", "right"]}
+          style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+        >
+          <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+            <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
+              <Loader2 size={22} color={theme.colors.primary} />
+              <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+                Loading entry
+              </Text>
+            </View>
+          </View>
+          {renderBottomNav}
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView
         edges={["top", "left", "right"]}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={[styles.emptyState, { paddingHorizontal: horizontalPadding }]}>
-          <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
-            Entry unavailable
-          </Text>
-          <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
-            Open a journal entry first to edit it.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={closeJournalEditor}
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
-              Back
+        <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+          <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
+            <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+              Entry unavailable
             </Text>
-          </Pressable>
+            <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
+              Open a journal entry first to edit it.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              onPress={closeJournalEditor}
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
+                Back
+              </Text>
+            </Pressable>
+          </View>
         </View>
+        {renderBottomNav}
       </SafeAreaView>
     );
   }
@@ -224,65 +249,81 @@ export default function EditEntryScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Back"
                 onPress={closeJournalEditor}
+                hitSlop={8}
                 style={({ pressed }) => [
-                  styles.iconButton,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
+                  styles.headerIconButton,
                   pressed && styles.pressed,
                 ]}
               >
                 <ArrowLeft size={18} color={theme.colors.foreground} />
               </Pressable>
 
-              <Text style={[styles.headerTitle, { color: theme.colors.foreground }]}>
-                Edit Entry
-              </Text>
+              <View style={styles.headerActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel edit"
+                  onPress={closeJournalEditor}
+                  style={({ pressed }) => [
+                    styles.cancelButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <X size={14} color={theme.colors.foreground} />
+                  <Text style={[styles.cancelButtonText, { color: theme.colors.foreground }]}>
+                    Cancel
+                  </Text>
+                </Pressable>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Save entry"
-                onPress={handleSave}
-                disabled={isSaving}
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                  pressed && !isSaving && styles.pressed,
-                  isSaving && styles.saveButtonSaving,
-                ]}
-              >
-                {isSaving ? (
-                  <Loader2 size={14} color={theme.colors.primary} />
-                ) : (
-                  <Save size={14} color={theme.colors.primary} />
-                )}
-                <Text style={[styles.saveButtonText, { color: theme.colors.primary }]}>
-                  {isSaving ? "Saving..." : "Save"}
-                </Text>
-              </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Save entry"
+                  onPress={handleSave}
+                  disabled={isSaving}
+                  style={({ pressed }) => [
+                    styles.saveButton,
+                    {
+                      backgroundColor: theme.colors.primary,
+                    },
+                    pressed && !isSaving && styles.pressed,
+                    isSaving && styles.saveButtonSaving,
+                  ]}
+                >
+                  {isSaving ? (
+                    <Loader2 size={14} color={theme.colors.primaryForeground} />
+                  ) : (
+                    <Save size={14} color={theme.colors.primaryForeground} />
+                  )}
+                  <Text
+                    style={[
+                      styles.saveButtonText,
+                      { color: theme.colors.primaryForeground },
+                    ]}
+                  >
+                    {isSaving ? "Saving..." : "Save"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
+
+            <View
+              style={[
+                styles.headerDivider,
+                { borderTopColor: theme.colors.border },
+              ]}
+            />
 
             <ScrollView
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}>
-                  Editing a journal entry
-                </Text>
+              <View style={styles.body}>
+                <View style={styles.metaRow}>
+                  <Heart size={16} color={theme.colors.success} />
+                  <Text style={[styles.metaText, { color: theme.colors.mutedForeground }]}>
+                    {formatEntryDate(entry.createdAt)}
+                  </Text>
+                </View>
 
                 <TextInput
                   accessibilityLabel="Entry title"
@@ -296,6 +337,7 @@ export default function EditEntryScreen() {
                     {
                       color: theme.colors.foreground,
                       borderBottomColor: theme.colors.border,
+                      backgroundColor: theme.colors.inputBackground,
                     },
                   ]}
                 />
@@ -313,34 +355,29 @@ export default function EditEntryScreen() {
                     {
                       color: theme.colors.foreground,
                       borderColor: theme.colors.border,
-                      backgroundColor: theme.colors.background,
+                      backgroundColor: theme.colors.card,
                     },
                   ]}
                 />
 
-                <View style={styles.metaRow}>
+                <View style={styles.wordCountRow}>
                   <Text style={[styles.metaText, { color: theme.colors.mutedForeground }]}>
                     {content.trim().split(/\s+/).filter(Boolean).length} words
                   </Text>
-                  <Text style={[styles.metaText, { color: theme.colors.mutedForeground }]}>
-                    Updated {formatEntryDate(entry.updatedAt)}
-                  </Text>
                 </View>
 
-                <View style={styles.tagsSection}>
+                <View
+                  style={[
+                    styles.tagsSection,
+                    { borderTopColor: theme.colors.border },
+                  ]}
+                >
                   <View style={styles.tagsSectionHeader}>
                     <Tag size={14} color={theme.colors.mutedForeground} />
                     <Text style={[styles.sectionLabel, { color: theme.colors.foreground }]}>
                       Tags
                     </Text>
                   </View>
-
-                  <AddTagInput
-                    value={tagInput}
-                    onChangeText={setTagInput}
-                    onAdd={handleAddTag}
-                    placeholder="Add a tag..."
-                  />
 
                   {tags.length ? (
                     <View style={styles.chipRow}>
@@ -355,20 +392,14 @@ export default function EditEntryScreen() {
                             },
                           ]}
                         >
-                          <Text style={[styles.tagChipText, { color: theme.colors.secondaryForeground }]}>
-                            {tag}
-                          </Text>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Remove ${tag}`}
-                            onPress={() => handleRemoveTag(tag)}
-                            style={({ pressed }) => [
-                              styles.tagRemoveButton,
-                              pressed && styles.pressed,
+                          <Text
+                            style={[
+                              styles.tagChipText,
+                              { color: theme.colors.secondaryForeground },
                             ]}
                           >
-                            <X size={12} color={theme.colors.mutedForeground} />
-                          </Pressable>
+                            {tag}
+                          </Text>
                         </View>
                       ))}
                     </View>
@@ -380,11 +411,18 @@ export default function EditEntryScreen() {
                     {error}
                   </Text>
                 ) : null}
+
+                {entry.aiPrompt ? (
+                  <View style={styles.promptBlock}>
+                    <JournalPromptCard prompt={entry.aiPrompt} />
+                  </View>
+                ) : null}
               </View>
             </ScrollView>
           </View>
         </View>
       </KeyboardAvoidingView>
+      {renderBottomNav}
     </SafeAreaView>
   );
 }
@@ -395,6 +433,11 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  emptyShell: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   container: {
     flex: 1,
@@ -409,17 +452,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
+  headerDivider: {
+    borderTopWidth: 1,
+    marginBottom: 20,
+  },
+  headerIconButton: {
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -427,10 +474,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   saveButtonSaving: {
     opacity: 0.78,
@@ -439,72 +485,66 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  content: {
-    paddingBottom: 24,
+  cancelButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 2,
+    paddingVertical: 6,
   },
-  card: {
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 20,
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  content: {
+    paddingBottom: BOTTOM_NAV_CONTENT_PADDING + 24,
+  },
+  body: {
+    gap: 14,
   },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
   },
   titleInput: {
-    marginTop: 14,
-    paddingBottom: 10,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
     borderBottomWidth: 1,
-    fontSize: 24,
-    fontWeight: "600",
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "400",
+    letterSpacing: -0.3,
   },
   contentInput: {
-    minHeight: 250,
+    minHeight: 320,
     borderWidth: 1,
     borderRadius: 18,
-    padding: 14,
-    marginTop: 16,
+    padding: 16,
     fontSize: 15,
     lineHeight: 22,
   },
   metaRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-    marginTop: 12,
+    alignItems: "center",
+    gap: 8,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  wordCountRow: {
+    marginTop: -2,
   },
   tagsSection: {
-    marginTop: 18,
+    marginTop: 8,
+    paddingTop: 18,
+    borderTopWidth: 1,
   },
   tagsSectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     marginBottom: 10,
-  },
-  tagInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  tagInput: {
-    flex: 1,
-    minHeight: 46,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    fontSize: 14,
-  },
-  tagAddButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
   },
   chipRow: {
     flexDirection: "row",
@@ -519,52 +559,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 999,
     paddingLeft: 12,
-    paddingRight: 6,
+    paddingRight: 8,
     paddingVertical: 7,
   },
   tagChipText: {
     fontSize: 12,
     fontWeight: "600",
   },
-  tagRemoveButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   errorText: {
-    marginTop: 14,
+    marginTop: 12,
     fontSize: 13,
   },
+  promptBlock: {
+    marginTop: 8,
+  },
   emptyState: {
-    flex: 1,
-    alignItems: "center",
     justifyContent: "center",
-    gap: 12,
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "center",
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "600",
   },
   emptyText: {
     fontSize: 14,
-    textAlign: "center",
     lineHeight: 20,
+    textAlign: "center",
   },
   backButton: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   backButtonText: {
     fontSize: 14,
     fontWeight: "600",
   },
   pressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.99 }],
+    opacity: 0.72,
   },
 });

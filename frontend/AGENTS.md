@@ -44,5 +44,6 @@ The test script is configured with `--watchman=false` so Jest runs cleanly in re
 
 ## Branch Scope
 
-- Frontend implementation changes should be committed to the `frontend` branch.
-- Do not mix backend or root-global changes in frontend branch commits.
+- Frontend implementation changes should normally be committed on the shared `codex` working branch.
+- It is acceptable to include related backend or root-doc changes in the same `codex` commit when they are part of one validated slice.
+- Avoid editing `main` directly during local task work unless the user explicitly asks for it.

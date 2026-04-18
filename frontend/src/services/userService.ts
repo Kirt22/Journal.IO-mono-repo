@@ -1,5 +1,5 @@
 import { request } from "../utils/apiClient";
-import type { AuthUser } from "./authService";
+import { applyDevPremiumDefault, type AuthUser } from "./authService";
 
 type UpdateProfilePayload = {
   name: string;
@@ -7,7 +7,19 @@ type UpdateProfilePayload = {
   goals?: string[];
 };
 
+type UpdatePremiumStatusPayload = {
+  isPremium: boolean;
+};
+
 type ProfileResponse = AuthUser;
+
+const getProfile = async () => {
+  const response = await request<ProfileResponse>("/users/profile", {
+    method: "GET",
+  });
+
+  return applyDevPremiumDefault(response.data);
+};
 
 const updateProfile = async (payload: UpdateProfilePayload) => {
   const response = await request<ProfileResponse>("/users/profile", {
@@ -15,8 +27,17 @@ const updateProfile = async (payload: UpdateProfilePayload) => {
     body: JSON.stringify(payload),
   });
 
-  return response.data;
+  return applyDevPremiumDefault(response.data);
 };
 
-export { updateProfile };
-export type { UpdateProfilePayload, ProfileResponse };
+const updatePremiumStatus = async (payload: UpdatePremiumStatusPayload) => {
+  const response = await request<ProfileResponse>("/users/premium-status", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+  return applyDevPremiumDefault(response.data);
+};
+
+export { getProfile, updatePremiumStatus, updateProfile };
+export type { ProfileResponse, UpdatePremiumStatusPayload, UpdateProfilePayload };

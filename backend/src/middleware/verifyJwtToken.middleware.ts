@@ -34,15 +34,11 @@ export const verifyJwtToken = async (
   try {
     const token = req.headers.authorization.split(" ")[1];
 
-    console.log("Verifying JWT token:", token);
-
     if (!token) {
       return res
         .status(401)
         .json(apiResponse(false, "Unauthorized: No token provided", {}));
     }
-
-    console.log("JWT secret used for verification:", jwtSecret);
 
     const data = jwt.verify(token, jwtSecret) as jwt.JwtPayload;
     const userId = data.sub || data.userId;

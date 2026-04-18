@@ -19,7 +19,7 @@ Apply these rules for all work under `backend/`.
 - Keep the request flow `route -> controller -> service -> schema`.
 - Move non-trivial logic into `*.service.ts` files instead of expanding controllers.
 - Validate request body, params, and query input for every endpoint.
-- Keep API responses aligned with `AI_API_SPEC.md` and the repo response envelope.
+- Keep API responses aligned with `../docs/AI_API_SPEC.md` and the repo response envelope.
 - Enforce authentication and ownership checks on protected data.
 - Do not block journal creation on AI analysis availability.
 

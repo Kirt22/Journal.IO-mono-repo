@@ -15,7 +15,7 @@ type RecentJournalEntriesState = Pick<
   JournalSliceState,
   "recentJournalEntries"
 >;
-
+ 
 type JournalSliceSetState = (
   updater:
     | Partial<RecentJournalEntriesState>

@@ -1,10 +1,20 @@
-import { NativeModules, Platform } from "react-native";
+import { Alert, NativeModules, Platform } from "react-native";
+import { env } from "../config/env";
 import devLaunchConfig from "./devLaunchConfig.json";
 import { getAccessToken } from "./tokenStorage";
 
 type DevLaunchConfig = {
   apiBaseUrl?: string | null;
 };
+
+const NETWORK_ALERT_COOLDOWN_MS = 3000;
+const NETWORK_ALERT_TITLE = "Connection issue";
+const NETWORK_ALERT_MESSAGE =
+  "We're having trouble reaching the server. Check your internet connection or make sure the backend is running, then try again.";
+
+let lastNetworkAlertAt = 0;
+const isJestRuntime =
+  typeof process !== "undefined" && Boolean(process.env.JEST_WORKER_ID);
 
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -37,6 +47,12 @@ const getBundleHost = () => {
 };
 
 const getBaseUrl = () => {
+  const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
+
+  if (envBaseUrl) {
+    return envBaseUrl;
+  }
+
   const configuredBaseUrl = normalizeBaseUrl(
     __DEV__ ? (devLaunchConfig as DevLaunchConfig).apiBaseUrl : null
   );
@@ -94,6 +110,17 @@ class ApiError extends Error {
   }
 }
 
+const showNetworkIssueAlert = () => {
+  const now = Date.now();
+
+  if (now - lastNetworkAlertAt < NETWORK_ALERT_COOLDOWN_MS) {
+    return;
+  }
+
+  lastNetworkAlertAt = now;
+  Alert.alert(NETWORK_ALERT_TITLE, NETWORK_ALERT_MESSAGE);
+};
+
 const request = async <T>(
   path: string,
   options: RequestInit = {}
@@ -111,6 +138,14 @@ const request = async <T>(
 
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
+  }
+
+  if (!headers.has("X-Client-Timezone")) {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+
+    if (timeZone) {
+      headers.set("X-Client-Timezone", timeZone);
+    }
   }
 
   const requestUrl = `${getBaseUrl()}${path}`;
@@ -138,6 +173,8 @@ const request = async <T>(
         error,
       });
     }
+
+    showNetworkIssueAlert();
 
     throw new ApiError(
       "Unable to reach the server. Check your connection and try again.",

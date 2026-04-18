@@ -1,8 +1,21 @@
-import { useMemo } from "react";
-import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { Flame, Trophy, Target } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { AlertCircle, Flame, RefreshCw, Trophy, Target } from "lucide-react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import TabScreenLayout from "../components/TabScreenLayout";
+import {
+  getCurrentStreakSummary,
+  getStreakHistory,
+  type StreakCurrentSummary,
+  type StreakHistoryDay,
+} from "../services/streaksService";
 import { useTheme } from "../theme/provider";
 
 type StreakMetric = {
@@ -16,12 +29,6 @@ type Achievement = {
   icon: typeof Trophy;
   unlocked: boolean;
 };
-
-const CURRENT_STREAK = 12;
-const BEST_STREAK = 12;
-const THIS_MONTH_ENTRIES = 5;
-const TOTAL_ENTRIES = 5;
-const ACTIVITY_PATTERN = new Set([1, 4, 7, 11, 18]);
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -140,6 +147,10 @@ function AchievementRow({
 export default function StreaksScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const [currentSummary, setCurrentSummary] = useState<StreakCurrentSummary | null>(null);
+  const [history, setHistory] = useState<StreakHistoryDay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const shellWidth = Math.max(0, Math.min(width, 430) - 48);
   const gridInnerWidth = Math.max(0, shellWidth - 32);
   const gridGap = 6;
@@ -175,52 +186,106 @@ export default function StreaksScreen() {
     [tileSize]
   );
 
+  const loadStreaks = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const [summaryResponse, historyResponse] = await Promise.all([
+        getCurrentStreakSummary(),
+        getStreakHistory(30),
+      ]);
+
+      setCurrentSummary(summaryResponse);
+      setHistory(historyResponse.days);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load streak data right now."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    const run = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const [summaryResponse, historyResponse] = await Promise.all([
+          getCurrentStreakSummary(),
+          getStreakHistory(30),
+        ]);
+
+        if (!isActive) {
+          return;
+        }
+
+        setCurrentSummary(summaryResponse);
+        setHistory(historyResponse.days);
+      } catch (loadError) {
+        if (!isActive) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load streak data right now."
+        );
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    run().catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   const metrics = useMemo<StreakMetric[]>(
     () => [
-      { label: "Best Streak", value: String(BEST_STREAK) },
-      { label: "This Month", value: String(THIS_MONTH_ENTRIES) },
-      { label: "Total", value: String(TOTAL_ENTRIES) },
+      { label: "Best Streak", value: String(currentSummary?.bestStreak ?? 0) },
+      { label: "This Month", value: String(currentSummary?.thisMonthEntries ?? 0) },
+      { label: "Total", value: String(currentSummary?.totalEntries ?? 0) },
     ],
-    []
+    [currentSummary]
   );
 
   const achievements = useMemo<Achievement[]>(
-    () => [
-      {
-        title: "First Entry",
-        description: "Started your journey",
-        icon: Trophy,
-        unlocked: TOTAL_ENTRIES > 0,
-      },
-      {
-        title: "7-Day Streak",
-        description: "Wrote for a week",
-        icon: Flame,
-        unlocked: CURRENT_STREAK >= 7,
-      },
-      {
-        title: "30-Day Streak",
-        description: "A month of consistency",
-        icon: Flame,
-        unlocked: CURRENT_STREAK >= 30,
-      },
-      {
-        title: "50 Entries",
-        description: "Prolific writer",
-        icon: Target,
-        unlocked: TOTAL_ENTRIES >= 50,
-      },
-      {
-        title: "100 Entries",
-        description: "Century club",
-        icon: Trophy,
-        unlocked: TOTAL_ENTRIES >= 100,
-      },
-    ],
-    []
+    () =>
+      (currentSummary?.achievements || []).map(achievement => ({
+        title: achievement.title,
+        description: achievement.description,
+        icon:
+          achievement.key === "50-entries"
+            ? Target
+            : achievement.key === "7-day-streak" || achievement.key === "30-day-streak"
+              ? Flame
+              : Trophy,
+        unlocked: achievement.unlocked,
+      })),
+    [currentSummary]
   );
 
   const activityDays = useMemo(() => {
+    if (history.length > 0) {
+      return history.map(day => ({
+        date: new Date(`${day.dateKey}T00:00:00.000Z`),
+        hasEntry: day.hasEntry,
+        isToday: day.isToday,
+      }));
+    }
+
     const today = new Date();
 
     return Array.from({ length: 30 }, (_, index) => {
@@ -229,11 +294,11 @@ export default function StreaksScreen() {
 
       return {
         date,
-        hasEntry: ACTIVITY_PATTERN.has(index),
+        hasEntry: false,
         isToday: index === 29,
       };
     });
-  }, []);
+  }, [history]);
 
   return (
     <TabScreenLayout
@@ -289,7 +354,7 @@ export default function StreaksScreen() {
               <View style={styles.heroContent}>
                 <Flame size={48} color={theme.colors.primaryForeground} />
                 <Text style={styles.heroLabel}>Current Streak</Text>
-                <Text style={styles.heroValue}>{CURRENT_STREAK}</Text>
+                <Text style={styles.heroValue}>{currentSummary?.currentStreak ?? 0}</Text>
                 <Text style={styles.heroSuffix}>days in a row</Text>
               </View>
             </View>
@@ -308,6 +373,72 @@ export default function StreaksScreen() {
         </View>
 
         <View style={styles.sectionStack}>
+          {isLoading ? (
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View style={styles.feedbackState}>
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text style={[styles.feedbackTitle, { color: theme.colors.foreground }]}>
+                  Loading streak data
+                </Text>
+                <Text style={[styles.feedbackText, { color: theme.colors.mutedForeground }]}>
+                  Pulling your latest streaks and activity.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {!isLoading && error ? (
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View style={styles.feedbackState}>
+                <AlertCircle color={theme.colors.destructive} size={24} />
+                <Text style={[styles.feedbackTitle, { color: theme.colors.foreground }]}>
+                  Unable to load streaks
+                </Text>
+                <Text style={[styles.feedbackText, { color: theme.colors.mutedForeground }]}>
+                  {error}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry streaks"
+                  onPress={() => {
+                    loadStreaks().catch(() => undefined);
+                  }}
+                  style={({ pressed }) => [
+                    styles.retryButton,
+                    { backgroundColor: theme.colors.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <RefreshCw size={14} color={theme.colors.primaryForeground} />
+                  <Text
+                    style={[
+                      styles.retryButtonText,
+                      { color: theme.colors.primaryForeground },
+                    ]}
+                  >
+                    Retry
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           <View
             style={[
               styles.card,
@@ -516,6 +647,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  feedbackState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 8,
+  },
+  feedbackTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
+  feedbackText: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+  },
   activityGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -538,6 +685,20 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 3,
+  },
+  retryButton: {
+    marginTop: 4,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   achievementStack: {
     gap: 12,
@@ -571,5 +732,8 @@ const styles = StyleSheet.create({
   achievementDescription: {
     fontSize: 12,
     lineHeight: 16,
+  },
+  pressed: {
+    opacity: 0.9,
   },
 });

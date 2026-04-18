@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import type { BottomNavKey } from "../components/BottomNav";
 import type { AuthEntrySource, FlowStage } from "../navigation/appFlow";
+import type { PaywallTriggerMode } from "../services/paywallService";
 import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingScreen";
 import {
   resendEmailVerification,
+  logout,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
@@ -11,11 +13,29 @@ import {
   type AuthOnboardingContext,
   type AuthSession,
 } from "../services/authService";
-import { updateProfile } from "../services/userService";
+import { getGoogleIdToken } from "../config/googleSignIn";
+import { getProfile, updatePremiumStatus, updateProfile } from "../services/userService";
+import {
+  cancelFreeTrialEndingReminder,
+  syncOnboardingReminderPreference,
+} from "../services/reminderNotificationsService";
 import type { ThemeMode } from "../theme/theme";
-import { saveTokens } from "../utils/tokenStorage";
+import { ApiError } from "../utils/apiClient";
+import {
+  clearTokens,
+  getOnboardingCompleted,
+  hasSeenInstall,
+  getTokens,
+  markInstallSeen,
+  saveOnboardingCompleted,
+  savePostAuthPaywallSeen,
+  saveTokens,
+} from "../utils/tokenStorage";
+import {
+  getHideJournalPreviews,
+  saveHideJournalPreviews,
+} from "../utils/appStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
-import { calendarSampleJournalEntries } from "../models/calendarModels";
 import {
   createInitialJournalSliceState,
   createJournalSlice,
@@ -31,6 +51,9 @@ const wait = (ms: number) =>
 
 const isFlowStage = (value: string): value is FlowStage =>
   value === "onboarding" ||
+  value === "paywall" ||
+  value === "discount-offer" ||
+  value === "lifetime-offer" ||
   value === "auth" ||
   value === "sign-in" ||
   value === "create-account" ||
@@ -85,6 +108,15 @@ const normalizeOptionalValue = (value?: string | null) => {
   return trimmed ? trimmed : undefined;
 };
 
+const normalizeNewEntryPrompt = (value?: unknown) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
 const normalizeSelections = (values?: string[]) =>
   Array.from(new Set((values || []).map(value => value.trim()).filter(Boolean)));
 
@@ -108,7 +140,13 @@ function buildOnboardingContext(
 
 type AppStoreState = {
   stage: FlowStage;
+  paywallReturnStage: PaywallExitStage | null;
+  activePaywallPlacementKey: string | null;
+  activePaywallScreenKey: string | null;
+  activePaywallTriggerMode: PaywallTriggerMode;
+  pendingPostAuthDiscountOffer: boolean;
   activeTab: BottomNavKey;
+  preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
@@ -118,12 +156,33 @@ type AppStoreState = {
   initialProfileName: string;
   themeModeOverride: ThemeMode | null;
   selectedJournalEntryId: string | null;
+  pendingNewEntryPrompt: string | null;
+  pendingPremiumActivation: boolean;
+  hasBootstrappedAuthGate: boolean;
+  hideJournalPreviews: boolean;
 } & JournalSliceState & {
+  bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
+  continueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  continueFromDiscountOffer: () => void;
+  continueFromLifetimeOffer: () => void;
+  openPaywall: (returnStage?: FlowStage) => void;
+  openPaywallForPlacement: (options: {
+    placementKey: string;
+    returnStage?: FlowStage;
+    screenKey?: string | null;
+    triggerMode?: PaywallTriggerMode;
+    enablePostAuthDiscountOffer?: boolean;
+  }) => void;
+  setPaywallContext: (context: {
+    placementKey: string | null;
+    screenKey?: string | null;
+    triggerMode?: PaywallTriggerMode;
+  }) => void;
+  clearPaywallContext: () => void;
   continueWithEmail: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
-  skipToHome: () => void;
   goToCreateAccount: () => void;
   createAccount: (payload: {
     email: string;
@@ -132,31 +191,44 @@ type AppStoreState = {
   finishCreateAccount: () => void;
   resendVerificationCode: () => Promise<void>;
   verifyPendingEmail: (code: string) => Promise<void>;
-  finishEmailVerification: () => void;
+  finishEmailVerification: () => Promise<void>;
   signIn: (payload: { email: string; password: string }) => Promise<void>;
   completeProfile: (payload: {
     name: string;
     avatarColor: string;
   }) => Promise<void>;
+  signOut: () => Promise<void>;
   goBackToAuth: () => void;
   goBackToCreateAccount: () => void;
   goBackFromProfile: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
-  openNewEntry: () => void;
+  openInsightsTab: (nextTab?: "overview" | "analysis") => void;
+  clearPreferredInsightsTab: () => void;
+  openNewEntry: (options?: { initialPrompt?: string | null }) => void;
   closeNewEntry: () => void;
   openJournalEntry: (entryId: string) => void;
   openJournalEditor: (entryId: string) => void;
   closeJournalEntry: () => void;
   closeJournalEditor: () => void;
   setThemeModeOverride: (nextMode: ThemeMode | null) => void;
+  setHideJournalPreviews: (nextValue: boolean) => Promise<void>;
+  setSessionAiOptIn: (nextValue: boolean) => void;
+  setSessionPremiumStatus: (nextValue: boolean) => Promise<void>;
+  setSessionUserProfile: (nextProfile: AuthSession["user"]) => void;
 };
 
 type AppStoreSnapshot = Pick<
   AppStoreState,
   | "stage"
+  | "paywallReturnStage"
+  | "activePaywallPlacementKey"
+  | "activePaywallScreenKey"
+  | "activePaywallTriggerMode"
+  | "pendingPostAuthDiscountOffer"
   | "activeTab"
+  | "preferredInsightsTab"
   | "isCompletingOnboarding"
   | "onboardingData"
   | "pendingEmail"
@@ -166,12 +238,22 @@ type AppStoreSnapshot = Pick<
   | "initialProfileName"
   | "themeModeOverride"
   | "selectedJournalEntryId"
+  | "pendingNewEntryPrompt"
+  | "pendingPremiumActivation"
+  | "hasBootstrappedAuthGate"
+  | "hideJournalPreviews"
   | "recentJournalEntries"
 >;
 
 const createInitialSnapshot = (): AppStoreSnapshot => ({
   stage: getInitialStage(),
+  paywallReturnStage: null,
+  activePaywallPlacementKey: null,
+  activePaywallScreenKey: null,
+  activePaywallTriggerMode: "contextual",
+  pendingPostAuthDiscountOffer: false,
   activeTab: getInitialTab(),
+  preferredInsightsTab: null,
   isCompletingOnboarding: false,
   onboardingData: null,
   pendingEmail:
@@ -184,7 +266,11 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   initialProfileName: "",
   themeModeOverride: null,
   selectedJournalEntryId: null,
-  ...createInitialJournalSliceState(calendarSampleJournalEntries),
+  pendingNewEntryPrompt: null,
+  pendingPremiumActivation: false,
+  hasBootstrappedAuthGate: false,
+  hideJournalPreviews: false,
+  ...createInitialJournalSliceState(),
 });
 
 const enterHomeWithProfile = (
@@ -210,23 +296,293 @@ const enterHomeWithProfile = (
 const getSelectedGoals = (state: Pick<AppStoreState, "onboardingData">) =>
   state.onboardingData?.goals || [];
 
+const isUnauthorizedProfileError = (error: unknown) =>
+  error instanceof ApiError && (error.status === 401 || error.status === 403);
+
+const syncPendingPremiumIfNeeded = async (
+  session: AuthSession,
+  pendingPremiumActivation: boolean
+) => {
+  if (!pendingPremiumActivation) {
+    return session;
+  }
+
+  const updatedProfile = await updatePremiumStatus({ isPremium: true });
+
+  return {
+    ...session,
+    user: updatedProfile,
+  };
+};
+
+const getPostAuthDestinationStage = (
+  session: AuthSession | null
+): PaywallExitStage => {
+  if (!session) {
+    return "auth";
+  }
+
+  return session.user.profileSetupCompleted ? "main-app" : "profile";
+};
+
+const shouldShowPostAuthPaywall = (session: AuthSession | null) =>
+  Boolean(session && !session.user.isPremium);
+
+const resolvePaywallExitStage = (
+  state: Pick<AppStoreState, "session" | "paywallReturnStage">
+): PaywallExitStage => {
+  if (state.paywallReturnStage) {
+    return state.paywallReturnStage;
+  }
+
+  return getPostAuthDestinationStage(state.session);
+};
+
+type PaywallExitStage = Exclude<
+  FlowStage,
+  "paywall" | "discount-offer" | "lifetime-offer"
+>;
+
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
   ...createJournalSlice(
-    set as Parameters<typeof createJournalSlice>[0],
-    calendarSampleJournalEntries
+    set as Parameters<typeof createJournalSlice>[0]
   ),
+  bootstrapAuthGate: async () => {
+    if (get().hasBootstrappedAuthGate) {
+      return;
+    }
+
+    const hideJournalPreviews = await getHideJournalPreviews().catch(
+      () => false
+    );
+
+    set({ hideJournalPreviews });
+
+    if (__DEV__ && devLaunchConfig.stage && devLaunchConfig.stage !== "onboarding") {
+      set({ hasBootstrappedAuthGate: true });
+      return;
+    }
+
+    const installSeen = await hasSeenInstall();
+
+    if (!installSeen) {
+      await markInstallSeen();
+      await clearTokens();
+      await saveOnboardingCompleted(false);
+      await savePostAuthPaywallSeen(false);
+
+      set({
+        hasBootstrappedAuthGate: true,
+        stage: "onboarding",
+      });
+      return;
+    }
+
+    const tokens = await getTokens();
+    if (tokens) {
+      try {
+        const profile = await getProfile();
+        const hydratedSession: AuthSession = {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          user: profile,
+        };
+
+        await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: hydratedSession,
+          initialProfileName: profile.name,
+          authSource: profile.email ? "email" : null,
+          pendingEmail: profile.email || "",
+          pendingVerificationCode: "",
+          paywallReturnStage: null,
+          activePaywallPlacementKey: null,
+          activePaywallScreenKey: null,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthDiscountOffer: false,
+          preferredInsightsTab: null,
+          pendingPremiumActivation: false,
+          activeTab: "home",
+          stage: "main-app",
+        });
+        return;
+      } catch (error) {
+        if (isUnauthorizedProfileError(error)) {
+          await clearTokens();
+        }
+
+        const onboardingCompleted = await getOnboardingCompleted();
+
+        set({
+          hasBootstrappedAuthGate: true,
+          session: null,
+          initialProfileName: "",
+          authSource: null,
+          pendingEmail: "",
+          pendingVerificationCode: "",
+          paywallReturnStage: null,
+          activePaywallPlacementKey: null,
+          activePaywallScreenKey: null,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthDiscountOffer: false,
+          preferredInsightsTab: null,
+          activeTab: "home",
+          stage: onboardingCompleted ? "auth" : "onboarding",
+        });
+        return;
+      }
+    }
+
+    const onboardingCompleted = await getOnboardingCompleted();
+
+    set({
+      hasBootstrappedAuthGate: true,
+      stage: onboardingCompleted ? "auth" : "onboarding",
+    });
+  },
   completeOnboarding: async data => {
     set({
       isCompletingOnboarding: true,
       onboardingData: data,
     });
 
+    const saveOnboardingCompletedPromise = saveOnboardingCompleted(true);
+    const syncOnboardingReminderPromise = syncOnboardingReminderPreference(
+      data.reminderPreference
+    ).catch(() => undefined);
     await wait(ONBOARDING_EXIT_DELAY_MS);
+    await Promise.all([
+      saveOnboardingCompletedPromise,
+      syncOnboardingReminderPromise,
+    ]);
 
     set({
       isCompletingOnboarding: false,
+      pendingPremiumActivation: false,
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: false,
       stage: "auth",
+    });
+  },
+  continueFromPaywall: (reason = "continue") => {
+    set(state => {
+      const shouldOpenDiscountOffer =
+        reason === "dismiss" &&
+        state.activePaywallPlacementKey === "post_auth" &&
+        state.pendingPostAuthDiscountOffer;
+
+      if (shouldOpenDiscountOffer) {
+        return {
+          activePaywallPlacementKey: "post_auth_exit_offer",
+          activePaywallScreenKey: state.activePaywallScreenKey,
+          activePaywallTriggerMode: "contextual",
+          pendingPostAuthDiscountOffer: false,
+          stage: "discount-offer" as FlowStage,
+        };
+      }
+
+      return {
+        paywallReturnStage: null,
+        activePaywallPlacementKey: null,
+        activePaywallScreenKey: null,
+        activePaywallTriggerMode: "contextual",
+        pendingPostAuthDiscountOffer: false,
+        stage: resolvePaywallExitStage(state),
+      };
+    });
+  },
+  continueFromDiscountOffer: () => {
+    set(state => ({
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: false,
+      stage: resolvePaywallExitStage(state),
+    }));
+  },
+  continueFromLifetimeOffer: () => {
+    set(state => ({
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: false,
+      stage: resolvePaywallExitStage(state),
+    }));
+  },
+  openPaywall: returnStage => {
+    const currentStage = get().stage;
+    const fallbackStage: PaywallExitStage =
+      currentStage === "paywall" ||
+      currentStage === "discount-offer" ||
+      currentStage === "lifetime-offer"
+        ? getPostAuthDestinationStage(get().session)
+        : (currentStage as PaywallExitStage);
+    const nextReturnStage: PaywallExitStage =
+      returnStage &&
+      returnStage !== "paywall" &&
+      returnStage !== "discount-offer" &&
+      returnStage !== "lifetime-offer"
+        ? (returnStage as PaywallExitStage)
+        : fallbackStage;
+
+    set({
+      paywallReturnStage: nextReturnStage,
+      pendingPostAuthDiscountOffer: false,
+      stage: "paywall",
+    });
+  },
+  openPaywallForPlacement: ({
+    placementKey,
+    returnStage,
+    screenKey = null,
+    triggerMode = "contextual",
+    enablePostAuthDiscountOffer = false,
+  }) => {
+    const currentStage = get().stage;
+    const fallbackStage: PaywallExitStage =
+      currentStage === "paywall" ||
+      currentStage === "discount-offer" ||
+      currentStage === "lifetime-offer"
+        ? getPostAuthDestinationStage(get().session)
+        : (currentStage as PaywallExitStage);
+    const nextReturnStage: PaywallExitStage =
+      returnStage &&
+      returnStage !== "paywall" &&
+      returnStage !== "discount-offer" &&
+      returnStage !== "lifetime-offer"
+        ? (returnStage as PaywallExitStage)
+        : fallbackStage;
+
+    set({
+      paywallReturnStage: nextReturnStage,
+      activePaywallPlacementKey: placementKey,
+      activePaywallScreenKey: screenKey,
+      activePaywallTriggerMode: triggerMode,
+      pendingPostAuthDiscountOffer: enablePostAuthDiscountOffer,
+      stage: "paywall",
+    });
+  },
+  setPaywallContext: ({ placementKey, screenKey = null, triggerMode = "contextual" }) => {
+    set({
+      activePaywallPlacementKey: placementKey,
+      activePaywallScreenKey: screenKey,
+      activePaywallTriggerMode: triggerMode,
+    });
+  },
+  clearPaywallContext: () => {
+    set({
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: false,
     });
   },
   continueWithEmail: async () => {
@@ -236,10 +592,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
   },
   continueWithGoogle: async () => {
+    const idToken = await getGoogleIdToken();
+
+    if (!idToken) {
+      return;
+    }
+
+    const onboardingContext = buildOnboardingContext(get().onboardingData);
+
     const response = await signInWithGoogle({
-      googleIdToken: "mock-google-token",
-      email: "alex.rivera@example.com",
-      name: "Alex Rivera",
+      idToken,
+      ...(onboardingContext ? { onboardingContext } : {}),
+      onboardingCompleted: true,
     });
 
     await saveTokens({
@@ -247,23 +611,34 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       refreshToken: response.refreshToken,
     });
 
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
+
+    await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    const nextStage = getPostAuthDestinationStage(syncedSession);
+    const showPaywall = shouldShowPostAuthPaywall(syncedSession);
+
     set({
       authSource: "google",
-      pendingEmail: response.user.email || "alex.rivera@example.com",
+      pendingEmail: syncedSession.user.email || "",
       pendingVerificationCode: "",
-      session: response,
-      initialProfileName: response.user.name || "Alex Rivera",
-      stage: "profile",
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "auth" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: showPaywall,
+      session: syncedSession,
+      initialProfileName: syncedSession.user.name || "Journal User",
+      pendingPremiumActivation: false,
+      preferredInsightsTab: null,
+      activeTab: "home",
+      stage: showPaywall ? "paywall" : nextStage,
     });
   },
   goToSignIn: () => {
     set({ stage: "sign-in" });
-  },
-  skipToHome: () => {
-    set({
-      activeTab: "home",
-      stage: "main-app",
-    });
   },
   goToCreateAccount: () => {
     set({ stage: "create-account" });
@@ -281,6 +656,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       email: normalizedEmail,
       password: payload.password,
       onboardingContext: buildOnboardingContext(get().onboardingData),
+      onboardingCompleted: true,
     });
 
     set({
@@ -320,58 +696,88 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       {
         onboardingGoals: onboardingData?.goals,
+        onboardingAiOptIn: onboardingData?.aiComfort,
+        onboardingCompleted: true,
       }
     );
-
-    const updatedSession: AuthSession = {
-      ...response,
-      user: {
-        ...response.user,
-        journalingGoals:
-          onboardingData?.goals?.length
-            ? onboardingData.goals
-            : response.user.journalingGoals,
-      },
-    };
-
-    await saveTokens({
-      accessToken: updatedSession.accessToken,
-      refreshToken: updatedSession.refreshToken,
-    });
-
-    set({
-      session: updatedSession,
-      initialProfileName: updatedSession.user.name,
-    });
-  },
-  finishEmailVerification: () => {
-    set({ stage: "profile" });
-  },
-  signIn: async payload => {
-    const response = await signInWithEmail(payload);
 
     await saveTokens({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
     });
 
-    if (response.user.profileSetupCompleted) {
-      set({
-        session: response,
-        pendingEmail: response.user.email || payload.email,
-        authSource: "email",
-        activeTab: "home",
-        stage: "main-app",
-      });
-      return;
-    }
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
+
+    const updatedSession: AuthSession = {
+      ...syncedSession,
+      user: {
+        ...syncedSession.user,
+        journalingGoals:
+          onboardingData?.goals?.length
+            ? onboardingData.goals
+            : syncedSession.user.journalingGoals,
+      },
+    };
+
+    await saveOnboardingCompleted(true);
 
     set({
-      session: response,
-      pendingEmail: response.user.email || payload.email,
+      session: updatedSession,
+      initialProfileName: updatedSession.user.name,
+      pendingPremiumActivation: false,
+    });
+  },
+  finishEmailVerification: async () => {
+    const state = get();
+    const nextStage = getPostAuthDestinationStage(state.session);
+    const showPaywall = shouldShowPostAuthPaywall(state.session);
+
+    set({
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "verify-email" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: showPaywall,
+      stage: showPaywall ? "paywall" : nextStage,
+    });
+  },
+  signIn: async payload => {
+    const response = await signInWithEmail({
+      ...payload,
+      onboardingCompleted: true,
+    });
+
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
+
+    await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    const nextStage = getPostAuthDestinationStage(syncedSession);
+    const showPaywall = shouldShowPostAuthPaywall(syncedSession);
+
+    set({
+      session: syncedSession,
+      pendingEmail: syncedSession.user.email || payload.email,
       authSource: "email",
-      initialProfileName: response.user.name,
-      stage: "profile",
+      initialProfileName: syncedSession.user.name,
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "auth" : null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: showPaywall,
+      pendingPremiumActivation: false,
+      preferredInsightsTab: null,
+      activeTab: "home",
+      stage: showPaywall ? "paywall" : nextStage,
     });
   },
   completeProfile: async payload => {
@@ -381,7 +787,41 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       goals: getSelectedGoals(get()),
     });
 
+    await saveOnboardingCompleted(true);
+
     enterHomeWithProfile(set, get, updatedProfile);
+  },
+  signOut: async () => {
+    try {
+      await logout();
+    } catch {
+      // Sign-out must still complete locally even if the backend session is already gone.
+    }
+
+    await cancelFreeTrialEndingReminder().catch(() => undefined);
+    await clearTokens();
+
+    set({
+      ...createInitialJournalSliceState(),
+      stage: "auth",
+      activeTab: "home",
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      pendingPostAuthDiscountOffer: false,
+      preferredInsightsTab: null,
+      isCompletingOnboarding: false,
+      onboardingData: null,
+      pendingEmail: "",
+      pendingVerificationCode: "",
+      authSource: null,
+      session: null,
+      initialProfileName: "",
+      selectedJournalEntryId: null,
+      pendingNewEntryPrompt: null,
+      pendingPremiumActivation: false,
+    });
   },
   goBackToAuth: () => {
     set({ stage: "auth" });
@@ -406,45 +846,134 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       goals: getSelectedGoals(state),
     });
 
+    await saveOnboardingCompleted(true);
+
     enterHomeWithProfile(set, get, updatedProfile);
   },
   restartFlow: () => {
     set(createInitialSnapshot());
   },
   setActiveTab: nextTab => {
-    set({ activeTab: nextTab });
+    set({
+      activeTab: nextTab,
+      preferredInsightsTab: nextTab === "insights" ? get().preferredInsightsTab : null,
+    });
   },
-  openNewEntry: () => {
-    set({ stage: "new-entry" });
+  openInsightsTab: (nextTab = "overview") => {
+    set({
+      activeTab: "insights",
+      preferredInsightsTab: nextTab,
+      stage: "main-app",
+    });
+  },
+  clearPreferredInsightsTab: () => {
+    set({ preferredInsightsTab: null });
+  },
+  openNewEntry: options => {
+    set({
+      stage: "new-entry",
+      pendingNewEntryPrompt: normalizeNewEntryPrompt(options?.initialPrompt),
+    });
   },
   closeNewEntry: () => {
-    set({ stage: "main-app" });
+    set({ stage: "main-app", pendingNewEntryPrompt: null });
   },
   openJournalEntry: entryId => {
     set({
       selectedJournalEntryId: entryId,
+      pendingNewEntryPrompt: null,
       stage: "journal-detail",
     });
   },
   openJournalEditor: entryId => {
     set({
       selectedJournalEntryId: entryId,
+      pendingNewEntryPrompt: null,
       stage: "journal-edit",
     });
   },
   closeJournalEntry: () => {
     set({
       selectedJournalEntryId: null,
+      pendingNewEntryPrompt: null,
       stage: "main-app",
     });
   },
   closeJournalEditor: () => {
     set(state => ({
+      pendingNewEntryPrompt: null,
       stage: state.selectedJournalEntryId ? "journal-detail" : "main-app",
     }));
   },
   setThemeModeOverride: nextMode => {
     set({ themeModeOverride: nextMode });
+  },
+  setHideJournalPreviews: async nextValue => {
+    await saveHideJournalPreviews(nextValue);
+    set({ hideJournalPreviews: nextValue });
+  },
+  setSessionAiOptIn: nextValue => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      return;
+    }
+
+    set({
+      session: {
+        ...currentSession,
+        user: {
+          ...currentSession.user,
+          aiOptIn: nextValue,
+        },
+      },
+    });
+  },
+  setSessionPremiumStatus: async nextValue => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      set({ pendingPremiumActivation: nextValue });
+      return;
+    }
+
+    if (currentSession.user.isPremium === nextValue) {
+      set({ pendingPremiumActivation: false });
+      return;
+    }
+
+    const updatedProfile = await updatePremiumStatus({ isPremium: nextValue });
+
+    if (!nextValue) {
+      cancelFreeTrialEndingReminder().catch(() => undefined);
+    }
+
+    set({
+      pendingPremiumActivation: false,
+      session: {
+        ...currentSession,
+        user: {
+          ...updatedProfile,
+        },
+      },
+      initialProfileName: updatedProfile.name,
+    });
+  },
+  setSessionUserProfile: nextProfile => {
+    const currentSession = get().session;
+
+    if (!currentSession) {
+      return;
+    }
+
+    set({
+      session: {
+        ...currentSession,
+        user: nextProfile,
+      },
+      initialProfileName: nextProfile.name,
+      pendingPremiumActivation: false,
+    });
   },
 }));
 

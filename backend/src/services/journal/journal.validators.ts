@@ -14,6 +14,7 @@ const createJournalSchema = z.object({
     title: z.string().min(1, "Title is required"),
     content: z.string().min(1, "Content is required"),
     type: z.string().min(1).optional(),
+    aiPrompt: z.string().min(1).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
   }),
@@ -37,6 +38,7 @@ const editJournalSchema = z.object({
     title: z.string().min(1, "Title is required"),
     content: z.string().min(1, "Content is required"),
     type: z.string().min(1).optional(),
+    aiPrompt: z.string().min(1).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
     isFavorite: z.boolean().optional(),
@@ -64,6 +66,27 @@ const deleteJournalSchema = z.object({
   params: z.object({}).optional(),
 });
 
+// POST /suggest_tags
+const suggestJournalTagsSchema = z.object({
+  body: z.object({
+    content: z.string().trim().min(1, "Content is required"),
+    selectedTags: z.array(z.string().trim().min(1)).optional(),
+    mood: z
+      .enum(["amazing", "good", "okay", "bad", "terrible"])
+      .optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const getJournalQuickAnalysisSchema = z.object({
+  body: z.object({
+    journalId: z.string().trim().min(1, "Journal ID is required"),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
   getJournalsSchema,
   createJournalSchema,
@@ -71,4 +94,6 @@ export {
   editJournalSchema,
   toggleJournalFavoriteSchema,
   deleteJournalSchema,
+  suggestJournalTagsSchema,
+  getJournalQuickAnalysisSchema,
 };

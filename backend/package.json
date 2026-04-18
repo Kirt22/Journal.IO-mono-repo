@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/app.ts",
     "build": "tsc",
-    "start": "node dist/app.js"
+    "start": "node dist/app.js",
+    "test": "npm run build && node scripts/run-tests.mjs"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "@types/mongoose": "^5.11.96",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "google-auth-library": "^10.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
     "zod": "^4.1.13"

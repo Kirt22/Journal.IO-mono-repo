@@ -30,5 +30,23 @@ target 'JournalFrontend' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'fmt'
+
+      target.build_configurations.each do |build_config|
+        definitions = build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+        definitions = Array(definitions)
+
+        unless definitions.include?('FMT_USE_CONSTEVAL=0')
+          definitions << 'FMT_USE_CONSTEVAL=0'
+        end
+
+        # Xcode 26.4 can fail in fmt/format.cc with consteval errors on simulator builds.
+        # Keep fmt on gnu++17 and disable FMT_USE_CONSTEVAL unless React Native updates remove the need.
+        build_config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+        build_config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+      end
+    end
   end
 end

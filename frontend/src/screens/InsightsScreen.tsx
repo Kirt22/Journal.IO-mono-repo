@@ -1,135 +1,65 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useWindowDimensions, type StyleProp, type ViewStyle } from "react-native";
-import { Animated, Easing } from "react-native";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from "react-native-svg";
+import {
+  AlertCircle,
   Award,
   Brain,
   Leaf,
+  Lock,
   PieChart,
+  RefreshCw,
   Sparkles,
-  Star,
   TrendingUp,
 } from "lucide-react-native";
-import { Pressable, StyleSheet, Text, View } from "../infrastructure/reactNative";
-import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Stop } from "react-native-svg";
 import TabScreenLayout from "../components/TabScreenLayout";
+import {
+  getInsightsAiAnalysis,
+  getInsightsOverview,
+  type InsightTone,
+  type InsightsAiAnalysis,
+  type InsightsAiAnalysisCollecting,
+  type InsightsAiAnalysisInsufficient,
+  type InsightsAiAnalysisReady,
+  type InsightsOverview,
+} from "../services/insightsService";
+import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
+import {
+  cancelWeeklyInsightNotifications,
+  syncWeeklyInsightNotifications,
+} from "../services/reminderNotificationsService";
+import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
 type InsightTab = "overview" | "analysis";
 
-type StatCard = {
-  label: string;
-  value: string;
+const MOOD_COLORS: Record<string, string> = {
+  amazing: "#E6816D",
+  good: "#7D9FD6",
+  okay: "#E9A15B",
+  bad: "#8E939A",
+  terrible: "#D26A6A",
 };
 
-type PatternItem = {
-  title: string;
-  subtitle: string;
-  icon: typeof Award;
-  iconColor: string;
-};
-
-type PromptItem = {
-  text: string;
-};
-
-type BreakdownSegment = {
-  label: string;
-  value: number;
-  color: string;
-};
-
-type TopicItem = {
-  label: string;
-  value: number;
-  color: string;
-};
-
-const overviewStats: StatCard[] = [
-  { label: "Total Entries", value: "5" },
-  { label: "Current Streak", value: "12 days" },
-  { label: "Avg Words", value: "26" },
-  { label: "Favorites", value: "2" },
-];
-
-const weekActivity = [
-  { label: "Fri", value: 1 },
-  { label: "Sat", value: 0 },
-  { label: "Sun", value: 0 },
-  { label: "Mon", value: 4 },
-  { label: "Tue", value: 3 },
-  { label: "Wed", value: 2 },
-  { label: "Thu", value: 1 },
-];
-
-const patternItems: PatternItem[] = [
-  {
-    title: "Emotional Awareness",
-    subtitle: "You're getting better at identifying and expressing complex emotions",
-    icon: Award,
-    iconColor: "#8AB39A",
-  },
-  {
-    title: "Gratitude Practice",
-    subtitle: "Your entries increasingly focus on positive experiences and appreciation",
-    icon: Star,
-    iconColor: "#7D9FD6",
-  },
-  {
-    title: "Nature & Reflection",
-    subtitle: "Calm moments and outdoors time appear associated with steadier writing",
-    icon: Leaf,
-    iconColor: "#E6816D",
-  },
-];
-
-const personalizedPrompts: PromptItem[] = [
-  {
-    text: "What felt most steady or grounding in your day?",
-  },
-  {
-    text: "Where did your mood shift, and what seemed to influence it?",
-  },
-  {
-    text: "What is one small thing you want to carry into tomorrow?",
-  },
-];
-
-const moodDistributionSegments: BreakdownSegment[] = [
-  { label: "Amazing", value: 18, color: "#E6816D" },
-  { label: "Good", value: 34, color: "#7D9FD6" },
-  { label: "Okay", value: 28, color: "#E9A15B" },
-  { label: "Bad", value: 12, color: "#8E939A" },
-  { label: "Terrible", value: 8, color: "#D26A6A" },
-];
-
-const popularTopics: TopicItem[] = [
-  {
-    label: "Morning routines",
-    value: 32,
-    color: "#E6816D",
-  },
-  {
-    label: "Work stress",
-    value: 24,
-    color: "#7D9FD6",
-  },
-  {
-    label: "Relationships",
-    value: 18,
-    color: "#8AB39A",
-  },
-  {
-    label: "Sleep & energy",
-    value: 14,
-    color: "#E9A15B",
-  },
-  {
-    label: "Gratitude",
-    value: 12,
-    color: "#A47BD6",
-  },
-];
+const TOPIC_COLORS = ["#E6816D", "#7D9FD6", "#8AB39A", "#E9A15B", "#A47BD6"];
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -145,6 +75,43 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function getToneColor(tone: InsightTone) {
+  switch (tone) {
+    case "coral":
+      return "#E6816D";
+    case "blue":
+      return "#7D9FD6";
+    case "sage":
+      return "#8AB39A";
+    case "amber":
+      return "#E9A15B";
+    case "slate":
+    default:
+      return "#8E939A";
+  }
+}
+
+function getFirstSentence(text: string) {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  const match = normalized.match(/^[^.?!]+[.?!]?/);
+  return (match?.[0] || normalized).trim();
+}
+
+function truncateWords(text: string, maxWords: number) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+
+  if (words.length <= maxWords) {
+    return text.trim();
+  }
+
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
 function useRevealProgress(isVisible: boolean) {
   const progress = useRef(new Animated.Value(isVisible ? 1 : 0)).current;
 
@@ -153,7 +120,7 @@ function useRevealProgress(isVisible: boolean) {
 
     if (!isVisible) {
       progress.setValue(0);
-      return undefined;
+      return;
     }
 
     progress.setValue(0);
@@ -207,6 +174,28 @@ function RevealSurface({
   );
 }
 
+function SectionCard({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.sectionCard,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+        },
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
 function TabPill({
   theme,
   label,
@@ -227,7 +216,7 @@ function TabPill({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => [
+      style={({ pressed }) => [
         styles.tabPill,
         {
           backgroundColor: selected ? theme.colors.card : "transparent",
@@ -239,9 +228,7 @@ function TabPill({
       <Text
         style={[
           styles.tabPillLabel,
-          {
-            color: theme.colors.foreground,
-          },
+          { color: theme.colors.foreground },
           selected ? styles.tabPillLabelSelected : styles.tabPillLabelDefault,
         ]}
       >
@@ -312,10 +299,137 @@ function StatCardView({
   );
 }
 
+function buildLineGeometry({
+  width,
+  height,
+  paddingTop,
+  paddingBottom,
+  paddingLeft,
+  paddingRight,
+  values,
+  maxValue,
+}: {
+  width: number;
+  height: number;
+  paddingTop: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  paddingRight: number;
+  values: number[];
+  maxValue: number;
+}) {
+  const plotWidth = width - paddingLeft - paddingRight;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const count = Math.max(values.length - 1, 1);
+  const points = values.map((value, index) => {
+    const normalized = Math.max(0, Math.min(maxValue, value)) / maxValue;
+    const x = paddingLeft + (plotWidth / count) * index;
+    const y = paddingTop + plotHeight - plotHeight * normalized;
+
+    return { x, y };
+  });
+
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${paddingLeft + plotWidth} ${paddingTop + plotHeight} L ${paddingLeft} ${paddingTop + plotHeight} Z`;
+
+  return {
+    left: paddingLeft,
+    top: paddingTop,
+    plotWidth,
+    plotHeight,
+    points,
+    linePath,
+    areaPath,
+  };
+}
+
+function polarToCartesian(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  angleInDegrees: number
+) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
+
+  return {
+    x: centerX + radius * Math.cos(angleInRadians),
+    y: centerY + radius * Math.sin(angleInRadians),
+  };
+}
+
+function buildDonutSegmentPath({
+  center,
+  outerRadius,
+  innerRadius,
+  startAngle,
+  endAngle,
+}: {
+  center: number;
+  outerRadius: number;
+  innerRadius: number;
+  startAngle: number;
+  endAngle: number;
+}) {
+  const outerStart = polarToCartesian(center, center, outerRadius, endAngle);
+  const outerEnd = polarToCartesian(center, center, outerRadius, startAngle);
+  const innerStart = polarToCartesian(center, center, innerRadius, startAngle);
+  const innerEnd = polarToCartesian(center, center, innerRadius, endAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 0 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerStart.x} ${innerStart.y}`,
+    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 1 ${innerEnd.x} ${innerEnd.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function buildDonutSegments({
+  segments,
+  center,
+  outerRadius,
+  innerRadius,
+}: {
+  segments: InsightsOverview["moodDistribution"];
+  center: number;
+  outerRadius: number;
+  innerRadius: number;
+}) {
+  const total = Math.max(
+    1,
+    segments.reduce((sum, segment) => sum + segment.percentage, 0)
+  );
+  let currentAngle = -90;
+
+  return segments.map(segment => {
+    const sliceAngle = (segment.percentage / total) * 360;
+    const startAngle = currentAngle;
+    const endAngle = currentAngle + sliceAngle;
+    currentAngle = endAngle;
+
+    return {
+      mood: segment.mood,
+      label: segment.label,
+      path: buildDonutSegmentPath({
+        center,
+        outerRadius,
+        innerRadius,
+        startAngle,
+        endAngle,
+      }),
+    };
+  });
+}
+
 function ActivityChart({
+  activity,
   selectedIndex,
   onSelectIndex,
 }: {
+  activity: InsightsOverview["activity7d"];
   selectedIndex: number;
   onSelectIndex: (nextIndex: number) => void;
 }) {
@@ -331,13 +445,14 @@ function ActivityChart({
         paddingBottom: 28,
         paddingLeft: 2,
         paddingRight: 2,
-        values: weekActivity.map(item => item.value),
-        maxValue: 4,
+        values: activity.map(item => item.count),
+        maxValue: Math.max(4, ...activity.map(item => item.count), 1),
       }),
-    [chartHeight, chartWidth]
+    [activity]
   );
   const fillColor = hexToRgba(theme.colors.primary, 0.12);
   const mutedLineColor = hexToRgba(theme.colors.secondaryForeground, 0.52);
+
   return (
     <View style={styles.chartWrap}>
       <View style={styles.yLabels}>
@@ -395,7 +510,7 @@ function ActivityChart({
           />
 
           {chartGeometry.points.map((point, index) => (
-            <G key={weekActivity[index].label}>
+            <G key={activity[index].dateKey}>
               <Circle
                 cx={point.x}
                 cy={point.y}
@@ -419,9 +534,9 @@ function ActivityChart({
         <View style={styles.chartOverlay}>
           {chartGeometry.points.map((point, index) => (
             <Pressable
-              key={`hit-${weekActivity[index].label}`}
+              key={`hit-${activity[index].dateKey}`}
               accessibilityRole="button"
-              accessibilityLabel={`Select ${weekActivity[index].label} activity`}
+              accessibilityLabel={`Select ${activity[index].label} activity`}
               testID={`activity-point-${index}`}
               onPress={() => onSelectIndex(index)}
               style={[
@@ -436,15 +551,18 @@ function ActivityChart({
         </View>
 
         <View style={styles.chartLabelsRow}>
-          {weekActivity.map((item, index) => (
+          {activity.map((item, index) => (
             <Text
-              key={item.label}
+              key={item.dateKey}
               style={[
                 styles.axisLabel,
                 {
-                  color: index === 3 ? theme.colors.primary : theme.colors.mutedForeground,
+                  color:
+                    index === selectedIndex
+                      ? theme.colors.primary
+                      : theme.colors.mutedForeground,
                 },
-                index === 3 ? styles.axisLabelSelected : styles.axisLabelDefault,
+                index === selectedIndex ? styles.axisLabelSelected : styles.axisLabelDefault,
               ]}
             >
               {item.label}
@@ -456,132 +574,12 @@ function ActivityChart({
   );
 }
 
-function buildLineGeometry({
-  width,
-  height,
-  paddingTop,
-  paddingBottom,
-  paddingLeft,
-  paddingRight,
-  values,
-  maxValue,
-}: {
-  width: number;
-  height: number;
-  paddingTop: number;
-  paddingBottom: number;
-  paddingLeft: number;
-  paddingRight: number;
-  values: number[];
-  maxValue: number;
-}) {
-  const plotWidth = width - paddingLeft - paddingRight;
-  const plotHeight = height - paddingTop - paddingBottom;
-  const count = Math.max(values.length - 1, 1);
-  const points = values.map((value, index) => {
-    const normalized = Math.max(0, Math.min(maxValue, value)) / maxValue;
-    const x = paddingLeft + (plotWidth / count) * index;
-    const y = paddingTop + plotHeight - plotHeight * normalized;
-
-    return { x, y };
-  });
-
-  const linePath = points
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" ");
-  const areaPath = `${linePath} L ${paddingLeft + plotWidth} ${paddingTop + plotHeight} L ${paddingLeft} ${paddingTop + plotHeight} Z`;
-
-  return {
-    left: paddingLeft,
-    top: paddingTop,
-    plotWidth,
-    plotHeight,
-    points,
-    linePath,
-    areaPath,
-  };
-}
-
-function buildDonutSegments({
-  segments,
-  center,
-  outerRadius,
-  innerRadius,
-}: {
-  segments: BreakdownSegment[];
-  center: number;
-  outerRadius: number;
-  innerRadius: number;
-}) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
-  let currentAngle = -90;
-
-  return segments.map(segment => {
-    const sliceAngle = (segment.value / total) * 360;
-    const startAngle = currentAngle;
-    const endAngle = currentAngle + sliceAngle;
-    currentAngle = endAngle;
-
-    return {
-      label: segment.label,
-      color: segment.color,
-      path: buildDonutSegmentPath({
-        center,
-        outerRadius,
-        innerRadius,
-        startAngle,
-        endAngle,
-      }),
-    };
-  });
-}
-
-function buildDonutSegmentPath({
-  center,
-  outerRadius,
-  innerRadius,
-  startAngle,
-  endAngle,
-}: {
-  center: number;
-  outerRadius: number;
-  innerRadius: number;
-  startAngle: number;
-  endAngle: number;
-}) {
-  const outerStart = polarToCartesian(center, center, outerRadius, endAngle);
-  const outerEnd = polarToCartesian(center, center, outerRadius, startAngle);
-  const innerStart = polarToCartesian(center, center, innerRadius, startAngle);
-  const innerEnd = polarToCartesian(center, center, innerRadius, endAngle);
-  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-
-  return [
-    `M ${outerStart.x} ${outerStart.y}`,
-    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 0 ${outerEnd.x} ${outerEnd.y}`,
-    `L ${innerStart.x} ${innerStart.y}`,
-    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 1 ${innerEnd.x} ${innerEnd.y}`,
-    "Z",
-  ].join(" ");
-}
-
-function polarToCartesian(
-  centerX: number,
-  centerY: number,
-  radius: number,
-  angleInDegrees: number
-) {
-  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
-
-  return {
-    x: centerX + radius * Math.cos(angleInRadians),
-    y: centerY + radius * Math.sin(angleInRadians),
-  };
-}
-
 function BreakdownChart({
+  moodDistribution,
   selectedIndex,
   onSelectIndex,
 }: {
+  moodDistribution: InsightsOverview["moodDistribution"];
   selectedIndex: number;
   onSelectIndex: (nextIndex: number) => void;
 }) {
@@ -591,16 +589,16 @@ function BreakdownChart({
   const outerRadius = (size - strokeWidth) / 2;
   const innerRadius = outerRadius - strokeWidth;
   const center = size / 2;
-  const selectedSegment = moodDistributionSegments[selectedIndex] || moodDistributionSegments[0];
+  const selectedSegment = moodDistribution[selectedIndex] || moodDistribution[0];
   const segmentPaths = useMemo(
     () =>
       buildDonutSegments({
-        segments: moodDistributionSegments,
+        segments: moodDistribution,
         center,
         outerRadius,
         innerRadius,
       }),
-    [center, innerRadius, outerRadius]
+    [center, innerRadius, moodDistribution, outerRadius]
   );
 
   return (
@@ -617,78 +615,83 @@ function BreakdownChart({
           />
           {segmentPaths.map((segment, index) => {
             const isSelected = index === selectedIndex;
+            const toneColor =
+              MOOD_COLORS[moodDistribution[index]?.mood] || theme.colors.primary;
 
             return (
               <Path
-                key={segment.label}
+                key={segment.mood}
                 d={segment.path}
-                fill={segment.color}
+                fill={toneColor}
                 opacity={isSelected ? 1 : 0.7}
                 onPress={() => onSelectIndex(index)}
                 testID={`breakdown-segment-${index}`}
               />
             );
           })}
-
         </Svg>
 
         <View style={styles.breakdownCenterLabel}>
           <Text style={[styles.breakdownPercent, { color: theme.colors.foreground }]}>
-            {selectedSegment.value}%
+            {selectedSegment?.percentage || 0}%
           </Text>
           <Text style={[styles.breakdownCaption, { color: theme.colors.mutedForeground }]}>
-            {selectedSegment.label}
+            {selectedSegment?.label || "No data yet"}
           </Text>
         </View>
       </View>
 
       <View style={styles.breakdownLegend}>
-        {moodDistributionSegments.map((segment, index) => (
-          <Pressable
-            key={segment.label}
-            accessibilityRole="button"
-            accessibilityLabel={`Select ${segment.label} slice`}
-            onPress={() => onSelectIndex(index)}
-            style={({ pressed }: { pressed: boolean }) => [
-              styles.breakdownLegendRow,
-              index === selectedIndex && styles.breakdownLegendRowSelected,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View
-              style={[
-                styles.breakdownLegendSwatch,
-                { backgroundColor: segment.color },
-                index === selectedIndex
-                  ? styles.breakdownLegendSwatchSelected
-                  : styles.breakdownLegendSwatchDefault,
+        {moodDistribution.map((segment, index) => {
+          const toneColor = MOOD_COLORS[segment.mood] || theme.colors.primary;
+
+          return (
+            <Pressable
+              key={segment.mood}
+              accessibilityRole="button"
+              accessibilityLabel={`Select ${segment.label} slice`}
+              onPress={() => onSelectIndex(index)}
+              style={({ pressed }) => [
+                styles.breakdownLegendRow,
+                index === selectedIndex && styles.breakdownLegendRowSelected,
+                pressed && styles.pressed,
               ]}
-            />
-            <View style={styles.breakdownLegendCopy}>
-              <View style={styles.breakdownLegendTopRow}>
-                <Text style={[styles.breakdownLegendLabel, { color: theme.colors.foreground }]}>
-                  {segment.label}
-                </Text>
-                <Text
-                  style={[styles.breakdownLegendValue, { color: theme.colors.mutedForeground }]}
-                >
-                  {segment.value}%
-                </Text>
+            >
+              <View
+                style={[
+                  styles.breakdownLegendSwatch,
+                  { backgroundColor: toneColor },
+                  index === selectedIndex
+                    ? styles.breakdownLegendSwatchSelected
+                    : styles.breakdownLegendSwatchDefault,
+                ]}
+              />
+              <View style={styles.breakdownLegendCopy}>
+                <View style={styles.breakdownLegendTopRow}>
+                  <Text style={[styles.breakdownLegendLabel, { color: theme.colors.foreground }]}>
+                    {segment.label}
+                  </Text>
+                  <Text
+                    style={[styles.breakdownLegendValue, { color: theme.colors.mutedForeground }]}
+                  >
+                    {segment.percentage}%
+                  </Text>
+                </View>
+                <View style={styles.breakdownLegendTrack}>
+                  <View
+                    style={[
+                      styles.breakdownLegendFill,
+                      {
+                        width: `${segment.percentage}%`,
+                        backgroundColor: toneColor,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
-              <View style={styles.breakdownLegendTrack}>
-                <View
-                  style={[
-                    styles.breakdownLegendFill,
-                    {
-                      width: `${segment.value}%`,
-                      backgroundColor: segment.color,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-          </Pressable>
-        ))}
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -696,8 +699,10 @@ function BreakdownChart({
 
 function PopularTopicsCard({
   progress,
+  topics,
 }: {
   progress: Animated.Value;
+  topics: InsightsOverview["popularTopics"];
 }) {
   const theme = useTheme();
 
@@ -724,8 +729,8 @@ function PopularTopicsCard({
       </Text>
 
       <View style={styles.topicList}>
-        {popularTopics.map(topic => (
-          <View key={topic.label} style={styles.topicRow}>
+        {topics.map((topic, index) => (
+          <View key={topic.tag} style={styles.topicRow}>
             <Text style={[styles.topicLabel, { color: theme.colors.foreground }]}>
               {topic.label}
             </Text>
@@ -734,14 +739,14 @@ function PopularTopicsCard({
                 style={[
                   styles.topicFill,
                   {
-                    width: `${topic.value}%`,
-                    backgroundColor: topic.color,
+                    width: `${topic.percentage}%`,
+                    backgroundColor: TOPIC_COLORS[index % TOPIC_COLORS.length],
                   },
                 ]}
               />
             </View>
             <Text style={[styles.topicValue, { color: theme.colors.mutedForeground }]}>
-              {topic.value}%
+              {topic.percentage}%
             </Text>
           </View>
         ))}
@@ -751,12 +756,14 @@ function PopularTopicsCard({
 }
 
 function OverviewSection({
+  data,
   isVisible,
   selectedActivityIndex,
   onSelectActivityIndex,
   selectedSegmentIndex,
   onSelectSegmentIndex,
 }: {
+  data: InsightsOverview;
   isVisible: boolean;
   selectedActivityIndex: number;
   onSelectActivityIndex: (nextIndex: number) => void;
@@ -773,9 +780,10 @@ function OverviewSection({
     <View style={styles.sectionStack}>
       <RevealSurface progress={statsProgress}>
         <View style={styles.statGrid}>
-          {overviewStats.map(stat => (
-            <StatCardView key={stat.label} label={stat.label} value={stat.value} />
-          ))}
+          <StatCardView label="Total Entries" value={`${data.stats.totalEntries}`} />
+          <StatCardView label="Current Streak" value={`${data.stats.currentStreak} days`} />
+          <StatCardView label="Avg Words" value={`${data.stats.averageWords}`} />
+          <StatCardView label="Favorites" value={`${data.stats.totalFavorites}`} />
         </View>
       </RevealSurface>
 
@@ -796,6 +804,7 @@ function OverviewSection({
           Your writing frequency
         </Text>
         <ActivityChart
+          activity={data.activity7d}
           selectedIndex={selectedActivityIndex}
           onSelectIndex={onSelectActivityIndex}
         />
@@ -804,8 +813,8 @@ function OverviewSection({
             Selected Day
           </Text>
           <Text style={[styles.chartFooterValue, { color: theme.colors.foreground }]}>
-            {weekActivity[selectedActivityIndex]?.label || "Fri"} •{" "}
-            {weekActivity[selectedActivityIndex]?.value || 0} journaling sessions
+            {data.activity7d[selectedActivityIndex]?.label || "--"} •{" "}
+            {data.activity7d[selectedActivityIndex]?.count || 0} journaling sessions
           </Text>
         </View>
       </RevealSurface>
@@ -830,20 +839,24 @@ function OverviewSection({
           Mood percentages from recent home check-ins and journal entries
         </Text>
         <BreakdownChart
+          moodDistribution={data.moodDistribution}
           selectedIndex={selectedSegmentIndex}
           onSelectIndex={onSelectSegmentIndex}
         />
       </RevealSurface>
 
-      <PopularTopicsCard
-        progress={topicsProgress}
-      />
+      <PopularTopicsCard progress={topicsProgress} topics={data.popularTopics} />
     </View>
   );
 }
 
-function SummaryCard() {
+function AnalysisHeroCard({
+  analysis,
+}: {
+  analysis: InsightsAiAnalysisReady;
+}) {
   const theme = useTheme();
+  const conciseHighlight = truncateWords(analysis.summary.highlight, 20);
 
   return (
     <View
@@ -858,38 +871,112 @@ function SummaryCard() {
       <View style={styles.summaryTitleRow}>
         <Brain color={theme.colors.primary} size={18} />
         <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          This Week&apos;s Summary
+          Weekly Analysis
         </Text>
       </View>
 
-      <Text style={[styles.summaryBody, { color: theme.colors.foreground }]}>
-        This week, you&apos;ve shown remarkable consistency in your journaling practice.
-        Your entries reflect a growing sense of gratitude and mindfulness, with recurring
-        themes around nature, personal growth, and meaningful connections.
+      <View style={styles.analysisMetaRow}>
+        <View
+          style={[
+            styles.analysisMetaPill,
+            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+          ]}
+        >
+          <Text style={[styles.analysisMetaPillText, { color: theme.colors.primary }]}>
+            {analysis.window.label}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.analysisMetaPill,
+            { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+          ]}
+        >
+          <Text style={[styles.analysisMetaText, { color: theme.colors.mutedForeground }]}>
+            {analysis.freshness.confidenceLabel}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={[styles.analysisHeadline, { color: theme.colors.foreground }]}>
+        {analysis.summary.headline}
       </Text>
 
-      <View
-        style={[
-          styles.keyInsightCard,
-          {
-            backgroundColor: hexToRgba(theme.colors.primary, 0.08),
-          },
-        ]}
-      >
-        <Text style={[styles.keyInsightLabel, { color: theme.colors.mutedForeground }]}>
-          Key Insight
+      <View style={styles.analysisContentStack}>
+        <Text style={[styles.summaryBody, { color: theme.colors.foreground }]}>
+          {getFirstSentence(analysis.summary.narrative)}
         </Text>
-        <Text style={[styles.keyInsightText, { color: theme.colors.foreground }]}>
-          You tend to write most productively in the morning, and your mood improves
-          throughout the day.
-        </Text>
+
+        <View
+          style={[
+            styles.analysisHeroCard,
+            {
+              backgroundColor: hexToRgba(theme.colors.primary, 0.08),
+            },
+          ]}
+        >
+          <Text style={[styles.keyInsightLabel, { color: theme.colors.mutedForeground }]}>
+            One-glance read
+          </Text>
+          <Text style={[styles.keyInsightText, { color: theme.colors.foreground }]}>
+            {conciseHighlight}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.analysisStatsRow}>
+        {analysis.scoreboard.cards.map(card => (
+          <View
+            key={card.key}
+            style={[
+              styles.analysisStatCard,
+              { backgroundColor: hexToRgba(getToneColor(card.tone), 0.08) },
+            ]}
+          >
+            <Text style={[styles.analysisStatValue, { color: theme.colors.foreground }]}>
+              {card.value}
+            </Text>
+            <Text style={[styles.analysisStatLabel, { color: theme.colors.mutedForeground }]}>
+              {card.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
+        {analysis.scoreboard.vibeLabel}. {analysis.freshness.note}
+      </Text>
+
+      <View style={styles.patternTagRow}>
+        {analysis.themeBreakdown.items.slice(0, 3).map(tag => {
+          const toneColor = getToneColor(tag.tone);
+
+          return (
+            <View
+              key={`${tag.label}-${tag.count}`}
+              style={[
+                styles.patternTagPill,
+                { backgroundColor: hexToRgba(toneColor, 0.12) },
+              ]}
+            >
+              <Text style={[styles.patternTagText, { color: toneColor }]}>
+                {tag.label}
+              </Text>
+            </View>
+          );
+        })}
       </View>
     </View>
   );
 }
 
-function GrowthPatternsCard() {
+function PatternSnapshotCard({
+  analysis,
+}: {
+  analysis: InsightsAiAnalysisReady;
+}) {
   const theme = useTheme();
+  const topThemes = analysis.themeBreakdown.items.slice(0, 3);
 
   return (
     <View
@@ -904,32 +991,85 @@ function GrowthPatternsCard() {
       <View style={styles.summaryTitleRow}>
         <TrendingUp color={theme.colors.primary} size={18} />
         <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          Growth Patterns
+          Pattern snapshot
+        </Text>
+      </View>
+      <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+        Weekly pace plus the themes that mattered most.
+      </Text>
+
+      <View style={styles.activityColumnChart}>
+        {analysis.emotionTrend.days.map(day => {
+          const barHeight = day.moodScore ? Math.max(32, day.moodScore * 22) : 22;
+          const toneColor = getToneColor(day.tone);
+
+          return (
+            <View key={day.dateKey} style={styles.activityColumn}>
+              <View
+                style={[
+                  styles.activityColumnTrack,
+                  { backgroundColor: hexToRgba(toneColor, 0.12) },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.activityColumnFill,
+                    {
+                      height: barHeight,
+                      backgroundColor: toneColor,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.axisLabel, { color: theme.colors.mutedForeground }]}>
+                {day.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.chartFooter}>
+        <Text style={[styles.chartFooterLabel, { color: theme.colors.mutedForeground }]}>
+          Weekly vibe
+        </Text>
+        <Text style={[styles.chartFooterValue, { color: theme.colors.foreground }]}>
+          {analysis.scoreboard.cards.find(card => card.key === "mood")?.value || "Mixed"} •{" "}
+          {analysis.window.entryCount} entries
         </Text>
       </View>
 
-      <View style={styles.patternList}>
-        {patternItems.map(item => {
-          const Icon = item.icon;
+      <View style={styles.actionList}>
+        {topThemes.map(item => {
+          const toneColor = getToneColor(item.tone);
 
           return (
-            <View key={item.title} style={styles.patternRow}>
-              <View
-                style={[
-                  styles.patternIconWrap,
-                  { backgroundColor: hexToRgba(item.iconColor, 0.12) },
-                ]}
-              >
-                <Icon color={item.iconColor} size={16} />
-              </View>
-
-              <View style={styles.patternCopy}>
+            <View key={`${item.label}-${item.count}`} style={styles.topicRow}>
+              <View style={styles.topicCopy}>
                 <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
-                  {item.title}
+                  {item.label}
                 </Text>
                 <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
-                  {item.subtitle}
+                  {item.count} mentions • {item.percentage}%
                 </Text>
+              </View>
+              <View style={styles.topicMeter}>
+                <View
+                  style={[
+                    styles.topicMeterTrack,
+                    { backgroundColor: hexToRgba(toneColor, 0.12) },
+                  ]}
+                >
+                  <View
+                    style={[
+                    styles.topicMeterFill,
+                    {
+                      width: `${Math.max(14, item.percentage)}%`,
+                      backgroundColor: toneColor,
+                    },
+                  ]}
+                />
+                </View>
               </View>
             </View>
           );
@@ -939,7 +1079,15 @@ function GrowthPatternsCard() {
   );
 }
 
-function PersonalizedPromptsCard() {
+function SignalsOverviewCard({
+  title,
+  items,
+  icon: Icon,
+}: {
+  title: string;
+  items: InsightsAiAnalysisReady["signals"]["whatHelped"];
+  icon: typeof Sparkles;
+}) {
   const theme = useTheme();
 
   return (
@@ -953,40 +1101,119 @@ function PersonalizedPromptsCard() {
       ]}
     >
       <View style={styles.summaryTitleRow}>
-        <Sparkles color={theme.colors.primary} size={18} />
+        <Icon color={theme.colors.primary} size={18} />
         <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
-          Personalized Prompts
+          {title}
         </Text>
       </View>
 
-      <View style={styles.promptTopicRow}>
-        <View
-          style={[
-            styles.promptTopicPill,
-            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-          ]}
-        >
-          <Text style={[styles.promptTopicPillText, { color: theme.colors.primary }]}>
-            Reflection
-          </Text>
-        </View>
-        <Text style={[styles.promptTopicLabel, { color: theme.colors.mutedForeground }]}>
-          Suggested topic
+      <View style={styles.actionList}>
+        {items.slice(0, 1).map(item => {
+          const toneColor = getToneColor(item.tone);
+
+          return (
+            <View
+              key={`${title}-${item.title}`}
+              style={[
+                styles.signalCard,
+                { backgroundColor: hexToRgba(toneColor, 0.08) },
+              ]}
+            >
+              <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
+                {item.title}
+              </Text>
+              <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
+                {truncateWords(item.description, 18)}
+              </Text>
+              <View style={styles.traitEvidenceRow}>
+                {item.evidence.slice(0, 2).map(evidence => (
+                  <View
+                    key={`${item.title}-${evidence}`}
+                    style={[
+                      styles.traitEvidencePill,
+                      { backgroundColor: hexToRgba(toneColor, 0.14) },
+                    ]}
+                  >
+                    <Text style={[styles.traitEvidenceText, { color: toneColor }]}>
+                      {evidence}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function ActionPlanCard({
+  analysis,
+}: {
+  analysis: InsightsAiAnalysisReady;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.sectionCard,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+        },
+      ]}
+    >
+      <View style={styles.summaryTitleRow}>
+        <Award color={theme.colors.primary} size={18} />
+        <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+          Actionable Steps
         </Text>
       </View>
+      <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+        {truncateWords(analysis.actionPlan.headline, 12)}
+      </Text>
 
-      <View style={styles.promptList}>
-        {personalizedPrompts.map(prompt => (
+      <View style={styles.actionList}>
+        {analysis.actionPlan.steps.slice(0, 2).map((step, index) => (
           <View
-            key={prompt.text}
+            key={step.title}
             style={[
-              styles.promptCard,
-              { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+              styles.actionRow,
+              { backgroundColor: hexToRgba(theme.colors.primary, 0.05) },
             ]}
           >
-            <Text style={[styles.promptItemText, { color: theme.colors.foreground }]}>
-              {prompt.text}
-            </Text>
+            <View
+              style={[
+                styles.actionIndexBadge,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.12) },
+              ]}
+            >
+              <Text style={[styles.actionIndexText, { color: theme.colors.primary }]}>
+                {index + 1}
+              </Text>
+            </View>
+            <View style={styles.actionCopy}>
+              <View style={styles.actionHeaderRow}>
+                <Text style={[styles.patternTitle, { color: theme.colors.foreground }]}>
+                  {step.title}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.actionFocusPill,
+                  { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+                ]}
+              >
+                <Text style={[styles.actionFocusText, { color: theme.colors.mutedForeground }]}>
+                  {step.focus}
+                </Text>
+              </View>
+              <Text style={[styles.patternSubtitle, { color: theme.colors.mutedForeground }]}>
+                {truncateWords(step.description, 18)}
+              </Text>
+            </View>
           </View>
         ))}
       </View>
@@ -994,28 +1221,592 @@ function PersonalizedPromptsCard() {
   );
 }
 
-function AnalysisSection() {
+function AnalysisSection({
+  analysis,
+}: {
+  analysis: InsightsAiAnalysisReady;
+}) {
   return (
     <View style={styles.sectionStack}>
-      <SummaryCard />
-      <GrowthPatternsCard />
-      <PersonalizedPromptsCard />
+      <AnalysisHeroCard analysis={analysis} />
+      <PatternSnapshotCard analysis={analysis} />
+      <SignalsOverviewCard
+        title="What Helped"
+        items={analysis.signals.whatHelped}
+        icon={Sparkles}
+      />
+      <SignalsOverviewCard
+        title="What Drained"
+        items={analysis.signals.whatDrained}
+        icon={Brain}
+      />
+      <ActionPlanCard analysis={analysis} />
     </View>
+  );
+}
+
+function ErrorState({
+  onRetry,
+  title = "Unable to load insights",
+  message = "We could not fetch your latest insights right now.",
+}: {
+  onRetry: () => void;
+  title?: string;
+  message?: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.emptyState}>
+        <AlertCircle color={theme.colors.destructive} size={24} />
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          {title}
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          {message}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry insights"
+          onPress={onRetry}
+          style={({ pressed }) => [
+            styles.retryButton,
+            { backgroundColor: theme.colors.primary },
+            pressed && styles.pressed,
+          ]}
+        >
+          <RefreshCw color={theme.colors.primaryForeground} size={14} />
+          <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+            Retry
+          </Text>
+        </Pressable>
+      </View>
+    </SectionCard>
+  );
+}
+
+function LoadingState() {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.emptyState}>
+        <ActivityIndicator color={theme.colors.primary} />
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          Loading insights
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          Pulling your latest journaling trends from the app database.
+        </Text>
+      </View>
+    </SectionCard>
+  );
+}
+
+function LockedAiAnalysisCard({
+  onOpenSubscription,
+}: {
+  onOpenSubscription: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.lockedState}>
+        <View
+          style={[
+            styles.lockedIconWrap,
+            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+          ]}
+        >
+          <Lock color={theme.colors.primary} size={22} />
+        </View>
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          AI Analysis is a premium feature
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          Upgrade to unlock weekly behavior analysis, trait signals, supportive
+          watchpoints, and guided next steps.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open subscription"
+          onPress={onOpenSubscription}
+          style={({ pressed }) => [
+            styles.retryButton,
+            { backgroundColor: theme.colors.primary },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Lock color={theme.colors.primaryForeground} size={14} />
+          <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+            Open Subscription
+          </Text>
+        </Pressable>
+      </View>
+    </SectionCard>
+  );
+}
+
+function DisabledAiAnalysisCard() {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.lockedState}>
+        <View
+          style={[
+            styles.lockedIconWrap,
+            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+          ]}
+        >
+          <Brain color={theme.colors.primary} size={22} />
+        </View>
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          AI analysis is turned off
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          AI reflections are off for this account, so weekly AI analysis stays
+          hidden.
+        </Text>
+      </View>
+    </SectionCard>
+  );
+}
+
+function CollectingAiAnalysisCard({
+  collecting,
+  onKeepJournaling,
+}: {
+  collecting: InsightsAiAnalysisCollecting;
+  onKeepJournaling: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.sectionStack}>
+      <SectionCard>
+        <View style={styles.lockedState}>
+          <View
+            style={[
+              styles.lockedIconWrap,
+              { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+            ]}
+          >
+            <Brain color={theme.colors.primary} size={22} />
+          </View>
+          <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+            {collecting.summary.headline}
+          </Text>
+          <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+            {collecting.summary.narrative}
+          </Text>
+          <View style={styles.pendingStatsRow}>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {collecting.progress.activeDays}/{collecting.progress.minimumActiveDays}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                active days
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {collecting.progress.daysRemaining}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                days left
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.pendingHighlightText, { color: theme.colors.mutedForeground }]}>
+            {collecting.summary.highlight}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep journaling"
+            onPress={onKeepJournaling}
+            style={({ pressed }) => [
+              styles.retryButton,
+              { backgroundColor: theme.colors.primary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+              Keep Journaling
+            </Text>
+          </Pressable>
+        </View>
+      </SectionCard>
+
+      <SectionCard>
+        <View style={styles.pendingQuickAnalysisCard}>
+          <View style={styles.summaryTitleRow}>
+            <Sparkles color={theme.colors.primary} size={18} />
+            <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              {collecting.quickAnalysis.title}
+            </Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+            {collecting.quickAnalysis.description}
+          </Text>
+          <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
+            Week window: {collecting.window.label}
+          </Text>
+        </View>
+      </SectionCard>
+    </View>
+  );
+}
+
+function InsufficientAiAnalysisCard({
+  analysis,
+  onKeepJournaling,
+}: {
+  analysis: InsightsAiAnalysisInsufficient;
+  onKeepJournaling: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.sectionStack}>
+      <SectionCard>
+        <View style={styles.lockedState}>
+          <View
+            style={[
+              styles.lockedIconWrap,
+              { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+            ]}
+          >
+            <Brain color={theme.colors.primary} size={22} />
+          </View>
+          <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+            {analysis.summary.headline}
+          </Text>
+          <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+            {analysis.summary.narrative}
+          </Text>
+          <View style={styles.pendingStatsRow}>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {analysis.window.activeDays}/{analysis.window.minimumActiveDays}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                active days
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.pendingStatCard,
+                { backgroundColor: hexToRgba(theme.colors.secondaryForeground, 0.08) },
+              ]}
+            >
+              <Text style={[styles.pendingStatValue, { color: theme.colors.foreground }]}>
+                {analysis.window.entryCount}
+              </Text>
+              <Text style={[styles.pendingStatLabel, { color: theme.colors.mutedForeground }]}>
+                entries logged
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.pendingHighlightText, { color: theme.colors.mutedForeground }]}>
+            {analysis.summary.highlight}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep journaling"
+            onPress={onKeepJournaling}
+            style={({ pressed }) => [
+              styles.retryButton,
+              { backgroundColor: theme.colors.primary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.retryButtonText, { color: theme.colors.primaryForeground }]}>
+              Start The Next Week
+            </Text>
+          </Pressable>
+        </View>
+      </SectionCard>
+
+      <SectionCard>
+        <View style={styles.pendingQuickAnalysisCard}>
+          <View style={styles.summaryTitleRow}>
+            <Sparkles color={theme.colors.primary} size={18} />
+            <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              {analysis.quickAnalysis.title}
+            </Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: theme.colors.mutedForeground }]}>
+            {analysis.quickAnalysis.description}
+          </Text>
+          <Text style={[styles.analysisSupportCopy, { color: theme.colors.mutedForeground }]}>
+            Next week: {analysis.progress.nextWindowLabel}
+          </Text>
+        </View>
+      </SectionCard>
+    </View>
+  );
+}
+
+function AnalysisLoadingState() {
+  const theme = useTheme();
+
+  return (
+    <SectionCard>
+      <View style={styles.emptyState}>
+        <ActivityIndicator color={theme.colors.primary} />
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+          Loading AI analysis
+        </Text>
+        <Text style={[styles.emptyStateText, { color: theme.colors.mutedForeground }]}>
+          Building your weekly behavior read from recent entries and mood check-ins.
+        </Text>
+      </View>
+    </SectionCard>
   );
 }
 
 export default function InsightsScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [activeTab, setActiveTab] = useState<InsightTab>("overview");
+  const stage = useAppStore(state => state.stage);
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
+  const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
+  const setMainAppTab = useAppStore(state => state.setActiveTab);
+  const preferredInsightsTab = useAppStore(state => state.preferredInsightsTab);
+  const clearPreferredInsightsTab = useAppStore(
+    state => state.clearPreferredInsightsTab
+  );
+  const [activeTab, setActiveTab] = useState<InsightTab>(
+    () => useAppStore.getState().preferredInsightsTab || "overview"
+  );
   const [selectedActivityIndex, setSelectedActivityIndex] = useState(3);
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(0);
   const [segmentedWidth, setSegmentedWidth] = useState(0);
+  const [data, setData] = useState<InsightsOverview | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<InsightsAiAnalysis | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const thumbX = useRef(new Animated.Value(0)).current;
   const contentProgress = useRef(new Animated.Value(1)).current;
   const horizontalPadding = useMemo(() => Math.max(16, Math.min(24, width * 0.05)), [width]);
   const layoutMaxWidth = width >= 430 ? 470 : 430;
   const thumbWidth = segmentedWidth > 0 ? (segmentedWidth - 6 - 4) / 2 : 0;
+  const readyAnalysis = aiAnalysis?.status === "ready" ? aiAnalysis : null;
+  const collectingAnalysis =
+    aiAnalysis?.status === "collecting" ? aiAnalysis : null;
+  const insufficientAnalysis =
+    aiAnalysis?.status === "insufficient" ? aiAnalysis : null;
+
+  const loadInsights = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const nextData = await getInsightsOverview();
+      setData(nextData);
+      setSelectedActivityIndex(
+        nextData.activity7d.length ? Math.min(3, nextData.activity7d.length - 1) : 0
+      );
+      setSelectedSegmentIndex(0);
+      setAnalysisError(null);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Unable to load insights right now."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadAiAnalysis = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      if (!isPremiumUser || !isAiOptedIn) {
+        return;
+      }
+
+      if (!force && aiAnalysis) {
+        return;
+      }
+
+      setIsAnalysisLoading(true);
+      setAnalysisError(null);
+
+      try {
+        const nextAnalysis = await getInsightsAiAnalysis();
+        setAiAnalysis(nextAnalysis);
+        await syncWeeklyInsightNotifications(
+          nextAnalysis.status === "collecting" ? nextAnalysis : null
+        );
+      } catch (loadError) {
+        setAnalysisError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load AI analysis right now."
+        );
+        cancelWeeklyInsightNotifications().catch(() => undefined);
+      } finally {
+        setIsAnalysisLoading(false);
+      }
+    },
+    [aiAnalysis, isAiOptedIn, isPremiumUser]
+  );
+
+  const handleSelectTab = (nextTab: InsightTab) => {
+    if (nextTab === "analysis" && !isPremiumUser) {
+      trackPaywallEvent({
+        placementKey: "insights_ai_tab_locked",
+        screenKey: "insights",
+        eventType: "locked_feature_tap",
+        wasInterruptive: false,
+      }).catch(() => undefined);
+      openPaywallForPlacement({
+        placementKey: "insights_ai_tab_locked",
+        returnStage: "main-app",
+        screenKey: "insights",
+      });
+      return;
+    }
+
+    setActiveTab(nextTab);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setIsLoading(true);
+    setError(null);
+
+    getInsightsOverview()
+      .then(nextData => {
+        if (cancelled) {
+          return;
+        }
+
+        setData(nextData);
+        setSelectedActivityIndex(
+          nextData.activity7d.length ? Math.min(3, nextData.activity7d.length - 1) : 0
+        );
+        setSelectedSegmentIndex(0);
+        setAnalysisError(null);
+      })
+      .catch(loadError => {
+        if (cancelled) {
+          return;
+        }
+
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to load insights right now."
+        );
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isPremiumUser || !isAiOptedIn || activeTab !== "analysis") {
+      return;
+    }
+
+    loadAiAnalysis().catch(() => undefined);
+  }, [activeTab, isAiOptedIn, isPremiumUser, loadAiAnalysis]);
+
+  useEffect(() => {
+    if (isPremiumUser || stage !== "main-app") {
+      return;
+    }
+
+    let cancelled = false;
+
+    getPaywallConfig({
+      placementKey: "insights_interruptive",
+      screenKey: "insights",
+      currentStage: stage,
+      triggerMode: "interruptive",
+    })
+      .then(result => {
+        if (cancelled || !result.shouldShow) {
+          return;
+        }
+
+        openPaywallForPlacement({
+          placementKey: result.placementKey,
+          returnStage: "main-app",
+          screenKey: result.screenKey || "insights",
+          triggerMode: "interruptive",
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPremiumUser, openPaywallForPlacement, stage]);
+
+  useEffect(() => {
+    if (isAiOptedIn) {
+      return;
+    }
+
+    setAiAnalysis(null);
+    setAnalysisError(null);
+    setIsAnalysisLoading(false);
+  }, [isAiOptedIn]);
+
+  useEffect(() => {
+    const initialPreferredTab = useAppStore.getState().preferredInsightsTab;
+
+    if (!initialPreferredTab) {
+      return;
+    }
+
+    setActiveTab(initialPreferredTab);
+    clearPreferredInsightsTab();
+  }, [clearPreferredInsightsTab]);
+
+  useEffect(() => {
+    if (!preferredInsightsTab) {
+      return;
+    }
+
+    setActiveTab(preferredInsightsTab);
+    clearPreferredInsightsTab();
+  }, [clearPreferredInsightsTab, preferredInsightsTab]);
 
   useEffect(() => {
     if (!segmentedWidth || !thumbWidth) {
@@ -1082,45 +1873,102 @@ export default function InsightsScreen() {
             theme={theme}
             label="Overview"
             selected={activeTab === "overview"}
-            onPress={() => setActiveTab("overview")}
+            onPress={() => handleSelectTab("overview")}
           />
           <TabPill
             theme={theme}
             label="AI Analysis"
             selected={activeTab === "analysis"}
-            icon={Sparkles}
-            onPress={() => setActiveTab("analysis")}
+            icon={isPremiumUser && isAiOptedIn ? Sparkles : Lock}
+            onPress={() => handleSelectTab("analysis")}
           />
         </View>
 
-        <Animated.View
-          style={[
-            styles.sectionTransition,
-            {
-              opacity: contentProgress,
-              transform: [
-                {
-                  translateY: contentProgress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          {activeTab === "overview" ? (
-            <OverviewSection
-              isVisible={activeTab === "overview"}
-              selectedActivityIndex={selectedActivityIndex}
-              onSelectActivityIndex={setSelectedActivityIndex}
-              selectedSegmentIndex={selectedSegmentIndex}
-              onSelectSegmentIndex={setSelectedSegmentIndex}
-            />
-          ) : (
-            <AnalysisSection />
-          )}
-        </Animated.View>
+        {isLoading ? (
+          <LoadingState />
+        ) : error || !data ? (
+          <ErrorState
+            onRetry={() => {
+              loadInsights().catch(() => undefined);
+            }}
+          />
+        ) : (
+          <Animated.View
+            style={[
+              styles.sectionTransition,
+              {
+                opacity: contentProgress,
+                transform: [
+                  {
+                    translateY: contentProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [10, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            {activeTab === "overview" ? (
+              <OverviewSection
+                data={data}
+                isVisible={activeTab === "overview"}
+                selectedActivityIndex={selectedActivityIndex}
+                onSelectActivityIndex={setSelectedActivityIndex}
+                selectedSegmentIndex={selectedSegmentIndex}
+                onSelectSegmentIndex={setSelectedSegmentIndex}
+              />
+            ) : !isPremiumUser ? (
+              <LockedAiAnalysisCard
+                onOpenSubscription={() => {
+                  trackPaywallEvent({
+                    placementKey: "insights_ai_tab_locked",
+                    screenKey: "insights",
+                    eventType: "locked_feature_tap",
+                    wasInterruptive: false,
+                  }).catch(() => undefined);
+                  openPaywallForPlacement({
+                    placementKey: "insights_ai_tab_locked",
+                    returnStage: "main-app",
+                    screenKey: "insights",
+                  });
+                }}
+              />
+            ) : !isAiOptedIn ? (
+              <DisabledAiAnalysisCard />
+            ) : isAnalysisLoading ? (
+              <AnalysisLoadingState />
+            ) : analysisError || !aiAnalysis ? (
+              <ErrorState
+                title="Unable to load AI analysis"
+                message="We could not build your weekly AI analysis right now."
+                onRetry={() => {
+                  loadAiAnalysis({ force: true }).catch(() => undefined);
+                }}
+              />
+            ) : collectingAnalysis ? (
+              <CollectingAiAnalysisCard
+                collecting={collectingAnalysis}
+                onKeepJournaling={() => setMainAppTab("home")}
+              />
+            ) : insufficientAnalysis ? (
+              <InsufficientAiAnalysisCard
+                analysis={insufficientAnalysis}
+                onKeepJournaling={() => setMainAppTab("home")}
+              />
+            ) : readyAnalysis ? (
+              <AnalysisSection analysis={readyAnalysis!} />
+            ) : (
+              <ErrorState
+                title="AI analysis unavailable"
+                message="The latest AI analysis payload was incomplete. Try again once the backend is refreshed."
+                onRetry={() => {
+                  loadAiAnalysis({ force: true }).catch(() => undefined);
+                }}
+              />
+            )}
+          </Animated.View>
+        )}
       </View>
     </TabScreenLayout>
   );
@@ -1413,6 +2261,29 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingRight: 30,
   },
+  topicCopy: {
+    flex: 1,
+  },
+  topicMeter: {
+    width: 128,
+    alignItems: "flex-end",
+    gap: 6,
+  },
+  topicMeterTrack: {
+    width: "100%",
+    height: 8,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  topicMeterFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  topicMeterValue: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
   topicLabel: {
     fontSize: 14,
     lineHeight: 19,
@@ -1449,7 +2320,122 @@ const styles = StyleSheet.create({
   summaryBody: {
     fontSize: 15,
     lineHeight: 23,
+  },
+  analysisHeadline: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  analysisMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    marginBottom: 12,
+  },
+  analysisMetaPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  analysisMetaPillText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  analysisContentStack: {
+    gap: 12,
     marginBottom: 14,
+  },
+  analysisMetaText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  analysisHeroCard: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 14,
+  },
+  analysisStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 12,
+  },
+  analysisStatCard: {
+    flexGrow: 1,
+    flexBasis: "47%",
+    minWidth: 120,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    marginBottom: 12,
+  },
+  analysisStatValue: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  analysisStatLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  analysisSupportCopy: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  activityColumnChart: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+    height: 184,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  activityColumn: {
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
+  },
+  activityColumnTrack: {
+    width: "100%",
+    minWidth: 24,
+    maxWidth: 34,
+    height: 150,
+    borderRadius: 999,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  activityColumnFill: {
+    width: "100%",
+    borderRadius: 999,
+    minHeight: 14,
+  },
+  patternTagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  patternTagPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  patternTagText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
   },
   keyInsightCard: {
     borderRadius: 14,
@@ -1465,6 +2451,75 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "700",
+  },
+  traitList: {
+    gap: 12,
+  },
+  traitCard: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  traitHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  traitLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    flex: 1,
+  },
+  traitBandPill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  traitBandText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  traitTrack: {
+    width: "100%",
+    height: 9,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  traitFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  traitScoreRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
+  traitScoreText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  traitSupportText: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  traitEvidenceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  traitEvidencePill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  traitEvidenceText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
   },
   promptList: {
     gap: 10,
@@ -1529,6 +2584,173 @@ const styles = StyleSheet.create({
   patternSubtitle: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  signalCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+  },
+  watchpointList: {
+    gap: 12,
+  },
+  watchpointCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+  },
+  watchpointHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  watchpointTitleWrap: {
+    flex: 1,
+  },
+  watchpointTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  watchpointSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  watchpointTipCard: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  watchpointTipText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  actionList: {
+    gap: 14,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  actionIndexBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  actionIndexText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  actionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  actionHeaderRow: {
+    gap: 2,
+  },
+  actionFocusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+  },
+  actionFocusText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+  },
+  appSupportList: {
+    gap: 10,
+  },
+  appSupportCard: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  lockedState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingVertical: 16,
+  },
+  lockedIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  emptyStateText: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 4,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  pendingStatsRow: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 10,
+  },
+  pendingStatCard: {
+    flex: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 2,
+    alignItems: "center",
+  },
+  pendingStatValue: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  pendingStatLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  pendingHighlightText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  pendingQuickAnalysisCard: {
+    gap: 8,
   },
   pressed: {
     opacity: 0.9,

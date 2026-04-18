@@ -4,7 +4,12 @@ import {
   createJournal,
   deleteJournal,
   getJournalDetails,
+  getJournalQuickAnalysis,
   getJournals,
+  PremiumQuickAnalysisRequiredError,
+  PremiumTagSuggestionsRequiredError,
+  QuickAnalysisDisabledError,
+  suggestJournalTags,
   toggleJournalFavorite,
   updateJournal,
 } from "./journal.service";
@@ -40,12 +45,13 @@ const createJournalController = async (
       return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
-    const { title, content, type, images, tags } = req.body;
+    const { title, content, type, aiPrompt, images, tags } = req.body;
     const journal = await createJournal({
       userId,
       title,
       content,
       type,
+      aiPrompt,
       tags,
       images,
     });
@@ -94,7 +100,7 @@ const editJournalController = async (
       return res.status(401).json(apiResponse(false, "Unauthorized", {}));
     }
 
-    const { journalId, title, content, type, images, tags, isFavorite } =
+    const { journalId, title, content, type, aiPrompt, images, tags, isFavorite } =
       req.body;
     const journal = await updateJournal({
       userId,
@@ -102,6 +108,7 @@ const editJournalController = async (
       title,
       content,
       type,
+      aiPrompt,
       images,
       tags,
       isFavorite,
@@ -172,11 +179,92 @@ const deleteJournalController = async (
   }
 };
 
+const suggestJournalTagsController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+    }
+
+    const { content, selectedTags, mood } = req.body;
+    const suggestions = await suggestJournalTags({
+      userId,
+      content,
+      selectedTags,
+      mood,
+    });
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Journal tag suggestions ready", suggestions));
+  } catch (error) {
+    if (error instanceof PremiumTagSuggestionsRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
+    console.error("Error in suggestJournalTagsController:", error);
+    return res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
+const getJournalQuickAnalysisController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+    }
+
+    const { journalId } = req.body;
+    const quickAnalysis = await getJournalQuickAnalysis({ userId, journalId });
+
+    if (!quickAnalysis) {
+      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+    }
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Journal quick analysis loaded", quickAnalysis));
+  } catch (error) {
+    if (error instanceof PremiumQuickAnalysisRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
+    if (error instanceof QuickAnalysisDisabledError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "QUICK_ANALYSIS_DISABLED" },
+        })
+      );
+    }
+
+    console.error("Error in getJournalQuickAnalysisController:", error);
+    return res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+  }
+};
+
 export {
   getJournalsController,
   createJournalController,
   getJournalDetailsController,
+  getJournalQuickAnalysisController,
   editJournalController,
   toggleJournalFavoriteController,
   deleteJournalController,
+  suggestJournalTagsController,
 };

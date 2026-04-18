@@ -2,26 +2,28 @@ import { Router } from "express";
 import { validateRequest } from "../../middleware/validateRequest.middleware";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
+  googleMobileSignInController,
   logoutController,
   refreshController,
-  registerFromGoogleOAuthController,
   resendEmailVerificationController,
+  registerFromGoogleOAuthController,
   resendOtpController,
-  sendOtpController,
   signInWithEmailController,
   signUpWithEmailController,
+  sendOtpController,
   verifyEmailController,
   verifyOtpController,
 } from "./auth.controllers";
 import {
+  googleMobileSignInSchema,
   logoutSchema,
   resendEmailVerificationSchema,
   resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
-  sendOtpSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
+  sendOtpSchema,
   verifyEmailSchema,
   verifyOtpSchema,
 } from "./auth.validators";
@@ -33,16 +35,6 @@ authRouter.post(
   "/resend_otp",
   validateRequest(resendOtpSchema),
   resendOtpController
-);
-authRouter.post(
-  "/verify_otp",
-  validateRequest(verifyOtpSchema),
-  verifyOtpController
-);
-authRouter.post(
-  "/register_from_googleOAuth",
-  validateRequest(registerFromGoogleOAuthSchema),
-  registerFromGoogleOAuthController
 );
 authRouter.post(
   "/sign_up_with_email",
@@ -63,6 +55,21 @@ authRouter.post(
   "/sign_in_with_email",
   validateRequest(signInWithEmailSchema),
   signInWithEmailController
+);
+authRouter.post(
+  "/verify_otp",
+  validateRequest(verifyOtpSchema),
+  verifyOtpController
+);
+authRouter.post(
+  "/google/mobile",
+  validateRequest(googleMobileSignInSchema),
+  googleMobileSignInController
+);
+authRouter.post(
+  "/register_from_googleOAuth",
+  validateRequest(registerFromGoogleOAuthSchema),
+  registerFromGoogleOAuthController
 );
 authRouter.post("/refresh", validateRequest(refreshSchema), refreshController);
 authRouter.post(

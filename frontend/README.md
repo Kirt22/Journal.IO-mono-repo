@@ -86,6 +86,50 @@ You've successfully run and modified your React Native App. :partying_face:
 
 If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
 
+## iOS Build Notes
+
+### Xcode says `iOS 26.4 is not installed`
+
+If `npm run ios` fails before compilation with an error like:
+
+```sh
+Unable to find a destination matching the provided destination specifier
+... iOS 26.4 is not installed
+```
+
+install the matching iOS platform/runtime from `Xcode > Settings > Components`, then rerun:
+
+```sh
+cd ios
+pod install
+cd ..
+npm run ios
+```
+
+### Xcode 26.4 fails in the `fmt` pod with `consteval` / `not a constant expression`
+
+If iOS compilation reaches the native pods and fails in `Pods/fmt/src/format.cc` with errors like:
+
+```sh
+call to consteval function ... is not a constant expression
+```
+
+this repo already includes the fix in `ios/Podfile`. Keep the `fmt` post-install override in place and rerun:
+
+```sh
+cd ios
+pod install
+cd ..
+npm run ios
+```
+
+The fix forces the `fmt` pod to:
+
+- use `gnu++17`
+- set `FMT_USE_CONSTEVAL=0`
+
+This is a local compatibility workaround for the Xcode 26.4 simulator toolchain with the current React Native pod graph.
+
 # Learn More
 
 To learn more about React Native, take a look at the following resources:

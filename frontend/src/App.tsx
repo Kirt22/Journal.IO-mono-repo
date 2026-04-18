@@ -1,14 +1,23 @@
-import { type ComponentProps } from "react";
+import { type ComponentProps, useEffect } from "react";
 import { StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppFlowRoutes } from "./navigation/routes";
 import ScreenTransitionHost from "./components/ScreenTransition";
+import {
+  addRevenueCatCustomerInfoUpdateListener,
+  hasPremiumAccess,
+  refreshRevenueCatEntitlementState,
+  syncRevenueCatIdentity,
+} from "./services/revenueCatService";
 import { ThemeProvider, useTheme } from "./theme/provider";
 import { useAppStore } from "./store/appStore";
 
 function AppContent() {
   const theme = useTheme();
   const stage = useAppStore(state => state.stage);
+  const hasBootstrappedAuthGate = useAppStore(
+    state => state.hasBootstrappedAuthGate
+  );
   const isCompletingOnboarding = useAppStore(
     state => state.isCompletingOnboarding
   );
@@ -20,11 +29,21 @@ function AppContent() {
   const authSource = useAppStore(state => state.authSource);
   const session = useAppStore(state => state.session);
   const initialProfileName = useAppStore(state => state.initialProfileName);
+  const pendingNewEntryPrompt = useAppStore(
+    state => state.pendingNewEntryPrompt
+  );
   const completeOnboarding = useAppStore(state => state.completeOnboarding);
+  const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
   const continueWithEmail = useAppStore(state => state.continueWithEmail);
+  const continueFromPaywall = useAppStore(state => state.continueFromPaywall);
+  const continueFromDiscountOffer = useAppStore(
+    state => state.continueFromDiscountOffer
+  );
+  const continueFromLifetimeOffer = useAppStore(
+    state => state.continueFromLifetimeOffer
+  );
   const continueWithGoogle = useAppStore(state => state.continueWithGoogle);
   const goToSignIn = useAppStore(state => state.goToSignIn);
-  const skipToHome = useAppStore(state => state.skipToHome);
   const goToCreateAccount = useAppStore(state => state.goToCreateAccount);
   const signIn = useAppStore(state => state.signIn);
   const createAccount = useAppStore(state => state.createAccount);
@@ -48,6 +67,9 @@ function AppContent() {
   const setThemeModeOverride = useAppStore(
     state => state.setThemeModeOverride
   );
+  const setSessionPremiumStatus = useAppStore(
+    state => state.setSessionPremiumStatus
+  );
 
   const routeProps = {
     isCompletingOnboarding,
@@ -57,11 +79,14 @@ function AppContent() {
     authSource,
     session,
     initialProfileName,
+    pendingNewEntryPrompt,
     onOnboardingContinue: completeOnboarding,
+    onContinueFromPaywall: continueFromPaywall,
+    onContinueFromDiscountOffer: continueFromDiscountOffer,
+    onContinueFromLifetimeOffer: continueFromLifetimeOffer,
     onContinueWithEmail: continueWithEmail,
     onContinueWithGoogle: continueWithGoogle,
     onGoToSignIn: goToSignIn,
-    onSkipToHome: skipToHome,
     onGoToCreateAccount: goToCreateAccount,
     onSignIn: signIn,
     onCreateAccount: createAccount,
@@ -78,6 +103,62 @@ function AppContent() {
     onCloseNewEntry: closeNewEntry,
     onToggleTheme: setThemeModeOverride,
   } satisfies Omit<ComponentProps<typeof AppFlowRoutes>, "stage">;
+
+  useEffect(() => {
+    bootstrapAuthGate().catch(() => undefined);
+  }, [bootstrapAuthGate]);
+
+  useEffect(() => {
+    const appUserId = session?.user.userId ?? null;
+    const sessionPremiumStatus = Boolean(session?.user.isPremium);
+    let isMounted = true;
+    let removeCustomerInfoListener: (() => void) | null = null;
+
+    const syncPremiumFromCustomerInfo = async (
+      nextPremiumStatus: boolean | null
+    ) => {
+      if (!isMounted || !appUserId) {
+        return;
+      }
+
+      if (nextPremiumStatus === null || nextPremiumStatus === sessionPremiumStatus) {
+        return;
+      }
+
+      await setSessionPremiumStatus(nextPremiumStatus);
+    };
+
+    const setupRevenueCat = async () => {
+      const configured = await syncRevenueCatIdentity(appUserId);
+
+      if (!configured || !isMounted || !appUserId) {
+        return;
+      }
+
+      const entitlementState = await refreshRevenueCatEntitlementState(appUserId);
+      await syncPremiumFromCustomerInfo(entitlementState.hasPremiumAccess);
+
+      removeCustomerInfoListener = addRevenueCatCustomerInfoUpdateListener(
+        nextCustomerInfo => {
+          syncPremiumFromCustomerInfo(hasPremiumAccess(nextCustomerInfo)).catch(
+            () => undefined
+          );
+        }
+      );
+    };
+
+    setupRevenueCat().catch(() => undefined);
+
+    return () => {
+      isMounted = false;
+
+      removeCustomerInfoListener?.();
+    };
+  }, [session?.user.userId, session?.user.isPremium, setSessionPremiumStatus]);
+
+  if (!hasBootstrappedAuthGate) {
+    return <View style={[appStyles.appRoot, { backgroundColor: theme.colors.background }]} />;
+  }
 
   return (
     <View style={[appStyles.appRoot, { backgroundColor: theme.colors.background }]}>

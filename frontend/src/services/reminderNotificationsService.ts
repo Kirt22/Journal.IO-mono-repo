@@ -12,8 +12,13 @@ import type { InsightsAiAnalysisCollecting } from "./insightsService";
 const REMINDER_CHANNEL_ID = "journal-daily-reminders";
 const PRIMARY_PREFIX = "journal-daily-reminder";
 const WEEKLY_AI_PREFIX = "journal-weekly-ai-nudge";
+const FREE_TRIAL_ENDING_REMINDER_ID = "journal-free-trial-ending-reminder";
 const DEFAULT_REMINDER_BODY =
   "Take a moment to reflect on your day. Keep your streak going.";
+const FREE_TRIAL_ENDING_TITLE = "Your free trial ends in 2 days";
+const FREE_TRIAL_ENDING_BODY =
+  "Journal.IO Premium will renew soon if you keep the yearly plan. Cancel anytime from your subscription settings.";
+const FREE_TRIAL_REMINDER_DELAY_MS = 5 * 24 * 60 * 60 * 1000;
 const ONBOARDING_REMINDER_TIMES: Record<string, string> = {
   morning: "08:00",
   afternoon: "14:00",
@@ -81,6 +86,25 @@ const getDefaultReminderTimezone = () => {
   return timezone || "UTC";
 };
 
+const parseTimestampInput = (
+  value?: string | number | Date | null
+) => {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
 const ensureReminderChannel = async () => {
   if (Platform.OS !== "android") {
     return;
@@ -117,6 +141,10 @@ const WEEKLY_AI_NUDGE_IDS = ["early", "mid", "last"].map(label =>
 
 const cancelWeeklyInsightNotifications = async () => {
   await notifee.cancelTriggerNotifications(WEEKLY_AI_NUDGE_IDS);
+};
+
+const cancelFreeTrialEndingReminder = async () => {
+  await notifee.cancelTriggerNotifications([FREE_TRIAL_ENDING_REMINDER_ID]);
 };
 
 const scheduleWeeklyNotification = async ({
@@ -349,13 +377,48 @@ const requestAndSyncOnboardingReminderPreference = async (
   await syncOnboardingReminderPreference(normalizedPreference);
 };
 
+const scheduleFreeTrialEndingReminder = async (
+  activatedAt?: string | number | Date | null,
+  options?: { requestPermission?: boolean }
+) => {
+  await ensureReminderChannel();
+  await cancelFreeTrialEndingReminder();
+
+  const permissionGranted =
+    options?.requestPermission === false
+      ? await getReminderPermissionGranted()
+      : await requestReminderPermission();
+
+  if (!permissionGranted) {
+    return false;
+  }
+
+  const activationTimestamp = parseTimestampInput(activatedAt) ?? Date.now();
+  const reminderTimestamp = activationTimestamp + FREE_TRIAL_REMINDER_DELAY_MS;
+
+  if (reminderTimestamp <= Date.now()) {
+    return false;
+  }
+
+  await scheduleOneOffNotification({
+    notificationId: FREE_TRIAL_ENDING_REMINDER_ID,
+    timestamp: reminderTimestamp,
+    title: FREE_TRIAL_ENDING_TITLE,
+    body: FREE_TRIAL_ENDING_BODY,
+  });
+
+  return true;
+};
+
 export {
+  cancelFreeTrialEndingReminder,
   cancelReminderNotifications,
   cancelWeeklyInsightNotifications,
   getDefaultReminderTimezone,
   getReminderPermissionGranted,
   requestReminderPermission,
   requestAndSyncOnboardingReminderPreference,
+  scheduleFreeTrialEndingReminder,
   syncOnboardingReminderPreference,
   syncReminderNotifications,
   syncWeeklyInsightNotifications,

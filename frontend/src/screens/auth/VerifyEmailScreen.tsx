@@ -10,9 +10,9 @@ import {
   View,
 } from "../../infrastructure/reactNative";
 import { ArrowLeft } from "lucide-react-native";
-import { Animated, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWindowDimensions } from "react-native";
+import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
@@ -29,17 +29,6 @@ type VerifyEmailScreenProps = {
 
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN = 30;
-
-const CONFETTI_PIECES = [
-  { left: 20, top: 18, size: 8, driftX: -18, driftY: -48, delay: 0 },
-  { left: 48, top: 8, size: 6, driftX: 14, driftY: -56, delay: 40 },
-  { left: 82, top: 22, size: 10, driftX: 26, driftY: -40, delay: 80 },
-  { left: 118, top: 12, size: 7, driftX: -12, driftY: -62, delay: 120 },
-  { left: 150, top: 28, size: 8, driftX: 20, driftY: -46, delay: 60 },
-  { left: 188, top: 16, size: 6, driftX: -24, driftY: -52, delay: 100 },
-  { left: 224, top: 24, size: 9, driftX: 16, driftY: -44, delay: 140 },
-  { left: 262, top: 10, size: 7, driftX: -10, driftY: -58, delay: 180 },
-] as const;
 
 export default function VerifyEmailScreen({
   email,
@@ -60,11 +49,6 @@ export default function VerifyEmailScreen({
   const inputRefs = useRef<Array<any>>([]);
   const isSubmittingRef = useRef(false);
   const lastSubmittedCodeRef = useRef<string | null>(null);
-  const successPulse = useRef(new Animated.Value(0)).current;
-  const confettiValues = useRef(
-    CONFETTI_PIECES.map(() => new Animated.Value(0))
-  ).current;
-  const successAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -90,50 +74,6 @@ export default function VerifyEmailScreen({
     inputRefs.current[0]?.focus();
   }, []);
 
-  useEffect(() => {
-    if (!isVerified) {
-      if (successAdvanceTimerRef.current) {
-        clearTimeout(successAdvanceTimerRef.current);
-        successAdvanceTimerRef.current = null;
-      }
-      successPulse.setValue(0);
-      confettiValues.forEach(value => value.setValue(0));
-      return;
-    }
-
-    Animated.parallel([
-      Animated.timing(successPulse, {
-        toValue: 1,
-        duration: 520,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      ...confettiValues.map((value, index) =>
-        Animated.sequence([
-          Animated.delay(CONFETTI_PIECES[index].delay),
-          Animated.timing(value, {
-            toValue: 1,
-            duration: 820,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-    ]).start();
-
-    successAdvanceTimerRef.current = setTimeout(() => {
-      onVerificationSuccess();
-    }, 1200);
-  }, [confettiValues, isVerified, onVerificationSuccess, successPulse]);
-
-  useEffect(() => {
-    return () => {
-      if (successAdvanceTimerRef.current) {
-        clearTimeout(successAdvanceTimerRef.current);
-      }
-    };
-  }, []);
-
   const verificationCode = code.join("");
 
   const fillCode = (nextValue: string) => {
@@ -156,8 +96,6 @@ export default function VerifyEmailScreen({
     setError(null);
     lastSubmittedCodeRef.current = null;
     setIsVerified(false);
-    successPulse.setValue(0);
-    confettiValues.forEach(value => value.setValue(0));
 
     if (nextValue.length > 1) {
       fillCode(nextValue);
@@ -251,62 +189,19 @@ export default function VerifyEmailScreen({
     }
   };
 
+  if (isVerified) {
+    return (
+      <ActionSuccessScreen
+        variant="otp"
+        onPrimaryAction={onVerificationSuccess}
+        autoAdvanceMs={5000}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
       <View style={styles.screen}>
-        {isVerified ? (
-          <View pointerEvents="none" style={styles.confettiLayer}>
-            {CONFETTI_PIECES.map((piece, index) => {
-              const animatedValue = confettiValues[index];
-              const scale = animatedValue.interpolate({
-                inputRange: [0, 0.18, 1],
-                outputRange: [0.2, 1.08, 0.85],
-              });
-              const opacity = animatedValue.interpolate({
-                inputRange: [0, 0.1, 0.8, 1],
-                outputRange: [0, 1, 1, 0],
-              });
-              const translateY = animatedValue.interpolate({
-                inputRange: [0, 1],
-                outputRange: [piece.top, piece.top + piece.driftY],
-              });
-              const translateX = animatedValue.interpolate({
-                inputRange: [0, 1],
-                outputRange: [piece.left, piece.left + piece.driftX],
-              });
-              const rotate = animatedValue.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["0deg", `${180 + index * 28}deg`],
-              });
-
-              return (
-                <Animated.View
-                  key={`${piece.left}-${piece.top}`}
-                  style={[
-                    styles.confettiPiece,
-                    {
-                      left: piece.left,
-                      top: piece.top,
-                      width: piece.size,
-                      height: piece.size * 1.8,
-                      opacity,
-                      transform: [{ translateX }, { translateY }, { scale }, { rotate }],
-                      backgroundColor:
-                        index % 4 === 0
-                          ? theme.colors.primary
-                          : index % 4 === 1
-                            ? theme.colors.success
-                            : index % 4 === 2
-                              ? theme.colors.accent
-                              : theme.colors.destructive,
-                    },
-                  ]}
-                />
-              );
-            })}
-          </View>
-        ) : null}
-
         <KeyboardAvoidingView
           style={[styles.container, { backgroundColor: theme.colors.background }]}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -316,28 +211,21 @@ export default function VerifyEmailScreen({
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              {!isVerified ? (
-                <Pressable onPress={onBackToCreateAccount} style={styles.backLink}>
-                  <ArrowLeft color={theme.colors.mutedForeground} size={18} />
-                  <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>
-                    Back
-                  </Text>
-                </Pressable>
-              ) : null}
+              <Pressable onPress={onBackToCreateAccount} style={styles.backLink}>
+                <ArrowLeft color={theme.colors.mutedForeground} size={18} />
+                <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>
+                  Back
+                </Text>
+              </Pressable>
 
               <AuthHero
-                title={isVerified ? "Email verified" : "Check your email"}
-                subtitle={
-                  isVerified
-                    ? "You can finish setting up your profile now."
-                    : `We sent a 6-digit code to ${email}.`
-                }
-                tone={isVerified ? "success" : "default"}
+                title="Check your email"
+                subtitle={`We sent a 6-digit code to ${email}.`}
+                tone="default"
                 badge={null}
               />
 
-              {!isVerified ? (
-                <View style={styles.form}>
+              <View style={styles.form}>
                 <View style={[styles.instructionCard, { backgroundColor: theme.colors.accent }]}>
                   <Text style={[styles.instructionTitle, { color: theme.colors.foreground }]}>
                     Enter the verification code
@@ -434,15 +322,6 @@ export default function VerifyEmailScreen({
                   </Text>
                 ) : null}
               </View>
-              ) : (
-                <View style={styles.successStack}>
-                  <View style={styles.successCard}>
-                    <Text style={[styles.successText, { color: theme.colors.foreground }]}>
-                      Your email is confirmed. We&apos;ll use the details below to finish setup.
-                    </Text>
-                  </View>
-                </View>
-              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -539,33 +418,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     marginTop: 4,
-  },
-  successCard: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    backgroundColor: "rgba(47, 122, 93, 0.08)",
-  },
-  successStack: {
-    gap: 12,
-    marginTop: 16,
-  },
-  successText: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-  },
-  confettiLayer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 140,
-    height: 220,
-    zIndex: 20,
-    elevation: 20,
-  },
-  confettiPiece: {
-    position: "absolute",
-    borderRadius: 999,
   },
 });

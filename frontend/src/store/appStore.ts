@@ -15,7 +15,10 @@ import {
 } from "../services/authService";
 import { getGoogleIdToken } from "../config/googleSignIn";
 import { getProfile, updatePremiumStatus, updateProfile } from "../services/userService";
-import { syncOnboardingReminderPreference } from "../services/reminderNotificationsService";
+import {
+  cancelFreeTrialEndingReminder,
+  syncOnboardingReminderPreference,
+} from "../services/reminderNotificationsService";
 import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
 import {
@@ -795,6 +798,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       // Sign-out must still complete locally even if the backend session is already gone.
     }
 
+    await cancelFreeTrialEndingReminder().catch(() => undefined);
     await clearTokens();
 
     set({
@@ -939,6 +943,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }
 
     const updatedProfile = await updatePremiumStatus({ isPremium: nextValue });
+
+    if (!nextValue) {
+      cancelFreeTrialEndingReminder().catch(() => undefined);
+    }
 
     set({
       pendingPremiumActivation: false,

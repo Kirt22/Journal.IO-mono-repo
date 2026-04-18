@@ -1,6 +1,9 @@
 import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
-import { syncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
+import {
+  cancelFreeTrialEndingReminder,
+  syncOnboardingReminderPreference,
+} from "../src/services/reminderNotificationsService";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -12,6 +15,7 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
 }));
 
 jest.mock("../src/services/reminderNotificationsService", () => ({
+  cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
   syncOnboardingReminderPreference: jest.fn(async () => undefined),
 }));
 
@@ -29,6 +33,7 @@ describe("appStore", () => {
   beforeEach(() => {
     resetAppStore();
     jest.useFakeTimers();
+    (cancelFreeTrialEndingReminder as jest.Mock).mockClear();
     (syncOnboardingReminderPreference as jest.Mock).mockClear();
   });
 
@@ -807,6 +812,7 @@ describe("appStore", () => {
     jest.resetModules();
 
     const logout = jest.fn(async () => undefined);
+    const cancelTrialReminderMock = jest.fn(async () => undefined);
 
     jest.doMock("../src/services/authService", () => ({
       logout,
@@ -815,6 +821,10 @@ describe("appStore", () => {
       signInWithGoogle: jest.fn(),
       signUpWithEmail: jest.fn(),
       verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/services/reminderNotificationsService", () => ({
+      cancelFreeTrialEndingReminder: cancelTrialReminderMock,
+      syncOnboardingReminderPreference: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
@@ -845,6 +855,7 @@ describe("appStore", () => {
     });
 
     expect(logout).toHaveBeenCalledTimes(1);
+    expect(cancelTrialReminderMock).toHaveBeenCalledTimes(1);
     expect(freshStore.getState().session).toBeNull();
     expect(freshStore.getState().stage).toBe("auth");
     expect(freshStore.getState().activeTab).toBe("home");

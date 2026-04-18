@@ -180,3 +180,13 @@ Do not start the next item until the current item is fully integrated:
 - validation
 - tests
 - verification notes
+
+---
+
+# Publish Readiness Tracking
+
+For App Store launch readiness and final go-live status, use:
+
+- `docs/PUBLISH_READINESS_CHECKLIST.md`
+
+That checklist should be kept current as features move from implemented to fully production-ready.

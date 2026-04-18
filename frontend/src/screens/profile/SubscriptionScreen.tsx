@@ -26,6 +26,7 @@ import {
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
 } from "../../services/revenueCatService";
+import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
 import { syncPaywallPurchase } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 
@@ -307,6 +308,7 @@ export default function SubscriptionScreen({
       });
 
       setSessionUserProfile(updatedProfile);
+      cancelFreeTrialEndingReminder().catch(() => undefined);
       setHasActiveEntitlement(true);
 
       Alert.alert(

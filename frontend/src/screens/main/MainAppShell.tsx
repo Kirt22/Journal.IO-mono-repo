@@ -203,6 +203,9 @@ export default function MainAppShell({
                 return (
                   <PrivacyScreen
                     onBack={closeProfileSection}
+                    onOpenExportPaywall={() =>
+                      openInAppPaywall("privacy_export_locked", "privacy")
+                    }
                     onSignOut={signOut}
                   />
                 );

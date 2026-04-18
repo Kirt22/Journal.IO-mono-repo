@@ -16,7 +16,6 @@ import {
   BellRing,
   Brain,
   Check,
-  CheckCircle2,
   CreditCard,
   Download,
   LockOpen,
@@ -29,6 +28,7 @@ import {
   type CustomerInfo,
 } from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import PrimaryButton from "../../components/PrimaryButton";
 import {
   getRevenueCatActiveEntitlement,
@@ -40,6 +40,10 @@ import {
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
 } from "../../services/revenueCatService";
+import {
+  cancelFreeTrialEndingReminder,
+  scheduleFreeTrialEndingReminder,
+} from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
@@ -104,6 +108,21 @@ const isAnnualPaywallPlan = (plan: PaywallPlan) =>
 
 const isWeeklyPaywallPlan = (plan: PaywallPlan) =>
   plan.planKey === "weekly" || plan.offeringKey === "weekly";
+
+const syncTrialEndingReminderForActivation = (
+  premiumActivatedAt: string | null | undefined,
+  targetPlan: PaywallPlan,
+  options: { wasRestore?: boolean } = {}
+) => {
+  if (options.wasRestore || !isAnnualPaywallPlan(targetPlan)) {
+    cancelFreeTrialEndingReminder().catch(() => undefined);
+    return;
+  }
+
+  scheduleFreeTrialEndingReminder(premiumActivatedAt ?? null, {
+    requestPermission: true,
+  }).catch(() => undefined);
+};
 
 const getPostAuthPlanName = (plan: PaywallPlan) => {
   if (isAnnualPaywallPlan(plan)) {
@@ -466,8 +485,24 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const reminderTimelineProgress = useRef(
     POST_AUTH_TIMELINE.map(() => new Animated.Value(0))
   ).current;
+  const purchaseHeaderProgress = useRef(new Animated.Value(0)).current;
+  const purchaseBannerProgress = useRef(new Animated.Value(0)).current;
+  const purchasePlanListProgress = useRef(new Animated.Value(0)).current;
+  const purchaseBenefitsProgress = useRef(new Animated.Value(0)).current;
+  const purchaseFooterProgress = useRef(new Animated.Value(0)).current;
+  const paywallContextRef = useRef({
+    placementKey: activePaywallPlacementKey || "post_auth",
+    screenKey: activePaywallScreenKey || null,
+    triggerMode: activePaywallTriggerMode,
+  });
 
-  const paywallPlacementKey = activePaywallPlacementKey || "post_auth";
+  // Preserve the placement context for the lifetime of this mounted screen.
+  // ScreenTransitionHost can keep a previous paywall screen mounted briefly while
+  // the shell clears global paywall context, and we do not want that transient
+  // reset to make this instance fall back to the default post-auth placement.
+  const paywallPlacementKey = paywallContextRef.current.placementKey;
+  const paywallScreenKey = paywallContextRef.current.screenKey;
+  const paywallTriggerMode = paywallContextRef.current.triggerMode;
   const isPostAuthPaywall = paywallPlacementKey === "post_auth";
   const isModernPurchasePaywall =
     paywallPlacementKey !== "profile_upgrade_banner" &&
@@ -517,8 +552,8 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         const resolvedConfig = sessionUserId
           ? await getPaywallConfig({
               placementKey: paywallPlacementKey,
-              screenKey: activePaywallScreenKey || undefined,
-              triggerMode: activePaywallTriggerMode,
+              screenKey: paywallScreenKey || undefined,
+              triggerMode: paywallTriggerMode,
             })
           : null;
 
@@ -588,10 +623,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       isMounted = false;
     };
   }, [
-    activePaywallScreenKey,
-    activePaywallTriggerMode,
     onBack,
     paywallPlacementKey,
+    paywallScreenKey,
+    paywallTriggerMode,
     sessionUserId,
   ]);
 
@@ -779,6 +814,83 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     screenState,
   ]);
 
+  useEffect(() => {
+    purchaseHeaderProgress.stopAnimation();
+    purchaseBannerProgress.stopAnimation();
+    purchasePlanListProgress.stopAnimation();
+    purchaseBenefitsProgress.stopAnimation();
+    purchaseFooterProgress.stopAnimation();
+
+    const shouldAnimatePurchaseStep =
+      screenState === "paywall" &&
+      isModernPurchasePaywall &&
+      (!isPostAuthPaywall || postAuthStep === "purchase");
+
+    if (!shouldAnimatePurchaseStep) {
+      purchaseHeaderProgress.setValue(0);
+      purchaseBannerProgress.setValue(0);
+      purchasePlanListProgress.setValue(0);
+      purchaseBenefitsProgress.setValue(0);
+      purchaseFooterProgress.setValue(0);
+      return;
+    }
+
+    purchaseHeaderProgress.setValue(0);
+    purchaseBannerProgress.setValue(0);
+    purchasePlanListProgress.setValue(0);
+    purchaseBenefitsProgress.setValue(0);
+    purchaseFooterProgress.setValue(0);
+
+    const purchaseEntrance = Animated.stagger(90, [
+      Animated.timing(purchaseHeaderProgress, {
+        toValue: 1,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(purchaseBannerProgress, {
+        toValue: 1,
+        duration: 340,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(purchasePlanListProgress, {
+        toValue: 1,
+        duration: 360,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(purchaseBenefitsProgress, {
+        toValue: 1,
+        duration: 340,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(purchaseFooterProgress, {
+        toValue: 1,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+
+    purchaseEntrance.start();
+
+    return () => {
+      purchaseEntrance.stop();
+    };
+  }, [
+    isModernPurchasePaywall,
+    isPostAuthPaywall,
+    postAuthStep,
+    purchaseBannerProgress,
+    purchaseBenefitsProgress,
+    purchaseFooterProgress,
+    purchaseHeaderProgress,
+    purchasePlanListProgress,
+    screenState,
+  ]);
+
   const completePremiumActivation = async (
     customerInfo: CustomerInfo,
     targetPlan: PaywallPlan,
@@ -795,6 +907,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
     if (!targetPlan.offeringKey) {
       await setSessionPremiumStatus(true);
+      syncTrialEndingReminderForActivation(null, targetPlan, options);
       setScreenState("success");
       return true;
     }
@@ -811,6 +924,11 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     });
 
     setSessionUserProfile(updatedProfile);
+    syncTrialEndingReminderForActivation(
+      updatedProfile.premiumActivatedAt,
+      targetPlan,
+      options
+    );
     setScreenState("success");
     return true;
   };
@@ -1003,7 +1121,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
   const renderPostAuthTrialStep = () => {
     const heroAnimatedStyle = {
-      opacity: introHeroProgress,
       transform: [
         {
           translateY: introHeroProgress.interpolate({
@@ -1014,7 +1131,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       ],
     };
     const mascotAnimatedStyle = {
-      opacity: introHeroProgress,
       transform: [
         {
           scale: introHeroProgress.interpolate({
@@ -1031,7 +1147,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       ],
     };
     const footerAnimatedStyle = {
-      opacity: introHeroProgress,
       transform: [
         {
           translateY: introHeroProgress.interpolate({
@@ -1073,7 +1188,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               {POST_AUTH_INTRO_FEATURES.map((feature, index) => {
                 const Icon = feature.icon;
                 const featureAnimatedStyle = {
-                  opacity: introFeatureProgress[index],
                   transform: [
                     {
                       translateX: introFeatureProgress[index].interpolate({
@@ -1138,7 +1252,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
   const renderPostAuthReminderStep = () => {
     const reminderContentAnimatedStyle = {
-      opacity: reminderScreenProgress,
       transform: [
         {
           translateY: reminderScreenProgress.interpolate({
@@ -1149,7 +1262,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       ],
     };
     const reminderBellAnimatedStyle = {
-      opacity: reminderScreenProgress,
       transform: [
         {
           scale: reminderScreenProgress.interpolate({
@@ -1166,7 +1278,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       ],
     };
     const reminderFooterAnimatedStyle = {
-      opacity: reminderScreenProgress,
       transform: [
         {
           translateY: reminderScreenProgress.interpolate({
@@ -1233,7 +1344,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                 const Icon = step.icon;
                 const colors = getTimelineAccentColors(step.color, theme.colors);
                 const timelineAnimatedStyle = {
-                  opacity: reminderTimelineProgress[index],
                   transform: [
                     {
                       translateX: reminderTimelineProgress[index].interpolate({
@@ -1293,21 +1403,73 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     );
   };
 
-  const renderPostAuthPurchaseStep = () => (
-    <View style={styles.postAuthScreen}>
-      {renderPostAuthBackground()}
+  const renderPostAuthPurchaseStep = () => {
+    const purchaseHeaderAnimatedStyle = {
+      transform: [
+        {
+          translateY: purchaseHeaderProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [16, 0],
+          }),
+        },
+      ],
+    };
+    const purchaseBannerAnimatedStyle = {
+      transform: [
+        {
+          translateY: purchaseBannerProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [18, 0],
+          }),
+        },
+      ],
+    };
+    const purchasePlanListAnimatedStyle = {
+      transform: [
+        {
+          translateY: purchasePlanListProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [22, 0],
+          }),
+        },
+      ],
+    };
+    const purchaseBenefitsAnimatedStyle = {
+      transform: [
+        {
+          translateY: purchaseBenefitsProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [24, 0],
+          }),
+        },
+      ],
+    };
+    const purchaseFooterAnimatedStyle = {
+      transform: [
+        {
+          translateY: purchaseFooterProgress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [28, 0],
+          }),
+        },
+      ],
+    };
 
-      <View
-        style={[
-          styles.postAuthStageInner,
-          {
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-            paddingHorizontal: horizontalPadding,
-          },
-        ]}
-      >
-        <View style={styles.postAuthPurchaseHeader}>
+    return (
+      <View style={styles.postAuthScreen}>
+        {renderPostAuthBackground()}
+
+        <View
+          style={[
+            styles.postAuthStageInner,
+            {
+              paddingTop: insets.top,
+              paddingBottom: insets.bottom,
+              paddingHorizontal: horizontalPadding,
+            },
+          ]}
+        >
+        <Animated.View style={[styles.postAuthPurchaseHeader, purchaseHeaderAnimatedStyle]}>
           <View style={styles.postAuthBrandRow}>
             <View
               style={[
@@ -1338,14 +1500,16 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           >
             <X size={18} color={theme.colors.mutedForeground} />
           </Pressable>
-        </View>
+        </Animated.View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={styles.postAuthPurchaseScroll}
           contentContainerStyle={styles.postAuthPurchaseScrollContent}
         >
-          <View style={styles.postAuthTrialBannerSlot}>
+          <Animated.View
+            style={[styles.postAuthTrialBannerSlot, purchaseBannerAnimatedStyle]}
+          >
             {selectedPlanHasTrial ? (
               <View
                 style={[
@@ -1380,20 +1544,46 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                 </Text>
               </View>
             )}
-          </View>
+          </Animated.View>
 
-          <View style={styles.postAuthPurchasePlanList}>
-            {visiblePlans.map(plan => (
-              <PostAuthPlanCard
-                key={plan.id}
-                plan={plan}
-                selected={selectedPlan?.id === plan.id}
-                onPress={() => handlePlanPress(plan)}
-              />
-            ))}
-          </View>
+          <Animated.View
+            style={[styles.postAuthPurchasePlanList, purchasePlanListAnimatedStyle]}
+          >
+            {isLoadingPlans && !visiblePlans.length ? (
+              <View
+                style={[
+                  styles.inlineLoaderCard,
+                  {
+                    backgroundColor: `${theme.colors.card}E6`,
+                    borderColor: `${theme.colors.border}80`,
+                  },
+                ]}
+              >
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <Text
+                  style={[
+                    styles.inlineLoaderText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  Loading premium offers...
+                </Text>
+              </View>
+            ) : (
+              visiblePlans.map(plan => (
+                <PostAuthPlanCard
+                  key={plan.id}
+                  plan={plan}
+                  selected={selectedPlan?.id === plan.id}
+                  onPress={() => handlePlanPress(plan)}
+                />
+              ))
+            )}
+          </Animated.View>
 
-          <View style={styles.postAuthBenefitsList}>
+          <Animated.View
+            style={[styles.postAuthBenefitsList, purchaseBenefitsAnimatedStyle]}
+          >
             {POST_AUTH_BENEFITS.map(benefit => (
               <View key={benefit} style={styles.postAuthBenefitRow}>
                 <View
@@ -1414,7 +1604,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                 </Text>
               </View>
             ))}
-          </View>
+          </Animated.View>
 
           {plansError ? (
             <View
@@ -1433,9 +1623,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           ) : null}
         </ScrollView>
 
-        <View
+        <Animated.View
           style={[
             styles.postAuthPurchaseFooter,
+            purchaseFooterAnimatedStyle,
             {
               backgroundColor: `${theme.colors.background}F2`,
               borderTopColor: `${theme.colors.border}66`,
@@ -1503,10 +1694,11 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               </Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </View>
   );
+  };
 
   const renderStandardPurchaseStep = () => (
     <View style={styles.standardPurchaseLayout}>
@@ -1521,14 +1713,36 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       </View>
 
       <View style={styles.planList}>
-        {visiblePlans.map(plan => (
-          <PlanCard
-            key={plan.id}
-            plan={plan}
-            selected={selectedPlan?.id === plan.id}
-            onPress={() => handlePlanPress(plan)}
-          />
-        ))}
+        {isLoadingPlans && !visiblePlans.length ? (
+          <View
+            style={[
+              styles.inlineLoaderCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text
+              style={[
+                styles.inlineLoaderText,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              Loading premium offers...
+            </Text>
+          </View>
+        ) : (
+          visiblePlans.map(plan => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              selected={selectedPlan?.id === plan.id}
+              onPress={() => handlePlanPress(plan)}
+            />
+          ))
+        )}
       </View>
 
       <View style={styles.featureList}>
@@ -1624,6 +1838,22 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     </View>
   );
 
+  if (screenState === "success") {
+    return (
+      <ActionSuccessScreen
+        variant="payment"
+        title="You're Premium"
+        subtitle={
+          lastPurchaseStore === "TEST_STORE"
+            ? "The test purchase is active. You can continue into Journal.IO."
+            : "Your premium access is now active on this account."
+        }
+        buttonLabel="Continue"
+        onPrimaryAction={handleContinueFromSuccess}
+      />
+    );
+  }
+
   return (
     <SafeAreaView
       edges={
@@ -1641,39 +1871,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           },
         ]}
       >
-        {screenState === "success" ? (
-          <View
-            style={[
-              styles.successCard,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.successIconWrap,
-                { backgroundColor: `${theme.colors.success}18` },
-              ]}
-            >
-              <CheckCircle2 size={30} color={theme.colors.success} />
-            </View>
-            <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
-              Premium is active
-            </Text>
-            <Text style={[styles.successBody, { color: theme.colors.mutedForeground }]}>
-              {lastPurchaseStore === "TEST_STORE"
-                ? "The test purchase is active. You can continue into Journal.IO."
-                : "Your premium access is now active on this account."}
-            </Text>
-            <PrimaryButton
-              label="Continue"
-              onPress={handleContinueFromSuccess}
-              tone="accent"
-            />
-          </View>
-        ) : isModernPurchasePaywall ? (
+        {isModernPurchasePaywall ? (
           isPostAuthPaywall ? (
             postAuthStep === "trial"
               ? renderPostAuthTrialStep()
@@ -2007,6 +2205,22 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 20,
   },
+  inlineLoaderCard: {
+    minHeight: 112,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  inlineLoaderText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+    textAlign: "center",
+  },
   postAuthPlanCard: {
     borderRadius: 24,
     borderWidth: 2,
@@ -2303,33 +2517,6 @@ const styles = StyleSheet.create({
   legalText: {
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
-  },
-  successCard: {
-    flex: 1,
-    borderRadius: 24,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  successIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  successBody: {
-    fontSize: 15,
-    lineHeight: 22,
     textAlign: "center",
   },
 });

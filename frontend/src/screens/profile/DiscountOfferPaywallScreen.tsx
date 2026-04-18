@@ -13,7 +13,6 @@ import {
 } from "react-native";
 import {
   ArrowRight,
-  CheckCircle2,
   Gift,
   X,
 } from "lucide-react-native";
@@ -22,6 +21,7 @@ import {
   type CustomerInfo,
 } from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import PrimaryButton from "../../components/PrimaryButton";
 import {
   getRevenueCatActiveEntitlement,
@@ -34,6 +34,7 @@ import {
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
 } from "../../services/revenueCatService";
+import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
@@ -589,6 +590,7 @@ export default function DiscountOfferPaywallScreen({
     });
 
     setSessionUserProfile(updatedProfile);
+    cancelFreeTrialEndingReminder().catch(() => undefined);
     setScreenState("success");
     return true;
   };
@@ -733,6 +735,22 @@ export default function DiscountOfferPaywallScreen({
 
   const isBusy = isProcessing || isRestoring;
 
+  if (screenState === "success") {
+    return (
+      <ActionSuccessScreen
+        variant="payment"
+        title="You're Premium"
+        subtitle={
+          lastPurchaseStore === "TEST_STORE"
+            ? "The test purchase is active. You can continue into Journal.IO."
+            : "Your yearly premium access is now active on this account."
+        }
+        buttonLabel="Continue"
+        onPrimaryAction={onBack}
+      />
+    );
+  }
+
   return (
     <SafeAreaView
       edges={[]}
@@ -792,49 +810,7 @@ export default function DiscountOfferPaywallScreen({
           />
         </View>
 
-        {screenState === "success" ? (
-          <View
-            style={[
-              styles.successWrap,
-              {
-                paddingTop: insets.top,
-                paddingBottom: insets.bottom,
-                paddingHorizontal: horizontalPadding,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.successCard,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.successIconWrap,
-                  { backgroundColor: `${theme.colors.success}18` },
-                ]}
-              >
-                <CheckCircle2 size={28} color={theme.colors.success} />
-              </View>
-              <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
-                Premium is active
-              </Text>
-              <Text
-                style={[styles.successBody, { color: theme.colors.mutedForeground }]}
-              >
-                {lastPurchaseStore === "TEST_STORE"
-                  ? "The test purchase is active. You can continue into Journal.IO."
-                  : "Your yearly premium access is now active on this account."}
-              </Text>
-              <PrimaryButton label="Continue" onPress={onBack} tone="accent" />
-            </View>
-          </View>
-        ) : (
-          <>
+        <>
             <Animated.View
               style={[
                 styles.header,
@@ -1141,8 +1117,7 @@ export default function DiscountOfferPaywallScreen({
                 </Pressable>
               </Animated.View>
             </ScrollView>
-          </>
-        )}
+        </>
       </View>
     </SafeAreaView>
   );
@@ -1337,36 +1312,6 @@ const styles = StyleSheet.create({
   messageText: {
     fontSize: 13,
     lineHeight: 19,
-  },
-  successWrap: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  successCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  successIconWrap: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  successBody: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
   },
   pressed: {
     opacity: 0.9,

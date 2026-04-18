@@ -16,9 +16,9 @@ import {
   type CustomerInfo,
   type PurchasesError,
 } from "react-native-purchases";
-import { ArrowRight, CheckCircle2, Crown, RefreshCcw, Sparkles, X } from "lucide-react-native";
+import { ArrowRight, Crown, RefreshCcw, X } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import PrimaryButton from "../../components/PrimaryButton";
+import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
@@ -30,6 +30,7 @@ import {
   restoreRevenueCatPurchases,
   type RevenueCatPaywallPlan,
 } from "../../services/revenueCatService";
+import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
@@ -231,7 +232,6 @@ export default function LifetimeOfferPaywallScreen({
   const chipDrift = useRef(new Animated.Value(0)).current;
   const backgroundDrift = useRef(new Animated.Value(0)).current;
   const previewTransition = useRef(new Animated.Value(1)).current;
-  const successAnim = useRef(new Animated.Value(0)).current;
 
   const previewCards = useMemo(
     () => buildPreviewCards(paywallConfig),
@@ -267,10 +267,6 @@ export default function LifetimeOfferPaywallScreen({
   const swipeThreshold = swipeMaxDistance * 0.7;
   const footerBottomPadding = 0;
   const footerReservedSpace = 126;
-  const successTags =
-    lastPurchaseStore === "TEST_STORE"
-      ? ["RevenueCat test", "Lifetime access"]
-      : ["Lifetime access", "Premium active"];
   const footerCtaLabel =
     currentPlanKey === "lifetime"
       ? "Lifetime already active"
@@ -564,20 +560,6 @@ export default function LifetimeOfferPaywallScreen({
     }).start();
   }, [activePreviewCard, previewTransition]);
 
-  useEffect(() => {
-    if (screenState !== "success") {
-      return;
-    }
-
-    successAnim.setValue(0);
-    Animated.timing(successAnim, {
-      toValue: 1,
-      duration: 360,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [screenState, successAnim]);
-
   const completePremiumActivation = useCallback(
     async (customerInfo: CustomerInfo, options: { wasRestore?: boolean } = {}) => {
       const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
@@ -606,6 +588,7 @@ export default function LifetimeOfferPaywallScreen({
       });
 
       setSessionUserProfile(updatedProfile);
+      cancelFreeTrialEndingReminder().catch(() => undefined);
       setScreenState("success");
       return true;
     },
@@ -864,68 +847,20 @@ export default function LifetimeOfferPaywallScreen({
     inputRange: [0, 1],
     outputRange: [14, 0],
   });
-  const successTranslate = successAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
 
   if (screenState === "success") {
     return (
-      <SafeAreaView
-        edges={["top", "right", "bottom", "left"]}
-        style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
-      >
-        <View style={styles.successContainer}>
-          <Animated.View
-            style={[
-              styles.successCard,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-                opacity: successAnim,
-                transform: [{ translateY: successTranslate }],
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.successIconWrap,
-                { backgroundColor: hexToRgba(theme.colors.primary, 0.14) },
-              ]}
-            >
-              <CheckCircle2 size={26} color={theme.colors.primary} />
-            </View>
-            <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
-              Lifetime access is active.
-            </Text>
-            <Text style={[styles.successBody, { color: theme.colors.mutedForeground }]}>
-              Journal.IO now has permanent premium access on this account for {sessionUserName}.
-            </Text>
-            <View style={styles.successTagRow}>
-              {successTags.map(tag => (
-                <View
-                  key={tag}
-                  style={[
-                    styles.successTag,
-                    { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-                  ]}
-                >
-                  <Sparkles size={12} color={theme.colors.primary} />
-                  <Text style={[styles.successTagText, { color: theme.colors.foreground }]}>
-                    {tag}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            <PrimaryButton
-              label="Return to Subscription"
-              onPress={onBack}
-              tone="accent"
-              icon={<ArrowRight size={16} color={theme.colors.primaryForeground} />}
-            />
-          </Animated.View>
-        </View>
-      </SafeAreaView>
+      <ActionSuccessScreen
+        variant="payment"
+        title="Lifetime access is active"
+        subtitle={
+          lastPurchaseStore === "TEST_STORE"
+            ? "The RevenueCat test purchase unlocked permanent premium access on this account."
+            : `Journal.IO now has permanent premium access on this account for ${sessionUserName}.`
+        }
+        buttonLabel="Return to Subscription"
+        onPrimaryAction={onBack}
+      />
     );
   }
 
@@ -1347,54 +1282,6 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-  },
-  successContainer: {
-    flex: 1,
-    padding: 24,
-    justifyContent: "center",
-  },
-  successCard: {
-    borderRadius: 28,
-    borderWidth: 1,
-    padding: 24,
-    gap: 16,
-  },
-  successIconWrap: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "center",
-  },
-  successTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: -0.7,
-    textAlign: "center",
-  },
-  successBody: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  successTagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 10,
-  },
-  successTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  successTagText: {
-    fontSize: 12,
-    fontWeight: "600",
   },
   backgroundBubbleTop: {
     position: "absolute",

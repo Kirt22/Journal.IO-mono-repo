@@ -8,6 +8,7 @@ import {
   Switch,
   Text,
   View,
+  type GestureResponderEvent,
 } from "react-native";
 import {
   Check,
@@ -23,7 +24,7 @@ import PrimaryButton from "../../components/PrimaryButton";
 import { trackPaywallEvent } from "../../services/paywallService";
 import { updateAiOptOutPreference } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
-import { useTheme } from "../../theme/provider";
+import { useTheme, useThemeTransition } from "../../theme/provider";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 import type { ThemeMode } from "../../theme/theme";
 
@@ -138,6 +139,7 @@ export default function SettingsScreen({
   onToggleTheme,
 }: SettingsScreenProps) {
   const theme = useTheme();
+  const startThemeTransition = useThemeTransition();
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const isPrivacyModeEnabled = useAppStore(
     state => state.session?.user.aiOptIn === false
@@ -167,7 +169,21 @@ export default function SettingsScreen({
     [currentThemePreference]
   );
 
-  const handleSelectTheme = (nextMode: ThemeMode | "system") => {
+  const handleSelectTheme = (
+    nextMode: ThemeMode | "system",
+    event: GestureResponderEvent
+  ) => {
+    if (nextMode === currentThemePreference) {
+      setIsThemeMenuOpen(false);
+      return;
+    }
+
+    startThemeTransition({
+      originX: event.nativeEvent.pageX,
+      originY: event.nativeEvent.pageY,
+      nextModeOverride: nextMode === "system" ? null : nextMode,
+    });
+
     if (nextMode === "system") {
       onToggleTheme(null);
     } else {
@@ -384,7 +400,7 @@ export default function SettingsScreen({
                   <Pressable
                     key={option.value}
                     accessibilityRole="button"
-                    onPress={() => handleSelectTheme(option.value)}
+                    onPress={event => handleSelectTheme(option.value, event)}
                     style={({ pressed }) => [
                       styles.selectOption,
                       {

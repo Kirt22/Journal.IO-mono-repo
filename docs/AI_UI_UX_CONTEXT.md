@@ -170,9 +170,11 @@ Paywall expectations:
   - reminder reassurance step
   - purchase step with monthly and yearly plans only
 - on the post-auth purchase step, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
+- when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder on day 5 that 2 trial days remain; this v1 reminder does not require push infrastructure
 - if the user dismisses the post-auth paywall, immediately follow it with a dedicated yearly-only exit-offer screen before continuing into the normal post-auth destination
 - keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
+- treat privacy-data export as a premium-gated surface for free users: keep the export card visible, but show it in a locked premium state and route taps into the backend-selected `privacy_export_locked` paywall placement
 - keep contextual locked-feature paywalls simpler than the post-auth flow; they can continue to open directly on a purchase surface instead of replaying the full 3-step sequence
 - allow interruptive paywalls only on eligible Home or Insights entries after repeated premium-intent signals; never interrupt while the user is actively writing or editing
 - for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to paywall, while premium users can see a lightweight membership-management view
@@ -204,6 +206,7 @@ Home should support quick daily engagement:
 - if a closed premium week ends with fewer than 4 active journal days, the Home AI card should show a supportive insufficient-data recap and encourage the next week rather than forcing a partial report
 - New Entry should keep writing prompts available for everyone, but the `Auto-tag with AI` control should remain visible in a locked premium state for free users, log a premium-intent event, open the `new_entry_auto_tag_locked` paywall placement, and must not call the suggestion API until premium is active
 - the Home current-streak card should be API-backed and should use the lightweight `currentStreak` value returned by `GET /mood/today` rather than calling the full streak summary endpoints
+- toggling light/dark mode from the Home header should use a tap-origin ripple transition so the new theme expands smoothly from the pressed control instead of snapping instantly
 
 Shared journal-card rule:
 
@@ -286,6 +289,7 @@ Settings and privacy expectations:
 
 - the Settings screen should keep the Make layout but avoid local-only placeholder toggles
 - the `Privacy Mode` toggle should map to the authenticated user's AI opt-out preference so Home and Insights AI surfaces respond immediately after the setting changes
+- changing theme from the Settings theme selector should use the same tap-origin ripple transition as the Home header toggle
 - `Privacy Mode` and `Hide Journal Previews` should be premium-gated controls in Settings; free users should see them as locked upgrade entry points instead of active toggles
 - locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search

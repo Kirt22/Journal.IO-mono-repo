@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -60,7 +61,7 @@ import {
   syncWeeklyInsightNotifications,
 } from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
-import { useTheme } from "../theme/provider";
+import { useTheme, useThemeTransition } from "../theme/provider";
 import { getJournalEntries } from "../services/journalService";
 
 type HomeScreenProps = {
@@ -276,7 +277,7 @@ function HeaderIconButton({
   iconColor,
 }: {
   icon: typeof Search;
-  onPress: () => void;
+  onPress: (event: GestureResponderEvent) => void;
   label: string;
   borderColor: string;
   backgroundColor: string;
@@ -428,6 +429,7 @@ export default function HomeScreen({
   onToggleTheme,
 }: HomeScreenProps) {
   const theme = useTheme();
+  const startThemeTransition = useThemeTransition();
   const { width } = useWindowDimensions();
   const stage = useAppStore(state => state.stage);
   const setActiveTab = useAppStore(state => state.setActiveTab);
@@ -1199,6 +1201,17 @@ export default function HomeScreen({
     }
   };
 
+  const handleToggleTheme = (event: GestureResponderEvent) => {
+    const nextMode = theme.mode === "dark" ? "light" : "dark";
+
+    startThemeTransition({
+      originX: event.nativeEvent.pageX,
+      originY: event.nativeEvent.pageY,
+      nextModeOverride: nextMode,
+    });
+    onToggleTheme(nextMode);
+  };
+
   return (
     <TabScreenLayout
       backgroundColor={theme.colors.background}
@@ -1237,7 +1250,7 @@ export default function HomeScreen({
         <View style={styles.headerActions}>
           <HeaderIconButton
             icon={theme.mode === "dark" ? Sun : Moon}
-            onPress={() => onToggleTheme(theme.mode === "dark" ? "light" : "dark")}
+            onPress={handleToggleTheme}
             label="Toggle theme"
             borderColor={theme.colors.border}
             backgroundColor={theme.colors.card}

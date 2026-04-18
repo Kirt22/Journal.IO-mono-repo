@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: journal-io-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_STAGE
+        value: prod
+      - key: PORT
+        value: 10000
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 14d
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: AUTH_OTP_EXPIRES_IN
+        value: 10m
+      - key: AUTH_EMAIL_OTP_EXPIRES_IN
+        value: 30m
+      - key: AUTH_EMAIL_DELIVERY_MODE
+        value: smtp
+      - key: AUTH_EMAIL_FROM_ADDRESS
+        sync: false
+      - key: AUTH_EMAIL_FROM_NAME
+        value: Journal.IO
+      - key: AUTH_EMAIL_REPLY_TO
+        sync: false
+      - key: AUTH_EMAIL_HELO_HOST
+        sync: false
+      - key: RESEND_SMTP_HOST
+        value: smtp.resend.com
+      - key: RESEND_SMTP_PORT
+        value: 465
+      - key: RESEND_SMTP_USERNAME
+        value: resend
+      - key: RESEND_SMTP_PASSWORD
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_TEMPLATE_ID
+        sync: false
+      - key: MSG91_OTP_API_URL
+        value: https://control.msg91.com/api/v5/otp
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: GOOGLE_IOS_CLIENT_ID
+        sync: false
+      - key: GOOGLE_WEB_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_RESPONSES_MODEL
+        value: gpt-5.4-mini

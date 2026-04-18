@@ -10,16 +10,20 @@ import {
 import {
   Download,
   FileText,
+  Lock,
   Shield,
   Trash2,
 } from "lucide-react-native";
 import PrimaryButton from "../../components/PrimaryButton";
+import { trackPaywallEvent } from "../../services/paywallService";
 import { deleteAccount, exportAllEntries } from "../../services/privacyService";
+import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 
 type PrivacyScreenProps = {
   onBack: () => void;
+  onOpenExportPaywall: () => void;
   onSignOut: () => Promise<void> | void;
 };
 
@@ -45,13 +49,30 @@ function PolicyItem({ title, body }: PolicyItemProps) {
 
 export default function PrivacyScreen({
   onBack,
+  onOpenExportPaywall,
   onSignOut,
 }: PrivacyScreenProps) {
   const theme = useTheme();
+  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const handleOpenExportPaywall = () => {
+    trackPaywallEvent({
+      placementKey: "privacy_export_locked",
+      screenKey: "privacy",
+      eventType: "locked_feature_tap",
+      wasInterruptive: false,
+    }).catch(() => undefined);
+    onOpenExportPaywall();
+  };
+
   const handleExport = async () => {
+    if (!isPremiumUser) {
+      handleOpenExportPaywall();
+      return;
+    }
+
     setIsExporting(true);
 
     try {
@@ -120,16 +141,49 @@ export default function PrivacyScreen({
           Download all your journal entries and data
         </Text>
         <Text style={[styles.sectionText, { color: theme.colors.mutedForeground }]}>
-          Get a complete copy of all your journal entries, mood data, and settings in JSON format.
+          {isPremiumUser
+            ? "Get a complete copy of all your journal entries, mood data, and settings in JSON format."
+            : "Premium unlocks full journal-data export in JSON format whenever you want a copy of your writing and settings."}
         </Text>
-        <PrimaryButton
-          label={isExporting ? "Exporting..." : "Export All Data"}
-          onPress={handleExport}
-          disabled={isExporting}
-          variant="outline"
-          icon={<Download size={15} color={theme.colors.primary} />}
-          size="sm"
-        />
+        {isPremiumUser ? (
+          <PrimaryButton
+            label={isExporting ? "Exporting..." : "Export All Data"}
+            onPress={handleExport}
+            disabled={isExporting}
+            variant="outline"
+            icon={<Download size={15} color={theme.colors.primary} />}
+            size="sm"
+          />
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Unlock export data"
+            onPress={handleOpenExportPaywall}
+            style={({ pressed }) => [
+              styles.lockedExportButton,
+              {
+                borderColor: theme.colors.border,
+                backgroundColor: theme.colors.secondary,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View
+              style={[
+                styles.lockedExportBadge,
+                { backgroundColor: `${theme.colors.primary}14` },
+              ]}
+            >
+              <Lock size={13} color={theme.colors.primary} />
+              <Text style={[styles.lockedExportBadgeText, { color: theme.colors.primary }]}>
+                Premium
+              </Text>
+            </View>
+            <Text style={[styles.lockedExportButtonText, { color: theme.colors.foreground }]}>
+              Unlock Export Data
+            </Text>
+          </Pressable>
+        )}
       </SectionCard>
 
       <SectionCard>
@@ -314,6 +368,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   destructiveButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  lockedExportButton: {
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  lockedExportBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  lockedExportBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  lockedExportButtonText: {
     fontSize: 14,
     fontWeight: "600",
   },

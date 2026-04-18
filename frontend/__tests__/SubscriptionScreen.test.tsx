@@ -52,6 +52,7 @@ jest.mock("../src/services/paywallService", () => ({
     email: "premium@example.com",
     isPremium: true,
     premiumPlanKey: "weekly",
+    premiumActivatedAt: "2026-04-16T09:30:00.000Z",
     journalingGoals: [],
     avatarColor: null,
     profileSetupCompleted: true,
@@ -59,6 +60,10 @@ jest.mock("../src/services/paywallService", () => ({
     profilePic: null,
     aiOptIn: true,
   })),
+}));
+
+jest.mock("../src/services/reminderNotificationsService", () => ({
+  cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
 }));
 
 const safeAreaMetrics = {
@@ -114,6 +119,7 @@ beforeEach(() => {
           email: "premium@example.com",
           isPremium: true,
           premiumPlanKey: "weekly",
+          premiumActivatedAt: "2026-04-16T09:30:00.000Z",
           journalingGoals: [],
           avatarColor: null,
           profileSetupCompleted: true,

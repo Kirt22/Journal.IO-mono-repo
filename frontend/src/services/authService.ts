@@ -7,6 +7,7 @@ type AuthUser = {
   email: string | null;
   isPremium?: boolean;
   premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
+  premiumActivatedAt?: string | null;
   journalingGoals: string[];
   avatarColor: string | null;
   profileSetupCompleted: boolean;
@@ -158,6 +159,7 @@ const createMockSession = (payload: {
       email,
       isPremium: false,
       premiumPlanKey: null,
+      premiumActivatedAt: null,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,

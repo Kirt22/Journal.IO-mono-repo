@@ -253,6 +253,7 @@ const DEFAULT_TEMPLATES: Array<
       "entry_quick_analysis_locked",
       "settings_privacy_mode_locked",
       "settings_hide_previews_locked",
+      "privacy_export_locked",
     ],
   },
   {
@@ -341,6 +342,7 @@ const DEFAULT_TEMPLATES: Array<
       "insights_ai_tab_locked",
       "settings_privacy_mode_locked",
       "settings_hide_previews_locked",
+      "privacy_export_locked",
     ],
   },
   {
@@ -569,6 +571,14 @@ const DEFAULT_CONFIG: Pick<
       interruptiveTemplateKey: null,
     },
     {
+      key: "privacy_export_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
       key: "home_interruptive",
       templateKey: "weekly-standard",
       fallbackTemplateKey: null,
@@ -611,6 +621,25 @@ const getMembershipPlanKeyFromOfferingKey = (
   offeringKey: PaywallOfferingKey
 ): "weekly" | "monthly" | "yearly" | "lifetime" =>
   offeringKey === "yearly_exit_offer" ? "yearly" : offeringKey;
+
+const getMissingDefaultPlacements = (
+  currentPlacements: IPaywallConfig["placements"],
+  defaultPlacements: IPaywallConfig["placements"]
+) =>
+  defaultPlacements.filter(
+    defaultPlacement =>
+      !currentPlacements.some(
+        currentPlacement => currentPlacement.key === defaultPlacement.key
+      )
+  );
+
+const getMissingTemplatePlacementKeys = (
+  currentPlacementKeys: string[],
+  defaultPlacementKeys: string[]
+) =>
+  defaultPlacementKeys.filter(
+    placementKey => !currentPlacementKeys.includes(placementKey)
+  );
 
 const ensureDefaultPaywallSetup = async () => {
   await Promise.all(
@@ -685,6 +714,28 @@ const ensureDefaultPaywallSetup = async () => {
         { $setOnInsert: template },
         { upsert: true }
       );
+
+      const currentTemplate = await paywallTemplateModel
+        .findOne({ key: template.key }, { placementKeys: 1 })
+        .lean()
+        .exec();
+      const missingTemplatePlacementKeys = getMissingTemplatePlacementKeys(
+        currentTemplate?.placementKeys || [],
+        template.placementKeys
+      );
+
+      if (missingTemplatePlacementKeys.length) {
+        await paywallTemplateModel.updateOne(
+          { key: template.key },
+          {
+            $addToSet: {
+              placementKeys: {
+                $each: missingTemplatePlacementKeys,
+              },
+            },
+          }
+        );
+      }
 
       await paywallTemplateModel.updateOne(
         {
@@ -838,6 +889,24 @@ const ensureDefaultPaywallSetup = async () => {
   const currentConfig = await paywallConfigModel.findOne({ key: DEFAULT_CONFIG.key }).exec();
 
   if (currentConfig) {
+    const missingDefaultPlacements = getMissingDefaultPlacements(
+      currentConfig.placements,
+      DEFAULT_CONFIG.placements
+    );
+
+    if (missingDefaultPlacements.length) {
+      await paywallConfigModel.updateOne(
+        { key: DEFAULT_CONFIG.key },
+        {
+          $push: {
+            placements: {
+              $each: missingDefaultPlacements,
+            },
+          },
+        }
+      );
+    }
+
     const normalizedPlacements = currentConfig.placements.map(placement => ({
       key: placement.key,
       templateKey:
@@ -1426,6 +1495,8 @@ const syncPaywallPurchase = async (
 
 export {
   ensureDefaultPaywallSetup,
+  getMissingDefaultPlacements,
+  getMissingTemplatePlacementKeys,
   getPaywallConfig,
   resolveTemplateForPlacement,
   shouldAllowInterruptivePaywall,

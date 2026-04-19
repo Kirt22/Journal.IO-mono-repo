@@ -68,7 +68,7 @@ Controllers remain thin. Services contain domain logic.
 Current design flow represented in architecture decisions:
 
 1. Onboarding
-2. Auth (email / Google, with legacy phone OTP still available on the backend)
+2. Auth (email / Google)
 3. OTP verification
 4. Profile setup
 5. Home dashboard

@@ -5,50 +5,43 @@ import {
   invalidateRefreshToken,
   refreshAccessToken,
   resendEmailVerification,
-  resendOtp,
-  sendOtp,
   signInWithEmail,
   signUpWithEmail,
   verifyEmail,
-  verifyOtp,
 } from "./auth.service";
 
-const sendOtpController = async (req: Request, res: Response) => {
-  try {
-    const { phoneNumber } = req.body;
-    const result = await sendOtp({ phoneNumber });
+const maskEmail = (email: string) => {
+  const trimmed = email.trim().toLowerCase();
+  const [localPart = "", domain = ""] = trimmed.split("@");
 
-    return res
-      .status(200)
-      .json(apiResponse(true, "Verification code sent", result));
-  } catch (error) {
-    console.error("Error in sendOtp:", error);
-    return res
-      .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+  if (!localPart || !domain) {
+    return trimmed;
   }
+
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] || ""}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
 };
 
-const resendOtpController = async (req: Request, res: Response) => {
-  try {
-    const { phoneNumber } = req.body;
-    const result = await resendOtp({ phoneNumber });
-
-    return res
-      .status(200)
-      .json(apiResponse(true, "Verification code resent", result));
-  } catch (error) {
-    console.error("Error in resendOtp:", error);
-    return res
-      .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
-  }
+const logAuthRoute = (
+  event: "request" | "success" | "error",
+  route: string,
+  details: Record<string, unknown>
+) => {
+  const logger = event === "error" ? console.error : console.info;
+  logger(`[Auth][${route}] ${event}`, details);
 };
 
 const signUpWithEmailController = async (req: Request, res: Response) => {
   try {
     const { email, password, onboardingContext, onboardingCompleted } =
       req.body;
+    logAuthRoute("request", "sign_up_with_email", {
+      email: maskEmail(email),
+    });
     const result = await signUpWithEmail({
       email,
       password,
@@ -64,10 +57,19 @@ const signUpWithEmailController = async (req: Request, res: Response) => {
       );
     }
 
+    logAuthRoute("success", "sign_up_with_email", {
+      email: maskEmail(email),
+      verificationRequired: result.challenge.verificationRequired,
+      expiresInSeconds: result.challenge.expiresInSeconds,
+    });
+
     return res
       .status(200)
       .json(apiResponse(true, "Verification code sent", result.challenge));
   } catch (error) {
+    logAuthRoute("error", "sign_up_with_email", {
+      error,
+    });
     console.error("Error in signUpWithEmail:", error);
     return res
       .status(500)
@@ -81,6 +83,9 @@ const resendEmailVerificationController = async (
 ) => {
   try {
     const { email } = req.body;
+    logAuthRoute("request", "resend_email_verification", {
+      email: maskEmail(email),
+    });
     const result = await resendEmailVerification({ email });
 
     if (!result.ok) {
@@ -91,10 +96,19 @@ const resendEmailVerificationController = async (
       );
     }
 
+    logAuthRoute("success", "resend_email_verification", {
+      email: maskEmail(email),
+      verificationRequired: result.challenge.verificationRequired,
+      expiresInSeconds: result.challenge.expiresInSeconds,
+    });
+
     return res
       .status(200)
       .json(apiResponse(true, "Verification code resent", result.challenge));
   } catch (error) {
+    logAuthRoute("error", "resend_email_verification", {
+      error,
+    });
     console.error("Error in resendEmailVerification:", error);
     return res
       .status(500)
@@ -161,41 +175,6 @@ const signInWithEmailController = async (req: Request, res: Response) => {
     );
   } catch (error) {
     console.error("Error in signInWithEmail:", error);
-    return res
-      .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
-  }
-};
-
-const verifyOtpController = async (req: Request, res: Response) => {
-  try {
-    const { phoneNumber, otp, name, goals, onboardingCompleted } = req.body;
-    const result = await verifyOtp({
-      phoneNumber,
-      otp,
-      name,
-      goals,
-      onboardingCompleted,
-    });
-
-    if (!result.ok) {
-      return res.status(result.status).json(
-        apiResponse(false, result.message, {}, {
-          error: { code: result.code },
-        })
-      );
-    }
-
-    return res.status(200).json(
-      apiResponse(true, "Login successful", {
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
-        user: result.user,
-        isNewUser: result.isNewUser,
-      })
-    );
-  } catch (error) {
-    console.error("Error in verifyOtp:", error);
     return res
       .status(500)
       .json(apiResponse(false, "Internal Server Error", {}));
@@ -318,10 +297,7 @@ export {
   refreshController,
   resendEmailVerificationController,
   registerFromGoogleOAuthController,
-  resendOtpController,
-  sendOtpController,
   signInWithEmailController,
   signUpWithEmailController,
   verifyEmailController,
-  verifyOtpController,
 };

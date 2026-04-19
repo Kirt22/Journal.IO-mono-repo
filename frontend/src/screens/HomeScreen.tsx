@@ -420,6 +420,74 @@ function RevealBlock({
   return <View style={style}>{children}</View>;
 }
 
+function ShimmerBlock({
+  theme,
+  width = "100%",
+  height = 12,
+  borderRadius = 999,
+  style,
+}: {
+  theme: ReturnType<typeof useTheme>;
+  width?: number | `${number}%` | "100%";
+  height?: number;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const shimmerTranslate = useRef(new Animated.Value(-160)).current;
+  const shouldAnimateShimmer = typeof jest === "undefined";
+
+  useEffect(() => {
+    if (!shouldAnimateShimmer) {
+      shimmerTranslate.setValue(0);
+      return;
+    }
+
+    shimmerTranslate.setValue(-160);
+
+    const shimmerLoop = Animated.loop(
+      Animated.timing(shimmerTranslate, {
+        toValue: 160,
+        duration: 1180,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      })
+    );
+
+    shimmerLoop.start();
+
+    return () => {
+      shimmerLoop.stop();
+      shimmerTranslate.stopAnimation();
+    };
+  }, [shimmerTranslate, shouldAnimateShimmer]);
+
+  return (
+    <View
+      style={[
+        styles.shimmerBlock,
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: hexToRgba(theme.colors.primary, 0.08),
+        },
+        style,
+      ]}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.shimmerHighlight,
+          {
+            backgroundColor: hexToRgba(theme.colors.primary, 0.16),
+            transform: [{ translateX: shimmerTranslate }],
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
 export default function HomeScreen({
   userName,
   onOpenNewEntry,
@@ -479,6 +547,7 @@ export default function HomeScreen({
   const [homeAiAnalysis, setHomeAiAnalysis] = useState<InsightsAiAnalysis | null>(null);
   const [isLoadingHomeAiInsight, setIsLoadingHomeAiInsight] = useState(true);
   const [homeAiInsightError, setHomeAiInsightError] = useState<string | null>(null);
+  const [isLoadingFeaturedPrompt, setIsLoadingFeaturedPrompt] = useState(true);
   const [featuredPrompt, setFeaturedPrompt] = useState<WritingPrompt>(
     DEFAULT_HOME_PROMPT
   );
@@ -512,10 +581,15 @@ export default function HomeScreen({
     [readyHomeAiAnalysis]
   );
   const isAiInsightEnabled = isPremiumUser && isAiOptedIn;
+  const isLoadingAiInsightContent = isAiInsightEnabled && isLoadingHomeAiInsight;
   const insightIndicators = isAiInsightEnabled
-    ? collectingHomeAiAnalysis || insufficientHomeAiAnalysis
+    ? isLoadingAiInsightContent ||
+      collectingHomeAiAnalysis ||
+      insufficientHomeAiAnalysis
       ? [0]
-      : homeInsightCards
+      : homeInsightCards.length
+        ? homeInsightCards
+        : [0]
     : isPremiumUser
       ? [0]
       : [0, 1, 2];
@@ -585,6 +659,8 @@ export default function HomeScreen({
     let isActive = true;
 
     const loadFeaturedPrompt = async () => {
+      setIsLoadingFeaturedPrompt(true);
+
       try {
         const response = await getWritingPrompts();
 
@@ -594,6 +670,10 @@ export default function HomeScreen({
       } catch {
         if (isActive) {
           setFeaturedPrompt(DEFAULT_HOME_PROMPT);
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingFeaturedPrompt(false);
         }
       }
     };
@@ -1293,19 +1373,41 @@ export default function HomeScreen({
             Current Streak
           </Text>
           <View style={styles.streakValueRow}>
-            <Text
-              style={[styles.streakValue, { color: theme.colors.foreground }]}
-            >
-              {currentStreak}
-            </Text>
-            <Text
-              style={[
-                styles.streakSuffix,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              days
-            </Text>
+            {isLoadingMoodStatus ? (
+              <View
+                accessibilityLabel="Loading streak"
+                style={styles.streakLoadingRow}
+              >
+                <ShimmerBlock
+                  theme={theme}
+                  width={34}
+                  height={30}
+                  borderRadius={10}
+                />
+                <ShimmerBlock
+                  theme={theme}
+                  width={42}
+                  height={12}
+                  borderRadius={999}
+                />
+              </View>
+            ) : (
+              <>
+                <Text
+                  style={[styles.streakValue, { color: theme.colors.foreground }]}
+                >
+                  {currentStreak}
+                </Text>
+                <Text
+                  style={[
+                    styles.streakSuffix,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  days
+                </Text>
+              </>
+            )}
           </View>
         </View>
         <Pressable
@@ -1333,21 +1435,13 @@ export default function HomeScreen({
                 moodCardAnimatedStyle,
               ]}
             >
-              <Animated.View
-                style={[
-                  styles.moodStage,
-                  {
-                    height: moodStageHeight,
-                  },
-                ]}
-              >
-                <Animated.View
-                  pointerEvents={showMoodResult ? "none" : "auto"}
+              {isLoadingMoodStatus ? (
+                <View
+                  accessibilityLabel="Loading mood check-in"
                   style={[
-                    styles.moodLayer,
+                    styles.moodLoadingCard,
                     {
-                      opacity: moodQuestionOpacity,
-                      transform: [{ translateY: moodQuestionTranslateY }],
+                      minHeight: 144,
                     },
                   ]}
                 >
@@ -1359,215 +1453,274 @@ export default function HomeScreen({
                   >
                     How are you feeling today?
                   </Text>
-
                   <View style={styles.moodRow}>
-                    {moods.map(mood => {
-                      const Icon = mood.icon;
-                      const isSelected = selectedMood === mood.value;
-
-                      const tone =
-                        mood.value === "amazing"
-                          ? {
-                              color: theme.colors.primary,
-                              backgroundColor: hexToRgba(theme.colors.primary, 0.1),
-                              selectedBackgroundColor: hexToRgba(
-                                theme.colors.primary,
-                                0.14
-                              ),
-                            }
-                          : mood.value === "good"
-                            ? {
-                                color: theme.colors.success,
-                                backgroundColor: hexToRgba(theme.colors.success, 0.1),
-                                selectedBackgroundColor: hexToRgba(
-                                  theme.colors.success,
-                                  0.14
-                                ),
-                              }
-                            : mood.value === "okay"
-                              ? {
-                                  color: theme.colors.warning,
-                                  backgroundColor: hexToRgba(theme.colors.warning, 0.1),
-                                  selectedBackgroundColor: hexToRgba(
-                                    theme.colors.warning,
-                                    0.14
-                                  ),
-                                }
-                              : mood.value === "bad"
-                                ? {
-                                    color: theme.colors.mutedForeground,
-                                    backgroundColor: hexToRgba(
-                                      theme.colors.mutedForeground,
-                                      0.1
-                                    ),
-                                    selectedBackgroundColor: hexToRgba(
-                                      theme.colors.mutedForeground,
-                                      0.14
-                                    ),
-                                  }
-                                : {
-                                    color: theme.colors.destructive,
-                                    backgroundColor: hexToRgba(
-                                      theme.colors.destructive,
-                                      0.1
-                                    ),
-                                    selectedBackgroundColor: hexToRgba(
-                                      theme.colors.destructive,
-                                      0.14
-                                    ),
-                                  };
-
-                      const selectedButtonStyle = isSelected
-                        ? {
-                            transform: [
-                              {
-                                scale: moodSelectionProgress.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [1, 1.08],
-                                }),
-                              },
-                              {
-                                translateY: moodSelectionProgress.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [0, -2],
-                                }),
-                              },
-                            ],
-                          }
-                        : null;
-
-                      return (
-                        <Pressable
-                          key={mood.value}
-                          accessibilityRole="button"
-                          accessibilityLabel={mood.label}
-                          disabled={isLoggingMood || isLoadingMoodStatus || showMoodResult}
-                          onPress={() => {
-                            handleSelectMood(mood.value).catch(() => {});
-                          }}
-                          style={({ pressed }) => [
-                            styles.moodOptionShell,
-                            pressed && styles.pressed,
+                    {moods.map(mood => (
+                      <View key={mood.value} style={styles.moodOptionShell}>
+                        <View
+                          style={[
+                            styles.moodOption,
+                            styles.moodLoadingOption,
+                            {
+                              backgroundColor: hexToRgba(theme.colors.primary, 0.05),
+                              borderColor: theme.colors.border,
+                            },
                           ]}
                         >
-                          <Animated.View
-                            style={[
-                              styles.moodOption,
-                              isSelected && styles.moodOptionSelected,
-                              {
-                                backgroundColor: isSelected
-                                  ? tone.selectedBackgroundColor
-                                  : tone.backgroundColor,
-                                borderColor: isSelected
-                                  ? tone.color
-                                  : theme.colors.border,
-                              },
-                              selectedButtonStyle,
-                            ]}
-                          >
-                            <View
-                              style={[
-                                styles.moodIconCircle,
-                                {
-                                  backgroundColor: isSelected
-                                    ? tone.selectedBackgroundColor
-                                    : theme.colors.secondary,
-                                },
-                              ]}
-                            >
-                              <Icon
-                                size={18}
-                                color={
-                                  isSelected
-                                    ? tone.color
-                                    : theme.colors.mutedForeground
-                                }
-                              />
-                            </View>
-                            <Text
-                              style={[
-                                styles.moodLabel,
-                                {
-                                  color: isSelected
-                                    ? tone.color
-                                    : theme.colors.mutedForeground,
-                                },
-                              ]}
-                            >
-                              {mood.label}
-                            </Text>
-                          </Animated.View>
-                        </Pressable>
-                      );
-                    })}
+                          <ShimmerBlock
+                            theme={theme}
+                            width={36}
+                            height={36}
+                            borderRadius={18}
+                          />
+                          <ShimmerBlock
+                            theme={theme}
+                            width="62%"
+                            height={10}
+                            borderRadius={999}
+                            style={styles.moodLoadingLabel}
+                          />
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                </Animated.View>
-
+                </View>
+              ) : (
                 <Animated.View
-                  pointerEvents={showMoodResult ? "auto" : "none"}
                   style={[
-                    styles.moodLayer,
-                    styles.moodSavedLayer,
+                    styles.moodStage,
                     {
-                      opacity: moodSavedOpacity,
-                      transform: [{ translateY: moodSavedTranslateY }],
+                      height: moodStageHeight,
                     },
                   ]}
                 >
-                  {savedMoodData && currentMoodTone ? (
-                    <View style={styles.moodSavedRow}>
-                      <View
-                        style={[
-                          styles.moodSavedIcon,
-                          { backgroundColor: currentMoodTone.backgroundColor },
-                        ]}
-                      >
-                        <Animated.View
-                          style={{
-                            transform: [{ rotate: moodEmojiRotate }],
-                          }}
-                        >
-                          <Text style={styles.moodEmoji}>
-                            {savedMoodData.emoji}
-                          </Text>
-                        </Animated.View>
-                      </View>
-                      <View style={styles.moodSavedCopy}>
-                        <View style={styles.moodSavedTitleRow}>
-                          <Text
-                            style={[
-                              styles.moodSavedTitle,
-                              { color: theme.colors.foreground },
+                  <Animated.View
+                    pointerEvents={showMoodResult ? "none" : "auto"}
+                    style={[
+                      styles.moodLayer,
+                      {
+                        opacity: moodQuestionOpacity,
+                        transform: [{ translateY: moodQuestionTranslateY }],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.cardPrompt,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      How are you feeling today?
+                    </Text>
+
+                    <View style={styles.moodRow}>
+                      {moods.map(mood => {
+                        const Icon = mood.icon;
+                        const isSelected = selectedMood === mood.value;
+
+                        const tone =
+                          mood.value === "amazing"
+                            ? {
+                                color: theme.colors.primary,
+                                backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                                selectedBackgroundColor: hexToRgba(
+                                  theme.colors.primary,
+                                  0.14
+                                ),
+                              }
+                            : mood.value === "good"
+                              ? {
+                                  color: theme.colors.success,
+                                  backgroundColor: hexToRgba(theme.colors.success, 0.1),
+                                  selectedBackgroundColor: hexToRgba(
+                                    theme.colors.success,
+                                    0.14
+                                  ),
+                                }
+                              : mood.value === "okay"
+                                ? {
+                                    color: theme.colors.warning,
+                                    backgroundColor: hexToRgba(theme.colors.warning, 0.1),
+                                    selectedBackgroundColor: hexToRgba(
+                                      theme.colors.warning,
+                                      0.14
+                                    ),
+                                  }
+                                : mood.value === "bad"
+                                  ? {
+                                      color: theme.colors.mutedForeground,
+                                      backgroundColor: hexToRgba(
+                                        theme.colors.mutedForeground,
+                                        0.1
+                                      ),
+                                      selectedBackgroundColor: hexToRgba(
+                                        theme.colors.mutedForeground,
+                                        0.14
+                                      ),
+                                    }
+                                  : {
+                                      color: theme.colors.destructive,
+                                      backgroundColor: hexToRgba(
+                                        theme.colors.destructive,
+                                        0.1
+                                      ),
+                                      selectedBackgroundColor: hexToRgba(
+                                        theme.colors.destructive,
+                                        0.14
+                                      ),
+                                    };
+
+                        const selectedButtonStyle = isSelected
+                          ? {
+                              transform: [
+                                {
+                                  scale: moodSelectionProgress.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [1, 1.08],
+                                  }),
+                                },
+                                {
+                                  translateY: moodSelectionProgress.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0, -2],
+                                  }),
+                                },
+                              ],
+                            }
+                          : null;
+
+                        return (
+                          <Pressable
+                            key={mood.value}
+                            accessibilityRole="button"
+                            accessibilityLabel={mood.label}
+                            disabled={isLoggingMood || isLoadingMoodStatus || showMoodResult}
+                            onPress={() => {
+                              handleSelectMood(mood.value).catch(() => {});
+                            }}
+                            style={({ pressed }) => [
+                              styles.moodOptionShell,
+                              pressed && styles.pressed,
                             ]}
                           >
-                            Feeling{" "}
-                            <Text style={{ color: currentMoodTone.color }}>
-                              {savedMoodData.label.toLowerCase()}
-                            </Text>{" "}
-                            today
-                          </Text>
-                          <Animated.View
-                            style={{
-                              opacity: moodTickOpacity,
-                              transform: [{ scale: moodTickScale }],
-                            }}
-                          >
-                            <Check size={14} color={theme.colors.success} />
-                          </Animated.View>
-                        </View>
-                        <Text
+                            <Animated.View
+                              style={[
+                                styles.moodOption,
+                                isSelected && styles.moodOptionSelected,
+                                {
+                                  backgroundColor: isSelected
+                                    ? tone.selectedBackgroundColor
+                                    : tone.backgroundColor,
+                                  borderColor: isSelected
+                                    ? tone.color
+                                    : theme.colors.border,
+                                },
+                                selectedButtonStyle,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.moodIconCircle,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? tone.selectedBackgroundColor
+                                      : theme.colors.secondary,
+                                  },
+                                ]}
+                              >
+                                <Icon
+                                  size={18}
+                                  color={
+                                    isSelected
+                                      ? tone.color
+                                      : theme.colors.mutedForeground
+                                  }
+                                />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.moodLabel,
+                                  {
+                                    color: isSelected
+                                      ? tone.color
+                                      : theme.colors.mutedForeground,
+                                  },
+                                ]}
+                              >
+                                {mood.label}
+                              </Text>
+                            </Animated.View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </Animated.View>
+
+                  <Animated.View
+                    pointerEvents={showMoodResult ? "auto" : "none"}
+                    style={[
+                      styles.moodLayer,
+                      styles.moodSavedLayer,
+                      {
+                        opacity: moodSavedOpacity,
+                        transform: [{ translateY: moodSavedTranslateY }],
+                      },
+                    ]}
+                  >
+                    {savedMoodData && currentMoodTone ? (
+                      <View style={styles.moodSavedRow}>
+                        <View
                           style={[
-                            styles.moodSavedSubtitle,
-                            { color: theme.colors.mutedForeground },
+                            styles.moodSavedIcon,
+                            { backgroundColor: currentMoodTone.backgroundColor },
                           ]}
                         >
-                          Mood logged for today. Come back tomorrow to update it.
-                        </Text>
+                          <Animated.View
+                            style={{
+                              transform: [{ rotate: moodEmojiRotate }],
+                            }}
+                          >
+                            <Text style={styles.moodEmoji}>
+                              {savedMoodData.emoji}
+                            </Text>
+                          </Animated.View>
+                        </View>
+                        <View style={styles.moodSavedCopy}>
+                          <View style={styles.moodSavedTitleRow}>
+                            <Text
+                              style={[
+                                styles.moodSavedTitle,
+                                { color: theme.colors.foreground },
+                              ]}
+                            >
+                              Feeling{" "}
+                              <Text style={{ color: currentMoodTone.color }}>
+                                {savedMoodData.label.toLowerCase()}
+                              </Text>{" "}
+                              today
+                            </Text>
+                            <Animated.View
+                              style={{
+                                opacity: moodTickOpacity,
+                                transform: [{ scale: moodTickScale }],
+                              }}
+                            >
+                              <Check size={14} color={theme.colors.success} />
+                            </Animated.View>
+                          </View>
+                          <Text
+                            style={[
+                              styles.moodSavedSubtitle,
+                              { color: theme.colors.mutedForeground },
+                            ]}
+                          >
+                            Mood logged for today. Come back tomorrow to update it.
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  ) : null}
+                    ) : null}
+                  </Animated.View>
                 </Animated.View>
-              </Animated.View>
+              )}
             </Animated.View>
           </View>
 
@@ -1818,17 +1971,19 @@ export default function HomeScreen({
                         ? "Unlock AI insights"
                         : !isAiOptedIn
                           ? "AI insights are off"
+                        : isLoadingAiInsightContent
+                          ? "Loading AI insight"
                         : collectingHomeAiAnalysis || insufficientHomeAiAnalysis
                           ? "Open weekly analysis"
                         : homeAiInsightError
                           ? "Retry AI insight"
                           : "Next insight"
                     }
-                    disabled={isLoadingHomeAiInsight}
+                    disabled={isLoadingAiInsightContent}
                     onPress={handleAdvanceInsight}
                     style={({ pressed }) => [
                       styles.smallIconButton,
-                      isLoadingHomeAiInsight && styles.smallIconButtonDisabled,
+                      isLoadingAiInsightContent && styles.smallIconButtonDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -1845,153 +2000,192 @@ export default function HomeScreen({
                 accessibilityRole="button"
                 accessibilityLabel="Open AI analysis"
                 onPress={handleOpenFullAiAnalysis}
+                disabled={isLoadingAiInsightContent}
                 style={({ pressed }) => [
                   styles.insightBody,
+                  isLoadingAiInsightContent && styles.insightBodyDisabled,
                   pressed && styles.pressed,
                 ]}
               >
-                <Animated.View
-                  style={[
-                    styles.insightAnimatedContent,
-                    {
-                      opacity: insightTransitionProgress,
-                      transform: [
-                        {
-                          translateX: insightTransitionProgress.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [14, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
+                {isLoadingAiInsightContent ? (
                   <View
+                    accessibilityLabel="Loading AI insight"
+                    style={styles.insightAnimatedContent}
+                  >
+                    <ShimmerBlock
+                      theme={theme}
+                      width={40}
+                      height={40}
+                      borderRadius={12}
+                    />
+                    <View style={styles.insightCopy}>
+                      <Text
+                        style={[
+                          styles.insightTitle,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        Loading weekly signal
+                      </Text>
+                      <ShimmerBlock
+                        theme={theme}
+                        height={10}
+                        width="92%"
+                        style={styles.insightLoadingLine}
+                      />
+                      <ShimmerBlock
+                        theme={theme}
+                        height={10}
+                        width="84%"
+                        style={styles.insightLoadingLine}
+                      />
+                      <ShimmerBlock
+                        theme={theme}
+                        height={10}
+                        width="58%"
+                        style={styles.insightLoadingLine}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <Animated.View
                     style={[
-                      styles.insightIconWrap,
+                      styles.insightAnimatedContent,
                       {
-                        backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                        opacity: insightTransitionProgress,
+                        transform: [
+                          {
+                            translateX: insightTransitionProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [14, 0],
+                            }),
+                          },
+                        ],
                       },
                     ]}
                   >
-                    {isAiInsightEnabled ? (
-                      <ActiveHomeInsightIcon
-                        size={20}
-                        color={theme.colors.primary}
-                      />
-                    ) : (
-                      <Lock size={18} color={theme.colors.primary} />
-                    )}
-                  </View>
-                  <View style={styles.insightCopy}>
-                    <Text
+                    <View
                       style={[
-                        styles.insightTitle,
-                        { color: theme.colors.foreground },
+                        styles.insightIconWrap,
+                        {
+                          backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                        },
                       ]}
                     >
-                      {!isPremiumUser
-                        ? "Premium AI Insight"
-                        : !isAiOptedIn
-                          ? "AI insights are turned off"
-                        : collectingHomeAiAnalysis
-                          ? collectingHomeAiAnalysis.summary.headline
-                        : insufficientHomeAiAnalysis
-                          ? insufficientHomeAiAnalysis.summary.headline
-                        : isLoadingHomeAiInsight
-                          ? "Loading weekly signal"
-                        : homeAiInsightError
-                            ? "AI analysis unavailable"
-                            : activeHomeInsight?.title || "AI Insight"}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.insightText,
-                        { color: theme.colors.mutedForeground },
-                      ]}
-                    >
-                      {!isPremiumUser
-                        ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
-                        : !isAiOptedIn
-                          ? "AI reflections are off for this account, so weekly AI insight cards stay hidden."
-                        : collectingHomeAiAnalysis
-                          ? `${collectingHomeAiAnalysis.summary.narrative} ${collectingHomeAiAnalysis.quickAnalysis.title}.`
-                        : insufficientHomeAiAnalysis
-                          ? `${insufficientHomeAiAnalysis.summary.narrative} ${insufficientHomeAiAnalysis.quickAnalysis.title}.`
-                        : isLoadingHomeAiInsight
-                          ? "Pulling a short read from your latest AI analysis."
+                      {isAiInsightEnabled ? (
+                        <ActiveHomeInsightIcon
+                          size={20}
+                          color={theme.colors.primary}
+                        />
+                      ) : (
+                        <Lock size={18} color={theme.colors.primary} />
+                      )}
+                    </View>
+                    <View style={styles.insightCopy}>
+                      <Text
+                        style={[
+                          styles.insightTitle,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        {!isPremiumUser
+                          ? "Premium AI Insight"
+                          : !isAiOptedIn
+                            ? "AI insights are turned off"
+                          : collectingHomeAiAnalysis
+                            ? collectingHomeAiAnalysis.summary.headline
+                          : insufficientHomeAiAnalysis
+                            ? insufficientHomeAiAnalysis.summary.headline
                           : homeAiInsightError
-                            ? "We could not load the latest AI insight right now."
-                            : activeHomeInsight?.body ||
-                              "Your latest weekly patterns will appear here."}
-                    </Text>
-                    {isAiInsightEnabled &&
-                    !isLoadingHomeAiInsight &&
-                    !homeAiInsightError &&
-                    !collectingHomeAiAnalysis &&
-                    !insufficientHomeAiAnalysis ? (
-                      <View style={styles.insightCtaRow}>
-                        <Text
-                          style={[
-                            styles.insightCtaText,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          {activeHomeInsight?.ctaLabel || "Open full AI analysis"}
-                        </Text>
-                        <ChevronRight size={14} color={theme.colors.primary} />
-                      </View>
-                    ) : collectingHomeAiAnalysis ? (
-                      <View style={styles.insightCtaRow}>
-                        <Text
-                          style={[
-                            styles.insightCtaText,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          Track this week's progress
-                        </Text>
-                        <ChevronRight size={14} color={theme.colors.primary} />
-                      </View>
-                    ) : insufficientHomeAiAnalysis ? (
-                      <View style={styles.insightCtaRow}>
-                        <Text
-                          style={[
-                            styles.insightCtaText,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          Start the next week stronger
-                        </Text>
-                        <ChevronRight size={14} color={theme.colors.primary} />
-                      </View>
-                    ) : !isPremiumUser ? (
-                      <View style={styles.insightCtaRow}>
-                        <Text
-                          style={[
-                            styles.insightCtaText,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          Open subscription
-                        </Text>
-                        <ChevronRight size={14} color={theme.colors.primary} />
-                      </View>
-                    ) : !isAiOptedIn ? (
-                      <View style={styles.insightCtaRow}>
-                        <Text
-                          style={[
-                            styles.insightCtaText,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          View details
-                        </Text>
-                        <ChevronRight size={14} color={theme.colors.primary} />
-                      </View>
-                    ) : null}
-                  </View>
-                </Animated.View>
+                              ? "AI analysis unavailable"
+                              : activeHomeInsight?.title || "AI Insight"}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.insightText,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        {!isPremiumUser
+                          ? "Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis."
+                          : !isAiOptedIn
+                            ? "AI reflections are off for this account, so weekly AI insight cards stay hidden."
+                          : collectingHomeAiAnalysis
+                            ? `${collectingHomeAiAnalysis.summary.narrative} ${collectingHomeAiAnalysis.quickAnalysis.title}.`
+                          : insufficientHomeAiAnalysis
+                            ? `${insufficientHomeAiAnalysis.summary.narrative} ${insufficientHomeAiAnalysis.quickAnalysis.title}.`
+                          : homeAiInsightError
+                              ? "We could not load the latest AI insight right now."
+                              : activeHomeInsight?.body ||
+                                "Your latest weekly patterns will appear here."}
+                      </Text>
+                      {isAiInsightEnabled &&
+                      !homeAiInsightError &&
+                      !collectingHomeAiAnalysis &&
+                      !insufficientHomeAiAnalysis ? (
+                        <View style={styles.insightCtaRow}>
+                          <Text
+                            style={[
+                              styles.insightCtaText,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            {activeHomeInsight?.ctaLabel || "Open full AI analysis"}
+                          </Text>
+                          <ChevronRight size={14} color={theme.colors.primary} />
+                        </View>
+                      ) : collectingHomeAiAnalysis ? (
+                        <View style={styles.insightCtaRow}>
+                          <Text
+                            style={[
+                              styles.insightCtaText,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            Track this week's progress
+                          </Text>
+                          <ChevronRight size={14} color={theme.colors.primary} />
+                        </View>
+                      ) : insufficientHomeAiAnalysis ? (
+                        <View style={styles.insightCtaRow}>
+                          <Text
+                            style={[
+                              styles.insightCtaText,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            Start the next week stronger
+                          </Text>
+                          <ChevronRight size={14} color={theme.colors.primary} />
+                        </View>
+                      ) : !isPremiumUser ? (
+                        <View style={styles.insightCtaRow}>
+                          <Text
+                            style={[
+                              styles.insightCtaText,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            Open subscription
+                          </Text>
+                          <ChevronRight size={14} color={theme.colors.primary} />
+                        </View>
+                      ) : !isAiOptedIn ? (
+                        <View style={styles.insightCtaRow}>
+                          <Text
+                            style={[
+                              styles.insightCtaText,
+                              { color: theme.colors.primary },
+                            ]}
+                          >
+                            View details
+                          </Text>
+                          <ChevronRight size={14} color={theme.colors.primary} />
+                        </View>
+                      ) : null}
+                    </View>
+                  </Animated.View>
+                )}
               </Pressable>
             </View>
           </View>
@@ -1999,7 +2193,12 @@ export default function HomeScreen({
           <View style={styles.sectionSpacing}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Open today's writing prompt: ${featuredPrompt.text}`}
+              accessibilityLabel={
+                isLoadingFeaturedPrompt
+                  ? "Loading today's writing prompt"
+                  : `Open today's writing prompt: ${featuredPrompt.text}`
+              }
+              disabled={isLoadingFeaturedPrompt}
               onPress={() => onOpenNewEntry(featuredPrompt.text)}
               style={({ pressed }) => [
                 styles.card,
@@ -2007,18 +2206,28 @@ export default function HomeScreen({
                   backgroundColor: theme.colors.card,
                   borderColor: theme.colors.border,
                 },
+                isLoadingFeaturedPrompt && styles.promptCardDisabled,
                 pressed && styles.pressed,
               ]}
             >
               <View style={styles.promptRow}>
-                <View
-                  style={[
-                    styles.promptIconWrap,
-                    { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-                  ]}
-                >
-                  <Sparkles size={20} color={theme.colors.primary} />
-                </View>
+                {isLoadingFeaturedPrompt ? (
+                  <ShimmerBlock
+                    theme={theme}
+                    width={40}
+                    height={40}
+                    borderRadius={20}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.promptIconWrap,
+                      { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+                    ]}
+                  >
+                    <Sparkles size={20} color={theme.colors.primary} />
+                  </View>
+                )}
                 <View style={styles.promptCopy}>
                   <Text
                     style={[
@@ -2034,8 +2243,26 @@ export default function HomeScreen({
                       { color: theme.colors.foreground },
                     ]}
                   >
-                    {featuredPrompt.text}
+                    {isLoadingFeaturedPrompt
+                      ? "Loading today's prompt"
+                      : featuredPrompt.text}
                   </Text>
+                  {isLoadingFeaturedPrompt ? (
+                    <View style={styles.promptLoadingStack}>
+                      <ShimmerBlock
+                        theme={theme}
+                        height={10}
+                        width="90%"
+                        style={styles.promptLoadingLine}
+                      />
+                      <ShimmerBlock
+                        theme={theme}
+                        height={10}
+                        width="72%"
+                        style={styles.promptLoadingLine}
+                      />
+                    </View>
+                  ) : null}
                 </View>
               </View>
             </Pressable>
@@ -2200,6 +2427,12 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
     gap: 8,
   },
+  streakLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 34,
+  },
   streakValue: {
     fontSize: 32,
     fontWeight: "600",
@@ -2247,6 +2480,9 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
+  moodLoadingCard: {
+    justifyContent: "center",
+  },
   quickNoteCard: {
     padding: 0,
   },
@@ -2275,6 +2511,9 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
   },
+  moodLoadingOption: {
+    justifyContent: "center",
+  },
   moodOptionSelected: {
     shadowColor: "#000",
     shadowOpacity: 0.08,
@@ -2294,6 +2533,9 @@ const styles = StyleSheet.create({
   },
   moodLabel: {
     fontSize: 10,
+  },
+  moodLoadingLabel: {
+    alignSelf: "center",
   },
   moodSavedRow: {
     flexDirection: "row",
@@ -2474,10 +2716,16 @@ const styles = StyleSheet.create({
   insightBody: {
     zIndex: 1,
   },
+  insightBodyDisabled: {
+    opacity: 0.96,
+  },
   insightAnimatedContent: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
+  },
+  insightLoadingLine: {
+    marginTop: 8,
   },
   insightIconWrap: {
     width: 40,
@@ -2544,6 +2792,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: 4,
+  },
+  promptCardDisabled: {
+    opacity: 0.98,
+  },
+  promptLoadingStack: {
+    marginTop: 8,
+    gap: 8,
+  },
+  promptLoadingLine: {
+    marginTop: 0,
+  },
+  shimmerBlock: {
+    overflow: "hidden",
+    position: "relative",
+  },
+  shimmerHighlight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: "42%",
+    borderRadius: 999,
   },
   quickActionsGrid: {
     flexDirection: "row",

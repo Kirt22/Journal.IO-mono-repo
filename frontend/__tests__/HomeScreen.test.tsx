@@ -361,6 +361,86 @@ test("renders the home screen layout", async () => {
   expect(onOpenNewEntry).toHaveBeenCalledTimes(2);
 });
 
+test("shows loading placeholders while home AI cards are still fetching", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  (getInsightsAiAnalysis as jest.Mock).mockImplementationOnce(
+    () => new Promise(() => undefined)
+  );
+  (getWritingPrompts as jest.Mock).mockImplementationOnce(
+    () => new Promise(() => undefined)
+  );
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  const tree = JSON.stringify(root!.toJSON());
+  const loadingInsightNodes = root!.root.findAllByProps({
+    accessibilityLabel: "Loading AI insight",
+  });
+
+  expect(tree).toContain("Loading weekly signal");
+  expect(tree).toContain("Loading today's prompt");
+  expect(
+    loadingInsightNodes.some(node => node.props.disabled === true)
+  ).toBe(true);
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel: "Loading today's writing prompt",
+    }).props.disabled
+  ).toBe(true);
+});
+
+test("shows loading placeholders while mood status is still fetching", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  (getTodayMoodCheckIn as jest.Mock).mockImplementationOnce(
+    () => new Promise(() => undefined)
+  );
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushMicrotasks();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Loading streak" })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Loading mood check-in" })
+  ).toBeTruthy();
+});
+
 test("opens search from the home search icon", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   const onOpenSearch = jest.fn();

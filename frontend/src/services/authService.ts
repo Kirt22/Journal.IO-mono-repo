@@ -36,7 +36,6 @@ type EmailVerificationChallenge = {
   email: string;
   verificationRequired: boolean;
   expiresInSeconds: number;
-  verificationCode?: string;
 };
 
 type SignUpWithEmailPayload = {
@@ -71,16 +70,6 @@ type GoogleSignInPayload = {
   idToken: string;
   onboardingContext?: AuthOnboardingContext;
   onboardingCompleted?: boolean;
-};
-
-type SendOtpResponse = {
-  phoneNumber: string;
-  expiresInSeconds: number;
-  debugOtp?: string;
-};
-
-type VerifyOtpResponse = AuthSession & {
-  isNewUser: boolean;
 };
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
@@ -266,43 +255,6 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
   return applyDevPremiumDefault(response.data);
 };
 
-const sendOtp = async (payload: { phoneNumber: string }) => {
-  const response = await request<SendOtpResponse>("/auth/send_otp", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  return response.data;
-};
-
-const resendOtp = async (payload: { phoneNumber: string }) => {
-  try {
-    const response = await request<SendOtpResponse>("/auth/resend_otp", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-
-    return response.data;
-  } catch {
-    return sendOtp(payload);
-  }
-};
-
-const verifyOtp = async (payload: {
-  phoneNumber: string;
-  otp: string;
-  name?: string;
-  goals?: string[];
-  onboardingCompleted?: boolean;
-}) => {
-  const response = await request<VerifyOtpResponse>("/auth/verify_otp", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
-  return applyDevPremiumDefault(response.data);
-};
-
 const logout = async () => {
   await request<{}>("/auth/logout", {
     method: "POST",
@@ -312,14 +264,11 @@ const logout = async () => {
 export {
   applyDevPremiumDefault,
   resendEmailVerification,
-  resendOtp,
   logout,
-  sendOtp,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
   verifyEmail,
-  verifyOtp,
 };
 export type {
   AuthOnboardingContext,
@@ -328,10 +277,8 @@ export type {
   EmailVerificationChallenge,
   GoogleSignInPayload,
   ResendEmailVerificationPayload,
-  SendOtpResponse,
   SignInWithEmailPayload,
   SignUpWithEmailPayload,
   VerifyEmailOptions,
   VerifyEmailPayload,
-  VerifyOtpResponse,
 };

@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Animated,
   Alert,
+  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -203,6 +206,7 @@ export default function EntryDetailScreen() {
   const [quickAnalysis, setQuickAnalysis] = useState<JournalQuickAnalysis | null>(null);
   const [isQuickAnalysisLoading, setIsQuickAnalysisLoading] = useState(false);
   const [quickAnalysisError, setQuickAnalysisError] = useState<string | null>(null);
+  const quickAnalysisReveal = useRef(new Animated.Value(0)).current;
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -255,6 +259,23 @@ export default function EntryDetailScreen() {
     setQuickAnalysisError(null);
     setIsQuickAnalysisLoading(false);
   }, [entryId]);
+
+  useEffect(() => {
+    quickAnalysisReveal.stopAnimation();
+
+    if (!quickAnalysis) {
+      quickAnalysisReveal.setValue(0);
+      return;
+    }
+
+    quickAnalysisReveal.setValue(0);
+    Animated.timing(quickAnalysisReveal, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [quickAnalysis, quickAnalysisReveal]);
 
   const handleToggleFavorite = async () => {
     if (!entry || isTogglingFavorite) {
@@ -463,6 +484,14 @@ export default function EntryDetailScreen() {
   const visibleTags = getFilteredTags(entry.tags);
   const hasMoodTag = entry.tags.some(tag => tag.toLowerCase().startsWith("mood:"));
   const shouldShowQuickAnalysis = true;
+  const quickAnalysisRevealTranslate = quickAnalysisReveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [14, 0],
+  });
+  const quickAnalysisRevealScale = quickAnalysisReveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.98, 1],
+  });
 
   return (
     <SafeAreaView
@@ -611,7 +640,7 @@ export default function EntryDetailScreen() {
                         ]}
                       >
                         {isQuickAnalysisLoading ? (
-                          <Loader2 size={14} color={theme.colors.primary} />
+                          <ActivityIndicator size="small" color={theme.colors.primary} />
                         ) : (
                           <RefreshCw size={14} color={theme.colors.primary} />
                         )}
@@ -664,7 +693,7 @@ export default function EntryDetailScreen() {
                     </Text>
                   ) : isQuickAnalysisLoading && !quickAnalysis ? (
                     <View style={styles.quickAnalysisLoading}>
-                      <Loader2 size={16} color={theme.colors.primary} />
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
                       <Text
                         style={[
                           styles.quickAnalysisBody,
@@ -707,7 +736,18 @@ export default function EntryDetailScreen() {
                       </Pressable>
                     </View>
                   ) : quickAnalysis ? (
-                    <View style={styles.quickAnalysisStack}>
+                    <Animated.View
+                      style={[
+                        styles.quickAnalysisStack,
+                        {
+                          opacity: quickAnalysisReveal,
+                          transform: [
+                            { translateY: quickAnalysisRevealTranslate },
+                            { scale: quickAnalysisRevealScale },
+                          ],
+                        },
+                      ]}
+                    >
                       <View
                         style={[
                           styles.quickAnalysisHero,
@@ -863,7 +903,7 @@ export default function EntryDetailScreen() {
                           {quickAnalysis.nextStep.description}
                         </Text>
                       </View>
-                    </View>
+                    </Animated.View>
                   ) : (
                     <View style={styles.quickAnalysisStack}>
                       <Text

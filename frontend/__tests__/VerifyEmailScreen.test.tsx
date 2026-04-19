@@ -47,7 +47,6 @@ describe("VerifyEmailScreen", () => {
         <SafeAreaProvider initialMetrics={safeAreaMetrics}>
           <VerifyEmailScreen
             email="alex@example.com"
-            debugCode="123456"
             onVerifyEmail={onVerifyEmail}
             onVerificationSuccess={onVerificationSuccess}
             onResendCode={jest.fn(async () => undefined)}
@@ -66,11 +65,11 @@ describe("VerifyEmailScreen", () => {
 
     expect(onVerifyEmail).toHaveBeenCalledWith("123456");
     expect(onVerificationSuccess).not.toHaveBeenCalled();
-    expect(JSON.stringify(root!.toJSON())).toContain("Your email is confirmed.");
-    expect(JSON.stringify(root!.toJSON())).not.toContain("Continue");
+    expect(JSON.stringify(root!.toJSON())).toContain("Email Verified");
+    expect(JSON.stringify(root!.toJSON())).toContain("Continue Setup");
 
     await ReactTestRenderer.act(async () => {
-      jest.advanceTimersByTime(1200);
+      jest.advanceTimersByTime(5000);
     });
 
     expect(onVerificationSuccess).toHaveBeenCalledTimes(1);

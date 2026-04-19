@@ -56,8 +56,10 @@ The app flow is no longer phone-first. Replace the old auth stages with:
 
 Current replacement points:
 
-- `frontend/src/screens/auth/EnterPhoneScreen.tsx`
-- `frontend/src/screens/auth/VerifyOtpScreen.tsx`
+- `frontend/src/screens/auth/AuthChoiceScreen.tsx`
+- `frontend/src/screens/auth/CreateAccountScreen.tsx`
+- `frontend/src/screens/auth/VerifyEmailScreen.tsx`
+- `frontend/src/screens/auth/SignInScreen.tsx`
 - `frontend/src/navigation/routes.tsx`
 - `frontend/src/App.tsx`
 - `frontend/src/services/authService.ts`
@@ -65,7 +67,7 @@ Current replacement points:
 Expected outcome:
 
 - remove phone-number-centric frontend flow state
-- replace `otp` stage with explicit email auth stages
+- keep the explicit email auth stages already implemented
 - preserve Google sign-in as a secondary auth path
 - hand off onboarding selections into auth/profile setup
 
@@ -116,38 +118,33 @@ Do not:
 1. Re-fetch the relevant Figma screens with MCP before touching code.
 2. Update `frontend/src/navigation/routes.tsx` flow-stage model and route rendering plan.
 3. Refactor `frontend/src/App.tsx` to remove phone/OTP state and introduce email-auth state.
-4. Replace `EnterPhoneScreen.tsx` with the new auth landing experience.
-5. Replace `VerifyOtpScreen.tsx` with new dedicated `CreateAccountScreen.tsx` and `VerifyEmailScreen.tsx`.
-6. Add `SignInScreen.tsx`.
+4. Refine `AuthChoiceScreen.tsx` and the shared auth flow wiring.
+5. Iterate on `CreateAccountScreen.tsx`, `VerifyEmailScreen.tsx`, and `SignInScreen.tsx` together when auth UX changes.
+6. Keep backend and frontend auth contracts aligned with the email-first implementation.
 7. Update `SetupProfileScreen.tsx` for email/google-aware entry.
 8. Add `PaywallScreen.tsx`.
 9. Update `frontend/src/services/authService.ts` to match the backend reality or temporary mock layer used during the migration.
-10. If backend work is included in the same pass, implement the email auth endpoints after the frontend route/state plan is clear.
+10. If backend work is included in the same pass, extend the existing email/Google auth endpoints after the frontend route/state plan is clear.
 11. Update `SCREEN_IMPLEMENTATION_STATUS.md` after each shipped screen slice.
 12. Run targeted checks.
 
 ## Backend Reality vs Design Target
 
-Current backend files still implement phone OTP:
+The legacy phone OTP path has been removed from the backend auth surface. Current auth files are:
 
 - `backend/src/services/auth/auth.routes.ts`
 - `backend/src/services/auth/auth.controllers.ts`
 - `backend/src/services/auth/auth.validators.ts`
 - `backend/src/services/auth/auth.service.ts`
 
-Current backend endpoints still implemented:
-
-- `POST /auth/send_otp`
-- `POST /auth/resend_otp`
-- `POST /auth/verify_otp`
-- `POST /auth/register_from_googleOAuth`
-
-Design-aligned target endpoints are documented in `AI_API_SPEC.md`:
+Current backend endpoints implemented:
 
 - `POST /auth/sign_up_with_email`
 - `POST /auth/resend_email_verification`
 - `POST /auth/verify_email`
 - `POST /auth/sign_in_with_email`
+- `POST /auth/google/mobile`
+- `POST /auth/register_from_googleOAuth`
 
 Important:
 
@@ -163,7 +160,7 @@ Frontend:
 - `frontend/src/navigation/routes.tsx`
 - `frontend/src/services/authService.ts`
 - `frontend/src/screens/onboarding/OnboardingScreen.tsx`
-- `frontend/src/screens/auth/EnterPhoneScreen.tsx`
+- `frontend/src/screens/auth/AuthChoiceScreen.tsx`
 - `frontend/src/screens/auth/SignInScreen.tsx`
 - `frontend/src/screens/auth/CreateAccountScreen.tsx`
 - `frontend/src/screens/auth/VerifyEmailScreen.tsx`

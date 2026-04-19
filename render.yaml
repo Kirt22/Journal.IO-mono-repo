@@ -21,8 +21,6 @@ services:
         value: 14d
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
-      - key: AUTH_OTP_EXPIRES_IN
-        value: 10m
       - key: AUTH_EMAIL_OTP_EXPIRES_IN
         value: 30m
       - key: AUTH_EMAIL_DELIVERY_MODE
@@ -30,7 +28,7 @@ services:
       - key: AUTH_EMAIL_FROM_ADDRESS
         sync: false
       - key: AUTH_EMAIL_FROM_NAME
-        value: Journal.IO
+        sync: false
       - key: AUTH_EMAIL_REPLY_TO
         sync: false
       - key: AUTH_EMAIL_HELO_HOST
@@ -43,12 +41,6 @@ services:
         value: resend
       - key: RESEND_SMTP_PASSWORD
         sync: false
-      - key: MSG91_AUTH_KEY
-        sync: false
-      - key: MSG91_TEMPLATE_ID
-        sync: false
-      - key: MSG91_OTP_API_URL
-        value: https://control.msg91.com/api/v5/otp
       - key: GOOGLE_WEB_CLIENT_ID
         sync: false
       - key: GOOGLE_IOS_CLIENT_ID

@@ -1,11 +1,5 @@
 import { z } from "zod";
 
-const phoneNumberSchema = z
-  .string()
-  .min(10, "Phone number must be at least 10 digits")
-  .max(16, "Phone number must be at most 15 digits plus an optional +")
-  .regex(/^\+?[1-9]\d{9,14}$/, "Enter a valid phone number");
-
 const otpSchema = z
   .string()
   .length(6, "OTP must be exactly 6 digits")
@@ -33,22 +27,6 @@ const onboardingContextSchema = z
   })
   .strict()
   .optional();
-
-const sendOtpSchema = z.object({
-  body: z.object({
-    phoneNumber: phoneNumberSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const resendOtpSchema = z.object({
-  body: z.object({
-    phoneNumber: phoneNumberSchema,
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
 
 const signUpWithEmailSchema = z.object({
   body: z.object({
@@ -83,18 +61,6 @@ const signInWithEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
     password: passwordSchema,
-    onboardingCompleted: z.boolean().optional(),
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
-const verifyOtpSchema = z.object({
-  body: z.object({
-    phoneNumber: phoneNumberSchema,
-    otp: otpSchema,
-    name: z.string().min(1, "Name is required").optional(),
-    goals: z.array(z.string().min(1)).max(8).optional(),
     onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
@@ -144,10 +110,7 @@ export {
   refreshSchema,
   registerFromGoogleOAuthSchema,
   resendEmailVerificationSchema,
-  resendOtpSchema,
-  sendOtpSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
   verifyEmailSchema,
-  verifyOtpSchema,
 };

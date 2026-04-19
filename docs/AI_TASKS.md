@@ -51,7 +51,7 @@ Includes:
 
 Current slice note:
 
-- current backend still uses phone OTP, but the latest design source has moved to email auth and now requires auth/create-account/verify-email/sign-in slices plus onboarding context handoff
+- email auth and Google auth are now the active auth paths; continue refining auth/create-account/verify-email/sign-in slices plus onboarding context handoff as needed
 
 ---
 

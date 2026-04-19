@@ -38,6 +38,22 @@ const getEnvValue = (name: string): string | null => {
   return value ? value : null;
 };
 
+const maskEmailAddress = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  const [localPart = "", domain = ""] = trimmed.split("@");
+
+  if (!localPart || !domain) {
+    return trimmed;
+  }
+
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] || ""}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
+};
+
 const getDurationLabel = (value: string, fallback = "30 minutes") => {
   const match = value.trim().match(/^(\d+)([smhd])$/i);
 
@@ -390,10 +406,21 @@ const sendEmailVerificationCode = async ({
   email,
   code,
 }: SendEmailVerificationInput) => {
-  if (getEmailDeliveryMode() === "console") {
+  const deliveryMode = getEmailDeliveryMode();
+
+  if (deliveryMode === "console") {
     console.info(`[Auth] Email verification code for ${email}: ${code}`);
     return;
   }
+
+  console.info("[Auth][email_verification] smtp_delivery", {
+    mode: deliveryMode,
+    to: maskEmailAddress(email),
+    fromAddress: maskEmailAddress(
+      getEnvValue("AUTH_EMAIL_FROM_ADDRESS") || "missing-from-address"
+    ),
+    helloHost: getEnvValue("AUTH_EMAIL_HELO_HOST") || os.hostname() || "localhost",
+  });
 
   await sendMailViaSmtpImpl(buildSmtpMailInput({ email, code }));
 };

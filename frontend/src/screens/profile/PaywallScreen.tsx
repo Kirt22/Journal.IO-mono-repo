@@ -60,6 +60,7 @@ import {
   isPurchasesError,
   type PaywallPlan,
 } from "./paywallShared";
+import { getPaywallLayoutMetrics } from "./paywallLayout";
 
 const mascotImage = require("../../assets/png/Masscott.png");
 
@@ -448,8 +449,14 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 16 : width > 430 ? 28 : 22;
+  const {
+    horizontalPadding,
+    isCompact,
+    isVeryCompact,
+    postAuthHeroTitleSize,
+    postAuthTimelineMaxWidth,
+    postAuthTopContentPadding,
+  } = getPaywallLayoutMetrics(width);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const activePaywallPlacementKey = useAppStore(
@@ -1171,20 +1178,40 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
             },
           ]}
         >
-          <Animated.View style={[styles.postAuthTrialContent, heroAnimatedStyle]}>
+          <Animated.View
+            style={[
+              styles.postAuthTrialContent,
+              { paddingTop: postAuthTopContentPadding },
+              heroAnimatedStyle,
+            ]}
+          >
             <Animated.View style={[styles.postAuthMascotWrap, mascotAnimatedStyle]}>
               <Image
                 source={mascotImage}
                 resizeMode="contain"
-                style={styles.postAuthMascotImage}
+                style={[
+                  styles.postAuthMascotImage,
+                  isCompact ? styles.postAuthMascotImageCompact : null,
+                ]}
               />
             </Animated.View>
 
-            <Text style={[styles.postAuthHeroTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[
+                styles.postAuthHeroTitle,
+                { color: theme.colors.foreground, fontSize: postAuthHeroTitleSize },
+                isVeryCompact ? styles.postAuthHeroTitleCompact : null,
+              ]}
+            >
               Unlock your mind
             </Text>
 
-            <View style={styles.postAuthFeatureList}>
+            <View
+              style={[
+                styles.postAuthFeatureList,
+                { maxWidth: postAuthTimelineMaxWidth },
+              ]}
+            >
               {POST_AUTH_INTRO_FEATURES.map((feature, index) => {
                 const Icon = feature.icon;
                 const featureAnimatedStyle = {
@@ -1303,7 +1330,11 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           ]}
         >
           <Animated.View
-            style={[styles.postAuthReminderContent, reminderContentAnimatedStyle]}
+            style={[
+              styles.postAuthReminderContent,
+              { paddingTop: postAuthTopContentPadding },
+              reminderContentAnimatedStyle,
+            ]}
           >
             <Animated.View
               style={[
@@ -1319,7 +1350,13 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               <BellRing size={40} color={theme.colors.warning} strokeWidth={1.6} />
             </Animated.View>
 
-            <Text style={[styles.postAuthHeroTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[
+                styles.postAuthHeroTitle,
+                { color: theme.colors.foreground, fontSize: postAuthHeroTitleSize },
+                isVeryCompact ? styles.postAuthHeroTitleCompact : null,
+              ]}
+            >
               No surprises
             </Text>
 
@@ -1332,7 +1369,12 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               We'll send you a push notification before your trial ends. Cancel anytime.
             </Text>
 
-            <View style={styles.postAuthTimelineWrap}>
+            <View
+              style={[
+                styles.postAuthTimelineWrap,
+                { maxWidth: postAuthTimelineMaxWidth },
+              ]}
+            >
               <View
                 style={[
                   styles.postAuthTimelineLine,
@@ -1505,7 +1547,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={styles.postAuthPurchaseScroll}
-          contentContainerStyle={styles.postAuthPurchaseScrollContent}
+          contentContainerStyle={[
+            styles.postAuthPurchaseScrollContent,
+            { paddingTop: postAuthTopContentPadding },
+          ]}
         >
           <Animated.View
             style={[styles.postAuthTrialBannerSlot, purchaseBannerAnimatedStyle]}
@@ -1663,7 +1708,12 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
               elevated={false}
             />
 
-            <View style={styles.postAuthFooterMetaRow}>
+            <View
+              style={[
+                styles.postAuthFooterMetaRow,
+                isCompact ? styles.postAuthFooterMetaRowCompact : null,
+              ]}
+            >
               <Pressable
                 accessibilityRole="button"
                 onPress={handleRestore}
@@ -2026,12 +2076,20 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
   },
+  postAuthMascotImageCompact: {
+    width: 96,
+    height: 96,
+  },
   postAuthHeroTitle: {
     fontSize: 32,
     fontWeight: "700",
     lineHeight: 38,
     textAlign: "center",
     marginBottom: 24,
+  },
+  postAuthHeroTitleCompact: {
+    lineHeight: 34,
+    marginBottom: 20,
   },
   postAuthFeatureList: {
     width: "100%",
@@ -2100,7 +2158,6 @@ const styles = StyleSheet.create({
   },
   postAuthTimelineWrap: {
     width: "100%",
-    maxWidth: 280,
     gap: 24,
     position: "relative",
   },
@@ -2366,6 +2423,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
     paddingHorizontal: 2,
+  },
+  postAuthFooterMetaRowCompact: {
+    flexDirection: "column",
   },
   postAuthRestoreText: {
     fontSize: 11,

@@ -30,9 +30,13 @@ Minimum required for boot:
 Required for the current auth flows used in production:
 
 - `AUTH_EMAIL_FROM_ADDRESS`
-- `AUTH_EMAIL_REPLY_TO`
+- `AUTH_EMAIL_FROM_NAME`
 - `AUTH_EMAIL_HELO_HOST`
 - `RESEND_SMTP_PASSWORD`
+
+Optional for reply handling after a real mailbox exists:
+
+- `AUTH_EMAIL_REPLY_TO`
 
 Required if Google sign-in remains enabled in the client:
 
@@ -43,6 +47,30 @@ Required if Google sign-in remains enabled in the client:
 Required if AI-backed insights/prompts remain enabled:
 
 - `OPENAI_API_KEY`
+
+## Production Rollout
+
+Use Render-managed environment variables for production values.
+
+Keep local development unchanged:
+
+- keep `frontend/.env` pointed at the local backend for normal development
+- keep `backend/.env` or local shell envs on `localhost` values for local runs
+- do not commit production secrets or replace local defaults in tracked source files
+
+For the email OTP production rollout:
+
+- set the backend custom domain to `api.journalio.app`
+- set `AUTH_EMAIL_HELO_HOST` in Render to `api.journalio.app`
+- set the sender in Render to `otp@mail.journalio.app`
+- place the Resend API key in `RESEND_SMTP_PASSWORD`
+- leave local `.env` files unchanged unless you are intentionally testing against production
+
+For the frontend production API switch:
+
+- keep `frontend/.env.example` local-first
+- inject `API_BASE_URL=https://api.journalio.app/api/v1` only in the production mobile build environment
+- do not replace the local tracked `frontend/.env` value with the production URL
 
 ## Render Deploy Steps
 

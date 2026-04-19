@@ -17,6 +17,7 @@ type AuthHeroProps = {
   subtitle: string;
   tone?: "default" | "success";
   imageSize?: number;
+  shellSize?: number;
   titleSize?: number;
   subtitleMaxWidth?: number;
   children?: ReactNode;
@@ -28,6 +29,7 @@ export default function AuthHero({
   subtitle,
   tone = "default",
   imageSize = 100,
+  shellSize,
   titleSize = 28,
   subtitleMaxWidth = 340,
   children,
@@ -35,6 +37,9 @@ export default function AuthHero({
 }: AuthHeroProps) {
   const theme = useTheme();
   const float = useRef(new Animated.Value(0)).current;
+  const resolvedShellSize = shellSize ?? Math.max(imageSize + 28, 104);
+  const resolvedShellRadius = Math.round(resolvedShellSize * 0.27);
+  const glowSize = Math.round(resolvedShellSize * 1.4);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -73,7 +78,10 @@ export default function AuthHero({
           styles.mascotShell,
           {
             backgroundColor: theme.colors.accent,
+            borderRadius: resolvedShellRadius,
+            height: resolvedShellSize,
             transform: [{ translateY }],
+            width: resolvedShellSize,
           },
           tone === "success" ? { borderColor: theme.colors.success } : null,
         ]}
@@ -84,6 +92,9 @@ export default function AuthHero({
             {
               backgroundColor:
                 tone === "success" ? theme.colors.success : theme.colors.primary,
+              borderRadius: glowSize / 2,
+              height: glowSize,
+              width: glowSize,
             },
           ]}
         />
@@ -118,9 +129,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   mascotShell: {
-    width: 128,
-    height: 128,
-    borderRadius: 34,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
@@ -131,9 +139,6 @@ const styles = StyleSheet.create({
   },
   glow: {
     position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 999,
     opacity: 0.08,
   },
   badgeWrap: {

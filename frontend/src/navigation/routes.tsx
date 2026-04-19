@@ -25,7 +25,6 @@ type AppFlowRoutesProps = {
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
-  pendingVerificationCode: string;
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
@@ -59,7 +58,6 @@ export function AppFlowRoutes({
   isCompletingOnboarding,
   onboardingData,
   pendingEmail,
-  pendingVerificationCode,
   authSource,
   session,
   initialProfileName,
@@ -132,7 +130,6 @@ export function AppFlowRoutes({
       return (
         <VerifyEmailScreen
           email={pendingEmail}
-          debugCode={pendingVerificationCode}
           onVerifyEmail={onVerifyEmail}
           onVerificationSuccess={onVerificationSuccess}
           onResendCode={onResendCode}

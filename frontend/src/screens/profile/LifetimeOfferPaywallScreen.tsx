@@ -41,6 +41,7 @@ import {
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import { getPaywallLayoutMetrics } from "./paywallLayout";
 
 const mascotImage = require("../../assets/png/Masscott.png");
 
@@ -184,8 +185,8 @@ const buildPreviewCards = (
 const buildFallbackPlan = (): LifetimePlan => ({
   id: "lifetime",
   title: DEFAULT_LIFETIME_OFFERING.title,
-  durationLabel: DEFAULT_LIFETIME_OFFERING.price,
-  price: `${DEFAULT_LIFETIME_OFFERING.price} one-time`,
+  durationLabel: "",
+  price: "",
   subtitle: DEFAULT_LIFETIME_OFFERING.subtitle || "One-time unlock",
   highlight: DEFAULT_LIFETIME_OFFERING.highlight || undefined,
   badge: DEFAULT_LIFETIME_OFFERING.badge || undefined,
@@ -201,8 +202,15 @@ export default function LifetimeOfferPaywallScreen({
 }: LifetimeOfferPaywallScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 16 : width >= 430 ? 26 : 22;
+  const {
+    footerReservedSpace,
+    horizontalPadding,
+    isCompact,
+    lifetimeHeroLayout,
+    lifetimeMascotStageWidth,
+    swipeRailTextHorizontalPadding,
+    swipeRailTextSize,
+  } = getPaywallLayoutMetrics(width);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const sessionUserName = useAppStore(state => state.session?.user.name || "you");
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
@@ -266,7 +274,6 @@ export default function LifetimeOfferPaywallScreen({
   const swipeMaxDistance = Math.max(swipeTrackWidth - swipeThumbSize - 10, 0);
   const swipeThreshold = swipeMaxDistance * 0.7;
   const footerBottomPadding = 0;
-  const footerReservedSpace = 126;
   const footerCtaLabel =
     currentPlanKey === "lifetime"
       ? "Lifetime already active"
@@ -280,6 +287,7 @@ export default function LifetimeOfferPaywallScreen({
   const lifetimeMembersCopy = lifetimePurchaseLimit
     ? `${lifetimeOffering.purchasedUsersCount}/${lifetimePurchaseLimit} users claimed lifetime access.`
     : `${lifetimeOffering.purchasedUsersCount} users claimed lifetime access.`;
+  const hasResolvedPrice = Boolean(plan.durationLabel.trim());
 
   const trackLifetimeEvent = useCallback(
     (
@@ -949,8 +957,18 @@ export default function LifetimeOfferPaywallScreen({
                 },
               ]}
             >
-              <View style={styles.heroTopRow}>
-                <View style={styles.heroCopy}>
+              <View
+                style={[
+                  styles.heroTopRow,
+                  lifetimeHeroLayout === "column" ? styles.heroTopRowCompact : null,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.heroCopy,
+                    lifetimeHeroLayout === "column" ? styles.heroCopyCompact : null,
+                  ]}
+                >
                   <View
                     style={[
                       styles.heroBadge,
@@ -963,12 +981,23 @@ export default function LifetimeOfferPaywallScreen({
                     </Text>
                   </View>
 
-                  <Text style={[styles.heroTitle, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.heroTitle,
+                      { color: theme.colors.foreground },
+                      isCompact ? styles.heroTitleCompact : null,
+                    ]}
+                  >
                     {heroTitle}
                   </Text>
                 </View>
 
-                <View style={styles.mascotStage}>
+                <View
+                  style={[
+                    styles.mascotStage,
+                    { width: lifetimeMascotStageWidth },
+                  ]}
+                >
                   <Animated.View
                     style={[
                       styles.orbitRing,
@@ -1031,11 +1060,39 @@ export default function LifetimeOfferPaywallScreen({
                   },
                 ]}
               >
-                <View style={styles.priceCardHeader}>
+                <View
+                  style={[
+                    styles.priceCardHeader,
+                    isCompact ? styles.priceCardHeaderCompact : null,
+                  ]}
+                >
                   <View style={styles.priceLabelBlock}>
-                    <Text style={[styles.priceValue, { color: theme.colors.foreground }]}>
-                      {plan.durationLabel}
-                    </Text>
+                    {isLoadingPlan ? (
+                      <View style={styles.priceLoadingRow}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <Text
+                          style={[
+                            styles.priceLoadingText,
+                            { color: theme.colors.mutedForeground },
+                          ]}
+                        >
+                          Loading live price
+                        </Text>
+                      </View>
+                    ) : hasResolvedPrice ? (
+                      <Text style={[styles.priceValue, { color: theme.colors.foreground }]}>
+                        {plan.durationLabel}
+                      </Text>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.priceUnavailableText,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        Price available once the offer loads
+                      </Text>
+                    )}
                   </View>
 
                   <View
@@ -1071,7 +1128,6 @@ export default function LifetimeOfferPaywallScreen({
                     </Text>
                   </View>
                   <Text
-                    numberOfLines={1}
                     style={[styles.priceSupportText, { color: theme.colors.mutedForeground }]}
                   >
                     {socialProofLine}
@@ -1216,7 +1272,11 @@ export default function LifetimeOfferPaywallScreen({
               <Text
                 style={[
                   styles.swipeRailText,
-                  { color: theme.colors.primaryForeground },
+                  {
+                    color: theme.colors.primaryForeground,
+                    fontSize: swipeRailTextSize,
+                    paddingHorizontal: swipeRailTextHorizontalPadding,
+                  },
                 ]}
               >
                 {footerCtaLabel === "Claim Lifetime Access"
@@ -1343,9 +1403,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  heroTopRowCompact: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   heroCopy: {
     flex: 1,
     gap: 8,
+  },
+  heroCopyCompact: {
+    alignItems: "center",
   },
   heroBadge: {
     flexDirection: "row",
@@ -1366,11 +1433,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.8,
   },
+  heroTitleCompact: {
+    textAlign: "center",
+  },
   mascotStage: {
     alignItems: "center",
     justifyContent: "center",
     minHeight: 138,
-    width: 132,
   },
   orbitRing: {
     position: "absolute",
@@ -1429,15 +1498,36 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  priceCardHeaderCompact: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+  },
   priceLabelBlock: {
     flex: 1,
     gap: 0,
+  },
+  priceLoadingRow: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  priceLoadingText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   priceValue: {
     fontSize: 32,
     lineHeight: 34,
     fontWeight: "700",
     letterSpacing: -1,
+  },
+  priceUnavailableText: {
+    minHeight: 34,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   priceSupportBlock: {
     marginTop: 8,

@@ -23,9 +23,6 @@ function AppContent() {
   );
   const onboardingData = useAppStore(state => state.onboardingData);
   const pendingEmail = useAppStore(state => state.pendingEmail);
-  const pendingVerificationCode = useAppStore(
-    state => state.pendingVerificationCode
-  );
   const authSource = useAppStore(state => state.authSource);
   const session = useAppStore(state => state.session);
   const initialProfileName = useAppStore(state => state.initialProfileName);
@@ -75,7 +72,6 @@ function AppContent() {
     isCompletingOnboarding,
     onboardingData,
     pendingEmail,
-    pendingVerificationCode,
     authSource,
     session,
     initialProfileName,

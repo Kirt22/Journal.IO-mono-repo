@@ -49,6 +49,7 @@ import {
   isPurchasesError,
   type PaywallPlan,
 } from "./paywallShared";
+import { getPaywallLayoutMetrics } from "./paywallLayout";
 
 type DiscountOfferPaywallScreenProps = {
   onBack: () => void;
@@ -178,8 +179,12 @@ export default function DiscountOfferPaywallScreen({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 18 : width > 430 ? 28 : 22;
+  const {
+    discountHeroIconSize,
+    discountNewPriceSize,
+    horizontalPadding,
+    isCompact,
+  } = getPaywallLayoutMetrics(width);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const activePaywallScreenKey = useAppStore(state => state.activePaywallScreenKey);
@@ -876,9 +881,11 @@ export default function DiscountOfferPaywallScreen({
                   <Animated.View
                     style={[
                       styles.heroIconWrap,
+                      isCompact ? styles.heroIconWrapCompact : null,
                       {
                         backgroundColor: `${theme.colors.primary}12`,
                         borderColor: `${theme.colors.primary}20`,
+                        height: discountHeroIconSize,
                         transform: [
                           {
                             translateY: iconFloatAnim.interpolate({
@@ -893,6 +900,7 @@ export default function DiscountOfferPaywallScreen({
                             }),
                           },
                         ],
+                        width: discountHeroIconSize,
                       },
                     ]}
                   >
@@ -917,7 +925,11 @@ export default function DiscountOfferPaywallScreen({
                         },
                       ]}
                     />
-                    <Gift size={48} color={theme.colors.primary} strokeWidth={1.6} />
+                    <Gift
+                      size={isCompact ? 42 : 48}
+                      color={theme.colors.primary}
+                      strokeWidth={1.6}
+                    />
                   </Animated.View>
 
                   <Text style={[styles.title, { color: theme.colors.foreground }]}>
@@ -1002,7 +1014,13 @@ export default function DiscountOfferPaywallScreen({
                         {pricing.regularPriceLabel}
                       </Text>
                     ) : null}
-                    <Text style={[styles.newPrice, { color: theme.colors.primary }]}>
+                    <Text
+                      style={[
+                        styles.newPrice,
+                        { color: theme.colors.primary, fontSize: discountNewPriceSize },
+                        isCompact ? styles.newPriceCompact : null,
+                      ]}
+                    >
                       {pricing.discountedPriceLabel ||
                         plan?.durationLabel ||
                         FALLBACK_REGULAR_PRICE}
@@ -1199,6 +1217,9 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     overflow: "visible",
   },
+  heroIconWrapCompact: {
+    borderRadius: 28,
+  },
   heroIconPulse: {
     position: "absolute",
     top: 0,
@@ -1278,6 +1299,10 @@ const styles = StyleSheet.create({
     lineHeight: 56,
     fontWeight: "900",
     letterSpacing: -2,
+  },
+  newPriceCompact: {
+    lineHeight: 50,
+    letterSpacing: -1.4,
   },
   offerCaption: {
     fontSize: 14,

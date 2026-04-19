@@ -7,40 +7,12 @@ import {
   userModel,
 } from "../../schema/user.schema";
 import { sendEmailVerificationCode } from "./emailOtp.service";
-import {
-  isMsg91SmsConfigured,
-  resendOtpSmsViaMsg91,
-  sendOtpSmsViaMsg91,
-  verifyOtpSmsViaMsg91,
-} from "./msg91Sms.service";
-
-const otpStore = new Map<
-  string,
-  {
-    code: string;
-    expiresAt: number;
-    attempts: number;
-  }
->();
 
 const OTP_LENGTH = 6;
-const OTP_MAX_ATTEMPTS = 5;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 const PASSWORD_HASH_ITERATIONS = 120000;
 const PASSWORD_HASH_KEY_LENGTH = 64;
 const PASSWORD_HASH_DIGEST = "sha512";
-
-type SendOtpInput = {
-  phoneNumber: string;
-};
-
-type VerifyOtpInput = {
-  phoneNumber: string;
-  otp: string;
-  name?: string;
-  goals?: string[];
-  onboardingCompleted?: boolean;
-};
 
 type GoogleOAuthInput = {
   idToken: string;
@@ -152,13 +124,6 @@ const getRefreshTokenExpiryMs = () => {
   );
 };
 
-const getOtpExpiryMs = () => {
-  return parseDurationToMs(
-    process.env.AUTH_OTP_EXPIRES_IN || "10m",
-    10 * 60 * 1000
-  );
-};
-
 const normalizeEnvClientId = (value?: string | null) => {
   const trimmed = value?.trim() || "";
   return trimmed.replace(/^["']|["']$/g, "").trim();
@@ -181,10 +146,6 @@ const getEmailVerificationExpiryMs = () => {
     process.env.AUTH_EMAIL_OTP_EXPIRES_IN || "30m",
     30 * 60 * 1000
   );
-};
-
-const normalizePhoneNumber = (phoneNumber: string) => {
-  return phoneNumber.replace(/[^\d+]/g, "");
 };
 
 const normalizeEmail = (email: string) => {
@@ -492,39 +453,6 @@ const issueTokens = async (user: IUser): Promise<AuthTokens> => {
   return { accessToken, refreshToken };
 };
 
-const createPhoneUser = async ({
-  phoneNumber,
-  name,
-  goals,
-  onboardingCompleted,
-}: {
-  phoneNumber: string;
-  name: string;
-  goals?: string[];
-  onboardingCompleted?: boolean;
-}) => {
-  try {
-    return await userModel.create({
-      name,
-      phoneNumber,
-      authProviders: ["phone"],
-      journalingGoals: goals || [],
-      profileSetupCompleted: false,
-      onboardingCompleted: Boolean(onboardingCompleted),
-    });
-  } catch (error) {
-    if (isDuplicateKeyError(error) && error.code === 11000) {
-      const existingUser = await userModel.findOne({ phoneNumber });
-
-      if (existingUser) {
-        return existingUser;
-      }
-    }
-
-    throw error;
-  }
-};
-
 const createGoogleUser = async ({
   googleProfile,
   onboardingContext,
@@ -552,199 +480,6 @@ const createGoogleUser = async ({
     journalingGoals: normalizedOnboardingContext?.goals || [],
     onboardingContext: normalizedOnboardingContext,
   });
-};
-
-const sendOtp = async ({ phoneNumber }: SendOtpInput) => {
-  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-  const code = generateOtp();
-  const providerManaged = isMsg91SmsConfigured();
-
-  otpStore.set(normalizedPhoneNumber, {
-    code,
-    expiresAt: Date.now() + getOtpExpiryMs(),
-    attempts: 0,
-  });
-
-  try {
-    if (providerManaged) {
-      await sendOtpSmsViaMsg91({
-        phoneNumber: normalizedPhoneNumber,
-      });
-    } else if (process.env.NODE_ENV === "production") {
-      otpStore.delete(normalizedPhoneNumber);
-      throw new Error("MSG91 SMS service is not configured.");
-    } else {
-      console.warn(
-        `MSG91 SMS service is not configured. OTP generated locally for ${normalizedPhoneNumber}.`
-      );
-    }
-  } catch (error) {
-    otpStore.delete(normalizedPhoneNumber);
-    console.error("Failed to deliver OTP SMS via MSG91:", error);
-    throw error;
-  }
-
-  return {
-    phoneNumber: normalizedPhoneNumber,
-    expiresInSeconds: Math.floor(getOtpExpiryMs() / 1000),
-    debugOtp:
-      !providerManaged && process.env.NODE_ENV !== "production"
-        ? code
-        : undefined,
-  };
-};
-
-const resendOtp = async ({ phoneNumber }: SendOtpInput) => {
-  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-
-  if (isMsg91SmsConfigured()) {
-    try {
-      await resendOtpSmsViaMsg91({
-        phoneNumber: normalizedPhoneNumber,
-      });
-    } catch (error) {
-      console.error("Failed to resend OTP SMS via MSG91:", error);
-      throw error;
-    }
-
-    return {
-      phoneNumber: normalizedPhoneNumber,
-      expiresInSeconds: Math.floor(getOtpExpiryMs() / 1000),
-      debugOtp: undefined,
-    };
-  }
-
-  return sendOtp({ phoneNumber });
-};
-
-const verifyOtp = async ({
-  phoneNumber,
-  otp,
-  name,
-  goals,
-  onboardingCompleted,
-}: VerifyOtpInput): Promise<
-  | AuthSuccess<{
-      tokens: AuthTokens;
-      user: ReturnType<typeof buildUserPayload>;
-      isNewUser: boolean;
-    }>
-  | AuthFailure
-> => {
-  const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
-  const otpRecord = otpStore.get(normalizedPhoneNumber);
-
-  if (!otpRecord) {
-    return {
-      ok: false,
-      status: 404,
-      code: "OTP_NOT_FOUND",
-      message: "No active verification code found for this phone number.",
-    };
-  }
-
-  if (Date.now() > otpRecord.expiresAt) {
-    otpStore.delete(normalizedPhoneNumber);
-    return {
-      ok: false,
-      status: 400,
-      code: "OTP_EXPIRED",
-      message: "The verification code has expired. Please request a new code.",
-    };
-  }
-
-  if (isMsg91SmsConfigured()) {
-    try {
-      await verifyOtpSmsViaMsg91({
-        phoneNumber: normalizedPhoneNumber,
-        otp,
-      });
-    } catch (error) {
-      otpRecord.attempts += 1;
-
-      if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
-        otpStore.delete(normalizedPhoneNumber);
-        return {
-          ok: false,
-          status: 400,
-          code: "OTP_LOCKED",
-          message: "Too many incorrect attempts. Please request a new code.",
-        };
-      }
-
-      console.error("MSG91 OTP verification failed:", error);
-      return {
-        ok: false,
-        status: 400,
-        code: "OTP_INVALID",
-        message: "The verification code is incorrect.",
-      };
-    }
-  } else {
-    otpRecord.attempts += 1;
-
-    if (otpRecord.attempts > OTP_MAX_ATTEMPTS) {
-      otpStore.delete(normalizedPhoneNumber);
-      return {
-        ok: false,
-        status: 400,
-        code: "OTP_LOCKED",
-        message: "Too many incorrect attempts. Please request a new code.",
-      };
-    }
-
-    if (otpRecord.code !== otp) {
-      return {
-        ok: false,
-        status: 400,
-        code: "OTP_INVALID",
-        message: "The verification code is incorrect.",
-      };
-    }
-  }
-
-  otpStore.delete(normalizedPhoneNumber);
-
-  let user = await userModel.findOne({ phoneNumber: normalizedPhoneNumber });
-  const normalizedGoals = normalizeSelections(goals);
-  const trimmedName = name?.trim();
-  const isNewUser = !user;
-
-  if (!user) {
-    user = await createPhoneUser({
-      phoneNumber: normalizedPhoneNumber,
-      name: trimmedName || "Journal User",
-      goals: normalizedGoals,
-      ...(onboardingCompleted !== undefined ? { onboardingCompleted } : {}),
-    });
-  }
-
-  if (!user.authProviders.includes("phone")) {
-    user.authProviders = [...user.authProviders, "phone"];
-  }
-
-  if (trimmedName) {
-    user.name = trimmedName;
-  }
-
-  if (normalizedGoals.length > 0) {
-    user.journalingGoals = normalizedGoals;
-  }
-
-  if (onboardingCompleted) {
-    user.onboardingCompleted = true;
-  }
-
-  await user.save();
-
-  const tokens = await issueTokens(user);
-
-  return {
-    ok: true,
-    tokens,
-    user: buildUserPayload(user),
-    isNewUser,
-  };
 };
 
 const signUpWithEmail = async ({
@@ -1208,12 +943,9 @@ export {
   refreshAccessToken,
   resetGoogleIdTokenVerifierForTests,
   resendEmailVerification,
-  resendOtp,
-  sendOtp,
   setGoogleIdTokenVerifierForTests,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
   verifyEmail,
-  verifyOtp,
 };

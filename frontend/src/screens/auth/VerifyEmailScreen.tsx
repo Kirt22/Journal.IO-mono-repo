@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,10 +17,10 @@ import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
+import { getAuthLayoutMetrics } from "./authLayout";
 
 type VerifyEmailScreenProps = {
   email: string;
-  debugCode?: string | null;
   isResending?: boolean;
   onVerifyEmail: (code: string) => Promise<void>;
   onVerificationSuccess: () => void | Promise<void>;
@@ -32,7 +33,6 @@ const RESEND_COOLDOWN = 30;
 
 export default function VerifyEmailScreen({
   email,
-  debugCode,
   isResending = false,
   onVerifyEmail,
   onVerificationSuccess,
@@ -46,16 +46,22 @@ export default function VerifyEmailScreen({
   const [isVerified, setIsVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
+  const [isResendSubmitting, setIsResendSubmitting] = useState(false);
   const inputRefs = useRef<Array<any>>([]);
   const isSubmittingRef = useRef(false);
   const lastSubmittedCodeRef = useRef<string | null>(null);
-
-  const isCompact = width < 360;
-  const isWide = width >= 430;
-  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 24;
-  const sheetMaxWidth = isWide ? 460 : 420;
-  const inputSize = isCompact ? 40 : isWide ? 50 : 44;
-  const gap = isCompact ? 8 : 12;
+  const {
+    contentPaddingBottom,
+    contentPaddingTop,
+    heroImageSize,
+    heroSubtitleMaxWidth,
+    heroTitleSize,
+    horizontalPadding,
+    isVeryCompact,
+    otpGap,
+    otpInputSize,
+    sheetMaxWidth,
+  } = getAuthLayoutMetrics(width);
 
   useEffect(() => {
     const timer =
@@ -168,15 +174,17 @@ export default function VerifyEmailScreen({
   }, [code, handleVerify, isVerified, isVerifying, verificationCode]);
 
   const handleResend = async () => {
-    if (resendTimer > 0 || isResending) {
+    if (resendTimer > 0 || isResending || isResendSubmitting) {
       return;
     }
+
+    setIsResendSubmitting(true);
+    setError(null);
 
     try {
       await onResendCode();
       setCode(new Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_COOLDOWN);
-      setError(null);
       setIsVerified(false);
       lastSubmittedCodeRef.current = null;
       inputRefs.current[0]?.focus();
@@ -186,6 +194,8 @@ export default function VerifyEmailScreen({
           ? submissionError.message
           : "Unable to resend the verification code."
       );
+    } finally {
+      setIsResendSubmitting(false);
     }
   };
 
@@ -207,7 +217,14 @@ export default function VerifyEmailScreen({
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
-            contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+            contentContainerStyle={[
+              styles.content,
+              {
+                paddingBottom: contentPaddingBottom,
+                paddingHorizontal: horizontalPadding,
+                paddingTop: contentPaddingTop + 4,
+              },
+            ]}
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
@@ -223,6 +240,10 @@ export default function VerifyEmailScreen({
                 subtitle={`We sent a 6-digit code to ${email}.`}
                 tone="default"
                 badge={null}
+                imageSize={heroImageSize}
+                shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
+                subtitleMaxWidth={heroSubtitleMaxWidth}
+                titleSize={heroTitleSize}
               />
 
               <View style={styles.form}>
@@ -235,7 +256,7 @@ export default function VerifyEmailScreen({
                   </Text>
                 </View>
 
-                <View style={[styles.codeRow, { gap }]}>
+                <View style={[styles.codeRow, { gap: otpGap }]}>
                   {code.map((digit, index) => (
                     <TextInput
                       key={index}
@@ -254,8 +275,8 @@ export default function VerifyEmailScreen({
                       style={[
                         styles.codeInput,
                         {
-                          width: inputSize,
-                          height: inputSize + 4,
+                          width: otpInputSize,
+                          height: otpInputSize + 4,
                           borderColor: error
                             ? theme.colors.destructive
                             : digit
@@ -297,30 +318,38 @@ export default function VerifyEmailScreen({
                         0:{resendTimer.toString().padStart(2, "0")}
                       </Text>
                     </Text>
+                  ) : isResending || isResendSubmitting ? (
+                    <View style={styles.resendLoading}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <Text
+                        style={[
+                          styles.resendLoadingText,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        Sending a new code...
+                      </Text>
+                    </View>
                   ) : (
                     <Pressable
                       accessibilityRole="button"
                       onPress={handleResend}
-                      disabled={isResending || isVerified}
+                      disabled={isResending || isResendSubmitting || isVerified}
                     >
                       <Text
                         style={[
                           styles.resendLink,
                           { color: theme.colors.primary },
-                          (isResending || isVerified) ? styles.resendLinkDisabled : null,
+                          (isResending || isResendSubmitting || isVerified)
+                            ? styles.resendLinkDisabled
+                            : null,
                         ]}
                       >
-                        {isResending ? "Sending..." : "Didn't receive the code? Resend"}
+                        Didn't receive the code? Resend
                       </Text>
                     </Pressable>
                   )}
                 </View>
-
-                {debugCode ? (
-                  <Text style={[styles.debugText, { color: theme.colors.mutedForeground }]}>
-                    Test code: {debugCode}
-                  </Text>
-                ) : null}
               </View>
             </View>
           </ScrollView>
@@ -342,9 +371,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingVertical: 24,
+    paddingVertical: 20,
     flexGrow: 1,
-    justifyContent: "center",
+    justifyContent: "flex-start",
   },
   sheet: {
     width: "100%",
@@ -414,9 +443,13 @@ const styles = StyleSheet.create({
   resendLinkDisabled: {
     opacity: 0.6,
   },
-  debugText: {
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: 4,
+  resendLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  resendLoadingText: {
+    fontSize: 14,
+    fontWeight: "500",
   },
 });

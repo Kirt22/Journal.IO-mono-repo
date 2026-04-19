@@ -6,6 +6,7 @@
     "dev": "nodemon --exec ts-node src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
+    "check:production:domains": "node scripts/check-production-domains.mjs",
     "test": "npm run build && node scripts/run-tests.mjs"
   },
   "keywords": [],
@@ -13,23 +14,23 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.5",
-    "@types/node": "^24.9.2",
     "@types/nodemon": "^1.19.6",
-    "cors": "^2.8.5",
     "nodemon": "^3.1.10",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "ts-node": "^10.9.2"
   },
   "dependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/mongoose": "^5.11.96",
+    "@types/node": "^24.9.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "google-auth-library": "^10.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
+    "typescript": "^5.9.3",
     "zod": "^4.1.13"
   }
 }

@@ -187,12 +187,44 @@ type OnboardingScreenProps = {
   onContinue: (data: OnboardingCompletionData) => void;
 };
 
+export function getOnboardingResponsiveMetrics(width: number) {
+  const isCompact = width < 360;
+  const isWide = width >= 430;
+  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
+  const layoutMaxWidth = isWide ? 460 : 420;
+  const titleSize = isCompact ? 26 : isWide ? 34 : 30;
+  const sectionTitleSize = isCompact ? 24 : isWide ? 30 : 28;
+  const heroSize = isCompact ? 82 : isWide ? 108 : 94;
+  const goalGridGap = isCompact ? 10 : 12;
+  const availableSheetWidth = Math.min(Math.max(width - horizontalPadding * 2, 0), layoutMaxWidth);
+  const goalColumns = width < 350 ? 1 : 2;
+  const goalCardWidth =
+    goalColumns === 1
+      ? availableSheetWidth
+      : (availableSheetWidth - goalGridGap * (goalColumns - 1)) / goalColumns;
+
+  return {
+    availableSheetWidth,
+    goalCardWidth,
+    goalColumns,
+    goalGridGap,
+    heroSize,
+    horizontalPadding,
+    isCompact,
+    isWide,
+    layoutMaxWidth,
+    sectionTitleSize,
+    titleSize,
+  };
+}
+
 export function OnboardingScreen({
   isCompleting,
   onContinue,
 }: OnboardingScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const responsiveMetrics = getOnboardingResponsiveMetrics(width);
   const [step, setStep] = useState(1);
   const [selectedAgeRange, setSelectedAgeRange] = useState("");
   const [selectedExperience, setSelectedExperience] = useState("");
@@ -207,15 +239,17 @@ export function OnboardingScreen({
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const mascotFloatY = useRef(new Animated.Value(0)).current;
 
-  const isCompact = width < 360;
-  const isWide = width >= 430;
-  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
-  const layoutMaxWidth = isWide ? 460 : 420;
-  const titleSize = isCompact ? 26 : isWide ? 34 : 30;
-  const sectionTitleSize = isCompact ? 24 : isWide ? 30 : 28;
-  const heroSize = isCompact ? 82 : isWide ? 108 : 94;
+  const {
+    goalCardWidth,
+    goalGridGap,
+    heroSize,
+    horizontalPadding,
+    isCompact,
+    layoutMaxWidth,
+    sectionTitleSize,
+    titleSize,
+  } = responsiveMetrics;
   const heroSpacingStyle = isCompact ? styles.heroSectionCompact : styles.heroSectionStandard;
-  const goalColumns = isWide ? 3 : 2;
   const primaryButtonText = step === TOTAL_STEPS ? "Get Started" : "Continue";
   const aiComfortPrimaryBackground = aiComfort ? theme.colors.primary : "transparent";
   const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
@@ -543,7 +577,10 @@ export function OnboardingScreen({
             Select all that apply. You can change these anytime.
           </Text>
 
-          <View style={styles.goalGrid}>
+          <View
+            testID="goal-grid"
+            style={[styles.goalGrid, { gap: goalGridGap }]}
+          >
             {journalingGoals.map(goal => {
               const Icon = goal.icon;
               const selected = selectedGoals.includes(goal.id);
@@ -551,16 +588,17 @@ export function OnboardingScreen({
               return (
                 <Pressable
                   key={goal.id}
+                  testID={`goal-card-${goal.id}`}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: selected }}
                   onPress={() => toggleGoal(goal.id)}
                   style={({ pressed }) => [
                     styles.goalCard,
+                    { width: goalCardWidth },
                     {
                       backgroundColor: selected ? theme.colors.accent : theme.colors.card,
                       borderColor: selected ? theme.colors.primary : theme.colors.border,
                     },
-                    goalColumns === 3 && styles.goalCardWide,
                     pressed && styles.cardPressed,
                   ]}
                 >
@@ -1207,19 +1245,14 @@ const styles = StyleSheet.create({
   goalGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
   },
   goalCard: {
     alignItems: "center",
     borderRadius: 16,
     borderWidth: 1,
-    flexBasis: "48%",
     gap: 12,
     minHeight: 126,
     padding: 16,
-  },
-  goalCardWide: {
-    flexBasis: "31%",
   },
   goalIconWrap: {
     alignItems: "center",

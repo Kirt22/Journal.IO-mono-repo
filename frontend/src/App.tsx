@@ -57,7 +57,6 @@ function AppContent() {
     state => state.goBackToCreateAccount
   );
   const completeProfile = useAppStore(state => state.completeProfile);
-  const goBackFromProfile = useAppStore(state => state.goBackFromProfile);
   const skipProfileSetup = useAppStore(state => state.skipProfileSetup);
   const restartFlow = useAppStore(state => state.restartFlow);
   const closeNewEntry = useAppStore(state => state.closeNewEntry);
@@ -93,7 +92,6 @@ function AppContent() {
     onBackToAuth: goBackToAuth,
     onBackToCreateAccount: goBackToCreateAccount,
     onProfileComplete: completeProfile,
-    onBackToVerifyEmail: goBackFromProfile,
     onSkipProfile: skipProfileSetup,
     onRestart: restartFlow,
     onCloseNewEntry: closeNewEntry,

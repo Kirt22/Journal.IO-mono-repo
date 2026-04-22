@@ -371,7 +371,7 @@ const DEFAULT_TEMPLATES: Array<
       },
       {
         title: "Weekly and yearly only",
-        body: "This template is reserved for the post-auth paywall and renders only the weekly and yearly pricing cards from backend offering metadata.",
+        body: "This template is reserved for the post-auth paywall and shows only the weekly and yearly pricing choices configured for this screen.",
         footer: "Contextual locked-feature paywalls can keep their simpler monthly flow.",
       },
     ],

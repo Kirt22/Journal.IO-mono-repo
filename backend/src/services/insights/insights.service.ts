@@ -67,14 +67,14 @@ type ConfidenceLevel = "low" | "medium" | "high";
 
 class AiAnalysisDisabledError extends Error {
   constructor() {
-    super("AI analysis is turned off for this account.");
+    super("AI analysis is turned off for your account.");
     this.name = "AiAnalysisDisabledError";
   }
 }
 
 class PremiumFeatureRequiredError extends Error {
   constructor() {
-    super("Premium membership is required for this feature.");
+    super("This feature is available with Premium.");
     this.name = "PremiumFeatureRequiredError";
   }
 }
@@ -2062,7 +2062,7 @@ const getAiAnalysisUserContext = async ({
     .exec();
 
   if (!user?.createdAt) {
-    throw new Error("Unable to load AI analysis.");
+    throw new Error("We couldn't load your AI analysis right now.");
   }
 
   const anchorDate = new Date(user.premiumActivatedAt || user.createdAt);
@@ -2467,7 +2467,7 @@ const getInsightsOverview = async (userId: string): Promise<InsightsOverviewResp
     const rebuiltInsights = await rebuildInsightsCache(userId);
 
     if (!rebuiltInsights) {
-      throw new Error("Unable to load insights overview.");
+      throw new Error("We couldn't load your insights right now.");
     }
 
     return toInsightsOverview(rebuiltInsights);
@@ -2595,7 +2595,7 @@ const getInsightsAiAnalysis = async (
   const allowEarlyReady = isAiAnalysisDevEarlyReadyEnabled();
 
   if (!insights) {
-    throw new Error("Unable to load AI analysis.");
+    throw new Error("We couldn't load your AI analysis right now.");
   }
 
   const timeZone = normalizeTimeZone(options?.timeZone);

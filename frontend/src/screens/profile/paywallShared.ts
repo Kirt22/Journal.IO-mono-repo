@@ -96,15 +96,15 @@ export const getPurchaseErrorMessage = (error: unknown) => {
     error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
     error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
   ) {
-    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
+    return "We could not reach purchases right now. Check your connection and try again.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
-    return "RevenueCat is configured, but the selected package is not ready yet.";
+    return "This purchase option is not ready yet. Please try again in a moment.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-    return "This payment is pending. RevenueCat will update the entitlement when the store confirms it.";
+    return "This payment is pending. Your access will update as soon as the store confirms it.";
   }
 
   return error.message;

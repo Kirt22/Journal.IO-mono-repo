@@ -6,7 +6,10 @@
     "android": "react-native run-android",
     "screen": "node scripts/run-screen.mjs",
     "ios": "react-native run-ios",
+    "ios:prod-debug": "APP_ENV=production react-native run-ios --no-packager",
+    "ios:release": "BABEL_ENV=production react-native run-ios --mode Release",
     "lint": "eslint .",
+    "start:prod-debug": "APP_ENV=production react-native start --host 0.0.0.0 --reset-cache",
     "start": "react-native start",
     "test": "jest --watchman=false"
   },

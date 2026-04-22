@@ -138,15 +138,15 @@ const getPurchaseErrorMessage = (error: unknown) => {
     error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
     error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
   ) {
-    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
+    return "We could not reach purchases right now. Check your connection and try again.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
-    return "RevenueCat is configured, but the selected lifetime package is not ready yet.";
+    return "This lifetime offer is not ready yet. Please try again in a moment.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-    return "This payment is pending. RevenueCat will update the entitlement when the store confirms it.";
+    return "This payment is pending. Your access will update as soon as the store confirms it.";
   }
 
   return error.message;
@@ -365,7 +365,7 @@ export default function LifetimeOfferPaywallScreen({
           setPlansError(
             previous =>
               previous ||
-              "The lifetime offer preview loaded, but its live RevenueCat package is not available yet."
+              "This lifetime offer is not available right now."
           );
           return;
         }
@@ -388,7 +388,7 @@ export default function LifetimeOfferPaywallScreen({
         setPlansError(
           resolvedPlan.rcPackage
             ? null
-            : "The lifetime offer preview is visible, but its live RevenueCat package is not available yet."
+            : "This lifetime offer is not available right now."
         );
       } catch (error) {
         if (!isMounted) {
@@ -650,7 +650,7 @@ export default function LifetimeOfferPaywallScreen({
     if (!plan.rcPackage) {
       Alert.alert(
         "Offer unavailable",
-        "This lifetime preview loaded, but the live purchase package is not available yet."
+        "This lifetime offer is not available right now."
       );
       resetSwipe();
       return;
@@ -667,7 +667,7 @@ export default function LifetimeOfferPaywallScreen({
       if (!activated) {
         Alert.alert(
           "Purchase completed",
-          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
+          "Your purchase went through, but access has not updated yet. Please check again in a moment."
         );
         resetSwipe();
         return;
@@ -726,7 +726,7 @@ export default function LifetimeOfferPaywallScreen({
       if (!activated) {
         Alert.alert(
           "No active purchase found",
-          "RevenueCat did not return an active premium entitlement for this account."
+          "We could not find an active premium purchase for this account."
         );
         return;
       }
@@ -863,7 +863,7 @@ export default function LifetimeOfferPaywallScreen({
         title="Lifetime access is active"
         subtitle={
           lastPurchaseStore === "TEST_STORE"
-            ? "The RevenueCat test purchase unlocked permanent premium access on this account."
+            ? "Your lifetime access is now active on this account."
             : `Journal.IO now has permanent premium access on this account for ${sessionUserName}.`
         }
         buttonLabel="Return to Subscription"

@@ -199,7 +199,6 @@ type AppStoreState = {
   signOut: () => Promise<void>;
   goBackToAuth: () => void;
   goBackToCreateAccount: () => void;
-  goBackFromProfile: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
@@ -815,11 +814,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   goBackToCreateAccount: () => {
     set({ stage: "create-account" });
-  },
-  goBackFromProfile: () => {
-    set({
-      stage: get().authSource === "google" ? "auth" : "verify-email",
-    });
   },
   skipProfileSetup: async () => {
     const state = get();

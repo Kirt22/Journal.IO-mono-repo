@@ -505,7 +505,7 @@ const signUpWithEmail = async ({
       ok: false,
       status: 409,
       code: "EMAIL_ALREADY_REGISTERED",
-      message: "An account with this email already exists. Please sign in.",
+      message: "An account already exists for this email. Please sign in.",
     };
   }
 
@@ -571,7 +571,7 @@ const resendEmailVerification = async ({
       ok: false,
       status: 404,
       code: "PENDING_ACCOUNT_NOT_FOUND",
-      message: "No pending account found for this email.",
+      message: "We couldn't find a pending sign-up for this email.",
     };
   }
 
@@ -620,7 +620,7 @@ const verifyEmail = async ({
       ok: false,
       status: 404,
       code: "PENDING_ACCOUNT_NOT_FOUND",
-      message: "No pending account found for this email.",
+      message: "We couldn't find a pending sign-up for this email.",
     };
   }
 
@@ -638,7 +638,7 @@ const verifyEmail = async ({
       ok: false,
       status: 400,
       code: "EMAIL_OTP_NOT_FOUND",
-      message: "No active verification code found for this email.",
+      message: "We couldn't find an active verification code for this email.",
     };
   }
 
@@ -653,7 +653,7 @@ const verifyEmail = async ({
       ok: false,
       status: 400,
       code: "EMAIL_OTP_EXPIRED",
-      message: "The verification code has expired. Please request a new one.",
+      message: "That verification code has expired. Please request a new one.",
     };
   }
 
@@ -679,7 +679,7 @@ const verifyEmail = async ({
         ok: false,
         status: 400,
         code: "EMAIL_OTP_LOCKED",
-        message: "Too many incorrect attempts. Please request a new code.",
+        message: "There were too many incorrect attempts. Please request a new code.",
       };
     }
 
@@ -689,7 +689,7 @@ const verifyEmail = async ({
       ok: false,
       status: 400,
       code: "EMAIL_OTP_INVALID",
-      message: "The verification code is incorrect.",
+      message: "That verification code doesn't look right.",
     };
   }
 
@@ -742,7 +742,7 @@ const signInWithEmail = async ({
       ok: false,
       status: 401,
       code: "INVALID_CREDENTIALS",
-      message: "The email or password is incorrect.",
+      message: "That email or password doesn't look right.",
     };
   }
 
@@ -792,7 +792,7 @@ const signInWithGoogle = async (
       ok: false,
       status: 401,
       code: "INVALID_GOOGLE_ID_TOKEN",
-      message: "Unable to verify the Google sign-in token.",
+      message: "We couldn't verify that Google sign-in. Please try again.",
     };
   }
 
@@ -801,7 +801,7 @@ const signInWithGoogle = async (
       ok: false,
       status: 401,
       code: "INVALID_GOOGLE_ID_TOKEN",
-      message: "Unable to verify the Google sign-in token.",
+      message: "We couldn't verify that Google sign-in. Please try again.",
     };
   }
 

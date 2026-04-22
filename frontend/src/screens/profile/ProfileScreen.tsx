@@ -353,7 +353,7 @@ export default function ProfileScreen({
       return;
     }
 
-    Alert.alert("Unlock Premium", "This area is not connected yet.");
+    Alert.alert("Unlock Premium", "This section is not available right now.");
   };
   const accentColor = userAvatarColor || theme.colors.primary;
 
@@ -589,7 +589,7 @@ export default function ProfileScreen({
                 return;
               }
 
-              Alert.alert(item.label, "This area is not connected yet.");
+              Alert.alert(item.label, "This section is not available right now.");
             }}
           />
         ))}
@@ -608,7 +608,7 @@ export default function ProfileScreen({
                 return;
               }
 
-              Alert.alert("Streaks", "This area is not connected yet.");
+              Alert.alert("Streaks", "This section is not available right now.");
             }}
             style={({ pressed }) => [
               styles.viewAllButton,

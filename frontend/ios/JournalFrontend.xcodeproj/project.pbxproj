@@ -259,6 +259,7 @@
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_STYLE = Automatic;
 					CURRENT_PROJECT_VERSION = 1;
 					DEVELOPMENT_TEAM = U5BP5WRA82;
 					ENABLE_BITCODE = NO;
@@ -274,7 +275,7 @@
 						"-ObjC",
 						"-lc++",
 					);
-					PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
+					PRODUCT_BUNDLE_IDENTIFIER = app.journalio;
 					PRODUCT_NAME = JournalFrontend;
 					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 					TARGETED_DEVICE_FAMILY = "1,2";
@@ -290,6 +291,7 @@
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_STYLE = Automatic;
 					CURRENT_PROJECT_VERSION = 1;
 					DEVELOPMENT_TEAM = U5BP5WRA82;
 					INFOPLIST_FILE = JournalFrontend/Info.plist;
@@ -304,7 +306,7 @@
 						"-ObjC",
 						"-lc++",
 					);
-					PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
+					PRODUCT_BUNDLE_IDENTIFIER = app.journalio;
 					PRODUCT_NAME = JournalFrontend;
 					SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 					TARGETED_DEVICE_FAMILY = "1,2";

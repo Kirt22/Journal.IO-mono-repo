@@ -1,7 +1,7 @@
 // src/middleware/validateRequest.middleware.ts
 import { NextFunction, Request, Response } from "express";
 import { ZodObject, ZodError, ZodIssue } from "zod";
-import { apiResponse } from "../helpers/commonHelper.helpers";
+import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
 
 export const validateRequest =
   (schema: ZodObject<any>) =>
@@ -27,7 +27,7 @@ export const validateRequest =
         .json(
           apiResponse(
             false,
-            "Validation failed",
+            API_MESSAGES.validationFailed,
             {},
             { errors: formattedErrors }
           )

@@ -62,6 +62,7 @@ import {
 } from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme, useThemeTransition } from "../theme/provider";
+import { ApiError } from "../utils/apiClient";
 import { getJournalEntries } from "../services/journalService";
 
 type HomeScreenProps = {
@@ -917,7 +918,14 @@ export default function HomeScreen({
         moodStageProgress.setValue(1);
       }
     } catch (error) {
-      console.error("Unable to save mood check-in:", error);
+      if (!(error instanceof ApiError && error.isNetworkError)) {
+        Alert.alert(
+          "Mood check-in",
+          error instanceof Error
+            ? error.message
+            : "Unable to save your mood check-in right now."
+        );
+      }
       resetMoodAnimations();
       setSelectedMood(null);
       setShowMoodResult(false);

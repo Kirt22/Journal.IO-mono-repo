@@ -518,21 +518,21 @@ const generateOpenAiJournalTags = async ({
 
 class PremiumTagSuggestionsRequiredError extends Error {
   constructor() {
-    super("Premium membership is required for AI tag suggestions.");
+    super("AI tag suggestions are available with Premium.");
     this.name = "PremiumTagSuggestionsRequiredError";
   }
 }
 
 class PremiumQuickAnalysisRequiredError extends Error {
   constructor() {
-    super("Premium membership is required for quick analysis.");
+    super("Quick analysis is available with Premium.");
     this.name = "PremiumQuickAnalysisRequiredError";
   }
 }
 
 class QuickAnalysisDisabledError extends Error {
   constructor() {
-    super("Quick analysis is turned off for this account.");
+    super("Quick analysis is turned off for your account.");
     this.name = "QuickAnalysisDisabledError";
   }
 }

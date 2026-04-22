@@ -150,7 +150,6 @@ type AppStoreState = {
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
-  pendingVerificationCode: string;
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
@@ -200,7 +199,6 @@ type AppStoreState = {
   signOut: () => Promise<void>;
   goBackToAuth: () => void;
   goBackToCreateAccount: () => void;
-  goBackFromProfile: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
@@ -232,7 +230,6 @@ type AppStoreSnapshot = Pick<
   | "isCompletingOnboarding"
   | "onboardingData"
   | "pendingEmail"
-  | "pendingVerificationCode"
   | "authSource"
   | "session"
   | "initialProfileName"
@@ -260,7 +257,6 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
     __DEV__ && devLaunchConfig.stage === "profile"
       ? devLaunchConfig.email || "debug@example.com"
       : "",
-  pendingVerificationCode: "",
   authSource: __DEV__ && devLaunchConfig.stage === "profile" ? "email" : null,
   session: null,
   initialProfileName: "",
@@ -397,7 +393,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           initialProfileName: profile.name,
           authSource: profile.email ? "email" : null,
           pendingEmail: profile.email || "",
-          pendingVerificationCode: "",
           paywallReturnStage: null,
           activePaywallPlacementKey: null,
           activePaywallScreenKey: null,
@@ -422,7 +417,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           initialProfileName: "",
           authSource: null,
           pendingEmail: "",
-          pendingVerificationCode: "",
           paywallReturnStage: null,
           activePaywallPlacementKey: null,
           activePaywallScreenKey: null,
@@ -623,7 +617,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       authSource: "google",
       pendingEmail: syncedSession.user.email || "",
-      pendingVerificationCode: "",
       paywallReturnStage: showPaywall ? nextStage : null,
       activePaywallPlacementKey: showPaywall ? "post_auth" : null,
       activePaywallScreenKey: showPaywall ? "auth" : null,
@@ -649,7 +642,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       authSource: "email",
       pendingEmail: normalizedEmail,
-      pendingVerificationCode: "",
     });
 
     const response = await signUpWithEmail({
@@ -661,7 +653,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     set({
       pendingEmail: response.email,
-      pendingVerificationCode: response.verificationCode || "",
     });
   },
   finishCreateAccount: () => {
@@ -674,12 +665,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       throw new Error("Please create an account first.");
     }
 
-    const response = await resendEmailVerification({
+    await resendEmailVerification({
       email: pendingEmail,
-    });
-
-    set({
-      pendingVerificationCode: response.verificationCode || "",
     });
   },
   verifyPendingEmail: async code => {
@@ -814,7 +801,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       isCompletingOnboarding: false,
       onboardingData: null,
       pendingEmail: "",
-      pendingVerificationCode: "",
       authSource: null,
       session: null,
       initialProfileName: "",
@@ -828,11 +814,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   goBackToCreateAccount: () => {
     set({ stage: "create-account" });
-  },
-  goBackFromProfile: () => {
-    set({
-      stage: get().authSource === "google" ? "auth" : "verify-email",
-    });
   },
   skipProfileSetup: async () => {
     const state = get();

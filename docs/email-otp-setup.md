@@ -10,6 +10,7 @@ It covers:
 - how to configure Resend SMTP
 - recommended domain and subdomain naming
 - example values for local and production environments
+- production rollout steps for GoDaddy, Resend, and Render
 - common mistakes to avoid
 
 ## Current backend wiring
@@ -42,7 +43,7 @@ Recommended structure:
 - backend API: `api.journalio.app`
 - Resend sending domain: `mail.journalio.app`
 - OTP sender address: `otp@mail.journalio.app`
-- support reply address: `support@journalio.app`
+- optional reply mailbox: `support@journalio.app`
 
 Why this structure is recommended:
 
@@ -84,7 +85,7 @@ Use these in `backend/.env`:
 AUTH_EMAIL_DELIVERY_MODE=smtp
 AUTH_EMAIL_FROM_ADDRESS=otp@mail.journalio.app
 AUTH_EMAIL_FROM_NAME=Journal.IO
-AUTH_EMAIL_REPLY_TO=support@journalio.app
+AUTH_EMAIL_REPLY_TO=
 AUTH_EMAIL_HELO_HOST=api.journalio.app
 
 RESEND_SMTP_HOST=smtp.resend.com
@@ -161,6 +162,7 @@ Example:
 - `support@journalio.app`
 
 This value is chosen by the app. It should ideally point to a real mailbox.
+For OTP-only sending, it can be left blank until a support inbox exists.
 
 ### `AUTH_EMAIL_HELO_HOST`
 
@@ -264,6 +266,26 @@ This is chosen by the app, not provided by Resend.
 12. Copy the API key immediately.
 13. Place that API key into `RESEND_SMTP_PASSWORD`.
 
+## Production Rollout
+
+The production rollout is env-driven.
+
+Keep local development unchanged:
+
+- keep `AUTH_EMAIL_DELIVERY_MODE=console` locally unless you are intentionally testing SMTP
+- keep `AUTH_EMAIL_HELO_HOST=localhost` locally
+- keep `frontend/.env` on the local backend URL for day-to-day development
+
+Apply production values only in platform-managed configuration:
+
+- GoDaddy DNS for `api.journalio.app`
+- GoDaddy DNS for `mail.journalio.app`
+- Resend domain verification and API key creation
+- Render environment variables for the production backend
+- production mobile build configuration for `API_BASE_URL`
+
+Use the manual rollout checklist in [production-email-otp-rollout.md](/Users/kirtansolanki/Desktop/Journal.IO/docs/production-email-otp-rollout.md).
+
 ## DNS and mailbox naming guidance
 
 Recommended naming:
@@ -272,7 +294,7 @@ Recommended naming:
 - API: `api.journalio.app`
 - mail sending subdomain: `mail.journalio.app`
 - sender email: `otp@mail.journalio.app`
-- reply mailbox: `support@journalio.app`
+- reply mailbox: `support@journalio.app` when a real inbox exists
 
 Recommended reasoning:
 
@@ -291,7 +313,7 @@ Use this if the backend is running on your machine:
 AUTH_EMAIL_DELIVERY_MODE=smtp
 AUTH_EMAIL_FROM_ADDRESS=otp@mail.journalio.app
 AUTH_EMAIL_FROM_NAME=Journal.IO
-AUTH_EMAIL_REPLY_TO=support@journalio.app
+AUTH_EMAIL_REPLY_TO=
 AUTH_EMAIL_HELO_HOST=localhost
 
 RESEND_SMTP_HOST=smtp.resend.com
@@ -310,7 +332,7 @@ Use this if the backend is reachable as `api.journalio.app`:
 AUTH_EMAIL_DELIVERY_MODE=smtp
 AUTH_EMAIL_FROM_ADDRESS=otp@mail.journalio.app
 AUTH_EMAIL_FROM_NAME=Journal.IO
-AUTH_EMAIL_REPLY_TO=support@journalio.app
+AUTH_EMAIL_REPLY_TO=
 AUTH_EMAIL_HELO_HOST=api.journalio.app
 
 RESEND_SMTP_HOST=smtp.resend.com
@@ -349,7 +371,7 @@ Use this as the default production setup unless there is a reason to do otherwis
 AUTH_EMAIL_DELIVERY_MODE=smtp
 AUTH_EMAIL_FROM_ADDRESS=otp@mail.journalio.app
 AUTH_EMAIL_FROM_NAME=Journal.IO
-AUTH_EMAIL_REPLY_TO=support@journalio.app
+AUTH_EMAIL_REPLY_TO=
 AUTH_EMAIL_HELO_HOST=api.journalio.app
 
 RESEND_SMTP_HOST=smtp.resend.com

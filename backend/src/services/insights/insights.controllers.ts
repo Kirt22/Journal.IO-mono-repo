@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { apiResponse } from "../../helpers/commonHelper.helpers";
+import {
+  apiResponse,
+  API_MESSAGES,
+} from "../../helpers/commonHelper.helpers";
 import {
   AiAnalysisDisabledError,
   getInsightsAiAnalysis,
@@ -15,19 +18,19 @@ const getInsightsOverviewController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const overview = await getInsightsOverview(userId);
 
     return res
       .status(200)
-      .json(apiResponse(true, "Insights overview loaded", overview));
+      .json(apiResponse(true, "Your insights overview is ready.", overview));
   } catch (error) {
     console.error("Error in getInsightsOverviewController:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -39,7 +42,7 @@ const getInsightsAiAnalysisController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const timezoneHeader =
@@ -53,7 +56,7 @@ const getInsightsAiAnalysisController = async (
 
     return res
       .status(200)
-      .json(apiResponse(true, "Insights AI analysis loaded", analysis));
+      .json(apiResponse(true, "Your AI analysis is ready.", analysis));
   } catch (error) {
     if (error instanceof PremiumFeatureRequiredError) {
       return res.status(403).json(
@@ -74,7 +77,7 @@ const getInsightsAiAnalysisController = async (
     console.error("Error in getInsightsAiAnalysisController:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 

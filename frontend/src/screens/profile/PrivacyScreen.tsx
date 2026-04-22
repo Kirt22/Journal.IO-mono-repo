@@ -19,6 +19,7 @@ import { trackPaywallEvent } from "../../services/paywallService";
 import { deleteAccount, exportAllEntries } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import { LEGAL_URLS, SUPPORT_EMAIL, openExternalUrl } from "../../utils/legalLinks";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 
 type PrivacyScreenProps = {
@@ -56,6 +57,18 @@ export default function PrivacyScreen({
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleOpenLink = async (
+    url: string,
+    title: string,
+    fallbackMessage: string
+  ) => {
+    try {
+      await openExternalUrl(url);
+    } catch (error) {
+      Alert.alert(title, error instanceof Error ? error.message : fallbackMessage);
+    }
+  };
 
   const handleOpenExportPaywall = () => {
     trackPaywallEvent({
@@ -190,14 +203,17 @@ export default function PrivacyScreen({
         <View style={styles.sectionHeader}>
           <FileText size={18} color={theme.colors.primary} />
           <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-            Privacy Policy
+            Privacy & Terms
           </Text>
         </View>
+        <Text style={[styles.sectionLead, { color: theme.colors.mutedForeground }]}>
+          Review the public legal pages linked from the app store listing and onboarding consent.
+        </Text>
 
         <View style={styles.policyStack}>
           <PolicyItem
             title="Data Collection"
-            body="We collect only the information necessary to provide our services: your phone number, journal entries, and usage analytics. All data is stored securely."
+            body="We collect the account, journal, mood, reminder, and subscription information needed to run Journal.IO and protect the service."
           />
           <PolicyItem
             title="Data Usage"
@@ -205,22 +221,52 @@ export default function PrivacyScreen({
           />
           <PolicyItem
             title="AI Processing"
-            body="When using AI features, your entries are processed securely and temporarily. AI providers do not store or use your data for training."
+            body="When eligible AI features are enabled, only the entry content and recent context needed for that feature are sent to the AI provider."
           />
           <PolicyItem
             title="Data Security"
-            body="We use industry-standard encryption (AES-256) for data at rest and TLS for data in transit. Regular security audits ensure your data stays protected."
+            body="We use encrypted transport, account-level access checks, and secure storage controls designed to keep your writing isolated to your account."
           />
         </View>
 
-        <PrimaryButton
-          label="Read Full Privacy Policy"
-          onPress={() => {
-            Alert.alert("Privacy Policy", "Full policy view is not connected in this build.");
-          }}
-          variant="outline"
-          size="sm"
-        />
+        <View style={styles.legalActions}>
+          <PrimaryButton
+            label="Read Full Privacy Policy"
+            onPress={() =>
+              handleOpenLink(
+                LEGAL_URLS.privacyPolicy,
+                "Privacy Policy",
+                "Unable to open the privacy policy right now."
+              )
+            }
+            variant="outline"
+            size="sm"
+          />
+          <PrimaryButton
+            label="Read Terms of Service"
+            onPress={() =>
+              handleOpenLink(
+                LEGAL_URLS.termsOfService,
+                "Terms of Service",
+                "Unable to open the terms of service right now."
+              )
+            }
+            variant="outline"
+            size="sm"
+          />
+          <PrimaryButton
+            label="Privacy Choices & Deletion"
+            onPress={() =>
+              handleOpenLink(
+                LEGAL_URLS.privacyChoices,
+                "Privacy Choices",
+                "Unable to open the privacy choices page right now."
+              )
+            }
+            variant="outline"
+            size="sm"
+          />
+        </View>
       </SectionCard>
 
       <SectionCard borderColor={theme.colors.destructive}>
@@ -243,7 +289,7 @@ export default function PrivacyScreen({
           onPress={() => {
             Alert.alert(
               "Delete account?",
-              "This will remove your account from the device and end the current session.",
+              "This will permanently remove your account and sign you out.",
               [
                 { text: "Cancel", style: "cancel" },
                 { text: "Delete", style: "destructive", onPress: handleDelete },
@@ -278,7 +324,13 @@ export default function PrivacyScreen({
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => Alert.alert("Support", "Support is not connected in this build.")}
+          onPress={() =>
+            void handleOpenLink(
+              LEGAL_URLS.supportEmail,
+              "Support",
+              `Unable to open your email app right now. Contact ${SUPPORT_EMAIL}.`
+            )
+          }
           style={({ pressed }) => [
             styles.supportButton,
             {
@@ -350,6 +402,9 @@ const styles = StyleSheet.create({
   policyStack: {
     gap: 14,
     marginBottom: 14,
+  },
+  legalActions: {
+    gap: 10,
   },
   policyItem: {
     gap: 4,

@@ -24,6 +24,7 @@ import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
+import { getAuthLayoutMetrics } from "./authLayout";
 
 type CreateAccountScreenProps = {
   onSubmit: (payload: { email: string; password: string }) => Promise<void>;
@@ -62,11 +63,16 @@ export default function CreateAccountScreen({
   const successBannerOpacity = useRef(new Animated.Value(0)).current;
   const successBannerOffset = useRef(new Animated.Value(-24)).current;
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const isCompact = width < 360;
-  const isWide = width >= 430;
-  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 24;
-  const sheetMaxWidth = isWide ? 460 : 420;
+  const {
+    contentPaddingBottom,
+    contentPaddingTop,
+    heroImageSize,
+    heroSubtitleMaxWidth,
+    heroTitleSize,
+    horizontalPadding,
+    isVeryCompact,
+    sheetMaxWidth,
+  } = getAuthLayoutMetrics(width);
   const successExitDelayMs = 1400;
   const isPasswordRuleMet = password.length >= 8;
   const validateForm = () => {
@@ -205,7 +211,11 @@ export default function CreateAccountScreen({
           <ScrollView
             contentContainerStyle={[
               styles.content,
-              { paddingHorizontal: horizontalPadding },
+              {
+                paddingBottom: contentPaddingBottom,
+                paddingHorizontal: horizontalPadding,
+                paddingTop: contentPaddingTop,
+              },
             ]}
             keyboardShouldPersistTaps="handled"
           >
@@ -220,6 +230,10 @@ export default function CreateAccountScreen({
               <AuthHero
                 title="Create your account"
                 subtitle="A gentle place to start your journaling journey."
+                imageSize={heroImageSize}
+                shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
+                subtitleMaxWidth={heroSubtitleMaxWidth}
+                titleSize={heroTitleSize}
               />
 
               <View style={styles.form}>
@@ -648,6 +662,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    flexWrap: "wrap",
     gap: 6,
     marginTop: 18,
   },

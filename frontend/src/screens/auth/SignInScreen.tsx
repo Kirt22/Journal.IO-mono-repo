@@ -16,6 +16,7 @@ import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
+import { getAuthLayoutMetrics } from "./authLayout";
 
 type SignInScreenProps = {
   onSubmit: (payload: { email: string; password: string }) => Promise<void>;
@@ -37,11 +38,16 @@ export default function SignInScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-
-  const isCompact = width < 360;
-  const isWide = width >= 430;
-  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 24;
-  const sheetMaxWidth = isWide ? 460 : 420;
+  const {
+    contentPaddingBottom,
+    contentPaddingTop,
+    heroImageSize,
+    heroSubtitleMaxWidth,
+    heroTitleSize,
+    horizontalPadding,
+    isVeryCompact,
+    sheetMaxWidth,
+  } = getAuthLayoutMetrics(width);
 
   const validateForm = () => {
     const nextErrors: typeof errors = {};
@@ -97,7 +103,14 @@ export default function SignInScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingBottom: contentPaddingBottom,
+              paddingHorizontal: horizontalPadding,
+              paddingTop: contentPaddingTop,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
@@ -111,6 +124,10 @@ export default function SignInScreen({
             <AuthHero
               title="Welcome back"
               subtitle="Sign in to continue your journaling journey."
+              imageSize={heroImageSize}
+              shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
+              subtitleMaxWidth={heroSubtitleMaxWidth}
+              titleSize={heroTitleSize}
             />
 
             <View style={styles.form}>
@@ -309,6 +326,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    flexWrap: "wrap",
     gap: 6,
     marginTop: 4,
   },

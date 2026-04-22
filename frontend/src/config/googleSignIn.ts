@@ -57,7 +57,7 @@ const configureGoogleSignIn = () => {
   }
 
   if (!env.googleWebClientId) {
-    throw new Error("Google sign-in is not configured for this build.");
+    throw new Error("Google sign-in is not available right now.");
   }
 
   GoogleSignin.configure({
@@ -89,9 +89,7 @@ const getGoogleIdToken = async () => {
     const idToken = extractGoogleIdToken(result);
 
     if (!idToken) {
-      throw new Error(
-        "Google sign-in did not return an ID token. Check the OAuth client configuration."
-      );
+      throw new Error("Google sign-in could not be completed right now. Please try again.");
     }
 
     return idToken;

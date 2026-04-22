@@ -23,9 +23,6 @@ function AppContent() {
   );
   const onboardingData = useAppStore(state => state.onboardingData);
   const pendingEmail = useAppStore(state => state.pendingEmail);
-  const pendingVerificationCode = useAppStore(
-    state => state.pendingVerificationCode
-  );
   const authSource = useAppStore(state => state.authSource);
   const session = useAppStore(state => state.session);
   const initialProfileName = useAppStore(state => state.initialProfileName);
@@ -60,7 +57,6 @@ function AppContent() {
     state => state.goBackToCreateAccount
   );
   const completeProfile = useAppStore(state => state.completeProfile);
-  const goBackFromProfile = useAppStore(state => state.goBackFromProfile);
   const skipProfileSetup = useAppStore(state => state.skipProfileSetup);
   const restartFlow = useAppStore(state => state.restartFlow);
   const closeNewEntry = useAppStore(state => state.closeNewEntry);
@@ -75,7 +71,6 @@ function AppContent() {
     isCompletingOnboarding,
     onboardingData,
     pendingEmail,
-    pendingVerificationCode,
     authSource,
     session,
     initialProfileName,
@@ -97,7 +92,6 @@ function AppContent() {
     onBackToAuth: goBackToAuth,
     onBackToCreateAccount: goBackToCreateAccount,
     onProfileComplete: completeProfile,
-    onBackToVerifyEmail: goBackFromProfile,
     onSkipProfile: skipProfileSetup,
     onRestart: restartFlow,
     onCloseNewEntry: closeNewEntry,

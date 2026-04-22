@@ -1961,7 +1961,7 @@ export default function InsightsScreen() {
             ) : (
               <ErrorState
                 title="AI analysis unavailable"
-                message="The latest AI analysis payload was incomplete. Try again once the backend is refreshed."
+                message="The latest AI analysis wasn't ready yet. Please try again in a moment."
                 onRetry={() => {
                   loadAiAnalysis({ force: true }).catch(() => undefined);
                 }}

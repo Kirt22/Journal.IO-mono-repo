@@ -1,5 +1,5 @@
-import express, { Express, Request, Response } from "express";
-import { apiResponse } from "../helpers/commonHelper.helpers";
+import express, { Express } from "express";
+import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
 import authRouter from "../services/auth/auth.routes";
 import insightsRouter from "../services/insights/insights.routes";
 import moodRouter from "../services/mood/mood.routes";
@@ -10,6 +10,7 @@ import remindersRouter from "../services/reminders/reminders.routes";
 import streaksRouter from "../services/streaks/streaks.routes";
 import userRouter from "../services/user/user.routes";
 import paywallRouter from "../services/paywall/paywall.routes";
+import { registerLegalRoutes } from "./legal.routes";
 
 console.log("Initializing routes...");
 
@@ -32,10 +33,7 @@ export const initializeRoutes = (app: Express): void => {
   // **Global API Prefix Setup**
   const apiRouter = express.Router();
 
-  // Default route
-  app.get("/", (req: Request, res: Response) => {
-    res.send("🚀 Hello from TypeScript + Express!");
-  });
+  registerLegalRoutes(app);
 
   // Routes
   apiRouter.use("/auth", authRouter);
@@ -53,7 +51,7 @@ export const initializeRoutes = (app: Express): void => {
   app.use("/api/v1", apiRouter);
 
   // 404 Handler for unknown routes
-  app.use((req: Request, res: Response): void => {
-    res.status(404).json(apiResponse(false, "Route not found", {}));
+  app.use((_req, res) => {
+    res.status(404).json(apiResponse(false, API_MESSAGES.routeNotFound, {}));
   });
 };

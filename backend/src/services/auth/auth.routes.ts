@@ -7,35 +7,22 @@ import {
   refreshController,
   resendEmailVerificationController,
   registerFromGoogleOAuthController,
-  resendOtpController,
   signInWithEmailController,
   signUpWithEmailController,
-  sendOtpController,
   verifyEmailController,
-  verifyOtpController,
 } from "./auth.controllers";
 import {
   googleMobileSignInSchema,
   logoutSchema,
   resendEmailVerificationSchema,
-  resendOtpSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
-  sendOtpSchema,
   verifyEmailSchema,
-  verifyOtpSchema,
 } from "./auth.validators";
 
 const authRouter: Router = Router();
-
-authRouter.post("/send_otp", validateRequest(sendOtpSchema), sendOtpController);
-authRouter.post(
-  "/resend_otp",
-  validateRequest(resendOtpSchema),
-  resendOtpController
-);
 authRouter.post(
   "/sign_up_with_email",
   validateRequest(signUpWithEmailSchema),
@@ -55,11 +42,6 @@ authRouter.post(
   "/sign_in_with_email",
   validateRequest(signInWithEmailSchema),
   signInWithEmailController
-);
-authRouter.post(
-  "/verify_otp",
-  validateRequest(verifyOtpSchema),
-  verifyOtpController
 );
 authRouter.post(
   "/google/mobile",

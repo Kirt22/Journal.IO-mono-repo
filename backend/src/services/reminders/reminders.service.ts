@@ -65,7 +65,7 @@ const createReminderForUser = async (
   const existingReminder = await reminderModel.findOne({ userId, type }).exec();
 
   if (existingReminder) {
-    throw new ReminderConflictError("A reminder of this type already exists");
+    throw new ReminderConflictError("You already have a reminder like this.");
   }
 
   const reminder = await reminderModel.create({
@@ -101,7 +101,7 @@ const updateReminderForUser = async (
     .exec();
 
   if (!reminder) {
-    throw new ReminderNotFoundError("Reminder not found");
+    throw new ReminderNotFoundError("We couldn't find that reminder.");
   }
 
   return toReminderResponse(reminder);
@@ -117,7 +117,7 @@ const deleteReminderForUser = async (
   }).exec();
 
   if (!reminder) {
-    throw new ReminderNotFoundError("Reminder not found");
+    throw new ReminderNotFoundError("We couldn't find that reminder.");
   }
 
   return {

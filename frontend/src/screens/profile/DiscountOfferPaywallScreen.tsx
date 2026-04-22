@@ -49,6 +49,7 @@ import {
   isPurchasesError,
   type PaywallPlan,
 } from "./paywallShared";
+import { getPaywallLayoutMetrics } from "./paywallLayout";
 
 type DiscountOfferPaywallScreenProps = {
   onBack: () => void;
@@ -178,8 +179,12 @@ export default function DiscountOfferPaywallScreen({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 18 : width > 430 ? 28 : 22;
+  const {
+    discountHeroIconSize,
+    discountNewPriceSize,
+    horizontalPadding,
+    isCompact,
+  } = getPaywallLayoutMetrics(width);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const activePaywallScreenKey = useAppStore(state => state.activePaywallScreenKey);
@@ -492,7 +497,7 @@ export default function DiscountOfferPaywallScreen({
         setPlansError(
           nextPlans.some(candidate => candidate.rcPackage)
             ? null
-            : "A live exit-offer yearly package is not available for this offer yet."
+            : "This offer is not available right now."
         );
 
         if (resolvedConfig?.template) {
@@ -650,8 +655,7 @@ export default function DiscountOfferPaywallScreen({
     if (!purchasePackage) {
       Alert.alert(
         "Billing unavailable",
-        plansError ||
-          "A live exit-offer yearly package is not available for this offer yet."
+        plansError || "This offer is not available right now."
       );
       return;
     }
@@ -672,7 +676,7 @@ export default function DiscountOfferPaywallScreen({
       if (!activated) {
         Alert.alert(
           "Purchase completed",
-          "The store completed the purchase, but no active premium entitlement was returned yet."
+          "Your purchase went through, but access has not updated yet. Please check again in a moment."
         );
       } else {
         trackEvent("purchase_success");
@@ -719,7 +723,7 @@ export default function DiscountOfferPaywallScreen({
       if (!premiumAccess) {
         Alert.alert(
           "No purchases found",
-          "The store did not return an active premium entitlement for this account."
+          "We could not find an active premium purchase for this account."
         );
         return;
       }
@@ -742,7 +746,7 @@ export default function DiscountOfferPaywallScreen({
         title="You're Premium"
         subtitle={
           lastPurchaseStore === "TEST_STORE"
-            ? "The test purchase is active. You can continue into Journal.IO."
+            ? "Your premium access is ready. You can continue into Journal.IO."
             : "Your yearly premium access is now active on this account."
         }
         buttonLabel="Continue"
@@ -876,9 +880,11 @@ export default function DiscountOfferPaywallScreen({
                   <Animated.View
                     style={[
                       styles.heroIconWrap,
+                      isCompact ? styles.heroIconWrapCompact : null,
                       {
                         backgroundColor: `${theme.colors.primary}12`,
                         borderColor: `${theme.colors.primary}20`,
+                        height: discountHeroIconSize,
                         transform: [
                           {
                             translateY: iconFloatAnim.interpolate({
@@ -893,6 +899,7 @@ export default function DiscountOfferPaywallScreen({
                             }),
                           },
                         ],
+                        width: discountHeroIconSize,
                       },
                     ]}
                   >
@@ -917,7 +924,11 @@ export default function DiscountOfferPaywallScreen({
                         },
                       ]}
                     />
-                    <Gift size={48} color={theme.colors.primary} strokeWidth={1.6} />
+                    <Gift
+                      size={isCompact ? 42 : 48}
+                      color={theme.colors.primary}
+                      strokeWidth={1.6}
+                    />
                   </Animated.View>
 
                   <Text style={[styles.title, { color: theme.colors.foreground }]}>
@@ -1002,7 +1013,13 @@ export default function DiscountOfferPaywallScreen({
                         {pricing.regularPriceLabel}
                       </Text>
                     ) : null}
-                    <Text style={[styles.newPrice, { color: theme.colors.primary }]}>
+                    <Text
+                      style={[
+                        styles.newPrice,
+                        { color: theme.colors.primary, fontSize: discountNewPriceSize },
+                        isCompact ? styles.newPriceCompact : null,
+                      ]}
+                    >
                       {pricing.discountedPriceLabel ||
                         plan?.durationLabel ||
                         FALLBACK_REGULAR_PRICE}
@@ -1199,6 +1216,9 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     overflow: "visible",
   },
+  heroIconWrapCompact: {
+    borderRadius: 28,
+  },
   heroIconPulse: {
     position: "absolute",
     top: 0,
@@ -1278,6 +1298,10 @@ const styles = StyleSheet.create({
     lineHeight: 56,
     fontWeight: "900",
     letterSpacing: -2,
+  },
+  newPriceCompact: {
+    lineHeight: 50,
+    letterSpacing: -1.4,
   },
   offerCaption: {
     fontSize: 14,

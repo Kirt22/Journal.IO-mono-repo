@@ -25,7 +25,6 @@ type AppFlowRoutesProps = {
   isCompletingOnboarding: boolean;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
-  pendingVerificationCode: string;
   authSource: AuthEntrySource | null;
   session: AuthSession | null;
   initialProfileName: string;
@@ -47,7 +46,6 @@ type AppFlowRoutesProps = {
   onBackToAuth: () => void;
   onBackToCreateAccount: () => void;
   onProfileComplete: (payload: { name: string; avatarColor: string }) => Promise<void>;
-  onBackToVerifyEmail: () => void;
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onCloseNewEntry: () => void;
@@ -59,7 +57,6 @@ export function AppFlowRoutes({
   isCompletingOnboarding,
   onboardingData,
   pendingEmail,
-  pendingVerificationCode,
   authSource,
   session,
   initialProfileName,
@@ -81,7 +78,6 @@ export function AppFlowRoutes({
   onBackToAuth,
   onBackToCreateAccount,
   onProfileComplete,
-  onBackToVerifyEmail,
   onSkipProfile,
   onRestart,
   onCloseNewEntry,
@@ -132,7 +128,6 @@ export function AppFlowRoutes({
       return (
         <VerifyEmailScreen
           email={pendingEmail}
-          debugCode={pendingVerificationCode}
           onVerifyEmail={onVerifyEmail}
           onVerificationSuccess={onVerificationSuccess}
           onResendCode={onResendCode}
@@ -147,7 +142,6 @@ export function AppFlowRoutes({
           onboardingContext={onboardingData}
           initialName={initialProfileName}
           onComplete={onProfileComplete}
-          onBack={onBackToVerifyEmail}
           onSkip={onSkipProfile}
         />
       );

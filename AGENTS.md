@@ -58,6 +58,13 @@ Do not silently change API contracts, schema shapes, naming conventions, or fold
 
 When unclear, prefer the existing repo pattern over inventing a new one.
 
+For deployment, domain, DNS, email-provider, Render, or environment-variable work:
+
+- inspect local code, local env templates, and repo docs first
+- validate the intended wiring locally before checking or changing production systems
+- do not inspect or mutate production services first by default
+- only perform production-level checks or changes after the local pass is complete, or when the user explicitly asks for production work
+
 ---
 
 ## 3) Product Scope

@@ -15,6 +15,7 @@ import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
 import { Path, Svg } from "react-native-svg";
+import { getAuthLayoutMetrics } from "./authLayout";
 
 type AuthChoiceScreenProps = {
   onContinueWithEmail: () => Promise<void>;
@@ -32,11 +33,19 @@ export default function AuthChoiceScreen({
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const isCompact = width < 360;
-  const isWide = width >= 430;
-  const horizontalPadding = isCompact ? 16 : isWide ? 28 : 24;
-  const sheetMaxWidth = isWide ? 460 : 420;
+  const {
+    contentPaddingBottom,
+    contentPaddingTop,
+    heroImageSize,
+    heroSubtitleMaxWidth,
+    heroTitleSize,
+    horizontalPadding,
+    isVeryCompact,
+    sheetMaxWidth,
+  } = getAuthLayoutMetrics(width);
+  const contentJustificationStyle = isVeryCompact
+    ? styles.contentTopAligned
+    : styles.contentCentered;
 
   const handleEmailPress = async () => {
     setIsEmailLoading(true);
@@ -79,13 +88,25 @@ export default function AuthChoiceScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingHorizontal: horizontalPadding }]}
+          contentContainerStyle={[
+            styles.content,
+            contentJustificationStyle,
+            {
+              paddingBottom: contentPaddingBottom,
+              paddingHorizontal: horizontalPadding,
+              paddingTop: contentPaddingTop + 8,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
             <AuthHero
               title="Journal.IO"
               subtitle="Your personal journaling companion."
+              imageSize={heroImageSize}
+              shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
+              subtitleMaxWidth={heroSubtitleMaxWidth}
+              titleSize={heroTitleSize}
             />
 
             <View style={styles.form}>
@@ -182,9 +203,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingVertical: 24,
+    paddingVertical: 20,
     flexGrow: 1,
+  },
+  contentCentered: {
     justifyContent: "center",
+  },
+  contentTopAligned: {
+    justifyContent: "flex-start",
   },
   sheet: {
     width: "100%",
@@ -212,6 +238,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    flexWrap: "wrap",
     gap: 6,
   },
   linkButton: {

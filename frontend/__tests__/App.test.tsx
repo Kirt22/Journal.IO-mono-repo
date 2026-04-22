@@ -5,7 +5,10 @@
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { OnboardingScreen } from "../src/screens/onboarding/OnboardingScreen";
+import {
+  getOnboardingResponsiveMetrics,
+  OnboardingScreen,
+} from "../src/screens/onboarding/OnboardingScreen";
 import { requestAndSyncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
 
 jest.mock("../src/services/reminderNotificationsService", () => ({
@@ -153,4 +156,17 @@ test("requests local reminder setup when progressing past the reminder step", as
 
   expect(requestAndSyncOnboardingReminderPreference).toHaveBeenCalledWith("morning");
   expect(extractText(root!.toJSON())).toContain("AI comfort and explanation");
+});
+
+test("keeps step 4 goal cards in a two-column phone layout on larger iPhones", async () => {
+  const iphoneSe = getOnboardingResponsiveMetrics(320);
+  const iphone16Pro = getOnboardingResponsiveMetrics(402);
+  const iphone16ProMax = getOnboardingResponsiveMetrics(440);
+
+  expect(iphoneSe.goalColumns).toBe(1);
+  expect(iphone16Pro.goalColumns).toBe(2);
+  expect(iphone16ProMax.goalColumns).toBe(2);
+  expect(iphone16Pro.goalCardWidth).toBeCloseTo(175, 0);
+  expect(iphone16ProMax.goalCardWidth).toBeCloseTo(186, 0);
+  expect(iphone16ProMax.goalCardWidth).toBeGreaterThan(iphone16Pro.goalCardWidth);
 });

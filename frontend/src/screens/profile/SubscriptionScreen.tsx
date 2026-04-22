@@ -259,7 +259,7 @@ export default function SubscriptionScreen({
     if (!revenueCatPlanKey) {
       Alert.alert(
         "Restore unavailable",
-        "This membership is missing plan metadata, so restore cannot sync safely right now."
+        "We could not restore this membership right now. Please try again."
       );
       return;
     }
@@ -279,7 +279,7 @@ export default function SubscriptionScreen({
       if (!premiumAccess || !activeEntitlement) {
         Alert.alert(
           "No active purchase found",
-          "RevenueCat did not return an active premium entitlement for this account."
+          "We could not find an active premium purchase for this account."
         );
         return;
       }
@@ -293,7 +293,7 @@ export default function SubscriptionScreen({
       if (!packageMetadata.revenueCatOfferingId || !packageMetadata.revenueCatPackageId) {
         Alert.alert(
           "Restore unavailable",
-          "RevenueCat returned an active entitlement, but the live package metadata could not be matched safely for this plan."
+          "We could not match this membership to your purchase details right now. Please try again."
         );
         return;
       }

@@ -1,5 +1,9 @@
 import { Request, Response } from "express";
-import { apiResponse } from "../../helpers/commonHelper.helpers";
+import {
+  apiResponse,
+  API_MESSAGES,
+  notFoundMessage,
+} from "../../helpers/commonHelper.helpers";
 import {
   createJournal,
   deleteJournal,
@@ -22,15 +26,15 @@ const getJournalsController = async (req: Request, res: Response) => {
     // const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const journals = await getJournals(userId.toString());
 
-    return res.status(200).json(apiResponse(true, "Journals loaded", journals));
+    return res.status(200).json(apiResponse(true, "Your entries are ready.", journals));
   } catch (error) {
     console.error("Error in getJournalsController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -42,7 +46,7 @@ const createJournalController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const { title, content, type, aiPrompt, images, tags } = req.body;
@@ -56,10 +60,10 @@ const createJournalController = async (
       images,
     });
 
-    return res.status(201).json(apiResponse(true, "Journal created", journal));
+    return res.status(201).json(apiResponse(true, "Your entry has been saved.", journal));
   } catch (error) {
     console.error("Error in createJournalController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -73,19 +77,19 @@ const getJournalDetailsController = async (
       typeof req.query.journalId === "string" ? req.query.journalId : "";
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const journal = await getJournalDetails({ userId, journalId });
 
     if (!journal) {
-      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
     }
 
-    return res.status(200).json(apiResponse(true, "Journal loaded", journal));
+    return res.status(200).json(apiResponse(true, "Your entry is ready.", journal));
   } catch (error) {
     console.error("Error in getJournalDetailsController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -97,7 +101,7 @@ const editJournalController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const { journalId, title, content, type, aiPrompt, images, tags, isFavorite } =
@@ -115,13 +119,13 @@ const editJournalController = async (
     });
 
     if (!journal) {
-      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
     }
 
-    return res.status(200).json(apiResponse(true, "Journal updated", journal));
+    return res.status(200).json(apiResponse(true, "Your entry has been updated.", journal));
   } catch (error) {
     console.error("Error in editJournalController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -133,7 +137,7 @@ const toggleJournalFavoriteController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const { journalId, isFavorite } = req.body;
@@ -144,13 +148,13 @@ const toggleJournalFavoriteController = async (
     });
 
     if (!journal) {
-      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
     }
 
-    return res.status(200).json(apiResponse(true, "Journal updated", journal));
+    return res.status(200).json(apiResponse(true, "Your entry has been updated.", journal));
   } catch (error) {
     console.error("Error in toggleJournalFavoriteController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -163,19 +167,19 @@ const deleteJournalController = async (
     const journalId = req.body?.journalId;
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const deleted = await deleteJournal({ userId, journalId });
 
     if (!deleted) {
-      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
     }
 
-    return res.status(200).json(apiResponse(true, "Journal deleted", {}));
+    return res.status(200).json(apiResponse(true, "Your entry has been deleted.", {}));
   } catch (error) {
     console.error("Error in deleteJournalController:", error);
-    res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -187,7 +191,7 @@ const suggestJournalTagsController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const { content, selectedTags, mood } = req.body;
@@ -200,7 +204,7 @@ const suggestJournalTagsController = async (
 
     return res
       .status(200)
-      .json(apiResponse(true, "Journal tag suggestions ready", suggestions));
+      .json(apiResponse(true, "Your tag suggestions are ready.", suggestions));
   } catch (error) {
     if (error instanceof PremiumTagSuggestionsRequiredError) {
       return res.status(403).json(
@@ -211,7 +215,7 @@ const suggestJournalTagsController = async (
     }
 
     console.error("Error in suggestJournalTagsController:", error);
-    return res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    return res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -223,19 +227,19 @@ const getJournalQuickAnalysisController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const { journalId } = req.body;
     const quickAnalysis = await getJournalQuickAnalysis({ userId, journalId });
 
     if (!quickAnalysis) {
-      return res.status(404).json(apiResponse(false, "Journal not found", {}));
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
     }
 
     return res
       .status(200)
-      .json(apiResponse(true, "Journal quick analysis loaded", quickAnalysis));
+      .json(apiResponse(true, "Your quick analysis is ready.", quickAnalysis));
   } catch (error) {
     if (error instanceof PremiumQuickAnalysisRequiredError) {
       return res.status(403).json(
@@ -254,7 +258,7 @@ const getJournalQuickAnalysisController = async (
     }
 
     console.error("Error in getJournalQuickAnalysisController:", error);
-    return res.status(500).json(apiResponse(false, "Internal Server Error", {}));
+    return res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 

@@ -33,7 +33,7 @@ Backend `backend/.env`:
 
 ## iOS
 
-1. In Xcode, open the `JournalFrontend` target and confirm the bundle identifier matches the iOS OAuth client you created.
+1. The current iOS target bundle identifier is `app.journalio`. In Xcode, open the `JournalFrontend` target and confirm the iOS OAuth client in Google Cloud uses that same bundle identifier.
 2. Add the reversed iOS client ID as a URL scheme in the target's `Info` tab.
 3. Run `cd frontend/ios && pod install` after installing dependencies.
 

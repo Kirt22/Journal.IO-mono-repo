@@ -131,7 +131,7 @@ type UpdateAiOptOutResult = {
 
 class PremiumPrivacyModeRequiredError extends Error {
   constructor() {
-    super("Premium membership is required for Privacy Mode.");
+    super("Privacy Mode is available with Premium.");
     this.name = "PremiumPrivacyModeRequiredError";
   }
 }

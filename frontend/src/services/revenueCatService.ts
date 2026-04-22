@@ -582,7 +582,7 @@ async function purchaseRevenueCatPackage(
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
-    throw new Error("RevenueCat is not configured for this platform.");
+    throw new Error("Purchases are not available right now.");
   }
 
   return Purchases.purchasePackage(rcPackage);
@@ -592,7 +592,7 @@ async function restoreRevenueCatPurchases(appUserID?: string | null) {
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
-    throw new Error("RevenueCat is not configured for this platform.");
+    throw new Error("Purchases are not available right now.");
   }
 
   return Purchases.restorePurchases();
@@ -743,9 +743,7 @@ function getRevenueCatConfigurationError() {
     return null;
   }
 
-  return Platform.OS === "ios"
-    ? "Add REVENUECAT_IOS_API_KEY to frontend/.env to enable purchases on iOS."
-    : "Add REVENUECAT_ANDROID_API_KEY to frontend/.env to enable purchases on Android.";
+  return "Purchases are not available right now. Please try again a little later.";
 }
 
 export {

@@ -10,7 +10,6 @@ import {
   View,
 } from "../../infrastructure/reactNative";
 import {
-  ArrowLeft,
   BookHeart,
   Camera,
   Check,
@@ -36,7 +35,6 @@ type SetupProfileScreenProps = {
   onboardingContext: OnboardingCompletionData | null;
   initialName?: string;
   onComplete: (payload: SetupProfilePayload) => Promise<void>;
-  onBack: () => void;
   onSkip: () => Promise<void>;
 };
 
@@ -55,12 +53,13 @@ const avatarColors = [
   "#5E8C61",
 ];
 
+const HERO_TOP_OFFSET = 44;
+
 export default function SetupProfileScreen({
   authEmail,
   authSource,
   initialName = "",
   onComplete,
-  onBack,
   onSkip,
 }: SetupProfileScreenProps) {
   const theme = useTheme();
@@ -182,11 +181,6 @@ export default function SetupProfileScreen({
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-            <Pressable onPress={onBack} style={styles.backLink}>
-              <ArrowLeft color={theme.colors.mutedForeground} size={18} />
-              <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>Back</Text>
-            </Pressable>
-
             <View style={styles.hero}>
               <Text style={[styles.title, { fontSize: titleSize, color: theme.colors.foreground }]}>
                 Set up your profile
@@ -390,19 +384,8 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
-  backLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    marginBottom: 10,
-    paddingVertical: 8,
-  },
-  backText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
   hero: {
+    marginTop: HERO_TOP_OFFSET,
     marginBottom: 30,
   },
   title: {

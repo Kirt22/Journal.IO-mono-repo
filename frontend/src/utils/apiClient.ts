@@ -10,9 +10,10 @@ type DevLaunchConfig = {
 const NETWORK_ALERT_COOLDOWN_MS = 3000;
 const NETWORK_ALERT_TITLE = "Connection issue";
 const NETWORK_ALERT_MESSAGE =
-  "We're having trouble reaching the server. Check your internet connection or make sure the backend is running, then try again.";
+  "We're having trouble connecting right now. Please check your internet connection and try again.";
 
 let lastNetworkAlertAt = 0;
+let hasLoggedBaseUrlResolution = false;
 const isJestRuntime =
   typeof process !== "undefined" && Boolean(process.env.JEST_WORKER_ID);
 
@@ -50,6 +51,15 @@ const getBaseUrl = () => {
   const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
 
   if (envBaseUrl) {
+    if (__DEV__ && !hasLoggedBaseUrlResolution) {
+      hasLoggedBaseUrlResolution = true;
+      console.log("[apiClient] base URL resolved", {
+        source: "env",
+        envApiBaseUrl: env.apiBaseUrl,
+        resolvedBaseUrl: envBaseUrl,
+      });
+    }
+
     return envBaseUrl;
   }
 
@@ -58,20 +68,64 @@ const getBaseUrl = () => {
   );
 
   if (configuredBaseUrl) {
+    if (__DEV__ && !hasLoggedBaseUrlResolution) {
+      hasLoggedBaseUrlResolution = true;
+      console.log("[apiClient] base URL resolved", {
+        source: "devLaunchConfig",
+        envApiBaseUrl: env.apiBaseUrl,
+        configuredApiBaseUrl: configuredBaseUrl,
+        resolvedBaseUrl: configuredBaseUrl,
+      });
+    }
+
     return configuredBaseUrl;
   }
 
   const bundleHost = __DEV__ ? getBundleHost() : null;
 
   if (bundleHost) {
-    return `http://${bundleHost}:3000/api/v1`;
+    const resolvedBaseUrl = `http://${bundleHost}:3000/api/v1`;
+
+    if (__DEV__ && !hasLoggedBaseUrlResolution) {
+      hasLoggedBaseUrlResolution = true;
+      console.log("[apiClient] base URL resolved", {
+        source: "bundleHostFallback",
+        envApiBaseUrl: env.apiBaseUrl,
+        bundleHost,
+        resolvedBaseUrl,
+      });
+    }
+
+    return resolvedBaseUrl;
   }
 
   if (Platform.OS === "android") {
-    return "http://10.0.2.2:3000/api/v1";
+    const resolvedBaseUrl = "http://10.0.2.2:3000/api/v1";
+
+    if (__DEV__ && !hasLoggedBaseUrlResolution) {
+      hasLoggedBaseUrlResolution = true;
+      console.log("[apiClient] base URL resolved", {
+        source: "androidEmulatorFallback",
+        envApiBaseUrl: env.apiBaseUrl,
+        resolvedBaseUrl,
+      });
+    }
+
+    return resolvedBaseUrl;
   }
 
-  return "http://localhost:3000/api/v1";
+  const resolvedBaseUrl = "http://localhost:3000/api/v1";
+
+  if (__DEV__ && !hasLoggedBaseUrlResolution) {
+    hasLoggedBaseUrlResolution = true;
+    console.log("[apiClient] base URL resolved", {
+      source: "iosLocalhostFallback",
+      envApiBaseUrl: env.apiBaseUrl,
+      resolvedBaseUrl,
+    });
+  }
+
+  return resolvedBaseUrl;
 };
 
 type ApiResponse<T> = {
@@ -177,7 +231,7 @@ const request = async <T>(
     showNetworkIssueAlert();
 
     throw new ApiError(
-      "Unable to reach the server. Check your connection and try again.",
+      "We're having trouble connecting right now. Please check your internet connection and try again.",
       {
         isNetworkError: true,
         cause: error,
@@ -214,11 +268,11 @@ const request = async <T>(
   if (!response.ok || !payload?.success) {
     const message =
       response.status === 404
-        ? `Route not found for ${requestUrl}`
+        ? "We couldn't find what you were looking for."
         : payload?.message ||
           (response.status >= 500
-            ? "Server error. Please try again."
-            : "Request failed.");
+            ? "Something went wrong. Please try again."
+            : "We couldn't complete that request.");
 
     throw new ApiError(message, {
       status: response.status,

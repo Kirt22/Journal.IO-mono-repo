@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { apiResponse } from "../../helpers/commonHelper.helpers";
+import {
+  apiResponse,
+  API_MESSAGES,
+} from "../../helpers/commonHelper.helpers";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
@@ -14,7 +17,7 @@ const getPaywallConfigController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const placementKey =
@@ -35,17 +38,17 @@ const getPaywallConfigController = async (
     });
 
     if (!decision) {
-      return res.status(404).json(apiResponse(false, "User not found", {}));
+      return res.status(404).json(apiResponse(false, API_MESSAGES.userNotFound, {}));
     }
 
     return res
       .status(200)
-      .json(apiResponse(true, "Paywall config loaded", decision));
+      .json(apiResponse(true, "Your membership options are ready.", decision));
   } catch (error) {
     console.error("Error in getPaywallConfigController:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -57,19 +60,19 @@ const trackPaywallEventController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const result = await trackPaywallEvent(userId, req.body);
 
     return res
       .status(201)
-      .json(apiResponse(true, "Paywall event tracked", result));
+      .json(apiResponse(true, "Your selection has been saved.", result));
   } catch (error) {
     console.error("Error in trackPaywallEventController:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -81,23 +84,23 @@ const syncPaywallPurchaseController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const profile = await syncPaywallPurchase(userId, req.body);
 
     if (!profile) {
-      return res.status(404).json(apiResponse(false, "User not found", {}));
+      return res.status(404).json(apiResponse(false, API_MESSAGES.userNotFound, {}));
     }
 
     return res
       .status(200)
-      .json(apiResponse(true, "Paywall purchase synced", profile));
+      .json(apiResponse(true, "Your membership has been updated.", profile));
   } catch (error) {
     console.error("Error in syncPaywallPurchaseController:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 

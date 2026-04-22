@@ -46,7 +46,6 @@ type AppFlowRoutesProps = {
   onBackToAuth: () => void;
   onBackToCreateAccount: () => void;
   onProfileComplete: (payload: { name: string; avatarColor: string }) => Promise<void>;
-  onBackToVerifyEmail: () => void;
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onCloseNewEntry: () => void;
@@ -79,7 +78,6 @@ export function AppFlowRoutes({
   onBackToAuth,
   onBackToCreateAccount,
   onProfileComplete,
-  onBackToVerifyEmail,
   onSkipProfile,
   onRestart,
   onCloseNewEntry,
@@ -144,7 +142,6 @@ export function AppFlowRoutes({
           onboardingContext={onboardingData}
           initialName={initialProfileName}
           onComplete={onProfileComplete}
-          onBack={onBackToVerifyEmail}
           onSkip={onSkipProfile}
         />
       );

@@ -592,7 +592,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         setPlansError(
           nextPlans.some(plan => plan.rcPackage)
             ? null
-            : "A live RevenueCat package is not available for this paywall yet."
+            : "This purchase option is not available right now."
         );
 
         if (resolvedConfig?.template) {
@@ -615,7 +615,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         setPlansError(
           error instanceof Error
             ? error.message
-            : "We could not load live billing plans right now."
+            : "We could not load purchase options right now."
         );
       } finally {
         if (isMounted) {
@@ -1004,7 +1004,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     if (!selectedPlan?.rcPackage) {
       Alert.alert(
         "Billing unavailable",
-        plansError || "A live package is not available for the selected plan yet."
+        plansError || "This purchase option is not available right now."
       );
       return;
     }
@@ -1025,7 +1025,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       if (!activated) {
         Alert.alert(
           "Purchase completed",
-          "The store completed the purchase, but no active premium entitlement was returned yet."
+          "Your purchase went through, but access has not updated yet. Please check again in a moment."
         );
       } else {
         trackEvent("purchase_success");
@@ -1062,7 +1062,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       if (!premiumAccess) {
         Alert.alert(
           "No purchases found",
-          "The store did not return an active premium entitlement for this account."
+          "We could not find an active premium purchase for this account."
         );
         return;
       }
@@ -1895,7 +1895,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         title="You're Premium"
         subtitle={
           lastPurchaseStore === "TEST_STORE"
-            ? "The test purchase is active. You can continue into Journal.IO."
+            ? "Your premium access is ready. You can continue into Journal.IO."
             : "Your premium access is now active on this account."
         }
         buttonLabel="Continue"

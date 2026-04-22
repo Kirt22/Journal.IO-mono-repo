@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { apiResponse } from "../../helpers/commonHelper.helpers";
+import {
+  apiResponse,
+  API_MESSAGES,
+} from "../../helpers/commonHelper.helpers";
 import {
   signInWithGoogle,
   invalidateRefreshToken,
@@ -65,7 +68,7 @@ const signUpWithEmailController = async (req: Request, res: Response) => {
 
     return res
       .status(200)
-      .json(apiResponse(true, "Verification code sent", result.challenge));
+      .json(apiResponse(true, "Your verification code is on the way.", result.challenge));
   } catch (error) {
     logAuthRoute("error", "sign_up_with_email", {
       error,
@@ -73,7 +76,7 @@ const signUpWithEmailController = async (req: Request, res: Response) => {
     console.error("Error in signUpWithEmail:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -104,7 +107,7 @@ const resendEmailVerificationController = async (
 
     return res
       .status(200)
-      .json(apiResponse(true, "Verification code resent", result.challenge));
+      .json(apiResponse(true, "A new verification code is on the way.", result.challenge));
   } catch (error) {
     logAuthRoute("error", "resend_email_verification", {
       error,
@@ -112,7 +115,7 @@ const resendEmailVerificationController = async (
     console.error("Error in resendEmailVerification:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -134,7 +137,7 @@ const verifyEmailController = async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(
-      apiResponse(true, "Login successful", {
+      apiResponse(true, "You're signed in.", {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         user: result.user,
@@ -145,7 +148,7 @@ const verifyEmailController = async (req: Request, res: Response) => {
     console.error("Error in verifyEmail:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -167,7 +170,7 @@ const signInWithEmailController = async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(
-      apiResponse(true, "Login successful", {
+      apiResponse(true, "You're signed in.", {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         user: result.user,
@@ -177,7 +180,7 @@ const signInWithEmailController = async (req: Request, res: Response) => {
     console.error("Error in signInWithEmail:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -199,7 +202,7 @@ const googleMobileSignInController = async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(
-      apiResponse(true, "Login successful", {
+      apiResponse(true, "You're signed in.", {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         user: result.user,
@@ -209,7 +212,7 @@ const googleMobileSignInController = async (req: Request, res: Response) => {
     console.error("Error in googleMobileSignIn:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -233,7 +236,7 @@ const registerFromGoogleOAuthController = async (
     }
 
     return res.status(200).json(
-      apiResponse(true, "Login successful", {
+      apiResponse(true, "You're signed in.", {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         user: result.user,
@@ -243,7 +246,7 @@ const registerFromGoogleOAuthController = async (
     console.error("Error in registerFromGoogleOAuth:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -255,17 +258,17 @@ const refreshController = async (req: Request, res: Response) => {
     if (!result) {
       return res
         .status(401)
-        .json(apiResponse(false, "Invalid refresh token", {}));
+        .json(apiResponse(false, API_MESSAGES.sessionExpired, {}));
     }
 
     return res
       .status(200)
-      .json(apiResponse(true, "Token refreshed", result));
+      .json(apiResponse(true, "Your session has been refreshed.", result));
   } catch (error) {
     console.error("Error in refresh:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 
@@ -277,17 +280,17 @@ const logoutController = async (
     const userId = req.user?._id?.toString();
 
     if (!userId) {
-      return res.status(401).json(apiResponse(false, "Unauthorized", {}));
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     await invalidateRefreshToken(userId);
 
-    return res.status(200).json(apiResponse(true, "Logout successful", {}));
+    return res.status(200).json(apiResponse(true, "You're signed out.", {}));
   } catch (error) {
     console.error("Error in logout:", error);
     return res
       .status(500)
-      .json(apiResponse(false, "Internal Server Error", {}));
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
 

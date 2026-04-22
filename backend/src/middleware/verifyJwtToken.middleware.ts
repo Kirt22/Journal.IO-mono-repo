@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { apiResponse } from "../helpers/commonHelper.helpers";
+import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
 import jwt from "jsonwebtoken";
 import { userModel } from "../schema/user.schema";
 
@@ -19,7 +19,7 @@ export const verifyJwtToken = async (
   if (!req.headers.authorization) {
     return res
       .status(401)
-      .json(apiResponse(false, "Unauthorized: No token provided", {}));
+      .json(apiResponse(false, API_MESSAGES.unauthorized, {}));
   }
 
   const jwtSecret = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || "";
@@ -37,7 +37,7 @@ export const verifyJwtToken = async (
     if (!token) {
       return res
         .status(401)
-        .json(apiResponse(false, "Unauthorized: No token provided", {}));
+        .json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const data = jwt.verify(token, jwtSecret) as jwt.JwtPayload;
@@ -46,7 +46,7 @@ export const verifyJwtToken = async (
     if (!userId) {
       return res
         .status(401)
-        .json(apiResponse(false, "Unauthorized: Invalid token", {}));
+        .json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     const existingUser = await userModel.findById(userId);
@@ -54,7 +54,7 @@ export const verifyJwtToken = async (
     if (!existingUser) {
       return res
         .status(401)
-        .json(apiResponse(false, "Unauthorized: User not found", {}));
+        .json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
     req.user = existingUser;
@@ -63,6 +63,6 @@ export const verifyJwtToken = async (
     console.error("JWT verification error:", error);
     return res
       .status(401)
-      .json(apiResponse(false, "Unauthorized: Invalid token", {}));
+      .json(apiResponse(false, API_MESSAGES.unauthorized, {}));
   }
 };

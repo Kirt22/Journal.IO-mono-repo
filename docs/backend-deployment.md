@@ -72,6 +72,17 @@ For the frontend production API switch:
 - inject `API_BASE_URL=https://api.journalio.app/api/v1` only in the production mobile build environment
 - do not replace the local tracked `frontend/.env` value with the production URL
 
+For public legal pages needed by App Store / Play review:
+
+- add `journalio.app` as an additional custom domain on the same Render backend service
+- keep `api.journalio.app` for the mobile API base URL
+- the backend now serves the public legal pages at:
+  - `https://journalio.app/privacy`
+  - `https://journalio.app/terms`
+  - `https://journalio.app/privacy-choices`
+  - `https://journalio.app/account-deletion`
+- if you also use `www.journalio.app`, point it at the same service or redirect it to `journalio.app`
+
 ## Render Deploy Steps
 
 1. Push this repo to GitHub.

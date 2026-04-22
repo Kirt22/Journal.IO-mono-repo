@@ -88,6 +88,7 @@ The onboarding sequence now uses 8 steps:
 8. Privacy and trust:
    - user data control
    - no data selling
+   - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review
    - export/delete controls
    - explicit agreement checkbox
 
@@ -294,6 +295,7 @@ Settings and privacy expectations:
 - locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
 - the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
+- the Privacy screen should open the hosted public legal pages at `journalio.app/privacy`, `journalio.app/terms`, and `journalio.app/privacy-choices` so the app and store listing point to the same sources
 
 ---
 

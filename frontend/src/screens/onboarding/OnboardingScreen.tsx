@@ -31,6 +31,7 @@ import { OnboardingProgressIndicator } from "../../components/OnboardingProgress
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
 import { requestAndSyncOnboardingReminderPreference } from "../../services/reminderNotificationsService";
 import { useTheme } from "../../theme/provider";
+import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 
 const mascotImage = require("../../assets/png/Masscott.png");
 const TOTAL_STEPS = 8;
@@ -254,6 +255,18 @@ export function OnboardingScreen({
   const aiComfortPrimaryBackground = aiComfort ? theme.colors.primary : "transparent";
   const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
   const privacyConsentBackground = agreedToPrivacy ? theme.colors.primary : "transparent";
+
+  const handleOpenLegalDocument = async (
+    url: string,
+    title: string,
+    fallbackMessage: string
+  ) => {
+    try {
+      await openExternalUrl(url);
+    } catch (error) {
+      Alert.alert(title, error instanceof Error ? error.message : fallbackMessage);
+    }
+  };
 
   const canProceed = useMemo(() => {
     if (step === 2) {
@@ -1023,7 +1036,35 @@ export function OnboardingScreen({
             {agreedToPrivacy ? <Check color={theme.colors.primaryForeground} size={12} /> : null}
           </View>
           <Text style={[styles.consentText, { color: theme.colors.foreground }]}>
-            I understand and agree to the privacy policy and terms of service.
+            I understand and agree to the{" "}
+            <Text
+              accessibilityRole="link"
+              onPress={() =>
+                void handleOpenLegalDocument(
+                  LEGAL_URLS.privacyPolicy,
+                  "Privacy Policy",
+                  "Unable to open the privacy policy right now."
+                )
+              }
+              style={[styles.consentLink, { color: theme.colors.primary }]}
+            >
+              privacy policy
+            </Text>{" "}
+            and{" "}
+            <Text
+              accessibilityRole="link"
+              onPress={() =>
+                void handleOpenLegalDocument(
+                  LEGAL_URLS.termsOfService,
+                  "Terms of Service",
+                  "Unable to open the terms of service right now."
+                )
+              }
+              style={[styles.consentLink, { color: theme.colors.primary }]}
+            >
+              terms of service
+            </Text>
+            .
           </Text>
         </Pressable>
       </View>
@@ -1365,6 +1406,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 19,
+  },
+  consentLink: {
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   actionsContainer: {
     alignSelf: "center",

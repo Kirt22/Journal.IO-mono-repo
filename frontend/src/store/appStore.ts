@@ -930,8 +930,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const response = await signInWithApple({
       identityToken: credential.identityToken,
       nonce: credential.nonce,
-      email: credential.email,
-      fullName: credential.fullName,
+      ...(credential.email ? { email: credential.email } : {}),
+      ...(credential.fullName ? { fullName: credential.fullName } : {}),
       ...(onboardingContext ? { onboardingContext } : {}),
       onboardingCompleted: true,
     });

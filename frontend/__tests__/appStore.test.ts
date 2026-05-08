@@ -1026,6 +1026,73 @@ describe("appStore", () => {
     expect(freshStore.getState().paywallReturnStage).toBe("profile");
   });
 
+  it("continues with Apple without sending null profile fields", async () => {
+    jest.resetModules();
+
+    const getAppleSignInCredential = jest.fn(async () => ({
+      identityToken: "apple-identity-token",
+      nonce: "raw-apple-nonce-value",
+      email: null,
+      fullName: null,
+    }));
+    const signInWithApple = jest.fn(async () => ({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        userId: "user-123",
+        name: "Journal User",
+        phoneNumber: null,
+        email: null,
+        journalingGoals: [],
+        avatarColor: null,
+        profileSetupCompleted: false,
+        onboardingCompleted: true,
+        profilePic: null,
+        aiOptIn: false,
+        isPremium: true,
+      },
+    }));
+
+    jest.doMock("../src/config/appleSignIn", () => ({
+      getAppleSignInCredential,
+    }));
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithApple,
+      signInWithEmail: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().continueWithApple();
+    });
+
+    expect(signInWithApple).toHaveBeenCalledWith({
+      identityToken: "apple-identity-token",
+      nonce: "raw-apple-nonce-value",
+      onboardingCompleted: true,
+    });
+  });
+
   it("signs out through the backend and clears the local session state", async () => {
     jest.resetModules();
 

@@ -13,6 +13,8 @@ import {
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import PaywallScreen from "../screens/profile/PaywallScreen";
+import HostedRevenueCatPaywallScreen from "../screens/profile/HostedRevenueCatPaywallScreen";
+import SpinWheelScreen from "../screens/profile/SpinWheelScreen";
 import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
 import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
@@ -34,6 +36,7 @@ type AppFlowRoutesProps = {
   onContinueFromDiscountOffer: () => void;
   onContinueFromLifetimeOffer: () => void;
   onContinueWithEmail: () => Promise<void>;
+  onContinueWithApple: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
   onGoToCreateAccount: () => void;
@@ -66,6 +69,7 @@ export function AppFlowRoutes({
   onContinueFromDiscountOffer,
   onContinueFromLifetimeOffer,
   onContinueWithEmail,
+  onContinueWithApple,
   onContinueWithGoogle,
   onGoToSignIn,
   onGoToCreateAccount,
@@ -97,12 +101,17 @@ export function AppFlowRoutes({
       return (
         <AuthChoiceScreen
           onContinueWithEmail={onContinueWithEmail}
+          onContinueWithApple={onContinueWithApple}
           onContinueWithGoogle={onContinueWithGoogle}
           onGoToSignIn={onGoToSignIn}
         />
       );
     case "paywall":
       return <PaywallScreen onBack={onContinueFromPaywall} />;
+    case "hosted-paywall":
+      return <HostedRevenueCatPaywallScreen />;
+    case "spin-wheel":
+      return <SpinWheelScreen />;
     case "discount-offer":
       return <DiscountOfferPaywallScreen onBack={onContinueFromDiscountOffer} />;
     case "lifetime-offer":

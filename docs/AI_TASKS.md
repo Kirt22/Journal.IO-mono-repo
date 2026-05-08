@@ -92,6 +92,10 @@ Includes:
 - purchase-state loading / error handling
 - follow-up billing integration planning where needed
 
+Current follow-up note:
+
+- RevenueCat now owns the hosted post-auth main and exit-offer paywall UI, so revisit whether Mongo-backed paywall templates, offering config, and `/paywall/events` should remain authoritative for analytics/fallbacks only, be reduced to backend purchase-sync attribution, or be retired for hosted-only surfaces.
+
 ---
 
 # 5) Home Dashboard Slice

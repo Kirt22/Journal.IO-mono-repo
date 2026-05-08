@@ -24,9 +24,41 @@ jest.mock(
     REVENUECAT_IOS_API_KEY: "",
     REVENUECAT_ANDROID_API_KEY: "",
     REVENUECAT_ENTITLEMENT_ID: "premium",
+    REVENUECAT_MAIN_PAYWALL_OFFERING_ID: "",
+    REVENUECAT_EXIT_PAYWALL_OFFERING_ID: "",
+    REVENUECAT_OTHER_SCREENS_OFFERING_ID: "",
+    REVENUECAT_LIFETIME_OFFERING_ID: "",
   }),
   { virtual: true }
 );
+
+jest.mock(
+  "react-native-purchases-ui",
+  () => {
+    const PAYWALL_RESULT = {
+      NOT_PRESENTED: "NOT_PRESENTED",
+      ERROR: "ERROR",
+      CANCELLED: "CANCELLED",
+      PURCHASED: "PURCHASED",
+      RESTORED: "RESTORED",
+    };
+
+    return {
+      __esModule: true,
+      PAYWALL_RESULT,
+      default: {
+        Paywall: jest.fn(() => null),
+        presentPaywall: jest.fn(async () => PAYWALL_RESULT.CANCELLED),
+      },
+    };
+  },
+  { virtual: true }
+);
+
+jest.mock("react-native-webview", () => ({
+  __esModule: true,
+  default: jest.fn(() => null),
+}));
 
 jest.mock("react-native-purchases", () => {
   const mockModule = {
@@ -92,3 +124,43 @@ jest.mock("@react-native-google-signin/google-signin", () => ({
     PLAY_SERVICES_NOT_AVAILABLE: "PLAY_SERVICES_NOT_AVAILABLE",
   },
 }));
+
+jest.mock("@invertase/react-native-apple-authentication", () => {
+  const appleAuth = {
+    Error: {
+      CANCELED: "1001",
+    },
+    Operation: {
+      LOGIN: "LOGIN",
+    },
+    Scope: {
+      EMAIL: "EMAIL",
+      FULL_NAME: "FULL_NAME",
+    },
+    isSupported: true,
+    performRequest: jest.fn(async () => ({
+      identityToken: "mock-apple-identity-token",
+      email: "alex@example.com",
+      fullName: {
+        givenName: "Alex",
+        familyName: "Appleseed",
+        nickname: null,
+      },
+    })),
+  };
+
+  const AppleButton = Object.assign(jest.fn(() => null), {
+    Style: {
+      BLACK: "BLACK",
+    },
+    Type: {
+      CONTINUE: "CONTINUE",
+    },
+  });
+
+  return {
+    __esModule: true,
+    default: appleAuth,
+    AppleButton,
+  };
+});

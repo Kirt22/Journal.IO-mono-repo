@@ -65,3 +65,26 @@ test("does not render a back action on post-auth profile setup", async () => {
   expect(treeText).toContain("Set up your profile");
   expect(treeText).not.toContain("Back");
 });
+
+test("shows Apple as the connected auth provider", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SetupProfileScreen
+          authEmail="alex@example.com"
+          authSource="apple"
+          onboardingContext={null}
+          initialName="Alex"
+          onComplete={jest.fn(async () => undefined)}
+          onSkip={jest.fn(async () => undefined)}
+        />
+      </SafeAreaProvider>
+    );
+  });
+
+  const treeText = extractText(root!.toJSON());
+
+  expect(treeText).toContain("Apple connected");
+});

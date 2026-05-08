@@ -11,10 +11,10 @@ import { resetAppStore, useAppStore } from "../src/store/appStore";
 
 jest.mock("../src/utils/legalLinks", () => ({
   LEGAL_URLS: {
-    privacyPolicy: "https://journalio.app/privacy",
-    termsOfService: "https://journalio.app/terms",
-    privacyChoices: "https://journalio.app/privacy-choices",
-    accountDeletion: "https://journalio.app/account-deletion",
+    privacyPolicy: "https://api.journalio.app/privacy",
+    termsOfService: "https://api.journalio.app/terms",
+    privacyChoices: "https://api.journalio.app/privacy-choices",
+    accountDeletion: "https://api.journalio.app/account-deletion",
     supportEmail: "mailto:support@journalio.app",
   },
   SUPPORT_EMAIL: "support@journalio.app",
@@ -132,9 +132,21 @@ test("opens hosted legal pages from the privacy screen", async () => {
     await findPressableByLabel(root!, "Privacy Choices & Deletion").props.onPress();
   });
 
-  expect(openExternalUrl).toHaveBeenNthCalledWith(1, LEGAL_URLS.privacyPolicy);
-  expect(openExternalUrl).toHaveBeenNthCalledWith(2, LEGAL_URLS.termsOfService);
-  expect(openExternalUrl).toHaveBeenNthCalledWith(3, LEGAL_URLS.privacyChoices);
+  expect(openExternalUrl).toHaveBeenNthCalledWith(
+    1,
+    LEGAL_URLS.privacyPolicy,
+    "Privacy Policy"
+  );
+  expect(openExternalUrl).toHaveBeenNthCalledWith(
+    2,
+    LEGAL_URLS.termsOfService,
+    "Terms of Service"
+  );
+  expect(openExternalUrl).toHaveBeenNthCalledWith(
+    3,
+    LEGAL_URLS.privacyChoices,
+    "Privacy Choices"
+  );
 });
 
 test("opens the support mail link from the privacy screen", async () => {
@@ -156,5 +168,8 @@ test("opens the support mail link from the privacy screen", async () => {
     await findPressableByLabel(root!, "Contact Support").props.onPress();
   });
 
-  expect(openExternalUrl).toHaveBeenCalledWith(LEGAL_URLS.supportEmail);
+  expect(openExternalUrl).toHaveBeenCalledWith(
+    LEGAL_URLS.supportEmail,
+    "Support"
+  );
 });

@@ -6,7 +6,6 @@ import React from "react";
 import ReactTestRenderer from "react-test-renderer";
 import { Switch } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import PrimaryButton from "../src/components/PrimaryButton";
 import RemindersScreen from "../src/screens/reminders/RemindersScreen";
 import {
   createReminder,

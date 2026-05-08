@@ -38,7 +38,13 @@ import {
 const mockNotifee = require("@notifee/react-native").default;
 
 beforeEach(() => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date("2026-04-16T09:30:00.000Z"));
   jest.clearAllMocks();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 test("schedules the free-trial ending reminder five days after activation", async () => {

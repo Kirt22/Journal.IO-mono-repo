@@ -475,7 +475,10 @@ export default function DiscountOfferPaywallScreen({
         const annualPackages = getRevenueCatPackagesForPlanKey(offerings, "annual");
         const livePlans = getRevenueCatPaywallPlans(
           offerings,
-          resolvedConfig?.offerings
+          resolvedConfig?.offerings,
+          {
+            placementKey: EXIT_PLACEMENT_KEY,
+          }
         );
         const nextPlans = buildPaywallPlans(livePlans, resolvedConfig).filter(
           candidate =>

@@ -55,7 +55,6 @@ const getBaseUrl = () => {
       hasLoggedBaseUrlResolution = true;
       console.log("[apiClient] base URL resolved", {
         source: "env",
-        envApiBaseUrl: env.apiBaseUrl,
         resolvedBaseUrl: envBaseUrl,
       });
     }
@@ -72,8 +71,6 @@ const getBaseUrl = () => {
       hasLoggedBaseUrlResolution = true;
       console.log("[apiClient] base URL resolved", {
         source: "devLaunchConfig",
-        envApiBaseUrl: env.apiBaseUrl,
-        configuredApiBaseUrl: configuredBaseUrl,
         resolvedBaseUrl: configuredBaseUrl,
       });
     }
@@ -90,8 +87,6 @@ const getBaseUrl = () => {
       hasLoggedBaseUrlResolution = true;
       console.log("[apiClient] base URL resolved", {
         source: "bundleHostFallback",
-        envApiBaseUrl: env.apiBaseUrl,
-        bundleHost,
         resolvedBaseUrl,
       });
     }
@@ -106,7 +101,6 @@ const getBaseUrl = () => {
       hasLoggedBaseUrlResolution = true;
       console.log("[apiClient] base URL resolved", {
         source: "androidEmulatorFallback",
-        envApiBaseUrl: env.apiBaseUrl,
         resolvedBaseUrl,
       });
     }
@@ -120,7 +114,6 @@ const getBaseUrl = () => {
     hasLoggedBaseUrlResolution = true;
     console.log("[apiClient] base URL resolved", {
       source: "iosLocalhostFallback",
-      envApiBaseUrl: env.apiBaseUrl,
       resolvedBaseUrl,
     });
   }
@@ -180,7 +173,6 @@ const request = async <T>(
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> => {
   const headers = new Headers(options.headers);
-  const method = options.method || "GET";
 
   if (!headers.has("Authorization")) {
     const accessToken = await getAccessToken();
@@ -207,8 +199,7 @@ const request = async <T>(
   if (__DEV__) {
     console.log("[apiClient] request start", {
       requestUrl,
-      method,
-      hasBody: Boolean(options.body),
+      method: options.method || "GET",
     });
   }
 
@@ -220,14 +211,6 @@ const request = async <T>(
       headers,
     });
   } catch (error) {
-    if (__DEV__) {
-      console.log("[apiClient] request failed before response", {
-        requestUrl,
-        method,
-        error,
-      });
-    }
-
     showNetworkIssueAlert();
 
     throw new ApiError(
@@ -240,29 +223,12 @@ const request = async <T>(
     );
   }
 
-  if (__DEV__) {
-    console.log("[apiClient] response received", {
-      requestUrl,
-      method,
-      status: response.status,
-      ok: response.ok,
-    });
-  }
-
   let payload: ApiResponse<T> | null = null;
 
   try {
     payload = (await response.json()) as ApiResponse<T>;
   } catch {
     payload = null;
-  }
-
-  if (__DEV__) {
-    console.log("[apiClient] response payload", {
-      requestUrl,
-      method,
-      payload,
-    });
   }
 
   if (!response.ok || !payload?.success) {

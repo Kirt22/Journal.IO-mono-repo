@@ -937,19 +937,7 @@ export default function HomeScreen({
   const handleSaveNote = async () => {
     const trimmedNote = note.trim();
 
-    if (__DEV__) {
-      console.log("[HomeScreen] Quick thought save tapped", {
-        contentLength: trimmedNote.length,
-        selectedTags,
-      });
-    }
-
     if (!trimmedNote || isSavingQuickThought) {
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought save blocked", {
-          reason: !trimmedNote ? "empty-content" : "already-saving",
-        });
-      }
       return;
     }
 
@@ -960,12 +948,6 @@ export default function HomeScreen({
         entry.createdAt.slice(0, 10) === new Date().toISOString().slice(0, 10)
       );
     });
-
-    if (__DEV__) {
-      console.log("[HomeScreen] Quick thought saving state set", {
-        isSavingQuickThought: true,
-      });
-    }
 
     const optimisticEntry = {
       _id: `quick-thought-${Date.now()}`,
@@ -979,16 +961,6 @@ export default function HomeScreen({
     };
 
     try {
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought payload prepared", {
-          title: optimisticEntry.title,
-          contentLength: optimisticEntry.content.length,
-          type: optimisticEntry.type,
-          tags: optimisticEntry.tags,
-        });
-        console.log("[HomeScreen] Quick thought request start");
-      }
-
       const savedEntry = await createJournalEntry({
         title: optimisticEntry.title,
         content: optimisticEntry.content,
@@ -996,51 +968,19 @@ export default function HomeScreen({
         tags: optimisticEntry.tags,
       });
 
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought request succeeded", {
-          journalId: savedEntry._id,
-          title: savedEntry.title,
-          type: savedEntry.type,
-          tags: savedEntry.tags,
-        });
-      }
-
       addRecentJournalEntry(savedEntry);
 
       if (!hadEntryTodayBeforeSave) {
         setCurrentStreak(previous => previous + 1);
       }
 
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought stored locally", {
-          journalId: savedEntry._id,
-        });
-      }
-
       setNote("");
       setSelectedTags([]);
       setIsNoteExpanded(false);
-
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought UI cleaned up");
-        console.log("[HomeScreen] Quick thought save flow completed", {
-          activeTab: "home",
-          isNoteExpanded: false,
-        });
-      }
     } catch (error) {
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought request failed", error);
-      }
       console.error("Unable to save quick thought:", error);
     } finally {
       setIsSavingQuickThought(false);
-
-      if (__DEV__) {
-        console.log("[HomeScreen] Quick thought save flow finished", {
-          isSavingQuickThought: false,
-        });
-      }
     }
   };
 
@@ -1446,12 +1386,7 @@ export default function HomeScreen({
               {isLoadingMoodStatus ? (
                 <View
                   accessibilityLabel="Loading mood check-in"
-                  style={[
-                    styles.moodLoadingCard,
-                    {
-                      minHeight: 144,
-                    },
-                  ]}
+                  style={styles.moodLoadingCard}
                 >
                   <Text
                     style={[
@@ -2490,6 +2425,7 @@ const styles = StyleSheet.create({
   },
   moodLoadingCard: {
     justifyContent: "center",
+    minHeight: 144,
   },
   quickNoteCard: {
     padding: 0,

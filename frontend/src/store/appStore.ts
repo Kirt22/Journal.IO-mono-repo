@@ -6,6 +6,7 @@ import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingS
 import {
   resendEmailVerification,
   logout,
+  signInWithApple,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
@@ -13,6 +14,7 @@ import {
   type AuthOnboardingContext,
   type AuthSession,
 } from "../services/authService";
+import { getAppleSignInCredential } from "../config/appleSignIn";
 import { getGoogleIdToken } from "../config/googleSignIn";
 import { getProfile, updatePremiumStatus, updateProfile } from "../services/userService";
 import {
@@ -37,6 +39,13 @@ import {
 } from "../utils/appStorage";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
 import {
+  goBackOrFallback,
+  navigateMainApp,
+  navigateRoot,
+  replaceMainApp,
+  resetRoot,
+} from "../navigation/navigation";
+import {
   createInitialJournalSliceState,
   createJournalSlice,
   type JournalSliceState,
@@ -52,6 +61,8 @@ const wait = (ms: number) =>
 const isFlowStage = (value: string): value is FlowStage =>
   value === "onboarding" ||
   value === "paywall" ||
+  value === "hosted-paywall" ||
+  value === "spin-wheel" ||
   value === "discount-offer" ||
   value === "lifetime-offer" ||
   value === "auth" ||
@@ -144,6 +155,8 @@ type AppStoreState = {
   activePaywallPlacementKey: string | null;
   activePaywallScreenKey: string | null;
   activePaywallTriggerMode: PaywallTriggerMode;
+  activeHostedPaywallTarget: HostedPaywallTarget | null;
+  postAuthPaywallStepOverride: PostAuthPaywallStep | null;
   pendingPostAuthDiscountOffer: boolean;
   activeTab: BottomNavKey;
   preferredInsightsTab: "overview" | "analysis" | null;
@@ -159,12 +172,24 @@ type AppStoreState = {
   pendingPremiumActivation: boolean;
   hasBootstrappedAuthGate: boolean;
   hideJournalPreviews: boolean;
+  legalBrowserUrl: string | null;
+  legalBrowserTitle: string | null;
 } & JournalSliceState & {
   bootstrapAuthGate: () => Promise<void>;
   completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
   continueFromPaywall: (reason?: "dismiss" | "continue") => void;
+  openHostedPaywall: (target: HostedPaywallTarget) => void;
+  continueFromHostedPaywall: (reason?: "dismiss" | "continue") => void;
+  fallbackFromHostedPaywall: () => void;
+  continueFromSpinWheel: () => void;
+  fallbackFromSpinWheel: () => void;
   continueFromDiscountOffer: () => void;
   continueFromLifetimeOffer: () => void;
+  openLifetimeOffer: (options?: {
+    returnStage?: FlowStage;
+    screenKey?: string | null;
+    triggerMode?: PaywallTriggerMode;
+  }) => void;
   openPaywall: (returnStage?: FlowStage) => void;
   openPaywallForPlacement: (options: {
     placementKey: string;
@@ -180,6 +205,7 @@ type AppStoreState = {
   }) => void;
   clearPaywallContext: () => void;
   continueWithEmail: () => Promise<void>;
+  continueWithApple: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
   goToCreateAccount: () => void;
@@ -201,6 +227,7 @@ type AppStoreState = {
   goBackToCreateAccount: () => void;
   skipProfileSetup: () => Promise<void>;
   restartFlow: () => void;
+  setActiveTabState: (nextTab: BottomNavKey) => void;
   setActiveTab: (nextTab: BottomNavKey) => void;
   openInsightsTab: (nextTab?: "overview" | "analysis") => void;
   clearPreferredInsightsTab: () => void;
@@ -212,6 +239,8 @@ type AppStoreState = {
   closeJournalEditor: () => void;
   setThemeModeOverride: (nextMode: ThemeMode | null) => void;
   setHideJournalPreviews: (nextValue: boolean) => Promise<void>;
+  openLegalBrowser: (payload: { url: string; title?: string | null }) => void;
+  closeLegalBrowser: () => void;
   setSessionAiOptIn: (nextValue: boolean) => void;
   setSessionPremiumStatus: (nextValue: boolean) => Promise<void>;
   setSessionUserProfile: (nextProfile: AuthSession["user"]) => void;
@@ -224,6 +253,8 @@ type AppStoreSnapshot = Pick<
   | "activePaywallPlacementKey"
   | "activePaywallScreenKey"
   | "activePaywallTriggerMode"
+  | "activeHostedPaywallTarget"
+  | "postAuthPaywallStepOverride"
   | "pendingPostAuthDiscountOffer"
   | "activeTab"
   | "preferredInsightsTab"
@@ -239,6 +270,8 @@ type AppStoreSnapshot = Pick<
   | "pendingPremiumActivation"
   | "hasBootstrappedAuthGate"
   | "hideJournalPreviews"
+  | "legalBrowserUrl"
+  | "legalBrowserTitle"
   | "recentJournalEntries"
 >;
 
@@ -248,6 +281,8 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   activePaywallPlacementKey: null,
   activePaywallScreenKey: null,
   activePaywallTriggerMode: "contextual",
+  activeHostedPaywallTarget: null,
+  postAuthPaywallStepOverride: null,
   pendingPostAuthDiscountOffer: false,
   activeTab: getInitialTab(),
   preferredInsightsTab: null,
@@ -266,6 +301,8 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   pendingPremiumActivation: false,
   hasBootstrappedAuthGate: false,
   hideJournalPreviews: false,
+  legalBrowserUrl: null,
+  legalBrowserTitle: null,
   ...createInitialJournalSliceState(),
 });
 
@@ -286,6 +323,10 @@ const enterHomeWithProfile = (
     initialProfileName: updatedProfile.name,
     activeTab: "home",
     stage: "main-app",
+  });
+
+  resetRoot("MainApp", {
+    screen: "Home",
   });
 };
 
@@ -334,10 +375,108 @@ const resolvePaywallExitStage = (
   return getPostAuthDestinationStage(state.session);
 };
 
+const navigateToResolvedStage = (
+  state: Pick<
+    AppStoreState,
+    "session" | "paywallReturnStage" | "activeTab" | "stage" | "setActiveTabState"
+  >
+) => {
+  const nextStage = resolvePaywallExitStage(state);
+
+  switch (nextStage) {
+    case "onboarding":
+      resetToOnboarding();
+      return;
+    case "auth":
+      resetToAuthChoice();
+      return;
+    case "sign-in":
+      resetRoot("SignIn");
+      return;
+    case "create-account":
+      resetRoot("CreateAccount");
+      return;
+    case "verify-email":
+      resetRoot("VerifyEmail");
+      return;
+    case "profile":
+      resetToProfileSetup();
+      return;
+    case "new-entry":
+      resetRoot("MainApp", {
+        screen: "NewEntry",
+      });
+      return;
+    case "journal-detail":
+      resetRoot("MainApp", {
+        screen: "EntryDetail",
+      });
+      return;
+    case "journal-edit":
+      resetRoot("MainApp", {
+        screen: "EditEntry",
+      });
+      return;
+    case "complete":
+      resetRoot("Complete");
+      return;
+    case "main-app":
+    default:
+      resetToMainApp(state.setActiveTabState, state.activeTab);
+  }
+};
+
 type PaywallExitStage = Exclude<
   FlowStage,
-  "paywall" | "discount-offer" | "lifetime-offer"
+  "paywall" | "hosted-paywall" | "spin-wheel" | "discount-offer" | "lifetime-offer"
 >;
+
+type HostedPaywallTarget = "main" | "exit";
+type PostAuthPaywallStep = "trial" | "reminder" | "purchase";
+
+const shouldUseHostedPaywallForPlacement = (placementKey: string) =>
+  placementKey !== "profile_upgrade_banner" &&
+  placementKey !== "post_auth" &&
+  placementKey !== "post_auth_exit_offer";
+
+const getMainAppRouteForTab = (tab: BottomNavKey) => {
+  switch (tab) {
+    case "calendar":
+      return "Calendar";
+    case "insights":
+      return "Insights";
+    case "profile":
+      return "Profile";
+    case "home":
+    default:
+      return "Home";
+  }
+};
+
+const resetToMainApp = (
+  setActiveTabState: AppStoreState["setActiveTabState"],
+  tab: BottomNavKey = "home"
+) => {
+  const nextRoute = getMainAppRouteForTab(tab);
+
+  resetRoot("MainApp", {
+    screen: nextRoute,
+  });
+
+  setActiveTabState(tab);
+};
+
+const resetToAuthChoice = () => {
+  resetRoot("AuthChoice");
+};
+
+const resetToOnboarding = () => {
+  resetRoot("Onboarding");
+};
+
+const resetToProfileSetup = () => {
+  resetRoot("SetupProfile");
+};
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
@@ -386,6 +525,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         };
 
         await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
+        await savePostAuthPaywallSeen(true);
 
         set({
           hasBootstrappedAuthGate: true,
@@ -397,6 +537,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           activePaywallPlacementKey: null,
           activePaywallScreenKey: null,
           activePaywallTriggerMode: "contextual",
+          activeHostedPaywallTarget: null,
+          postAuthPaywallStepOverride: null,
           pendingPostAuthDiscountOffer: false,
           preferredInsightsTab: null,
           pendingPremiumActivation: false,
@@ -421,6 +563,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           activePaywallPlacementKey: null,
           activePaywallScreenKey: null,
           activePaywallTriggerMode: "contextual",
+          activeHostedPaywallTarget: null,
+          postAuthPaywallStepOverride: null,
           pendingPostAuthDiscountOffer: false,
           preferredInsightsTab: null,
           activeTab: "home",
@@ -460,22 +604,29 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: null,
       activePaywallScreenKey: null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
       stage: "auth",
     });
+
+    resetToAuthChoice();
   },
   continueFromPaywall: (reason = "continue") => {
-    set(state => {
-      const shouldOpenDiscountOffer =
-        reason === "dismiss" &&
-        state.activePaywallPlacementKey === "post_auth" &&
-        state.pendingPostAuthDiscountOffer;
+    const state = get();
+    const shouldOpenDiscountOffer =
+      reason === "dismiss" &&
+      state.activePaywallPlacementKey === "post_auth" &&
+      state.pendingPostAuthDiscountOffer;
 
+    set(currentState => {
       if (shouldOpenDiscountOffer) {
         return {
           activePaywallPlacementKey: "post_auth_exit_offer",
-          activePaywallScreenKey: state.activePaywallScreenKey,
+          activePaywallScreenKey: currentState.activePaywallScreenKey,
           activePaywallTriggerMode: "contextual",
+          activeHostedPaywallTarget: null,
+          postAuthPaywallStepOverride: null,
           pendingPostAuthDiscountOffer: false,
           stage: "discount-offer" as FlowStage,
         };
@@ -486,35 +637,162 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         activePaywallPlacementKey: null,
         activePaywallScreenKey: null,
         activePaywallTriggerMode: "contextual",
+        activeHostedPaywallTarget: null,
+        postAuthPaywallStepOverride: null,
         pendingPostAuthDiscountOffer: false,
-        stage: resolvePaywallExitStage(state),
+        stage: resolvePaywallExitStage(currentState),
       };
     });
+
+    if (shouldOpenDiscountOffer) {
+      resetRoot("DiscountOffer");
+      return;
+    }
+
+    navigateToResolvedStage({
+      ...state,
+      setActiveTabState: get().setActiveTabState,
+    });
+  },
+  openHostedPaywall: target => {
+    set({
+      activeHostedPaywallTarget: target,
+      stage: "hosted-paywall",
+    });
+
+    resetRoot("HostedPaywall");
+  },
+  continueFromHostedPaywall: (reason = "continue") => {
+    const state = get();
+    const shouldOpenSpinWheel =
+      reason === "dismiss" &&
+      state.activeHostedPaywallTarget === "main" &&
+      state.activePaywallPlacementKey === "post_auth" &&
+      state.pendingPostAuthDiscountOffer;
+
+    set(currentState => {
+      if (shouldOpenSpinWheel) {
+        return {
+          activeHostedPaywallTarget: null,
+          postAuthPaywallStepOverride: null,
+          pendingPostAuthDiscountOffer: false,
+          stage: "spin-wheel" as FlowStage,
+        };
+      }
+
+      return {
+        paywallReturnStage: null,
+        activePaywallPlacementKey: null,
+        activePaywallScreenKey: null,
+        activePaywallTriggerMode: "contextual",
+        activeHostedPaywallTarget: null,
+        postAuthPaywallStepOverride: null,
+        pendingPostAuthDiscountOffer: false,
+        stage: resolvePaywallExitStage(currentState),
+      };
+    });
+
+    if (shouldOpenSpinWheel) {
+      resetRoot("SpinWheel");
+      return;
+    }
+
+    navigateToResolvedStage({
+      ...state,
+      setActiveTabState: get().setActiveTabState,
+    });
+  },
+  fallbackFromHostedPaywall: () => {
+    const state = get();
+
+    set(currentState => {
+      if (currentState.activeHostedPaywallTarget === "exit") {
+        return {
+          activeHostedPaywallTarget: null,
+          postAuthPaywallStepOverride: null,
+          stage: "discount-offer" as FlowStage,
+        };
+      }
+
+      return {
+        activeHostedPaywallTarget: null,
+        postAuthPaywallStepOverride: "purchase" as PostAuthPaywallStep,
+        stage: "paywall" as FlowStage,
+      };
+    });
+
+    resetRoot(state.activeHostedPaywallTarget === "exit" ? "DiscountOffer" : "Paywall");
+  },
+  continueFromSpinWheel: () => {
+    set({
+      activePaywallPlacementKey: "post_auth_exit_offer",
+      activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: "exit",
+      postAuthPaywallStepOverride: null,
+      stage: "hosted-paywall",
+    });
+
+    resetRoot("HostedPaywall");
+  },
+  fallbackFromSpinWheel: () => {
+    set({
+      activePaywallPlacementKey: "post_auth_exit_offer",
+      activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
+      stage: "discount-offer",
+    });
+
+    resetRoot("DiscountOffer");
   },
   continueFromDiscountOffer: () => {
-    set(state => ({
+    const state = get();
+
+    set(currentState => ({
       paywallReturnStage: null,
       activePaywallPlacementKey: null,
       activePaywallScreenKey: null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
-      stage: resolvePaywallExitStage(state),
+      stage: resolvePaywallExitStage(currentState),
     }));
+
+    navigateToResolvedStage({
+      ...state,
+      setActiveTabState: get().setActiveTabState,
+    });
   },
   continueFromLifetimeOffer: () => {
-    set(state => ({
+    const state = get();
+
+    set(currentState => ({
       paywallReturnStage: null,
       activePaywallPlacementKey: null,
       activePaywallScreenKey: null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
-      stage: resolvePaywallExitStage(state),
+      stage: resolvePaywallExitStage(currentState),
     }));
+
+    navigateToResolvedStage({
+      ...state,
+      setActiveTabState: get().setActiveTabState,
+    });
   },
-  openPaywall: returnStage => {
+  openLifetimeOffer: ({
+    returnStage,
+    screenKey = null,
+    triggerMode = "contextual",
+  } = {}) => {
     const currentStage = get().stage;
     const fallbackStage: PaywallExitStage =
       currentStage === "paywall" ||
+      currentStage === "hosted-paywall" ||
+      currentStage === "spin-wheel" ||
       currentStage === "discount-offer" ||
       currentStage === "lifetime-offer"
         ? getPostAuthDestinationStage(get().session)
@@ -522,6 +800,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const nextReturnStage: PaywallExitStage =
       returnStage &&
       returnStage !== "paywall" &&
+      returnStage !== "hosted-paywall" &&
+      returnStage !== "spin-wheel" &&
       returnStage !== "discount-offer" &&
       returnStage !== "lifetime-offer"
         ? (returnStage as PaywallExitStage)
@@ -529,9 +809,49 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     set({
       paywallReturnStage: nextReturnStage,
+      activePaywallPlacementKey: "profile_upgrade_banner",
+      activePaywallScreenKey: screenKey,
+      activePaywallTriggerMode: triggerMode,
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
+      pendingPostAuthDiscountOffer: false,
+      stage: "lifetime-offer",
+    });
+
+    resetRoot("LifetimeOffer");
+  },
+  openPaywall: returnStage => {
+    const currentStage = get().stage;
+    const fallbackStage: PaywallExitStage =
+      currentStage === "paywall" ||
+      currentStage === "hosted-paywall" ||
+      currentStage === "spin-wheel" ||
+      currentStage === "discount-offer" ||
+      currentStage === "lifetime-offer"
+        ? getPostAuthDestinationStage(get().session)
+        : (currentStage as PaywallExitStage);
+    const nextReturnStage: PaywallExitStage =
+      returnStage &&
+      returnStage !== "paywall" &&
+      returnStage !== "hosted-paywall" &&
+      returnStage !== "spin-wheel" &&
+      returnStage !== "discount-offer" &&
+      returnStage !== "lifetime-offer"
+        ? (returnStage as PaywallExitStage)
+        : fallbackStage;
+
+    set({
+      paywallReturnStage: nextReturnStage,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
       stage: "paywall",
     });
+
+    resetRoot("Paywall");
   },
   openPaywallForPlacement: ({
     placementKey,
@@ -540,9 +860,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     triggerMode = "contextual",
     enablePostAuthDiscountOffer = false,
   }) => {
+    const shouldUseHostedPaywall = shouldUseHostedPaywallForPlacement(placementKey);
     const currentStage = get().stage;
     const fallbackStage: PaywallExitStage =
       currentStage === "paywall" ||
+      currentStage === "hosted-paywall" ||
+      currentStage === "spin-wheel" ||
       currentStage === "discount-offer" ||
       currentStage === "lifetime-offer"
         ? getPostAuthDestinationStage(get().session)
@@ -550,6 +873,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const nextReturnStage: PaywallExitStage =
       returnStage &&
       returnStage !== "paywall" &&
+      returnStage !== "hosted-paywall" &&
+      returnStage !== "spin-wheel" &&
       returnStage !== "discount-offer" &&
       returnStage !== "lifetime-offer"
         ? (returnStage as PaywallExitStage)
@@ -560,9 +885,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: placementKey,
       activePaywallScreenKey: screenKey,
       activePaywallTriggerMode: triggerMode,
+      activeHostedPaywallTarget: shouldUseHostedPaywall ? "main" : null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: enablePostAuthDiscountOffer,
-      stage: "paywall",
+      stage: shouldUseHostedPaywall ? "hosted-paywall" : "paywall",
     });
+
+    resetRoot(shouldUseHostedPaywall ? "HostedPaywall" : "Paywall");
   },
   setPaywallContext: ({ placementKey, screenKey = null, triggerMode = "contextual" }) => {
     set({
@@ -576,6 +905,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: null,
       activePaywallScreenKey: null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
     });
   },
@@ -583,6 +914,76 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       authSource: "email",
       stage: "create-account",
+    });
+
+    navigateRoot("CreateAccount");
+  },
+  continueWithApple: async () => {
+    const credential = await getAppleSignInCredential();
+
+    if (!credential) {
+      return;
+    }
+
+    const onboardingContext = buildOnboardingContext(get().onboardingData);
+
+    const response = await signInWithApple({
+      identityToken: credential.identityToken,
+      nonce: credential.nonce,
+      email: credential.email,
+      fullName: credential.fullName,
+      ...(onboardingContext ? { onboardingContext } : {}),
+      onboardingCompleted: true,
+    });
+
+    await saveTokens({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+
+    const syncedSession = await syncPendingPremiumIfNeeded(
+      response,
+      get().pendingPremiumActivation
+    );
+
+    await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    const nextStage = getPostAuthDestinationStage(syncedSession);
+    const showPaywall = shouldShowPostAuthPaywall(syncedSession);
+
+    if (showPaywall) {
+      await savePostAuthPaywallSeen(true);
+    }
+
+    set({
+      authSource: "apple",
+      pendingEmail: syncedSession.user.email || "",
+      paywallReturnStage: showPaywall ? nextStage : null,
+      activePaywallPlacementKey: showPaywall ? "post_auth" : null,
+      activePaywallScreenKey: showPaywall ? "auth" : null,
+      activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
+      pendingPostAuthDiscountOffer: showPaywall,
+      session: syncedSession,
+      initialProfileName: syncedSession.user.name || "Journal User",
+      pendingPremiumActivation: false,
+      preferredInsightsTab: null,
+      activeTab: "home",
+      stage: showPaywall ? "paywall" : nextStage,
+    });
+
+    if (showPaywall) {
+      resetRoot("Paywall");
+      return;
+    }
+
+    if (nextStage === "profile") {
+      resetToProfileSetup();
+      return;
+    }
+
+    resetRoot("MainApp", {
+      screen: "Home",
     });
   },
   continueWithGoogle: async () => {
@@ -614,6 +1015,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const nextStage = getPostAuthDestinationStage(syncedSession);
     const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
+    if (showPaywall) {
+      await savePostAuthPaywallSeen(true);
+    }
+
     set({
       authSource: "google",
       pendingEmail: syncedSession.user.email || "",
@@ -621,6 +1026,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: showPaywall ? "post_auth" : null,
       activePaywallScreenKey: showPaywall ? "auth" : null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: showPaywall,
       session: syncedSession,
       initialProfileName: syncedSession.user.name || "Journal User",
@@ -629,12 +1036,30 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activeTab: "home",
       stage: showPaywall ? "paywall" : nextStage,
     });
+
+    if (showPaywall) {
+      resetRoot("Paywall");
+      return;
+    }
+
+    if (nextStage === "profile") {
+      resetToProfileSetup();
+      return;
+    }
+
+    resetRoot("MainApp", {
+      screen: "Home",
+    });
   },
   goToSignIn: () => {
     set({ stage: "sign-in" });
+
+    navigateRoot("SignIn");
   },
   goToCreateAccount: () => {
     set({ stage: "create-account" });
+
+    navigateRoot("CreateAccount");
   },
   createAccount: async payload => {
     const normalizedEmail = payload.email.trim();
@@ -657,6 +1082,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   finishCreateAccount: () => {
     set({ stage: "verify-email" });
+
+    navigateRoot("VerifyEmail");
   },
   resendVerificationCode: async () => {
     const { pendingEmail } = get();
@@ -722,13 +1149,33 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const nextStage = getPostAuthDestinationStage(state.session);
     const showPaywall = shouldShowPostAuthPaywall(state.session);
 
+    if (showPaywall) {
+      await savePostAuthPaywallSeen(true);
+    }
+
     set({
       paywallReturnStage: showPaywall ? nextStage : null,
       activePaywallPlacementKey: showPaywall ? "post_auth" : null,
       activePaywallScreenKey: showPaywall ? "verify-email" : null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: showPaywall,
       stage: showPaywall ? "paywall" : nextStage,
+    });
+
+    if (showPaywall) {
+      resetRoot("Paywall");
+      return;
+    }
+
+    if (nextStage === "profile") {
+      resetToProfileSetup();
+      return;
+    }
+
+    resetRoot("MainApp", {
+      screen: "Home",
     });
   },
   signIn: async payload => {
@@ -751,6 +1198,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const nextStage = getPostAuthDestinationStage(syncedSession);
     const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
+    if (showPaywall) {
+      await savePostAuthPaywallSeen(true);
+    }
+
     set({
       session: syncedSession,
       pendingEmail: syncedSession.user.email || payload.email,
@@ -760,11 +1211,27 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: showPaywall ? "post_auth" : null,
       activePaywallScreenKey: showPaywall ? "auth" : null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: showPaywall,
       pendingPremiumActivation: false,
       preferredInsightsTab: null,
       activeTab: "home",
       stage: showPaywall ? "paywall" : nextStage,
+    });
+
+    if (showPaywall) {
+      resetRoot("Paywall");
+      return;
+    }
+
+    if (nextStage === "profile") {
+      resetToProfileSetup();
+      return;
+    }
+
+    resetRoot("MainApp", {
+      screen: "Home",
     });
   },
   completeProfile: async payload => {
@@ -796,6 +1263,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallPlacementKey: null,
       activePaywallScreenKey: null,
       activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
       pendingPostAuthDiscountOffer: false,
       preferredInsightsTab: null,
       isCompletingOnboarding: false,
@@ -808,12 +1277,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       pendingNewEntryPrompt: null,
       pendingPremiumActivation: false,
     });
+
+    resetRoot("AuthChoice");
   },
   goBackToAuth: () => {
     set({ stage: "auth" });
+
+    goBackOrFallback(() => resetRoot("AuthChoice"));
   },
   goBackToCreateAccount: () => {
     set({ stage: "create-account" });
+
+    goBackOrFallback(() => resetRoot("CreateAccount"));
   },
   skipProfileSetup: async () => {
     const state = get();
@@ -833,12 +1308,22 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   restartFlow: () => {
     set(createInitialSnapshot());
+
+    resetRoot("Onboarding");
+  },
+  setActiveTabState: nextTab => {
+    set({
+      activeTab: nextTab,
+      preferredInsightsTab: nextTab === "insights" ? get().preferredInsightsTab : null,
+    });
   },
   setActiveTab: nextTab => {
     set({
       activeTab: nextTab,
       preferredInsightsTab: nextTab === "insights" ? get().preferredInsightsTab : null,
     });
+
+    replaceMainApp(getMainAppRouteForTab(nextTab));
   },
   openInsightsTab: (nextTab = "overview") => {
     set({
@@ -846,6 +1331,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       preferredInsightsTab: nextTab,
       stage: "main-app",
     });
+
+    replaceMainApp("Insights");
   },
   clearPreferredInsightsTab: () => {
     set({ preferredInsightsTab: null });
@@ -855,15 +1342,29 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       stage: "new-entry",
       pendingNewEntryPrompt: normalizeNewEntryPrompt(options?.initialPrompt),
     });
+
+    navigateMainApp("NewEntry", {
+      initialPrompt: normalizeNewEntryPrompt(options?.initialPrompt),
+    });
   },
   closeNewEntry: () => {
     set({ stage: "main-app", pendingNewEntryPrompt: null });
+
+    goBackOrFallback(() =>
+      resetRoot("MainApp", {
+        screen: getMainAppRouteForTab(get().activeTab),
+      })
+    );
   },
   openJournalEntry: entryId => {
     set({
       selectedJournalEntryId: entryId,
       pendingNewEntryPrompt: null,
       stage: "journal-detail",
+    });
+
+    navigateMainApp("EntryDetail", {
+      entryId,
     });
   },
   openJournalEditor: entryId => {
@@ -872,19 +1373,39 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       pendingNewEntryPrompt: null,
       stage: "journal-edit",
     });
+
+    navigateMainApp("EditEntry", {
+      entryId,
+    });
   },
   closeJournalEntry: () => {
+    const nextTab = get().activeTab;
+
     set({
       selectedJournalEntryId: null,
       pendingNewEntryPrompt: null,
       stage: "main-app",
     });
+
+    goBackOrFallback(() =>
+      resetRoot("MainApp", {
+        screen: getMainAppRouteForTab(nextTab),
+      })
+    );
   },
   closeJournalEditor: () => {
+    const hasEntry = Boolean(get().selectedJournalEntryId);
+
     set(state => ({
       pendingNewEntryPrompt: null,
       stage: state.selectedJournalEntryId ? "journal-detail" : "main-app",
     }));
+
+    goBackOrFallback(() =>
+      resetRoot("MainApp", {
+        screen: hasEntry ? "EntryDetail" : getMainAppRouteForTab(get().activeTab),
+      })
+    );
   },
   setThemeModeOverride: nextMode => {
     set({ themeModeOverride: nextMode });
@@ -892,6 +1413,22 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   setHideJournalPreviews: async nextValue => {
     await saveHideJournalPreviews(nextValue);
     set({ hideJournalPreviews: nextValue });
+  },
+  openLegalBrowser: ({ url, title = null }) => {
+    set({
+      legalBrowserUrl: url,
+      legalBrowserTitle: title,
+    });
+
+    navigateRoot("LegalBrowserModal");
+  },
+  closeLegalBrowser: () => {
+    set({
+      legalBrowserUrl: null,
+      legalBrowserTitle: null,
+    });
+
+    goBackOrFallback(() => undefined);
   },
   setSessionAiOptIn: nextValue => {
     const currentSession = get().session;

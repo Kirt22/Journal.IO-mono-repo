@@ -477,10 +477,11 @@ test("locks AI auto-tagging for non-premium users and does not call the API", as
   });
 
   expect(suggestJournalTags).not.toHaveBeenCalled();
-  expect(useAppStore.getState().stage).toBe("paywall");
+  expect(useAppStore.getState().stage).toBe("hosted-paywall");
   expect(useAppStore.getState().activePaywallPlacementKey).toBe(
     "new_entry_auto_tag_locked"
   );
+  expect(useAppStore.getState().activeHostedPaywallTarget).toBe("main");
 });
 
 test("prefills the entry content when opened from a selected home prompt", async () => {

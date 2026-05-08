@@ -1,12 +1,14 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type PropsWithChildren,
 } from "react";
 import {
+  Appearance,
   Animated,
   Easing,
   StyleSheet,
@@ -70,6 +72,10 @@ export function ThemeProvider({
     width: windowDimensions.width,
     height: windowDimensions.height,
   });
+
+  useEffect(() => {
+    Appearance.setColorScheme(modeOverride ?? "unspecified");
+  }, [modeOverride]);
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;

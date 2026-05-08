@@ -4,6 +4,7 @@ import {
   API_MESSAGES,
 } from "../../helpers/commonHelper.helpers";
 import {
+  signInWithApple,
   signInWithGoogle,
   invalidateRefreshToken,
   refreshAccessToken,
@@ -216,6 +217,48 @@ const googleMobileSignInController = async (req: Request, res: Response) => {
   }
 };
 
+const appleMobileSignInController = async (req: Request, res: Response) => {
+  try {
+    const {
+      identityToken,
+      nonce,
+      email,
+      fullName,
+      onboardingContext,
+      onboardingCompleted,
+    } = req.body;
+    const result = await signInWithApple({
+      identityToken,
+      nonce,
+      email,
+      fullName,
+      onboardingContext,
+      onboardingCompleted,
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json(
+        apiResponse(false, result.message, {}, {
+          error: { code: result.code },
+        })
+      );
+    }
+
+    return res.status(200).json(
+      apiResponse(true, "You're signed in.", {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: result.user,
+      })
+    );
+  } catch (error) {
+    console.error("Error in appleMobileSignIn:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
+  }
+};
+
 const registerFromGoogleOAuthController = async (
   req: Request,
   res: Response
@@ -295,6 +338,7 @@ const logoutController = async (
 };
 
 export {
+  appleMobileSignInController,
   googleMobileSignInController,
   logoutController,
   refreshController,

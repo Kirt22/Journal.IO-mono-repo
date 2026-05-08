@@ -9,6 +9,7 @@ import Purchases, {
   type PurchasesOfferings,
   type PurchasesPackage,
 } from "react-native-purchases";
+import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 import { env } from "../config/env";
 import type { PaywallOffering } from "./paywallService";
 
@@ -28,6 +29,8 @@ type RevenueCatPaywallPlan = {
   badge?: string;
   highlight?: string;
   planKey: RevenueCatPlanKey;
+  revenueCatOfferingId: string | null;
+  revenueCatPackageId: string | null;
   rcPackage: PurchasesPackage | null;
   introOffer: RevenueCatIntroOffer | null;
 };
@@ -62,6 +65,29 @@ type RevenueCatPackageMetadata = {
   revenueCatPackageId: string | null;
 };
 
+type RevenueCatHostedPaywallTarget = "main" | "exit";
+
+type RevenueCatPlanSelectionContext = {
+  placementKey?: string | null;
+};
+
+const DEFAULT_MAIN_PAYWALL_OFFERING_ID =
+  "journalio_offering_post_onboarding_standard_dev";
+const DEFAULT_EXIT_PAYWALL_OFFERING_ID =
+  "journalio_offering_post_onboarding_exit_dev";
+const DEFAULT_OTHER_SCREENS_OFFERING_ID =
+  "journalio_offering_other_screens_standard_dev";
+const DEFAULT_LIFETIME_OFFERING_ID = "journalio_offering_lifetime_dev";
+
+type RevenueCatHostedPaywallResult = {
+  status: "purchased" | "restored" | "cancelled" | "notPresented" | "error";
+  customerInfo: CustomerInfo | null;
+  offerings: PurchasesOfferings | null;
+  offering: PurchasesOffering | null;
+  error?: unknown;
+  message?: string;
+};
+
 const PLAN_PRIORITY: RevenueCatPlanKey[] = [
   "annual",
   "weekly",
@@ -87,6 +113,49 @@ const getRevenueCatApiKey = () => {
   }
 
   return null;
+};
+
+const getRevenueCatHostedOfferingId = (
+  target: RevenueCatHostedPaywallTarget,
+  placementKey?: string | null
+) =>
+  target === "main"
+    ? placementKey && placementKey !== "post_auth"
+      ? env.revenueCatOtherScreensOfferingId ||
+        DEFAULT_OTHER_SCREENS_OFFERING_ID
+      : env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID
+    : env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID;
+
+const getDedicatedRevenueCatOfferingId = (
+  configuredOffering: PaywallOffering,
+  context?: RevenueCatPlanSelectionContext
+) => {
+  if (configuredOffering.key === "lifetime") {
+    return env.revenueCatLifetimeOfferingId || DEFAULT_LIFETIME_OFFERING_ID;
+  }
+
+  if (
+    configuredOffering.key === "yearly_exit_offer" ||
+    context?.placementKey === "post_auth_exit_offer"
+  ) {
+    return env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID;
+  }
+
+  if (context?.placementKey === "post_auth") {
+    return env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID;
+  }
+
+  if (
+    configuredOffering.key === "weekly" ||
+    configuredOffering.key === "monthly" ||
+    configuredOffering.key === "yearly"
+  ) {
+    return (
+      env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID
+    );
+  }
+
+  return configuredOffering.revenueCatOfferingId || null;
 };
 
 const normalizeAppUserId = (appUserID?: string | null) => {
@@ -385,6 +454,21 @@ const findRevenueCatPackageByPlanKey = (
   );
 };
 
+const findRevenueCatPackageByProductIdentifier = (
+  offerings: PurchasesOfferings | null,
+  productIdentifier?: string | null
+) => {
+  if (!productIdentifier) {
+    return null;
+  }
+
+  return (
+    getPackagesAcrossAllOfferings(offerings).find(
+      rcPackage => rcPackage.product.identifier === productIdentifier
+    ) || null
+  );
+};
+
 const selectPreferredConfiguredPackage = (
   packages: PurchasesPackage[],
   configuredOffering: PaywallOffering
@@ -408,14 +492,19 @@ const selectPreferredConfiguredPackage = (
 
 const findRevenueCatPackage = (
   offerings: PurchasesOfferings | null,
-  configuredOffering: PaywallOffering
+  configuredOffering: PaywallOffering,
+  context?: RevenueCatPlanSelectionContext
 ) => {
   if (!offerings) {
     return null;
   }
 
-  const candidateOfferings = configuredOffering.revenueCatOfferingId
-    ? [offerings.all[configuredOffering.revenueCatOfferingId]].filter(
+  const targetOfferingId = getDedicatedRevenueCatOfferingId(
+    configuredOffering,
+    context
+  );
+  const candidateOfferings = targetOfferingId
+    ? [offerings.all[targetOfferingId]].filter(
         Boolean
       ) as PurchasesOffering[]
     : Object.values(offerings.all);
@@ -549,6 +638,22 @@ async function getRevenueCatOfferings(appUserID?: string | null) {
   return Purchases.getOfferings();
 }
 
+async function getRevenueCatHostedOffering(
+  target: RevenueCatHostedPaywallTarget,
+  placementKey?: string | null,
+  appUserID?: string | null
+) {
+  const offeringId = getRevenueCatHostedOfferingId(target, placementKey);
+  const offerings = await getRevenueCatOfferings(appUserID);
+
+  return {
+    offeringId,
+    offerings,
+    offering:
+      offeringId && offerings ? offerings.all[offeringId] ?? null : null,
+  };
+}
+
 async function getRevenueCatOfferingDetails(appUserID?: string | null) {
   const offerings = await getRevenueCatOfferings(appUserID);
 
@@ -596,6 +701,106 @@ async function restoreRevenueCatPurchases(appUserID?: string | null) {
   }
 
   return Purchases.restorePurchases();
+}
+
+function hasRevenueCatHostedPaywall(target: RevenueCatHostedPaywallTarget) {
+  return Boolean(getRevenueCatHostedOfferingId(target));
+}
+
+async function presentRevenueCatHostedPaywall(
+  target: RevenueCatHostedPaywallTarget,
+  placementKey?: string | null,
+  appUserID?: string | null
+) {
+  const configured = await configureRevenueCat(appUserID);
+
+  if (!configured) {
+    return {
+      status: "error",
+      customerInfo: null,
+      offerings: null,
+      offering: null,
+      message: "Purchases are not available right now.",
+    } satisfies RevenueCatHostedPaywallResult;
+  }
+
+  const { offering, offerings } = await getRevenueCatHostedOffering(
+    target,
+    placementKey,
+    appUserID
+  );
+
+  if (!offering) {
+    return {
+      status: "notPresented",
+      customerInfo: null,
+      offerings,
+      offering: null,
+      message: "This paywall is not configured yet.",
+    } satisfies RevenueCatHostedPaywallResult;
+  }
+
+  try {
+    const paywallResult = await RevenueCatUI.presentPaywall({
+      offering,
+    });
+
+    if (paywallResult === PAYWALL_RESULT.PURCHASED) {
+      return {
+        status: "purchased",
+        customerInfo: await getRevenueCatCustomerInfo(appUserID),
+        offerings,
+        offering,
+      } satisfies RevenueCatHostedPaywallResult;
+    }
+
+    if (paywallResult === PAYWALL_RESULT.RESTORED) {
+      return {
+        status: "restored",
+        customerInfo: await getRevenueCatCustomerInfo(appUserID),
+        offerings,
+        offering,
+      } satisfies RevenueCatHostedPaywallResult;
+    }
+
+    if (paywallResult === PAYWALL_RESULT.CANCELLED) {
+      return {
+        status: "cancelled",
+        customerInfo: null,
+        offerings,
+        offering,
+      } satisfies RevenueCatHostedPaywallResult;
+    }
+
+    if (paywallResult === PAYWALL_RESULT.NOT_PRESENTED) {
+      return {
+        status: "notPresented",
+        customerInfo: null,
+        offerings,
+        offering,
+      } satisfies RevenueCatHostedPaywallResult;
+    }
+
+    return {
+      status: "error",
+      customerInfo: null,
+      offerings,
+      offering,
+      message: "We could not open purchases right now.",
+    } satisfies RevenueCatHostedPaywallResult;
+  } catch (error) {
+    return {
+      status: "error",
+      customerInfo: null,
+      offerings,
+      offering,
+      error,
+      message:
+        error instanceof Error
+          ? error.message
+          : "We could not open purchases right now.",
+    } satisfies RevenueCatHostedPaywallResult;
+  }
 }
 
 async function refreshRevenueCatEntitlementState(appUserID?: string | null) {
@@ -646,14 +851,23 @@ function getRevenueCatPackagesForPlanKey(
 
 function getRevenueCatPaywallPlans(
   offerings: PurchasesOfferings | null,
-  configuredOfferings?: PaywallOffering[]
+  configuredOfferings?: PaywallOffering[],
+  context?: RevenueCatPlanSelectionContext
 ) {
   if (configuredOfferings?.length) {
     return [...configuredOfferings]
       .sort((left, right) => left.sortOrder - right.sortOrder)
       .map<RevenueCatPaywallPlan>(configuredOffering => {
-        const rcPackage = findRevenueCatPackage(offerings, configuredOffering);
+        const rcPackage = findRevenueCatPackage(
+          offerings,
+          configuredOffering,
+          context
+        );
         const planKey = getPlanKeyFromOfferingKey(configuredOffering.key);
+        const resolvedOfferingId = getDedicatedRevenueCatOfferingId(
+          configuredOffering,
+          context
+        );
 
         return {
           id: configuredOffering.key,
@@ -674,6 +888,10 @@ function getRevenueCatPaywallPlans(
           badge: configuredOffering.badge || undefined,
           highlight: getConfiguredOfferingHighlight(configuredOffering),
           planKey,
+          revenueCatOfferingId:
+            getRevenueCatOfferingIdFromPackage(rcPackage) ||
+            resolvedOfferingId,
+          revenueCatPackageId: rcPackage?.identifier || null,
           rcPackage,
           introOffer: getIntroOffer(rcPackage),
         };
@@ -705,6 +923,8 @@ function getRevenueCatPaywallPlans(
             ? `${rcPackage.product.pricePerMonthString}/month`
             : undefined,
         planKey,
+        revenueCatOfferingId: getRevenueCatOfferingIdFromPackage(rcPackage),
+        revenueCatPackageId: rcPackage.identifier,
         rcPackage,
         introOffer: getIntroOffer(rcPackage),
       };
@@ -753,13 +973,18 @@ export {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
   getRevenueCatCustomerInfo,
+  getRevenueCatHostedOffering,
+  getRevenueCatHostedOfferingId,
   getRevenueCatOfferingDetails,
   getRevenueCatOfferings,
+  findRevenueCatPackageByProductIdentifier,
   getRevenueCatPackageMetadataForPlanKey,
   getRevenueCatPackagesForPlanKey,
   getRevenueCatPaywallPlans,
   hasPremiumAccess,
+  hasRevenueCatHostedPaywall,
   hasRevenueCatPremiumAccess,
+  presentRevenueCatHostedPaywall,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
@@ -767,6 +992,8 @@ export {
 };
 export type {
   RevenueCatEntitlementState,
+  RevenueCatHostedPaywallResult,
+  RevenueCatHostedPaywallTarget,
   RevenueCatIntroOffer,
   RevenueCatOfferingDetails,
   RevenueCatPackageMetadata,

@@ -167,6 +167,55 @@ test("loads today's entries immediately when opening calendar view", async () =>
   expect(tree).toContain("Today entry");
 });
 
+test("swipes between the list and calendar views", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    useAppStore.getState().setRecentJournalEntries(calendarSampleJournalEntries);
+  });
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <CalendarScreen />
+      </SafeAreaProvider>
+    );
+  });
+
+  const swipeZone = root!.root.findByProps({
+    testID: "calendar-view-swipe-zone",
+  });
+
+  ReactTestRenderer.act(() => {
+    swipeZone.props.onTouchStart?.({
+      nativeEvent: { locationX: 200, locationY: 40 },
+    } as never);
+    swipeZone.props.onTouchEnd?.({
+      nativeEvent: { locationX: 100, locationY: 50 },
+    } as never);
+  });
+
+  const calendarTree = JSON.stringify(root!.toJSON());
+
+  expect(calendarTree).toContain("April 2026");
+  expect(calendarTree).toContain("S");
+
+  ReactTestRenderer.act(() => {
+    swipeZone.props.onTouchStart?.({
+      nativeEvent: { locationX: 100, locationY: 50 },
+    } as never);
+    swipeZone.props.onTouchEnd?.({
+      nativeEvent: { locationX: 220, locationY: 56 },
+    } as never);
+  });
+
+  const listTree = JSON.stringify(root!.toJSON());
+
+  expect(listTree).toContain("Morning Reflections");
+  expect(listTree).toContain("Challenging Day at Work");
+});
+
 test("opens a journal detail from the calendar entry card", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 

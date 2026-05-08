@@ -90,6 +90,28 @@ const googleMobileSignInSchema = z.object({
   params: z.object({}).optional(),
 });
 
+const appleFullNameSchema = z
+  .object({
+    givenName: z.string().trim().min(1).max(80).optional().nullable(),
+    familyName: z.string().trim().min(1).max(80).optional().nullable(),
+    nickname: z.string().trim().min(1).max(80).optional().nullable(),
+  })
+  .strict()
+  .optional();
+
+const appleMobileSignInSchema = z.object({
+  body: z.object({
+    identityToken: z.string().min(1, "Apple identity token is required"),
+    nonce: z.string().min(16, "Apple nonce is required"),
+    email: emailSchema.optional(),
+    fullName: appleFullNameSchema,
+    onboardingContext: onboardingContextSchema,
+    onboardingCompleted: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 const refreshSchema = z.object({
   body: z.object({
     refreshToken: z.string().min(1, "Refresh token is required"),
@@ -105,6 +127,7 @@ const logoutSchema = z.object({
 });
 
 export {
+  appleMobileSignInSchema,
   googleMobileSignInSchema,
   logoutSchema,
   refreshSchema,

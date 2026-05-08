@@ -4,7 +4,11 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   REVENUECAT_ANDROID_API_KEY,
   REVENUECAT_ENTITLEMENT_ID,
+  REVENUECAT_EXIT_PAYWALL_OFFERING_ID,
   REVENUECAT_IOS_API_KEY,
+  REVENUECAT_MAIN_PAYWALL_OFFERING_ID,
+  REVENUECAT_OTHER_SCREENS_OFFERING_ID,
+  REVENUECAT_LIFETIME_OFFERING_ID,
 } from "@env";
 
 const normalizeEnvValue = (value?: string | null) => {
@@ -25,6 +29,18 @@ const env = {
   revenueCatIosApiKey: normalizeEnvValue(REVENUECAT_IOS_API_KEY),
   revenueCatAndroidApiKey: normalizeEnvValue(REVENUECAT_ANDROID_API_KEY),
   revenueCatEntitlementId: normalizeEnvValue(REVENUECAT_ENTITLEMENT_ID),
+  revenueCatMainPaywallOfferingId: normalizeEnvValue(
+    REVENUECAT_MAIN_PAYWALL_OFFERING_ID
+  ),
+  revenueCatExitPaywallOfferingId: normalizeEnvValue(
+    REVENUECAT_EXIT_PAYWALL_OFFERING_ID
+  ),
+  revenueCatOtherScreensOfferingId: normalizeEnvValue(
+    REVENUECAT_OTHER_SCREENS_OFFERING_ID
+  ),
+  revenueCatLifetimeOfferingId: normalizeEnvValue(
+    REVENUECAT_LIFETIME_OFFERING_ID
+  ),
 } as const;
 
 export { env };

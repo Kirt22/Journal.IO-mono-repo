@@ -72,6 +72,21 @@ type GoogleSignInPayload = {
   onboardingCompleted?: boolean;
 };
 
+type AppleFullNamePayload = {
+  givenName?: string | null;
+  familyName?: string | null;
+  nickname?: string | null;
+};
+
+type AppleSignInPayload = {
+  identityToken: string;
+  nonce: string;
+  email?: string | null;
+  fullName?: AppleFullNamePayload | null;
+  onboardingContext?: AuthOnboardingContext;
+  onboardingCompleted?: boolean;
+};
+
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 const deriveDisplayNameFromEmail = (email: string) => {
@@ -255,6 +270,15 @@ const signInWithGoogle = async (payload: GoogleSignInPayload) => {
   return applyDevPremiumDefault(response.data);
 };
 
+const signInWithApple = async (payload: AppleSignInPayload) => {
+  const response = await request<AuthSession>("/auth/apple/mobile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  return applyDevPremiumDefault(response.data);
+};
+
 const logout = async () => {
   await request<{}>("/auth/logout", {
     method: "POST",
@@ -265,6 +289,7 @@ export {
   applyDevPremiumDefault,
   resendEmailVerification,
   logout,
+  signInWithApple,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
@@ -274,6 +299,7 @@ export type {
   AuthOnboardingContext,
   AuthSession,
   AuthUser,
+  AppleSignInPayload,
   EmailVerificationChallenge,
   GoogleSignInPayload,
   ResendEmailVerificationPayload,

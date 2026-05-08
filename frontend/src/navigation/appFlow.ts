@@ -1,6 +1,8 @@
 export type FlowStage =
   | "onboarding"
   | "paywall"
+  | "hosted-paywall"
+  | "spin-wheel"
   | "discount-offer"
   | "lifetime-offer"
   | "auth"
@@ -14,4 +16,4 @@ export type FlowStage =
   | "journal-edit"
   | "complete";
 
-export type AuthEntrySource = "email" | "google";
+export type AuthEntrySource = "email" | "google" | "apple";

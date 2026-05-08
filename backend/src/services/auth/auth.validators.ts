@@ -103,8 +103,8 @@ const appleMobileSignInSchema = z.object({
   body: z.object({
     identityToken: z.string().min(1, "Apple identity token is required"),
     nonce: z.string().min(16, "Apple nonce is required"),
-    email: emailSchema.optional(),
-    fullName: appleFullNameSchema,
+    email: emailSchema.optional().nullable(),
+    fullName: appleFullNameSchema.nullable(),
     onboardingContext: onboardingContextSchema,
     onboardingCompleted: z.boolean().optional(),
   }),

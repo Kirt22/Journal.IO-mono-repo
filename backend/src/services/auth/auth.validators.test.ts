@@ -52,6 +52,20 @@ test("appleMobileSignInSchema accepts a valid mobile token payload", () => {
   assert.equal(result.success, true);
 });
 
+test("appleMobileSignInSchema accepts Apple's repeated sign-in null profile fields", () => {
+  const result = appleMobileSignInSchema.safeParse({
+    body: {
+      identityToken: "apple-identity-token",
+      nonce: "raw-apple-nonce-value",
+      email: null,
+      fullName: null,
+      onboardingCompleted: true,
+    },
+  });
+
+  assert.equal(result.success, true);
+});
+
 test("appleMobileSignInSchema rejects an empty token payload", () => {
   const result = appleMobileSignInSchema.safeParse({
     body: {

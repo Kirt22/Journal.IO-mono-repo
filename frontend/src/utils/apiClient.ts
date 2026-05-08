@@ -168,6 +168,45 @@ const showNetworkIssueAlert = () => {
   Alert.alert(NETWORK_ALERT_TITLE, NETWORK_ALERT_MESSAGE);
 };
 
+const getApiErrorCode = (error: unknown) => {
+  if (
+    typeof error === "object" &&
+    error &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return undefined;
+};
+
+const getApiErrorPaths = (error: unknown) => {
+  if (
+    typeof error !== "object" ||
+    !error ||
+    !("errors" in error) ||
+    !Array.isArray(error.errors)
+  ) {
+    return undefined;
+  }
+
+  return error.errors
+    .map(item => {
+      if (
+        typeof item === "object" &&
+        item &&
+        "path" in item &&
+        typeof item.path === "string"
+      ) {
+        return item.path;
+      }
+
+      return null;
+    })
+    .filter((path): path is string => Boolean(path));
+};
+
 const request = async <T>(
   path: string,
   options: RequestInit = {}
@@ -213,6 +252,14 @@ const request = async <T>(
   } catch (error) {
     showNetworkIssueAlert();
 
+    if (__DEV__) {
+      console.log("[apiClient] request network error", {
+        requestUrl,
+        method: options.method || "GET",
+        message: error instanceof Error ? error.message : "Network request failed",
+      });
+    }
+
     throw new ApiError(
       "We're having trouble connecting right now. Please check your internet connection and try again.",
       {
@@ -229,6 +276,19 @@ const request = async <T>(
     payload = (await response.json()) as ApiResponse<T>;
   } catch {
     payload = null;
+  }
+
+  if (__DEV__) {
+    console.log("[apiClient] response", {
+      requestUrl,
+      method: options.method || "GET",
+      status: response.status,
+      ok: response.ok,
+      success: payload?.success ?? null,
+      message: payload?.message || null,
+      errorCode: getApiErrorCode(payload?.error),
+      errorPaths: getApiErrorPaths(payload?.error),
+    });
   }
 
   if (!response.ok || !payload?.success) {

@@ -15,6 +15,10 @@ jest.mock("../src/services/privacyService", () => ({
   })),
 }));
 
+jest.mock("../src/services/paywallService", () => ({
+  trackPaywallEvent: jest.fn(async () => undefined),
+}));
+
 const safeAreaMetrics = {
   frame: {
     x: 0,
@@ -91,7 +95,8 @@ test("locks premium privacy controls for free users", async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPaywall={onOpenPaywall}
+          onOpenPrivacyModePaywall={onOpenPaywall}
+          onOpenHidePreviewsPaywall={onOpenPaywall}
           onSignOut={jest.fn()}
           currentThemePreference="system"
           onToggleTheme={jest.fn()}

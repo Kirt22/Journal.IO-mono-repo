@@ -1,7 +1,18 @@
+import { useCallback } from "react";
+import {
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from "@react-navigation/native";
+import {
+  createNativeStackNavigator,
+  type NativeStackNavigationOptions,
+  type NativeStackNavigationProp,
+} from "@react-navigation/native-stack";
+import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
-import { useState } from "react";
 import BottomNav, { type BottomNavKey } from "../../components/BottomNav";
-import ScreenTransitionHost from "../../components/ScreenTransition";
 import HomeScreen from "../HomeScreen";
 import CalendarScreen from "../calendar/CalendarScreen";
 import InsightsScreen from "../InsightsScreen";
@@ -12,288 +23,337 @@ import ProfileScreen from "../profile/ProfileScreen";
 import SettingsScreen from "../profile/SettingsScreen";
 import PrivacyScreen from "../profile/PrivacyScreen";
 import SubscriptionScreen from "../profile/SubscriptionScreen";
-import PaywallScreen from "../profile/PaywallScreen";
-import LifetimeOfferPaywallScreen from "../profile/LifetimeOfferPaywallScreen";
-import { useTheme } from "../../theme/provider";
-import type { ThemeMode } from "../../theme/theme";
+import NewEntryScreen from "../NewEntryScreen";
+import EntryDetailScreen from "../journal/EntryDetailScreen";
+import EditEntryScreen from "../journal/EditEntryScreen";
 import { useAppStore } from "../../store/appStore";
+import { RootStackParamList, MainAppStackParamList } from "../../navigation/navigation";
 
-type MainAppShellProps = {
-  onToggleTheme: (nextMode: ThemeMode | null) => void;
+const MainAppStack = createNativeStackNavigator<MainAppStackParamList>();
+const EMPTY_GOALS: string[] = [];
+export const BACK_SWIPE_SCREEN_OPTIONS: NativeStackNavigationOptions = {
+  gestureEnabled: true,
+  animation: "slide_from_right",
+  animationMatchesGesture: true,
 };
 
-const IMPLEMENTED_TABS: BottomNavKey[] = ["home", "calendar", "insights", "profile"];
-const EMPTY_GOALS: string[] = [];
-type ProfileSectionRoute =
-  | "settings"
-  | "privacy"
-  | "subscription"
-  | "paywall"
-  | "lifetime-offer";
+function getTabRouteName(value: string | undefined) {
+  if (value === "calendar" || value === "Calendar") {
+    return "Calendar";
+  }
 
-export default function MainAppShell({
-  onToggleTheme,
-}: MainAppShellProps) {
-  const theme = useTheme();
-  const activeTab = useAppStore(state => state.activeTab);
-  const onTabChange = useAppStore(state => state.setActiveTab);
+  if (value === "insights" || value === "Insights") {
+    return "Insights";
+  }
+
+  if (value === "profile" || value === "Profile") {
+    return "Profile";
+  }
+
+  return "Home";
+}
+
+function useBottomNavPress(activeKey: BottomNavKey) {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
   const openNewEntry = useAppStore(state => state.openNewEntry);
-  const session = useAppStore(state => state.session);
-  const themeModeOverride = useAppStore(state => state.themeModeOverride);
-  const signOut = useAppStore(state => state.signOut);
-  const setPaywallContext = useAppStore(state => state.setPaywallContext);
-  const clearPaywallContext = useAppStore(state => state.clearPaywallContext);
-  const onboardingGoals = useAppStore(
-    state => state.onboardingData?.goals ?? EMPTY_GOALS
+
+  return useCallback(
+    (nextTab: BottomNavKey) => {
+      if (nextTab === activeKey) {
+        return;
+      }
+
+      if (nextTab === "new") {
+        openNewEntry();
+        return;
+      }
+
+      navigation.replace(
+        nextTab === "home"
+          ? "Home"
+          : nextTab === "calendar"
+            ? "Calendar"
+            : nextTab === "insights"
+              ? "Insights"
+              : "Profile"
+      );
+    },
+    [activeKey, navigation, openNewEntry]
   );
-  const [isSearchViewVisible, setIsSearchViewVisible] = useState(false);
-  const [isRemindersViewVisible, setIsRemindersViewVisible] = useState(false);
-  const [isStreaksViewVisible, setIsStreaksViewVisible] = useState(false);
-  const [profileSectionStack, setProfileSectionStack] = useState<ProfileSectionRoute[]>([]);
+}
 
-  const resetProfileSectionStack = () => {
-    setProfileSectionStack([]);
-  };
-
-  const closeTransientViews = () => {
-    setIsSearchViewVisible(false);
-    setIsRemindersViewVisible(false);
-    setIsStreaksViewVisible(false);
-    resetProfileSectionStack();
-  };
-
-  const handleOpenNewEntry = (initialPrompt?: string) => {
-    openNewEntry(
-      initialPrompt
-        ? {
-            initialPrompt,
-          }
-        : undefined
-    );
-  };
-
-  const openProfileSection = (route: ProfileSectionRoute) => {
-    setIsSearchViewVisible(false);
-    setIsRemindersViewVisible(false);
-    setIsStreaksViewVisible(false);
-    setProfileSectionStack(previous => [...previous, route]);
-  };
-
-  const closeProfileSection = () => {
-    setProfileSectionStack(previous => previous.slice(0, -1));
-  };
-
-  const openInAppPaywall = (placementKey: string, screenKey: string) => {
-    setPaywallContext({
-      placementKey,
-      screenKey,
-      triggerMode: "contextual",
-    });
-    openProfileSection("paywall");
-  };
-
-  const openProfileSubscriptionPaywall = () => {
-    openInAppPaywall("subscription_screen", "profile");
-  };
-
-  const closeProfilePaywallFlow = () => {
-    clearPaywallContext();
-    closeProfileSection();
-  };
-
-  const openSearch = () => {
-    setIsRemindersViewVisible(false);
-    setIsStreaksViewVisible(false);
-    resetProfileSectionStack();
-    onTabChange("home");
-    setIsSearchViewVisible(true);
-  };
-
-  const closeSearch = () => {
-    setIsSearchViewVisible(false);
-  };
-
-  const openReminders = () => {
-    setIsSearchViewVisible(false);
-    setIsStreaksViewVisible(false);
-    resetProfileSectionStack();
-    onTabChange("home");
-    setIsRemindersViewVisible(true);
-  };
-
-  const closeReminders = () => {
-    setIsRemindersViewVisible(false);
-  };
-
-  const handleTabPress = (nextTab: BottomNavKey) => {
-    if (nextTab === "new") {
-      closeTransientViews();
-      handleOpenNewEntry();
-      return;
-    }
-
-    if (!IMPLEMENTED_TABS.includes(nextTab)) {
-      return;
-    }
-
-    closeTransientViews();
-    onTabChange(nextTab);
-  };
-
-  const handleOpenStreaks = () => {
-    setIsSearchViewVisible(false);
-    setIsRemindersViewVisible(false);
-    onTabChange("home");
-    resetProfileSectionStack();
-    setIsStreaksViewVisible(true);
-  };
-
-  const shellViewKey = isSearchViewVisible
-    ? "search"
-    : isRemindersViewVisible
-    ? "reminders"
-    : isStreaksViewVisible
-    ? "streaks"
-    : profileSectionStack.length > 0
-      ? `profile:${profileSectionStack[profileSectionStack.length - 1]}`
-      : activeTab;
-  const shouldShowBottomNav =
-    shellViewKey !== "profile:paywall" &&
-    shellViewKey !== "profile:lifetime-offer";
+function TabFrame({
+  activeKey,
+  children,
+}: {
+  activeKey: BottomNavKey;
+  children: ReactNode;
+}) {
+  const handleBottomNavPress = useBottomNavPress(activeKey);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScreenTransitionHost
-        activeKey={shellViewKey}
-        containerStyle={styles.tabViewport}
-        renderContent={currentTab => {
-          if (currentTab === "search") {
-            return <SearchScreen onBack={closeSearch} />;
-          }
-
-          if (currentTab === "reminders") {
-            return <RemindersScreen onBack={closeReminders} />;
-          }
-
-          if (currentTab === "streaks") {
-            return <StreaksScreen />;
-          }
-
-          if (currentTab.startsWith("profile:")) {
-            const currentSection = currentTab.slice("profile:".length) as ProfileSectionRoute;
-
-            switch (currentSection) {
-              case "settings":
-                return (
-                  <SettingsScreen
-                    onBack={closeProfileSection}
-                    onOpenPrivacy={() => openProfileSection("privacy")}
-                    onOpenPrivacyModePaywall={() =>
-                      openInAppPaywall("settings_privacy_mode_locked", "settings")
-                    }
-                    onOpenHidePreviewsPaywall={() =>
-                      openInAppPaywall("settings_hide_previews_locked", "settings")
-                    }
-                    onSignOut={signOut}
-                    currentThemePreference={themeModeOverride ?? "system"}
-                    onToggleTheme={onToggleTheme}
-                  />
-                );
-              case "privacy":
-                return (
-                  <PrivacyScreen
-                    onBack={closeProfileSection}
-                    onOpenExportPaywall={() =>
-                      openInAppPaywall("privacy_export_locked", "privacy")
-                    }
-                    onSignOut={signOut}
-                  />
-                );
-              case "subscription":
-                return (
-                  <SubscriptionScreen
-                    onBack={closeProfileSection}
-                    currentPlanKey={session?.user.premiumPlanKey}
-                  />
-                );
-              case "paywall":
-                return (
-                  <PaywallScreen
-                    onBack={() => {
-                      closeProfilePaywallFlow();
-                    }}
-                  />
-                );
-              case "lifetime-offer":
-                return (
-                  <LifetimeOfferPaywallScreen
-                    onBack={closeProfilePaywallFlow}
-                    currentPlanKey={session?.user.premiumPlanKey}
-                  />
-                );
-              default:
-                return null;
-            }
-          }
-
-          switch (currentTab) {
-            case "calendar":
-              return <CalendarScreen />;
-            case "insights":
-              return <InsightsScreen />;
-            case "profile":
-              return (
-                <ProfileScreen
-                  userName={session?.user.name || "Journal User"}
-                  userEmail={session?.user.email}
-                  fallbackEmail={session?.user.email}
-                  userGoals={session?.user.journalingGoals}
-                  onboardingGoals={onboardingGoals}
-                  userAvatarColor={session?.user.avatarColor}
-                  userProfilePic={session?.user.profilePic}
-                  isPremium={Boolean(session?.user.isPremium)}
-                  onOpenStreaks={handleOpenStreaks}
-                  onOpenSettings={() => openProfileSection("settings")}
-                  onOpenSubscription={() => {
-                    if (session?.user.isPremium) {
-                      openProfileSection("subscription");
-                      return;
-                    }
-
-                    openProfileSubscriptionPaywall();
-                  }}
-                  onOpenPrivacy={() => openProfileSection("privacy")}
-                  onOpenPaywall={() => openProfileSection("lifetime-offer")}
-                />
-              );
-            case "home":
-            default:
-              return (
-                <HomeScreen
-                  userName={session?.user.name || "Journal User"}
-                  onOpenNewEntry={handleOpenNewEntry}
-                  onOpenStreaks={handleOpenStreaks}
-                  onOpenSearch={openSearch}
-                  onOpenReminders={openReminders}
-                  onToggleTheme={onToggleTheme}
-                />
-              );
-          }
-        }}
-      />
-
-      {shouldShowBottomNav ? (
-        <BottomNav activeKey={activeTab} onPress={handleTabPress} />
-      ) : null}
+    <View style={mainAppShellStyles.root}>
+      <View style={mainAppShellStyles.content}>{children}</View>
+      <BottomNav activeKey={activeKey} onPress={handleBottomNavPress} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+function useTabFocus(tab: "home" | "calendar" | "insights" | "profile") {
+  const setActiveTabState = useAppStore(state => state.setActiveTabState);
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveTabState(tab);
+    }, [setActiveTabState, tab])
+  );
+}
+
+function HomeRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+  const session = useAppStore(state => state.session);
+  const onboardingGoals = useAppStore(
+    state => state.onboardingData?.goals ?? EMPTY_GOALS
+  );
+  const setThemeModeOverride = useAppStore(state => state.setThemeModeOverride);
+
+  useTabFocus("home");
+
+  return (
+    <TabFrame activeKey="home">
+      <HomeScreen
+        userName={session?.user.name || "Journal User"}
+        userEmail={session?.user.email}
+        fallbackEmail={session?.user.email}
+        userGoals={session?.user.journalingGoals}
+        onboardingGoals={onboardingGoals}
+        userAvatarColor={session?.user.avatarColor}
+        userProfilePic={session?.user.profilePic}
+        isPremium={Boolean(session?.user.isPremium)}
+        onOpenStreaks={() => navigation.navigate("Streaks")}
+        onOpenSearch={() => navigation.navigate("Search")}
+        onOpenReminders={() => navigation.navigate("Reminders")}
+        onOpenNewEntry={() => navigation.navigate("NewEntry")}
+        onToggleTheme={setThemeModeOverride}
+      />
+    </TabFrame>
+  );
+}
+
+function CalendarRoute() {
+  useTabFocus("calendar");
+  return (
+    <TabFrame activeKey="calendar">
+      <CalendarScreen />
+    </TabFrame>
+  );
+}
+
+function InsightsRoute() {
+  useTabFocus("insights");
+  return (
+    <TabFrame activeKey="insights">
+      <InsightsScreen />
+    </TabFrame>
+  );
+}
+
+function ProfileRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+  const session = useAppStore(state => state.session);
+  const onboardingGoals = useAppStore(
+    state => state.onboardingData?.goals ?? EMPTY_GOALS
+  );
+  const openPaywallForPlacement = useAppStore(state => state.openPaywallForPlacement);
+  const openLifetimeOffer = useAppStore(state => state.openLifetimeOffer);
+
+  useTabFocus("profile");
+
+  return (
+    <TabFrame activeKey="profile">
+      <ProfileScreen
+        userName={session?.user.name || "Journal User"}
+        userEmail={session?.user.email}
+        fallbackEmail={session?.user.email}
+        userGoals={session?.user.journalingGoals}
+        onboardingGoals={onboardingGoals}
+        userAvatarColor={session?.user.avatarColor}
+        userProfilePic={session?.user.profilePic}
+        isPremium={Boolean(session?.user.isPremium)}
+        onOpenStreaks={() => navigation.navigate("Streaks")}
+        onOpenSettings={() => navigation.navigate("Settings")}
+        onOpenSubscription={() => {
+          if (session?.user.isPremium) {
+            navigation.navigate("Subscription");
+            return;
+          }
+
+          openPaywallForPlacement({
+            placementKey: "subscription_screen",
+            returnStage: "main-app",
+            screenKey: "profile",
+          });
+        }}
+        onOpenPrivacy={() => navigation.navigate("Privacy")}
+        onOpenPaywall={() => {
+          openLifetimeOffer({
+            returnStage: "main-app",
+            screenKey: "profile",
+          });
+        }}
+      />
+    </TabFrame>
+  );
+}
+
+function StreaksRoute() {
+  const activeTab = useAppStore(state => state.activeTab);
+
+  return (
+    <TabFrame activeKey={activeTab}>
+      <StreaksScreen />
+    </TabFrame>
+  );
+}
+
+function SearchRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+
+  return <SearchScreen onBack={() => navigation.goBack()} />;
+}
+
+function RemindersRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+
+  return <RemindersScreen onBack={() => navigation.goBack()} />;
+}
+
+function SettingsRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+  const themeModeOverride = useAppStore(state => state.themeModeOverride);
+  const signOut = useAppStore(state => state.signOut);
+  const setThemeModeOverride = useAppStore(
+    state => state.setThemeModeOverride
+  );
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
+
+  return (
+    <SettingsScreen
+      onBack={() => navigation.goBack()}
+      onOpenPrivacy={() => navigation.navigate("Privacy")}
+      onOpenPrivacyModePaywall={() =>
+        openPaywallForPlacement({
+          placementKey: "settings_privacy_mode_locked",
+          returnStage: "main-app",
+          screenKey: "settings",
+        })
+      }
+      onOpenHidePreviewsPaywall={() =>
+        openPaywallForPlacement({
+          placementKey: "settings_hide_previews_locked",
+          returnStage: "main-app",
+          screenKey: "settings",
+        })
+      }
+      onSignOut={signOut}
+      currentThemePreference={themeModeOverride ?? "system"}
+      onToggleTheme={setThemeModeOverride}
+    />
+  );
+}
+
+function PrivacyRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+  const signOut = useAppStore(state => state.signOut);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement
+  );
+
+  return (
+    <PrivacyScreen
+      onBack={() => navigation.goBack()}
+      onOpenExportPaywall={() =>
+        openPaywallForPlacement({
+          placementKey: "privacy_export_locked",
+          returnStage: "main-app",
+          screenKey: "privacy",
+        })
+      }
+      onSignOut={signOut}
+    />
+  );
+}
+
+function SubscriptionRoute() {
+  const navigation = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
+  const session = useAppStore(state => state.session);
+
+  return (
+    <SubscriptionScreen
+      onBack={() => navigation.goBack()}
+      currentPlanKey={session?.user.premiumPlanKey}
+    />
+  );
+}
+
+export function NewEntryRoute() {
+  const closeNewEntry = useAppStore(state => state.closeNewEntry);
+  const pendingNewEntryPrompt = useAppStore(
+    state => state.pendingNewEntryPrompt
+  );
+
+  return (
+    <NewEntryScreen
+      onBack={closeNewEntry}
+      initialPrompt={pendingNewEntryPrompt}
+    />
+  );
+}
+
+function MainAppShell() {
+  const route = useRoute<RouteProp<RootStackParamList, "MainApp">>();
+  const activeTab = useAppStore(state => state.activeTab);
+  const initialRouteName = getTabRouteName(
+    route.params?.screen || activeTab || undefined
+  );
+
+  return (
+    <MainAppStack.Navigator
+      initialRouteName={initialRouteName}
+      screenOptions={{
+        headerShown: false,
+        animation: "fade",
+        animationTypeForReplace: "push",
+      }}
+    >
+      <MainAppStack.Screen name="Home" component={HomeRoute} />
+      <MainAppStack.Screen name="Calendar" component={CalendarRoute} />
+      <MainAppStack.Screen name="Insights" component={InsightsRoute} />
+      <MainAppStack.Screen name="Profile" component={ProfileRoute} />
+      <MainAppStack.Group screenOptions={BACK_SWIPE_SCREEN_OPTIONS}>
+        <MainAppStack.Screen name="Search" component={SearchRoute} />
+        <MainAppStack.Screen name="Reminders" component={RemindersRoute} />
+        <MainAppStack.Screen name="Streaks" component={StreaksRoute} />
+        <MainAppStack.Screen name="Settings" component={SettingsRoute} />
+        <MainAppStack.Screen name="Privacy" component={PrivacyRoute} />
+        <MainAppStack.Screen name="Subscription" component={SubscriptionRoute} />
+        <MainAppStack.Screen name="NewEntry" component={NewEntryRoute} />
+        <MainAppStack.Screen name="EntryDetail" component={EntryDetailScreen} />
+        <MainAppStack.Screen name="EditEntry" component={EditEntryScreen} />
+      </MainAppStack.Group>
+    </MainAppStack.Navigator>
+  );
+}
+
+export default MainAppShell;
+
+const mainAppShellStyles = StyleSheet.create({
+  root: {
     flex: 1,
   },
-  tabViewport: {
+  content: {
     flex: 1,
   },
 });

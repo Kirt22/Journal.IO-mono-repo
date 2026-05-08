@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -249,6 +249,7 @@ export default function CalendarScreen() {
     null
   );
   const viewTransition = useRef(new Animated.Value(1)).current;
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -315,6 +316,55 @@ export default function CalendarScreen() {
     }
   };
 
+  const handleViewModeChange = useCallback((nextView: ViewMode) => {
+    if (view === nextView) {
+      return;
+    }
+
+    setView(nextView);
+  }, [view]);
+
+  const handleSwipeStart = useCallback((event: {
+    nativeEvent: { locationX: number; locationY: number };
+  }) => {
+    swipeStartRef.current = {
+      x: event.nativeEvent.locationX,
+      y: event.nativeEvent.locationY,
+    };
+  }, []);
+
+  const handleSwipeEnd = useCallback(
+    (event: {
+      nativeEvent: { locationX: number; locationY: number };
+    }) => {
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+
+      if (!start) {
+        return;
+      }
+
+      const dx = event.nativeEvent.locationX - start.x;
+      const dy = event.nativeEvent.locationY - start.y;
+      const isHorizontalSwipe =
+        Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy);
+
+      if (!isHorizontalSwipe) {
+        return;
+      }
+
+      if (dx < 0 && view === "list") {
+        handleViewModeChange("calendar");
+        return;
+      }
+
+      if (dx > 0 && view === "calendar") {
+        handleViewModeChange("list");
+      }
+    },
+    [handleViewModeChange, view]
+  );
+
   useEffect(() => {
     viewTransition.stopAnimation();
     viewTransition.setValue(0);
@@ -339,7 +389,7 @@ export default function CalendarScreen() {
         <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
           Calendar
         </Text>
-        <ModeToggle value={view} onChange={setView} />
+        <ModeToggle value={view} onChange={handleViewModeChange} />
       </View>
 
       <View style={styles.statsRow}>
@@ -348,224 +398,253 @@ export default function CalendarScreen() {
         <StatCard value={favoriteCount} label="Favorites" />
       </View>
 
-      {view === "list" ? (
-        totalCount === 0 ? (
-          <EmptyState
-            title="No entries yet"
-            description="Start your journaling journey by creating your first entry"
-            onActionPress={openNewEntry}
-          />
-        ) : (
-        <Animated.View
-          key="list"
-          style={[
-            styles.viewTransition,
-            {
-              opacity: viewTransition,
-              transform: [
+      <View
+        testID="calendar-view-swipe-zone"
+        style={styles.swipeZone}
+        onTouchStart={handleSwipeStart}
+        onTouchEnd={handleSwipeEnd}
+      >
+        {view === "list" ? (
+          totalCount === 0 ? (
+            <EmptyState
+              title="No entries yet"
+              description="Start your journaling journey by creating your first entry"
+              onActionPress={openNewEntry}
+            />
+          ) : (
+            <Animated.View
+              key="list"
+              style={[
+                styles.viewTransition,
                 {
-                  translateY: viewTransition.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={styles.listStack}>
-            {calendarEntries.map(entry => (
-              <JournalEntryCard
-                key={entry.id}
-                entry={entry}
-                onPress={() => openJournalEntry(entry.id)}
-                onFavoritePress={() =>
-                  void handleFavoriteToggle(entry.id, !entry.isFavorite)
-                }
-                isFavoriteUpdating={favoriteUpdatingId === entry.id}
-                previewLines={3}
-              />
-            ))}
-          </View>
-        </Animated.View>
-        )
-      ) : (
-        <Animated.View
-          key="calendar"
-          style={[
-            styles.viewTransition,
-            {
-              opacity: viewTransition,
-              transform: [
-                {
-                  translateY: viewTransition.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-        <View style={styles.calendarStack}>
-          <View style={styles.monthHeader}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Previous month"
-              onPress={() => handleMonthShift(-1)}
-              style={({ pressed }: { pressed: boolean }) => [styles.monthNavButton, pressed && styles.pressed]}
-            >
-              <ChevronLeft size={20} color={theme.colors.foreground} />
-            </Pressable>
-
-            <Text style={[styles.monthLabel, { color: theme.colors.foreground }]}>
-              {formatMonthLabel(currentMonth)}
-            </Text>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Next month"
-              onPress={() => handleMonthShift(1)}
-              style={({ pressed }: { pressed: boolean }) => [styles.monthNavButton, pressed && styles.pressed]}
-            >
-              <ChevronRight size={20} color={theme.colors.foreground} />
-            </Pressable>
-          </View>
-
-          <View style={[styles.weekdayRow, { gap: gridGap }]}>
-            {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
-              <Text
-                key={`${day}-${index}`}
-                style={[
-                  styles.weekdayLabel,
-                  { color: theme.colors.mutedForeground, width: gridCellSize },
-                ]}
-              >
-                {day}
-              </Text>
-            ))}
-          </View>
-
-          <View style={[styles.grid, { gap: gridGap }]}>
-            {monthCells.map((cell, index) => {
-              if (!cell) {
-                return (
-                  <View
-                    key={`empty-${index}`}
-                    style={[
-                      styles.dayCell,
-                      styles.gridPlaceholder,
-                      {
-                        width: gridCellSize,
-                        height: gridCellSize,
-                      },
-                    ]}
-                  />
-                );
-              }
-
-              const isToday = isSameDay(cell, today);
-              const isSelected = selectedDate ? isSameDay(cell, selectedDate) : false;
-              const hasEntry = calendarEntries.some(entry => isSameDay(entry.date, cell));
-
-              return (
-                <Pressable
-                  key={cell.toISOString()}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Select ${formatDateLabel(cell)}`}
-                  onPress={() =>
-                    setSelectedDate(previous =>
-                      previous && isSameDay(previous, cell) ? null : cell
-                    )
-                  }
-                  style={({ pressed }: { pressed: boolean }) => [
-                    styles.dayCell,
+                  opacity: viewTransition,
+                  transform: [
                     {
-                      width: gridCellSize,
-                      height: gridCellSize,
-                      borderColor: isSelected ? theme.colors.primary : isToday ? theme.colors.primary : "transparent",
-                      backgroundColor: isSelected ? theme.colors.primary : "transparent",
+                      translateY: viewTransition.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
                     },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.listStack}>
+                {calendarEntries.map(entry => (
+                  <JournalEntryCard
+                    key={entry.id}
+                    entry={entry}
+                    onPress={() => openJournalEntry(entry.id)}
+                    onFavoritePress={() =>
+                      void handleFavoriteToggle(entry.id, !entry.isFavorite)
+                    }
+                    isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                    previewLines={3}
+                  />
+                ))}
+              </View>
+            </Animated.View>
+          )
+        ) : (
+          <Animated.View
+            key="calendar"
+            style={[
+              styles.viewTransition,
+              {
+                opacity: viewTransition,
+                transform: [
+                  {
+                    translateY: viewTransition.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [10, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.calendarStack}>
+              <View style={styles.monthHeader}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous month"
+                  onPress={() => handleMonthShift(-1)}
+                  style={({ pressed }: { pressed: boolean }) => [
+                    styles.monthNavButton,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.dayText,
-                      {
-                        color: isSelected
-                          ? theme.colors.primaryForeground
-                          : theme.colors.foreground,
-                      },
-                    ]}
-                  >
-                    {cell.getDate()}
-                  </Text>
-                  {hasEntry ? (
-                    <View
-                      style={[
-                        styles.dayDot,
-                        {
-                          backgroundColor: isSelected
-                            ? theme.colors.primaryForeground
-                            : theme.colors.primary,
-                        },
-                      ]}
-                    />
-                  ) : null}
+                  <ChevronLeft size={20} color={theme.colors.foreground} />
                 </Pressable>
-              );
-            })}
-          </View>
 
-          {selectedDate ? (
-            <View style={styles.selectedSection}>
-              <Text style={[styles.selectedLabel, { color: theme.colors.foreground }]}>
-                {formatDateLabel(selectedDate)}
-              </Text>
+                <Text style={[styles.monthLabel, { color: theme.colors.foreground }]}>
+                  {formatMonthLabel(currentMonth)}
+                </Text>
 
-              {selectedEntries.length > 0 ? (
-                <View style={styles.listStack}>
-                  {selectedEntries.map(entry => (
-                    <JournalEntryCard
-                      key={entry.id}
-                      entry={entry}
-                      onPress={() => openJournalEntry(entry.id)}
-                      onFavoritePress={() =>
-                        void handleFavoriteToggle(entry.id, !entry.isFavorite)
-                      }
-                      isFavoriteUpdating={favoriteUpdatingId === entry.id}
-                      previewLines={3}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <View
-                  style={[
-                    styles.emptyCalendarState,
-                    {
-                      backgroundColor: theme.colors.card,
-                      borderColor: theme.colors.border,
-                    },
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Next month"
+                  onPress={() => handleMonthShift(1)}
+                  style={({ pressed }: { pressed: boolean }) => [
+                    styles.monthNavButton,
+                    pressed && styles.pressed,
                   ]}
                 >
+                  <ChevronRight size={20} color={theme.colors.foreground} />
+                </Pressable>
+              </View>
+
+              <View style={[styles.weekdayRow, { gap: gridGap }]}>
+                {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
                   <Text
-                    style={[styles.emptyCalendarTitle, { color: theme.colors.foreground }]}
+                    key={`${day}-${index}`}
+                    style={[
+                      styles.weekdayLabel,
+                      { color: theme.colors.mutedForeground, width: gridCellSize },
+                    ]}
                   >
-                    No entries for this date
+                    {day}
                   </Text>
-                  <Text
-                    style={[styles.emptyCalendarText, { color: theme.colors.mutedForeground }]}
-                  >
-                    This is a calm placeholder until entry creation is connected.
+                ))}
+              </View>
+
+              <View style={[styles.grid, { gap: gridGap }]}>
+                {monthCells.map((cell, index) => {
+                  if (!cell) {
+                    return (
+                      <View
+                        key={`empty-${index}`}
+                        style={[
+                          styles.dayCell,
+                          styles.gridPlaceholder,
+                          {
+                            width: gridCellSize,
+                            height: gridCellSize,
+                          },
+                        ]}
+                      />
+                    );
+                  }
+
+                  const isToday = isSameDay(cell, today);
+                  const isSelected = selectedDate
+                    ? isSameDay(cell, selectedDate)
+                    : false;
+                  const hasEntry = calendarEntries.some(entry =>
+                    isSameDay(entry.date, cell)
+                  );
+
+                  return (
+                    <Pressable
+                      key={cell.toISOString()}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${formatDateLabel(cell)}`}
+                      onPress={() =>
+                        setSelectedDate(previous =>
+                          previous && isSameDay(previous, cell) ? null : cell
+                        )
+                      }
+                      style={({ pressed }: { pressed: boolean }) => [
+                        styles.dayCell,
+                        {
+                          width: gridCellSize,
+                          height: gridCellSize,
+                          borderColor: isSelected
+                            ? theme.colors.primary
+                            : isToday
+                              ? theme.colors.primary
+                              : "transparent",
+                          backgroundColor: isSelected
+                            ? theme.colors.primary
+                            : "transparent",
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.dayText,
+                          {
+                            color: isSelected
+                              ? theme.colors.primaryForeground
+                              : theme.colors.foreground,
+                          },
+                        ]}
+                      >
+                        {cell.getDate()}
+                      </Text>
+                      {hasEntry ? (
+                        <View
+                          style={[
+                            styles.dayDot,
+                            {
+                              backgroundColor: isSelected
+                                ? theme.colors.primaryForeground
+                                : theme.colors.primary,
+                            },
+                          ]}
+                        />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {selectedDate ? (
+                <View style={styles.selectedSection}>
+                  <Text style={[styles.selectedLabel, { color: theme.colors.foreground }]}>
+                    {formatDateLabel(selectedDate)}
                   </Text>
+
+                  {selectedEntries.length > 0 ? (
+                    <View style={styles.listStack}>
+                      {selectedEntries.map(entry => (
+                        <JournalEntryCard
+                          key={entry.id}
+                          entry={entry}
+                          onPress={() => openJournalEntry(entry.id)}
+                          onFavoritePress={() =>
+                            void handleFavoriteToggle(entry.id, !entry.isFavorite)
+                          }
+                          isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                          previewLines={3}
+                        />
+                      ))}
+                    </View>
+                  ) : (
+                    <View
+                      style={[
+                        styles.emptyCalendarState,
+                        {
+                          backgroundColor: theme.colors.card,
+                          borderColor: theme.colors.border,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.emptyCalendarTitle,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        No entries for this date
+                      </Text>
+                      <Text
+                        style={[
+                          styles.emptyCalendarText,
+                          { color: theme.colors.mutedForeground },
+                        ]}
+                      >
+                        This is a calm placeholder until entry creation is connected.
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              )}
+              ) : null}
             </View>
-          ) : null}
-        </View>
-        </Animated.View>
-      )}
+          </Animated.View>
+        )}
+      </View>
     </TabScreenLayout>
   );
 }
@@ -692,6 +771,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   viewTransition: {
+    width: "100%",
+  },
+  swipeZone: {
     width: "100%",
   },
   entryCard: {

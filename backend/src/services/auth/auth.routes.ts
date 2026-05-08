@@ -2,6 +2,7 @@ import { Router } from "express";
 import { validateRequest } from "../../middleware/validateRequest.middleware";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
+  appleMobileSignInController,
   googleMobileSignInController,
   logoutController,
   refreshController,
@@ -12,6 +13,7 @@ import {
   verifyEmailController,
 } from "./auth.controllers";
 import {
+  appleMobileSignInSchema,
   googleMobileSignInSchema,
   logoutSchema,
   resendEmailVerificationSchema,
@@ -47,6 +49,11 @@ authRouter.post(
   "/google/mobile",
   validateRequest(googleMobileSignInSchema),
   googleMobileSignInController
+);
+authRouter.post(
+  "/apple/mobile",
+  validateRequest(appleMobileSignInSchema),
+  appleMobileSignInController
 );
 authRouter.post(
   "/register_from_googleOAuth",

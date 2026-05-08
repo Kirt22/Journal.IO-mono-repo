@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
+import jwt, { type JwtPayload } from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import {
   type IOnboardingContext,
@@ -20,12 +20,48 @@ type GoogleOAuthInput = {
   onboardingCompleted?: boolean;
 };
 
+type AppleOAuthInput = {
+  identityToken: string;
+  nonce: string;
+  email?: string | null;
+  fullName?: AppleFullNameInput | null;
+  onboardingContext?: EmailOnboardingContextInput;
+  onboardingCompleted?: boolean;
+};
+
 type VerifiedGoogleProfile = {
   googleSub: string;
   email: string | null;
   emailVerified: boolean;
   name: string | null;
   picture: string | null;
+};
+
+type AppleFullNameInput = {
+  givenName?: string | null;
+  familyName?: string | null;
+  nickname?: string | null;
+};
+
+type VerifiedAppleProfile = {
+  appleSub: string;
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+};
+
+type AppleJwtHeader = {
+  kid?: string;
+  alg?: string;
+};
+
+type AppleJwk = {
+  kid: string;
+  kty: string;
+  alg?: string;
+  use?: string;
+  n: string;
+  e: string;
 };
 
 type EmailOnboardingContextInput = {
@@ -141,6 +177,10 @@ const getGoogleClientAudiences = () => {
   );
 };
 
+const getAppleClientAudience = () => {
+  return normalizeEnvClientId(process.env.APPLE_CLIENT_ID) || "app.journalio";
+};
+
 const getEmailVerificationExpiryMs = () => {
   return parseDurationToMs(
     process.env.AUTH_EMAIL_OTP_EXPIRES_IN || "30m",
@@ -215,6 +255,140 @@ const setGoogleIdTokenVerifierForTests = (
 
 const resetGoogleIdTokenVerifierForTests = () => {
   verifyGoogleIdTokenImpl = createDefaultGoogleIdTokenVerifier();
+};
+
+let cachedAppleKeys:
+  | {
+      fetchedAt: number;
+      keys: AppleJwk[];
+    }
+  | null = null;
+
+const APPLE_JWKS_CACHE_MS = 60 * 60 * 1000;
+const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+
+const getAppleFullName = (fullName?: AppleFullNameInput | null) => {
+  const nameParts = [
+    normalizeOptionalString(fullName?.givenName),
+    normalizeOptionalString(fullName?.familyName),
+  ].filter(Boolean);
+
+  return nameParts.join(" ") || normalizeOptionalString(fullName?.nickname);
+};
+
+const hashAppleNonce = (nonce: string) =>
+  crypto.createHash("sha256").update(nonce).digest("hex");
+
+const getApplePublicKeys = async () => {
+  if (
+    cachedAppleKeys &&
+    Date.now() - cachedAppleKeys.fetchedAt < APPLE_JWKS_CACHE_MS
+  ) {
+    return cachedAppleKeys.keys;
+  }
+
+  const response = await fetch(APPLE_JWKS_URL);
+
+  if (!response.ok) {
+    throw new Error("Unable to load Apple public keys.");
+  }
+
+  const payload = (await response.json()) as { keys?: AppleJwk[] };
+  const keys = Array.isArray(payload.keys) ? payload.keys : [];
+
+  if (keys.length === 0) {
+    throw new Error("Apple public keys response did not include keys.");
+  }
+
+  cachedAppleKeys = {
+    fetchedAt: Date.now(),
+    keys,
+  };
+
+  return keys;
+};
+
+const getAppleSigningKey = async (header: AppleJwtHeader) => {
+  if (!header.kid || header.alg !== "RS256") {
+    throw new Error("Apple identity token header is invalid.");
+  }
+
+  const keys = await getApplePublicKeys();
+  const jwk = keys.find(candidate => candidate.kid === header.kid);
+
+  if (!jwk) {
+    throw new Error("Apple identity token signing key was not found.");
+  }
+
+  return crypto.createPublicKey({
+    key: jwk as crypto.JsonWebKey,
+    format: "jwk",
+  });
+};
+
+const getDecodedAppleHeader = (identityToken: string): AppleJwtHeader => {
+  const decoded = jwt.decode(identityToken, { complete: true });
+
+  if (!decoded || typeof decoded !== "object" || !("header" in decoded)) {
+    throw new Error("Apple identity token could not be decoded.");
+  }
+
+  return decoded.header as AppleJwtHeader;
+};
+
+const createDefaultAppleIdentityTokenVerifier = () => {
+  return async (
+    identityToken: string,
+    nonce: string,
+    input?: { email?: string | null; fullName?: AppleFullNameInput | null }
+  ): Promise<VerifiedAppleProfile | null> => {
+    const clientAudience = getAppleClientAudience();
+    const header = getDecodedAppleHeader(identityToken);
+    const publicKey = await getAppleSigningKey(header);
+    const claims = jwt.verify(identityToken, publicKey, {
+      algorithms: ["RS256"],
+      audience: clientAudience,
+      issuer: "https://appleid.apple.com",
+    }) as JwtPayload;
+
+    if (!claims.sub) {
+      return null;
+    }
+
+    const tokenNonce = typeof claims.nonce === "string" ? claims.nonce : null;
+
+    if (tokenNonce !== hashAppleNonce(nonce)) {
+      return null;
+    }
+
+    const tokenEmail = normalizeOptionalString(
+      typeof claims.email === "string" ? claims.email : null
+    );
+    const inputEmail = normalizeOptionalString(input?.email);
+    const email = tokenEmail || inputEmail;
+    const emailVerifiedClaim = claims.email_verified;
+    const emailVerified =
+      emailVerifiedClaim === true || emailVerifiedClaim === "true";
+
+    return {
+      appleSub: claims.sub,
+      email: email ? normalizeEmail(email) : null,
+      emailVerified,
+      name: getAppleFullName(input?.fullName) || null,
+    };
+  };
+};
+
+let verifyAppleIdentityTokenImpl = createDefaultAppleIdentityTokenVerifier();
+
+const setAppleIdentityTokenVerifierForTests = (
+  verifier: typeof verifyAppleIdentityTokenImpl
+) => {
+  verifyAppleIdentityTokenImpl = verifier;
+};
+
+const resetAppleIdentityTokenVerifierForTests = () => {
+  verifyAppleIdentityTokenImpl = createDefaultAppleIdentityTokenVerifier();
 };
 
 const sanitizeOnboardingContext = (
@@ -477,6 +651,34 @@ const createGoogleUser = async ({
     onboardingCompleted: Boolean(onboardingCompleted),
     emailVerified: googleProfile.emailVerified,
     emailVerifiedAt: googleProfile.emailVerified ? new Date() : null,
+    journalingGoals: normalizedOnboardingContext?.goals || [],
+    onboardingContext: normalizedOnboardingContext,
+  });
+};
+
+const createAppleUser = async ({
+  appleProfile,
+  onboardingContext,
+  onboardingCompleted,
+}: {
+  appleProfile: VerifiedAppleProfile;
+  onboardingContext?: EmailOnboardingContextInput;
+  onboardingCompleted?: boolean | undefined;
+}) => {
+  const fallbackName = appleProfile.email
+    ? deriveDisplayNameFromEmail(appleProfile.email)
+    : "Journal User";
+  const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
+
+  return userModel.create({
+    name: appleProfile.name || fallbackName,
+    email: appleProfile.email,
+    appleUserId: appleProfile.appleSub,
+    authProviders: ["apple"],
+    profileSetupCompleted: false,
+    onboardingCompleted: Boolean(onboardingCompleted),
+    emailVerified: appleProfile.emailVerified,
+    emailVerifiedAt: appleProfile.emailVerified ? new Date() : null,
     journalingGoals: normalizedOnboardingContext?.goals || [],
     onboardingContext: normalizedOnboardingContext,
   });
@@ -893,6 +1095,131 @@ const signInWithGoogle = async (
   };
 };
 
+const signInWithApple = async (
+  input: AppleOAuthInput
+): Promise<
+  | AuthSuccess<{
+      tokens: AuthTokens;
+      user: ReturnType<typeof buildUserPayload>;
+    }>
+  | AuthFailure
+> => {
+  let appleProfile: VerifiedAppleProfile | null = null;
+
+  try {
+    appleProfile = await verifyAppleIdentityTokenImpl(
+      input.identityToken,
+      input.nonce,
+      {
+        ...(input.email !== undefined ? { email: input.email } : {}),
+        ...(input.fullName !== undefined ? { fullName: input.fullName } : {}),
+      }
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      status: 401,
+      code: "INVALID_APPLE_ID_TOKEN",
+      message: "We couldn't verify that Apple sign-in. Please try again.",
+    };
+  }
+
+  if (!appleProfile?.appleSub) {
+    return {
+      ok: false,
+      status: 401,
+      code: "INVALID_APPLE_ID_TOKEN",
+      message: "We couldn't verify that Apple sign-in. Please try again.",
+    };
+  }
+
+  const normalizedEmail = appleProfile.email
+    ? normalizeEmail(appleProfile.email)
+    : null;
+  const normalizedOnboardingContext = sanitizeOnboardingContext(
+    input.onboardingContext
+  );
+  const onboardingGoals = normalizedOnboardingContext?.goals || [];
+  appleProfile = {
+    ...appleProfile,
+    email: normalizedEmail,
+  };
+
+  let user = await userModel.findOne({ appleUserId: appleProfile.appleSub });
+
+  if (!user && normalizedEmail) {
+    user = await userModel.findOne({ email: normalizedEmail });
+
+    if (
+      user &&
+      user.appleUserId &&
+      user.appleUserId !== appleProfile.appleSub
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: "APPLE_ACCOUNT_ALREADY_LINKED",
+        message: "This email is already linked to another Apple account.",
+      };
+    }
+  }
+
+  if (!user) {
+    user = await createAppleUser({
+      appleProfile,
+      ...(input.onboardingContext
+        ? { onboardingContext: input.onboardingContext }
+        : {}),
+      onboardingCompleted: input.onboardingCompleted,
+    });
+  } else {
+    if (!user.authProviders.includes("apple")) {
+      user.authProviders = [...user.authProviders, "apple"];
+    }
+
+    if (!user.name && appleProfile.name) {
+      user.name = appleProfile.name;
+    }
+
+    if (!user.name && normalizedEmail) {
+      user.name = deriveDisplayNameFromEmail(normalizedEmail);
+    }
+
+    if (!user.email && normalizedEmail) {
+      user.email = normalizedEmail;
+    }
+
+    user.appleUserId = appleProfile.appleSub;
+
+    if (normalizedOnboardingContext) {
+      user.onboardingContext = normalizedOnboardingContext;
+    }
+
+    if (onboardingGoals.length > 0) {
+      user.journalingGoals = onboardingGoals;
+    }
+
+    if (appleProfile.emailVerified) {
+      user.emailVerified = true;
+      user.emailVerifiedAt = user.emailVerifiedAt || new Date();
+    }
+
+    if (input.onboardingCompleted) {
+      user.onboardingCompleted = true;
+    }
+
+    await user.save();
+  }
+
+  const tokens = await issueTokens(user);
+
+  return {
+    ok: true,
+    tokens,
+    user: buildUserPayload(user),
+  };
+};
+
 const refreshAccessToken = async (
   refreshToken: string
 ): Promise<{ accessToken: string } | null> => {
@@ -941,9 +1268,12 @@ const invalidateRefreshToken = async (userId: string) => {
 export {
   invalidateRefreshToken,
   refreshAccessToken,
+  resetAppleIdentityTokenVerifierForTests,
   resetGoogleIdTokenVerifierForTests,
   resendEmailVerification,
+  setAppleIdentityTokenVerifierForTests,
   setGoogleIdTokenVerifierForTests,
+  signInWithApple,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,

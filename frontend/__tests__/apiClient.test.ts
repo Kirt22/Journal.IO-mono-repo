@@ -187,8 +187,7 @@ describe("apiClient", () => {
         }),
       })
     ).rejects.toMatchObject({
-      message:
-        "Route not found for http://127.0.0.1:5050/api/v1/auth/sign_up_with_email",
+      message: "We couldn't find what you were looking for.",
       requestUrl: "http://127.0.0.1:5050/api/v1/auth/sign_up_with_email",
       status: 404,
     });
@@ -238,12 +237,13 @@ describe("apiClient", () => {
       })
     ).rejects.toMatchObject({
       isNetworkError: true,
-      message: "Unable to reach the server. Check your connection and try again.",
+      message:
+        "We're having trouble connecting right now. Please check your internet connection and try again.",
     });
 
     expect(alertSpy).toHaveBeenCalledWith(
       "Connection issue",
-      "We're having trouble reaching the server. Check your internet connection or make sure the backend is running, then try again."
+      "We're having trouble connecting right now. Please check your internet connection and try again."
     );
   });
 

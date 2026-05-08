@@ -699,7 +699,6 @@ test("locks the mood card when today's mood already exists", async () => {
 
 test("saves quick thoughts into recent entries", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
-  const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
   const errorSpy = jest.spyOn(console, "error").mockImplementation(() => undefined);
 
   ReactTestRenderer.act(() => {
@@ -767,26 +766,8 @@ test("saves quick thoughts into recent entries", async () => {
   expect(tree).not.toContain("Journal entry");
   expect(tree).not.toContain("No entries yet");
   expect(root!.root.findAllByProps({ placeholder: "What's on your mind?" })).toHaveLength(0);
-  expect(logSpy).toHaveBeenCalledWith(
-    "[HomeScreen] Quick thought save tapped",
-    expect.objectContaining({
-      contentLength: "A quick note about walking outside".length,
-      selectedTags: ["gratitude"],
-    })
-  );
-  expect(logSpy).toHaveBeenCalledWith(
-    "[HomeScreen] Quick thought request succeeded",
-    expect.objectContaining({
-      journalId: "journal-test-entry",
-      title: "Quick Thought",
-      type: "quick-thought",
-      tags: ["gratitude"],
-    })
-  );
-  expect(logSpy).toHaveBeenCalledWith("[HomeScreen] Quick thought UI cleaned up");
   expect(errorSpy).not.toHaveBeenCalled();
 
-  logSpy.mockRestore();
   errorSpy.mockRestore();
 });
 
@@ -940,10 +921,11 @@ test("shows a locked AI insight card for non-premium users", async () => {
     root!.root.findByProps({ accessibilityLabel: "Open AI analysis" }).props.onPress();
   });
 
-  expect(useAppStore.getState().stage).toBe("paywall");
+  expect(useAppStore.getState().stage).toBe("hosted-paywall");
   expect(useAppStore.getState().activePaywallPlacementKey).toBe(
     "home_ai_card_locked"
   );
+  expect(useAppStore.getState().activeHostedPaywallTarget).toBe("main");
 });
 
 test("shows an AI opt-out card instead of loading AI insights", async () => {

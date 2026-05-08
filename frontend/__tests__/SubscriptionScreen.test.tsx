@@ -8,7 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import SubscriptionScreen from "../src/screens/profile/SubscriptionScreen";
 import { useAppStore, resetAppStore } from "../src/store/appStore";
 import {
-  getRevenueCatCustomerInfo,
+  refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
 } from "../src/services/revenueCatService";
 
@@ -17,6 +17,20 @@ jest.mock("../src/services/revenueCatService", () => ({
     customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null
   ),
   getRevenueCatConfigurationError: jest.fn(() => null),
+  refreshRevenueCatEntitlementState: jest.fn(async () => ({
+    hasPremiumAccess: true,
+    customerInfo: {
+      entitlements: {
+        active: {
+          "Journal.IO Pro": {
+            identifier: "Journal.IO Pro",
+            isActive: true,
+            store: "APP_STORE",
+          },
+        },
+      },
+    },
+  })),
   getRevenueCatCustomerInfo: jest.fn(async () => ({
     entitlements: {
       active: {
@@ -144,7 +158,7 @@ test("shows member-facing details for renewable premium plans", async () => {
     await Promise.resolve();
   });
 
-  expect(getRevenueCatCustomerInfo).toHaveBeenCalledWith("user-test");
+  expect(refreshRevenueCatEntitlementState).toHaveBeenCalledWith("user-test");
   expect(extractText(root!.toJSON())).toContain("Weekly Premium");
   expect(extractText(root!.toJSON())).toContain(
     "Your weekly membership is active."

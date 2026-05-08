@@ -256,16 +256,15 @@ export function OnboardingScreen({
   const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
   const privacyConsentBackground = agreedToPrivacy ? theme.colors.primary : "transparent";
 
-  const handleOpenLegalDocument = async (
+  const handleOpenLegalDocument = (
     url: string,
     title: string,
     fallbackMessage: string
   ) => {
-    try {
-      await openExternalUrl(url);
-    } catch (error) {
+    setStepError(null);
+    openExternalUrl(url, title).catch(error => {
       Alert.alert(title, error instanceof Error ? error.message : fallbackMessage);
-    }
+    });
   };
 
   const canProceed = useMemo(() => {
@@ -1039,13 +1038,13 @@ export function OnboardingScreen({
             I understand and agree to the{" "}
             <Text
               accessibilityRole="link"
-              onPress={() =>
-                void handleOpenLegalDocument(
+              onPress={() => {
+                handleOpenLegalDocument(
                   LEGAL_URLS.privacyPolicy,
                   "Privacy Policy",
                   "Unable to open the privacy policy right now."
-                )
-              }
+                );
+              }}
               style={[styles.consentLink, { color: theme.colors.primary }]}
             >
               privacy policy
@@ -1053,13 +1052,13 @@ export function OnboardingScreen({
             and{" "}
             <Text
               accessibilityRole="link"
-              onPress={() =>
-                void handleOpenLegalDocument(
+              onPress={() => {
+                handleOpenLegalDocument(
                   LEGAL_URLS.termsOfService,
                   "Terms of Service",
                   "Unable to open the terms of service right now."
-                )
-              }
+                );
+              }}
               style={[styles.consentLink, { color: theme.colors.primary }]}
             >
               terms of service
@@ -1072,106 +1071,113 @@ export function OnboardingScreen({
   };
 
   return (
-    <SafeAreaView
-      edges={["top", "left", "right", "bottom"]}
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
-    >
-      <View style={styles.screenContent}>
-        <ScrollView
-          bounces={false}
-          contentContainerStyle={[
-            styles.contentContainer,
-            { paddingHorizontal: horizontalPadding },
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.sheet, { maxWidth: layoutMaxWidth }]}>
-            <OnboardingProgressIndicator currentStep={step} totalSteps={TOTAL_STEPS} />
-            <Animated.View
-              style={{
-                opacity: stepOpacity,
-                transform: [{ translateX: stepTranslateX }],
-              }}
-            >
-              {renderStepContent()}
-            </Animated.View>
-          </View>
-        </ScrollView>
+    <>
+      <SafeAreaView
+        edges={["top", "left", "right", "bottom"]}
+        style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+      >
+        <View style={styles.screenContent}>
+          <ScrollView
+            bounces={false}
+            contentContainerStyle={[
+              styles.contentContainer,
+              { paddingHorizontal: horizontalPadding },
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.sheet, { maxWidth: layoutMaxWidth }]}>
+              <OnboardingProgressIndicator currentStep={step} totalSteps={TOTAL_STEPS} />
+              <Animated.View
+                style={{
+                  opacity: stepOpacity,
+                  transform: [{ translateX: stepTranslateX }],
+                }}
+              >
+                {renderStepContent()}
+              </Animated.View>
+            </View>
+          </ScrollView>
 
-        <View
-          style={[
-            styles.actionsContainer,
-            {
-              maxWidth: layoutMaxWidth,
-              paddingHorizontal: horizontalPadding,
-            },
-          ]}
-        >
-          {stepError ? (
-            <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
-              {stepError}
-            </Text>
-          ) : null}
+          <View
+            style={[
+              styles.actionsContainer,
+              {
+                maxWidth: layoutMaxWidth,
+                paddingHorizontal: horizontalPadding,
+              },
+            ]}
+          >
+            {stepError ? (
+              <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
+                {stepError}
+              </Text>
+            ) : null}
 
-          <View style={styles.actionsRow}>
-            {step > 1 ? (
+            <View style={styles.actionsRow}>
+              {step > 1 ? (
+                <View style={styles.actionSlot}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={goBack}
+                    style={({ pressed }) => [
+                      styles.secondaryButton,
+                      {
+                        backgroundColor: theme.colors.card,
+                        borderColor: theme.colors.border,
+                      },
+                      pressed && styles.cardPressed,
+                    ]}
+                  >
+                    <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
+                      Back
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
               <View style={styles.actionSlot}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={goBack}
+                  disabled={isCompleting || isApplyingReminderPreference || !canProceed}
+                  onPress={handleContinue}
                   style={({ pressed }) => [
-                    styles.secondaryButton,
+                    styles.primaryButton,
                     {
-                      backgroundColor: theme.colors.card,
-                      borderColor: theme.colors.border,
+                      backgroundColor: canProceed ? theme.colors.primary : theme.colors.border,
                     },
-                    pressed && styles.cardPressed,
+                    pressed && canProceed && styles.primaryButtonPressed,
+                    (isCompleting || isApplyingReminderPreference || !canProceed) &&
+                      styles.primaryButtonDisabled,
                   ]}
                 >
-                  <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                    Back
-                  </Text>
+                  {isCompleting || isApplyingReminderPreference ? (
+                    <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        {
+                          color: canProceed
+                            ? theme.colors.primaryForeground
+                            : theme.colors.mutedForeground,
+                        },
+                      ]}
+                    >
+                      {primaryButtonText}
+                    </Text>
+                  )}
                 </Pressable>
               </View>
-            ) : null}
-
-            <View style={styles.actionSlot}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isCompleting || isApplyingReminderPreference || !canProceed}
-                onPress={handleContinue}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  {
-                    backgroundColor: canProceed ? theme.colors.primary : theme.colors.border,
-                  },
-                  pressed && canProceed && styles.primaryButtonPressed,
-                  (isCompleting || isApplyingReminderPreference || !canProceed) &&
-                    styles.primaryButtonDisabled,
-                ]}
-              >
-                {isCompleting || isApplyingReminderPreference ? (
-                  <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
-                ) : (
-                  <Text
-                    style={[
-                      styles.primaryButtonText,
-                      { color: canProceed ? theme.colors.primaryForeground : theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {primaryButtonText}
-                  </Text>
-                )}
-              </Pressable>
             </View>
-          </View>
 
-          <Text style={[styles.stepCounter, { color: theme.colors.mutedForeground }]}>
-            Step {step} of {TOTAL_STEPS}
-          </Text>
+            <Text style={[styles.stepCounter, { color: theme.colors.mutedForeground }]}>
+              Step {step} of {TOTAL_STEPS}
+            </Text>
+          </View>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+
+    </>
   );
 }
 

@@ -19,18 +19,10 @@ const createJournalEntry = async (payload: CreateJournalPayload) => {
     isFavorite: payload.isFavorite ?? false,
   };
 
-  if (__DEV__) {
-    console.log("[journalService] createJournalEntry request", requestBody);
-  }
-
   const response = await request<JournalEntry>("/journal/create_journal", {
     method: "POST",
     body: JSON.stringify(requestBody),
   });
-
-  if (__DEV__) {
-    console.log("[journalService] createJournalEntry response", response.data);
-  }
 
   return {
     ...response.data,
@@ -68,18 +60,10 @@ const updateJournalEntry = async (payload: UpdateJournalPayload) => {
     isFavorite: payload.isFavorite ?? false,
   };
 
-  if (__DEV__) {
-    console.log("[journalService] updateJournalEntry request", requestBody);
-  }
-
   const response = await request<JournalEntry>("/journal/edit_journal", {
     method: "POST",
     body: JSON.stringify(requestBody),
   });
-
-  if (__DEV__) {
-    console.log("[journalService] updateJournalEntry response", response.data);
-  }
 
   return {
     ...response.data,
@@ -98,18 +82,10 @@ const toggleJournalFavorite = async (payload: {
     isFavorite: payload.isFavorite,
   };
 
-  if (__DEV__) {
-    console.log("[journalService] toggleJournalFavorite request", requestBody);
-  }
-
   const response = await request<JournalEntry>("/journal/toggle_favorite", {
     method: "POST",
     body: JSON.stringify(requestBody),
   });
-
-  if (__DEV__) {
-    console.log("[journalService] toggleJournalFavorite response", response.data);
-  }
 
   return {
     ...response.data,

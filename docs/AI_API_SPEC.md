@@ -48,9 +48,10 @@ Error:
 
 Current backend reality:
 
-- the implemented backend supports email-first auth and Google OAuth
+- the implemented backend supports email-first auth, Google OAuth, and Sign in with Apple
 - the current frontend auth flow uses the email-first endpoints below
 - the mobile Google sign-in flow now posts the Google ID token to `POST /auth/google/mobile`
+- the mobile Apple sign-in flow posts the Apple identity token and raw nonce to `POST /auth/apple/mobile`
 
 ### `POST /auth/google/mobile`
 
@@ -99,6 +100,40 @@ Success `data`:
   }
 }
 ```
+
+### `POST /auth/apple/mobile`
+
+Mobile Sign in with Apple.
+
+Request:
+
+```json
+{
+  "identityToken": "apple_identity_token",
+  "nonce": "raw_nonce_sent_to_apple",
+  "email": "alex@privaterelay.appleid.com",
+  "fullName": {
+    "givenName": "Alex",
+    "familyName": "Appleseed"
+  },
+  "onboardingContext": {
+    "goals": ["Daily Reflection"],
+    "reminderPreference": "Evening",
+    "aiOptIn": false,
+    "privacyConsentAccepted": true
+  },
+  "onboardingCompleted": true
+}
+```
+
+Notes:
+
+- backend verifies the Apple identity token against Apple public keys and `APPLE_CLIENT_ID`
+- backend verifies the token issuer, audience, expiry, signature, and hashed nonce
+- backend stores the Apple `sub` in the user Apple identity field and then issues the normal app access/refresh tokens
+- frontend-provided Apple email/name are used only after token verification and only as fallback profile data
+
+Success `data` uses the same session payload shape as `POST /auth/google/mobile`.
 
 ### `POST /auth/register_from_googleOAuth`
 
@@ -967,6 +1002,10 @@ Google OAuth remains a supported alternate auth path and should continue to retu
 ### `POST /auth/google/mobile`
 
 The mobile client obtains a Google `idToken`, posts it to the backend, and receives the same Journal.IO session payload used by the other sign-in flows. The backend verifies the Google token before linking or creating the user account.
+
+### `POST /auth/apple/mobile`
+
+The mobile client obtains an Apple `identityToken`, posts it with the raw nonce to the backend, and receives the same Journal.IO session payload used by the other sign-in flows. The backend verifies the Apple token and nonce before linking or creating the user account.
 
 ## 4.2 User Profile
 

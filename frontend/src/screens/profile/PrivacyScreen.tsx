@@ -64,7 +64,7 @@ export default function PrivacyScreen({
     fallbackMessage: string
   ) => {
     try {
-      await openExternalUrl(url);
+      await openExternalUrl(url, title);
     } catch (error) {
       Alert.alert(title, error instanceof Error ? error.message : fallbackMessage);
     }
@@ -325,7 +325,7 @@ export default function PrivacyScreen({
         <Pressable
           accessibilityRole="button"
           onPress={() =>
-            void handleOpenLink(
+            handleOpenLink(
               LEGAL_URLS.supportEmail,
               "Support",
               `Unable to open your email app right now. Contact ${SUPPORT_EMAIL}.`

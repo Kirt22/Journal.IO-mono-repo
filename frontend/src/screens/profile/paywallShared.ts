@@ -72,8 +72,10 @@ export const buildPaywallPlans = (
       highlight: plan.highlight,
       badge: plan.badge,
       offeringKey: configuredOffering?.key,
-      revenueCatOfferingId: configuredOffering?.revenueCatOfferingId || null,
-      revenueCatPackageId: configuredOffering?.revenueCatPackageId || null,
+      revenueCatOfferingId:
+        plan.revenueCatOfferingId || configuredOffering?.revenueCatOfferingId || null,
+      revenueCatPackageId:
+        plan.revenueCatPackageId || configuredOffering?.revenueCatPackageId || null,
       rcPackage: plan.rcPackage,
       introOffer: plan.introOffer,
     };

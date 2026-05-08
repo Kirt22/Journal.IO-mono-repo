@@ -11,6 +11,7 @@ import {
 import { Loader2, Mail } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWindowDimensions } from "react-native";
+import appleAuth, { AppleButton } from "@invertase/react-native-apple-authentication";
 import PrimaryButton from "../../components/PrimaryButton";
 import AuthHero from "../../components/AuthHero";
 import { useTheme } from "../../theme/provider";
@@ -19,18 +20,21 @@ import { getAuthLayoutMetrics } from "./authLayout";
 
 type AuthChoiceScreenProps = {
   onContinueWithEmail: () => Promise<void>;
+  onContinueWithApple: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
 };
 
 export default function AuthChoiceScreen({
   onContinueWithEmail,
+  onContinueWithApple,
   onContinueWithGoogle,
   onGoToSignIn,
 }: AuthChoiceScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [isAppleLoading, setIsAppleLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const {
@@ -46,6 +50,8 @@ export default function AuthChoiceScreen({
   const contentJustificationStyle = isVeryCompact
     ? styles.contentTopAligned
     : styles.contentCentered;
+  const showAppleSignIn = Platform.OS === "ios" && appleAuth.isSupported;
+  const isAnyAuthLoading = isEmailLoading || isAppleLoading || isGoogleLoading;
 
   const handleEmailPress = async () => {
     setIsEmailLoading(true);
@@ -78,6 +84,27 @@ export default function AuthChoiceScreen({
       );
     } finally {
       setIsGoogleLoading(false);
+    }
+  };
+
+  const handleApplePress = async () => {
+    if (isAnyAuthLoading) {
+      return;
+    }
+
+    setIsAppleLoading(true);
+    setError(null);
+
+    try {
+      await onContinueWithApple();
+    } catch (submissionError) {
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to continue with Apple right now."
+      );
+    } finally {
+      setIsAppleLoading(false);
     }
   };
 
@@ -114,7 +141,7 @@ export default function AuthChoiceScreen({
                 label={isEmailLoading ? "Loading..." : "Continue with Email"}
                 onPress={handleEmailPress}
                 loading={isEmailLoading}
-                disabled={isEmailLoading || isGoogleLoading}
+                disabled={isAnyAuthLoading}
                 icon={
                   isEmailLoading ? (
                     <Loader2 color="#FFFFFF" size={16} />
@@ -148,10 +175,23 @@ export default function AuthChoiceScreen({
                 label={isGoogleLoading ? "Connecting..." : "Continue with Google"}
                 onPress={handleGooglePress}
                 loading={isGoogleLoading}
-                disabled={isEmailLoading || isGoogleLoading}
+                disabled={isAnyAuthLoading}
                 variant="outline"
                 icon={<GoogleMark />}
               />
+
+              {showAppleSignIn ? (
+                <AppleButton
+                  buttonStyle={AppleButton.Style.BLACK}
+                  buttonType={AppleButton.Type.CONTINUE}
+                  cornerRadius={12}
+                  onPress={handleApplePress}
+                  style={[
+                    styles.appleButton,
+                    isAnyAuthLoading && styles.disabledButton,
+                  ]}
+                />
+              ) : null}
 
               {error ? (
                 <Text style={[styles.error, { color: theme.colors.destructive }]}>
@@ -251,6 +291,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     textAlign: "center",
+  },
+  appleButton: {
+    width: "100%",
+    height: 48,
+  },
+  disabledButton: {
+    opacity: 0.55,
   },
   infoCard: {
     borderRadius: 16,

@@ -65,8 +65,11 @@ PODS:
     - hermes-engine/Pre-built (= 0.82.1)
   - hermes-engine/Pre-built (0.82.1)
   - PromisesObjC (2.4.0)
-  - PurchasesHybridCommon (17.54.0):
-    - RevenueCat (= 5.67.0)
+  - PurchasesHybridCommon (17.55.1):
+    - RevenueCat (= 5.67.1)
+  - PurchasesHybridCommonUI (17.55.1):
+    - PurchasesHybridCommon (= 17.55.1)
+    - RevenueCatUI (= 5.67.1)
   - RCT-Folly (2024.11.18.00):
     - boost
     - DoubleConversion
@@ -1956,6 +1959,34 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-webview (13.16.1):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - React-NativeModulesApple (0.82.1):
     - boost
     - DoubleConversion
@@ -2495,7 +2526,39 @@ PODS:
     - React-perflogger (= 0.82.1)
     - React-utils (= 0.82.1)
     - SocketRocket
-  - RevenueCat (5.67.0)
+  - RevenueCat (5.67.1)
+  - RevenueCatUI (5.67.1):
+    - RevenueCat (= 5.67.1)
+  - RNAppleAuthentication (2.5.1):
+    - React-Core
+  - RNGestureHandler (2.31.1):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - RNGoogleSignin (15.0.0):
     - boost
     - DoubleConversion
@@ -2558,9 +2621,71 @@ PODS:
     - RNNotifee/NotifeeCore (= 9.1.8)
   - RNNotifee/NotifeeCore (9.1.8):
     - React-Core
-  - RNPurchases (9.15.1):
-    - PurchasesHybridCommon (= 17.54.0)
+  - RNPaywalls (9.15.2):
+    - PurchasesHybridCommonUI (= 17.55.1)
     - React-Core
+  - RNPurchases (9.15.2):
+    - PurchasesHybridCommon (= 17.55.1)
+    - React-Core
+  - RNScreens (4.25.0-beta.1):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-RCTImage
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - RNScreens/common (= 4.25.0-beta.1)
+    - SocketRocket
+    - Yoga
+  - RNScreens/common (4.25.0-beta.1):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-RCTImage
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - RNSVG (15.15.3):
     - boost
     - DoubleConversion
@@ -2666,6 +2791,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - react-native-webview (from `../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
   - React-perflogger (from `../node_modules/react-native/ReactCommon/reactperflogger`)
@@ -2698,10 +2824,14 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - "RNAppleAuthentication (from `../node_modules/@invertase/react-native-apple-authentication`)"
+  - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - "RNGoogleSignin (from `../node_modules/@react-native-google-signin/google-signin`)"
   - RNKeychain (from `../node_modules/react-native-keychain`)
   - "RNNotifee (from `../node_modules/@notifee/react-native`)"
+  - RNPaywalls (from `../node_modules/react-native-purchases-ui`)
   - RNPurchases (from `../node_modules/react-native-purchases`)
+  - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - SocketRocket (~> 0.7.1)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
@@ -2716,7 +2846,9 @@ SPEC REPOS:
     - GTMSessionFetcher
     - PromisesObjC
     - PurchasesHybridCommon
+    - PurchasesHybridCommonUI
     - RevenueCat
+    - RevenueCatUI
     - SocketRocket
 
 EXTERNAL SOURCES:
@@ -2807,6 +2939,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-image-picker"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-webview:
+    :path: "../node_modules/react-native-webview"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-oscompat:
@@ -2871,14 +3005,22 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  RNAppleAuthentication:
+    :path: "../node_modules/@invertase/react-native-apple-authentication"
+  RNGestureHandler:
+    :path: "../node_modules/react-native-gesture-handler"
   RNGoogleSignin:
     :path: "../node_modules/@react-native-google-signin/google-signin"
   RNKeychain:
     :path: "../node_modules/react-native-keychain"
   RNNotifee:
     :path: "../node_modules/@notifee/react-native"
+  RNPaywalls:
+    :path: "../node_modules/react-native-purchases-ui"
   RNPurchases:
     :path: "../node_modules/react-native-purchases"
+  RNScreens:
+    :path: "../node_modules/react-native-screens"
   RNSVG:
     :path: "../node_modules/react-native-svg"
   Yoga:
@@ -2900,7 +3042,8 @@ SPEC CHECKSUMS:
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   hermes-engine: 273e30e7fb618279934b0b95ffab60ecedb7acf5
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
-  PurchasesHybridCommon: 6a8f4e30952167d2afaccf17ebcf8f8107060e4c
+  PurchasesHybridCommon: ecd9d7c586287625f1225b8de5e24c1021502270
+  PurchasesHybridCommonUI: 3056a3d261529f6adb8f74ecc3ab7f1cc0d3fab4
   RCT-Folly: 59ec0ac1f2f39672a0c6e6cecdd39383b764646f
   RCTDeprecation: f17e2ebc07876ca9ab8eb6e4b0a4e4647497ae3a
   RCTRequired: e2c574c1b45231f7efb0834936bd609d75072b63
@@ -2936,6 +3079,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: 885bebe5c5f25035e1fd0920776078840a0e3a76
   react-native-image-picker: 43e6cd4231e670030fe09b079d696fa5a634ccfc
   react-native-safe-area-context: 54d812805f3c4e08a4580ad086cbde1d8780c2e4
+  react-native-webview: 278eeb4df23d6202b559ceb21bd4088dbde30090
   React-NativeModulesApple: c4bee6aa736092cd347456488a4f97a8e7517604
   React-oscompat: 95875e81f5d4b3c7b2c888d5bd2c9d83450d8bdb
   React-perflogger: d5b5677902d23a6611b700601634271b29356ac6
@@ -2968,11 +3112,16 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: cc2795efe30a023c3a505676b9c748b664b9c0a1
   ReactCodegen: 897bad2d2f722ff4dc46fc144f9cc018db0e2ce4
   ReactCommon: c5803af00bd3737dc1631749b1f1da5beba5b049
-  RevenueCat: f0d05079b59c33c645293bbc1fa78469ea7fcae7
+  RevenueCat: 9357239a9f0978285e68983637b8a602e65c94f0
+  RevenueCatUI: 6f9291da540f98baf405b5bdfc46b2d5547b704a
+  RNAppleAuthentication: d6fe579e5f43cf8db54bdc48518bccea61c592a4
+  RNGestureHandler: ef91d0340bc8e179c323608dd1dd7a16a7e187ac
   RNGoogleSignin: 87502f82bf180fefb16e160149bfe5b380c558e6
   RNKeychain: 182d986f809280edd9444a557adc21845f7d1e6f
   RNNotifee: 4a6ee5c7deaf00e005050052d73ee6315dff7ec9
-  RNPurchases: 38948da90967b1efa7571df9f9949d0d65eb6333
+  RNPaywalls: edbd37110ee27b29c9a46eb807abb6a784549c9f
+  RNPurchases: 92ba1b7b34ecd948d93ee26f451b952b25466fbe
+  RNScreens: e1eeff1b017338d0bcf40fcad9d4e8e8bd5c7aef
   RNSVG: 2008bfa99f51efe1edd86dec50de20d5ac16429a
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 689c8e04277f3ad631e60fe2a08e41d411daf8eb

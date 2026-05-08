@@ -412,6 +412,72 @@ test("renders the insights screen from API data and switches tabs", async () => 
   expect(analysisTree).not.toContain("How Journal.IO Helps");
 });
 
+test("supports horizontal swipes between overview and AI analysis", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <InsightsScreen />
+      </SafeAreaProvider>
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+
+  const swipeZone = root!.root.findByProps({
+    testID: "insights-view-swipe-zone",
+  });
+
+  await ReactTestRenderer.act(async () => {
+    swipeZone.props.onTouchStart({
+      nativeEvent: {
+        locationX: 240,
+        locationY: 44,
+      },
+    });
+    swipeZone.props.onTouchEnd({
+      nativeEvent: {
+        locationX: 140,
+        locationY: 48,
+      },
+    });
+  });
+
+  await waitForText(root!, "Weekly Analysis");
+
+  expect(extractText(root!.toJSON())).toContain("Weekly Analysis");
+  expect(extractText(root!.toJSON())).not.toContain("Total Entries");
+
+  await ReactTestRenderer.act(async () => {
+    swipeZone.props.onTouchStart({
+      nativeEvent: {
+        locationX: 140,
+        locationY: 48,
+      },
+    });
+    swipeZone.props.onTouchEnd({
+      nativeEvent: {
+        locationX: 244,
+        locationY: 46,
+      },
+    });
+  });
+
+  await waitForText(root!, "Total Entries");
+
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+  expect(extractText(root!.toJSON())).not.toContain("Weekly Analysis");
+});
+
 test("shows a locked AI analysis state for non-premium users", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 

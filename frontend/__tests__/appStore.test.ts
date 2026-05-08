@@ -111,7 +111,7 @@ describe("appStore", () => {
     expect(store.getState().paywallReturnStage).toBeNull();
   });
 
-  it("stores placement context when opening a paywall for a specific surface", () => {
+  it("routes contextual locked-feature paywalls into the hosted wrapper", () => {
     const store = useAppStore;
 
     act(() => {
@@ -123,16 +123,124 @@ describe("appStore", () => {
       });
     });
 
-    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().stage).toBe("hosted-paywall");
     expect(store.getState().activePaywallPlacementKey).toBe("home_ai_card_locked");
     expect(store.getState().activePaywallScreenKey).toBe("home");
+    expect(store.getState().activeHostedPaywallTarget).toBe("main");
 
     act(() => {
-      store.getState().continueFromPaywall();
+      store.getState().continueFromHostedPaywall();
     });
 
     expect(store.getState().activePaywallPlacementKey).toBeNull();
     expect(store.getState().activePaywallScreenKey).toBeNull();
+    expect(store.getState().activeHostedPaywallTarget).toBeNull();
+  });
+
+  it("opens the dedicated lifetime offer flow from the profile upgrade entry", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "main-app" });
+      store.getState().openLifetimeOffer({
+        returnStage: "main-app",
+        screenKey: "profile",
+      });
+    });
+
+    expect(store.getState().stage).toBe("lifetime-offer");
+    expect(store.getState().paywallReturnStage).toBe("main-app");
+    expect(store.getState().activePaywallPlacementKey).toBe(
+      "profile_upgrade_banner"
+    );
+    expect(store.getState().activePaywallScreenKey).toBe("profile");
+
+    act(() => {
+      store.getState().continueFromLifetimeOffer();
+    });
+
+    expect(store.getState().stage).toBe("main-app");
+    expect(store.getState().paywallReturnStage).toBeNull();
+    expect(store.getState().activePaywallPlacementKey).toBeNull();
+    expect(store.getState().activePaywallScreenKey).toBeNull();
+  });
+
+  it("opens and closes the in-app legal browser state", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().openLegalBrowser({
+        url: "https://api.journalio.app/privacy",
+        title: "Privacy Policy",
+      });
+    });
+
+    expect(store.getState().legalBrowserUrl).toBe("https://api.journalio.app/privacy");
+    expect(store.getState().legalBrowserTitle).toBe("Privacy Policy");
+
+    act(() => {
+      store.getState().closeLegalBrowser();
+    });
+
+    expect(store.getState().legalBrowserUrl).toBeNull();
+    expect(store.getState().legalBrowserTitle).toBeNull();
+  });
+
+  it("moves a dismissed hosted main paywall into the spin wheel before the exit offer", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "hosted-paywall",
+        activeHostedPaywallTarget: "main",
+        activePaywallPlacementKey: "post_auth",
+        activePaywallScreenKey: "auth",
+        paywallReturnStage: "profile",
+        pendingPostAuthDiscountOffer: true,
+      });
+
+      store.getState().continueFromHostedPaywall("dismiss");
+    });
+
+    expect(store.getState().stage).toBe("spin-wheel");
+    expect(store.getState().activeHostedPaywallTarget).toBeNull();
+  });
+
+  it("opens the hosted exit paywall after the spin wheel completes", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "spin-wheel",
+        activePaywallScreenKey: "auth",
+        paywallReturnStage: "profile",
+      });
+
+      store.getState().continueFromSpinWheel();
+    });
+
+    expect(store.getState().stage).toBe("hosted-paywall");
+    expect(store.getState().activeHostedPaywallTarget).toBe("exit");
+    expect(store.getState().activePaywallPlacementKey).toBe(
+      "post_auth_exit_offer"
+    );
+  });
+
+  it("falls back from a hosted main paywall into the local purchase step", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "hosted-paywall",
+        activeHostedPaywallTarget: "main",
+        activePaywallPlacementKey: "post_auth",
+      });
+
+      store.getState().fallbackFromHostedPaywall();
+    });
+
+    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().postAuthPaywallStepOverride).toBe("purchase");
   });
 
   it("saves auth tokens before syncing pending premium activation after sign-in", async () => {
@@ -177,6 +285,7 @@ describe("appStore", () => {
           aiOptIn: true,
         },
       })),
+      signInWithApple: jest.fn(),
       signInWithGoogle: jest.fn(),
       signUpWithEmail: jest.fn(),
       verifyEmail: jest.fn(),
@@ -679,6 +788,7 @@ describe("appStore", () => {
       resendEmailVerification: jest.fn(),
       logout: jest.fn(async () => undefined),
       signInWithEmail,
+      signInWithApple: jest.fn(),
       signInWithGoogle: jest.fn(),
       signUpWithEmail: jest.fn(),
       verifyEmail: jest.fn(),
@@ -749,6 +859,7 @@ describe("appStore", () => {
       resendEmailVerification: jest.fn(),
       logout: jest.fn(async () => undefined),
       signInWithEmail: jest.fn(),
+      signInWithApple: jest.fn(),
       signInWithGoogle,
       signUpWithEmail: jest.fn(),
       verifyEmail: jest.fn(),
@@ -808,6 +919,113 @@ describe("appStore", () => {
     expect(freshStore.getState().paywallReturnStage).toBe("profile");
   });
 
+  it("continues with Apple using the shared session persistence flow", async () => {
+    jest.resetModules();
+
+    const getAppleSignInCredential = jest.fn(async () => ({
+      identityToken: "apple-identity-token",
+      nonce: "raw-apple-nonce-value",
+      email: "alex@example.com",
+      fullName: {
+        givenName: "Alex",
+        familyName: "Appleseed",
+        nickname: null,
+      },
+    }));
+    const saveOnboardingCompleted = jest.fn(async () => undefined);
+    const savePostAuthPaywallSeen = jest.fn(async () => undefined);
+    const saveTokens = jest.fn(async () => undefined);
+    const signInWithApple = jest.fn(async () => ({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: {
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: null,
+        profileSetupCompleted: false,
+        onboardingCompleted: true,
+        profilePic: null,
+        aiOptIn: false,
+      },
+    }));
+
+    jest.doMock("../src/config/appleSignIn", () => ({
+      getAppleSignInCredential,
+    }));
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithApple,
+      signInWithEmail: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => false),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted,
+      savePostAuthPaywallSeen,
+      saveTokens,
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({
+        onboardingData: {
+          ...onboardingData,
+          aiComfort: false,
+        },
+      });
+    });
+
+    await act(async () => {
+      await freshStore.getState().continueWithApple();
+    });
+
+    expect(getAppleSignInCredential).toHaveBeenCalledTimes(1);
+    expect(signInWithApple).toHaveBeenCalledWith({
+      identityToken: "apple-identity-token",
+      nonce: "raw-apple-nonce-value",
+      email: "alex@example.com",
+      fullName: {
+        givenName: "Alex",
+        familyName: "Appleseed",
+        nickname: null,
+      },
+      onboardingContext: {
+        ageRange: "25-34",
+        journalingExperience: "Occasional journaler",
+        goals: ["Daily Reflection", "Personal Growth"],
+        supportFocus: ["Stress", "Sleep"],
+        reminderPreference: "Evening",
+        aiOptIn: false,
+        privacyConsentAccepted: true,
+      },
+      onboardingCompleted: true,
+    });
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+    });
+    expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
+    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
+    expect(freshStore.getState().authSource).toBe("apple");
+    expect(freshStore.getState().stage).toBe("paywall");
+    expect(freshStore.getState().paywallReturnStage).toBe("profile");
+  });
+
   it("signs out through the backend and clears the local session state", async () => {
     jest.resetModules();
 
@@ -818,6 +1036,7 @@ describe("appStore", () => {
       logout,
       resendEmailVerification: jest.fn(),
       signInWithEmail: jest.fn(),
+      signInWithApple: jest.fn(),
       signInWithGoogle: jest.fn(),
       signUpWithEmail: jest.fn(),
       verifyEmail: jest.fn(),

@@ -368,10 +368,8 @@ export default function NewEntryScreen({
       await syncReminderNotifications(reminder, {
         skipToday: true,
       });
-    } catch (reminderError) {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Reminder sync skipped", reminderError);
-      }
+    } catch {
+      // Entry creation should not fail if reminder sync is unavailable.
     }
   };
 
@@ -418,33 +416,13 @@ export default function NewEntryScreen({
   const handleSave = async () => {
     const trimmedContent = content.trim();
 
-    if (__DEV__) {
-      console.log("[NewEntryScreen] Save button pressed", {
-        title: title.trim(),
-        contentLength: trimmedContent.length,
-        selectedMood,
-        selectedTags,
-      });
-    }
-
     if (!trimmedContent) {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Save blocked", {
-          reason: "empty-content",
-        });
-      }
       setError("Please write something before saving.");
       return;
     }
 
     setIsSaving(true);
     setError(null);
-
-    if (__DEV__) {
-      console.log("[NewEntryScreen] Saving state set", {
-        isSaving: true,
-      });
-    }
 
     const optimisticTags = selectedMood
       ? [...selectedTags, `mood:${selectedMood}`]
@@ -463,15 +441,6 @@ export default function NewEntryScreen({
     };
 
     try {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Calling createJournalEntry", {
-          title: optimisticEntry.title,
-          contentLength: optimisticEntry.content.length,
-          type: optimisticEntry.type,
-          tags: optimisticEntry.tags,
-        });
-      }
-
       const savedEntry = await createJournalEntry({
         title: optimisticEntry.title,
         content: optimisticEntry.content,
@@ -480,41 +449,14 @@ export default function NewEntryScreen({
         tags: optimisticEntry.tags,
       });
 
-      if (__DEV__) {
-        console.log("[NewEntryScreen] createJournalEntry resolved", {
-          journalId: savedEntry._id,
-          title: savedEntry.title,
-          type: savedEntry.type,
-          tags: savedEntry.tags,
-        });
-      }
-
       addRecentJournalEntry(savedEntry);
       await maybeSkipTodaysReminder();
       await cancelWeeklyInsightNotifications();
 
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Recent entry stored locally", {
-          journalId: savedEntry._id,
-        });
-      }
-
       setActiveTab("home");
 
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Active tab set to home");
-      }
-
       onBack();
-
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Navigated back after save");
-      }
     } catch (saveError) {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Save failed", saveError);
-      }
-
       setError(
         saveError instanceof Error
           ? saveError.message
@@ -522,12 +464,6 @@ export default function NewEntryScreen({
       );
     } finally {
       setIsSaving(false);
-
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Save flow finished", {
-          isSaving: false,
-        });
-      }
     }
   };
 
@@ -563,11 +499,7 @@ export default function NewEntryScreen({
       setWritingPrompts(
         response.prompts.length > 0 ? response.prompts : DEFAULT_WRITING_PROMPTS
       );
-    } catch (promptError) {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Writing prompts request failed", promptError);
-      }
-
+    } catch {
       setWritingPrompts(DEFAULT_WRITING_PROMPTS);
       setPromptsError("Unable to load writing prompts right now.");
     } finally {
@@ -617,10 +549,6 @@ export default function NewEntryScreen({
       const aiTags = response.tags.filter(tag => Boolean(tag?.trim()));
       setSuggestedTags(aiTags);
     } catch (autoTagError) {
-      if (__DEV__) {
-        console.log("[NewEntryScreen] Auto-tag request failed", autoTagError);
-      }
-
       if (autoTagError instanceof ApiError && autoTagError.status === 403) {
         setSuggestedTags([]);
         setError("Premium membership is required for AI tag suggestions.");

@@ -36,6 +36,7 @@ import {
   getRevenueCatOfferings,
   getRevenueCatPaywallPlans,
   hasPremiumAccess,
+  hasRevenueCatHostedPaywall,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
@@ -466,6 +467,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const activePaywallTriggerMode = useAppStore(
     state => state.activePaywallTriggerMode
   );
+  const openHostedPaywall = useAppStore(state => state.openHostedPaywall);
+  const postAuthPaywallStepOverride = useAppStore(
+    state => state.postAuthPaywallStepOverride
+  );
   const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
@@ -580,7 +585,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         const offerings = await getRevenueCatOfferings(sessionUserId);
         const livePlans = getRevenueCatPaywallPlans(
           offerings,
-          resolvedConfig?.offerings
+          resolvedConfig?.offerings,
+          {
+            placementKey: paywallPlacementKey,
+          }
         );
         const nextPlans = buildPaywallPlans(livePlans, resolvedConfig);
 
@@ -660,6 +668,14 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       return visiblePlans[0]?.id || null;
     });
   }, [isModernPurchasePaywall, visiblePlans]);
+
+  useEffect(() => {
+    if (!isPostAuthPaywall || !postAuthPaywallStepOverride) {
+      return;
+    }
+
+    setPostAuthStep(postAuthPaywallStepOverride);
+  }, [isPostAuthPaywall, postAuthPaywallStepOverride]);
 
   useEffect(() => {
     if (isPremiumUser) {
@@ -998,6 +1014,15 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
   const handleContinueFromSuccess = () => {
     onBack("continue");
+  };
+
+  const handleContinueFromReminder = () => {
+    if (isPostAuthPaywall && hasRevenueCatHostedPaywall("main")) {
+      openHostedPaywall("main");
+      return;
+    }
+
+    setPostAuthStep("purchase");
   };
 
   const handleUpgrade = async () => {
@@ -1436,7 +1461,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           <Animated.View style={[styles.postAuthFooter, reminderFooterAnimatedStyle]}>
             <StepActionButton
               label="Continue"
-              onPress={() => setPostAuthStep("purchase")}
+              onPress={handleContinueFromReminder}
               elevated={false}
             />
           </Animated.View>

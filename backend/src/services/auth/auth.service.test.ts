@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 import { userModel } from "../../schema/user.schema";
 import {
+  resetAppleIdentityTokenVerifierForTests,
   resetGoogleIdTokenVerifierForTests,
+  setAppleIdentityTokenVerifierForTests,
   setGoogleIdTokenVerifierForTests,
+  signInWithApple,
   signInWithGoogle,
 } from "./auth.service";
 
 type GoogleLookupQuery =
   | { googleUserId: string }
+  | { appleUserId: string }
   | { email: string };
 
 type UserDocument = {
@@ -17,6 +21,7 @@ type UserDocument = {
   phoneNumber: string | null;
   email: string | null;
   googleUserId: string | null;
+  appleUserId: string | null;
   authProviders: string[];
   journalingGoals: string[];
   avatarColor: string | null;
@@ -53,6 +58,7 @@ const buildUserDocument = (
     phoneNumber: null,
     email: "alex@example.com",
     googleUserId: null,
+    appleUserId: null,
     authProviders: ["email"],
     journalingGoals: [],
     avatarColor: null,
@@ -72,6 +78,7 @@ afterEach(() => {
   userTarget.findOne = originalFindOne;
   userTarget.create = originalCreate;
   userTarget.updateOne = originalUpdateOne;
+  resetAppleIdentityTokenVerifierForTests();
   resetGoogleIdTokenVerifierForTests();
   delete process.env.JWT_ACCESS_SECRET;
 });
@@ -178,4 +185,107 @@ test("signInWithGoogle rejects linking when the email is already bound to anothe
 
   assert.equal(result.status, 409);
   assert.equal(result.code, "GOOGLE_ACCOUNT_ALREADY_LINKED");
+});
+
+test("signInWithApple links a verified Apple identity onto an existing email user", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+
+  const existingUser = buildUserDocument();
+  const refreshUpdates: unknown[] = [];
+
+  setAppleIdentityTokenVerifierForTests(async () => ({
+    appleSub: "apple-sub-123",
+    email: "alex@example.com",
+    emailVerified: true,
+    name: "Alex Appleseed",
+  }));
+
+  userTarget.findOne = async query => {
+    if ("appleUserId" in query) {
+      return null;
+    }
+
+    if ("email" in query && query.email === "alex@example.com") {
+      return existingUser;
+    }
+
+    return null;
+  };
+  userTarget.updateOne = async (...args) => {
+    refreshUpdates.push(args);
+    return { acknowledged: true };
+  };
+
+  const result = await signInWithApple({
+    identityToken: "apple-identity-token",
+    nonce: "raw-apple-nonce-value",
+    onboardingContext: {
+      aiOptIn: false,
+      goals: ["Daily Reflection"],
+    },
+    onboardingCompleted: true,
+  });
+
+  assert.equal(result.ok, true);
+
+  if (!result.ok) {
+    return;
+  }
+
+  assert.equal(result.user.email, "alex@example.com");
+  assert.equal(existingUser.appleUserId, "apple-sub-123");
+  assert.equal(existingUser.emailVerified, true);
+  assert.equal(existingUser.onboardingCompleted, true);
+  assert.equal(existingUser.onboardingContext?.aiOptIn, false);
+  assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
+  assert.ok(existingUser.authProviders.includes("apple"));
+  assert.equal(result.user.aiOptIn, false);
+  assert.match(result.tokens.accessToken, /\S+/);
+  assert.match(result.tokens.refreshToken, /\S+/);
+  assert.equal(refreshUpdates.length, 1);
+});
+
+test("signInWithApple rejects linking when the email is already bound to another Apple identity", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+
+  const existingUser = buildUserDocument({
+    appleUserId: "apple-sub-existing",
+    authProviders: ["email", "apple"],
+    emailVerified: true,
+    emailVerifiedAt: new Date("2026-04-04T10:00:00.000Z"),
+  });
+
+  setAppleIdentityTokenVerifierForTests(async () => ({
+    appleSub: "apple-sub-new",
+    email: "alex@example.com",
+    emailVerified: true,
+    name: "Alex",
+  }));
+
+  userTarget.findOne = async query => {
+    if ("appleUserId" in query) {
+      return null;
+    }
+
+    if ("email" in query && query.email === "alex@example.com") {
+      return existingUser;
+    }
+
+    return null;
+  };
+  userTarget.updateOne = async () => ({ acknowledged: true });
+
+  const result = await signInWithApple({
+    identityToken: "apple-identity-token",
+    nonce: "raw-apple-nonce-value",
+  });
+
+  assert.equal(result.ok, false);
+
+  if (result.ok) {
+    return;
+  }
+
+  assert.equal(result.status, 409);
+  assert.equal(result.code, "APPLE_ACCOUNT_ALREADY_LINKED");
 });

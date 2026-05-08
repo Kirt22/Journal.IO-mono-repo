@@ -134,13 +134,7 @@ This is a local compatibility workaround for the Xcode 26.4 simulator toolchain 
 
 Use this path when you want a Release build on a real iPhone without changing the local development defaults in `frontend/.env`.
 
-1. Create a local production env file:
-
-```sh
-cp .env.production.example .env.production.local
-```
-
-2. Edit `frontend/.env.production.local` with the production values you want to test.
+1. Edit `frontend/.env.production` with the production values you want to test.
 
 Minimum for the live backend:
 
@@ -148,7 +142,7 @@ Minimum for the live backend:
 API_BASE_URL=https://api.journalio.app/api/v1
 ```
 
-3. Install pods if needed:
+2. Install pods if needed:
 
 ```sh
 cd ios
@@ -156,13 +150,13 @@ pod install
 cd ..
 ```
 
-4. Build the Release app for your connected iPhone:
+3. Build the Release app for your connected iPhone:
 
 ```sh
 npm run ios:release -- --device "Your iPhone Name"
 ```
 
-Release builds now export `BABEL_ENV=production` from `ios/.xcode.env`, so the React Native bundle resolves `frontend/.env.production.local` automatically.
+Release builds now export `BABEL_ENV=production` from `ios/.xcode.env`, so the React Native bundle resolves `frontend/.env.production` automatically.
 
 ### Xcode requirements for a real device
 
@@ -178,7 +172,7 @@ Before the build will install on a physical iPhone, you still need to confirm th
 
 Use this path when you want Metro, console logs, and the RN dev menu on your physical iPhone while still sending API requests to the production backend.
 
-1. Keep production values in `frontend/.env.production.local`.
+1. Keep production values in `frontend/.env.production`.
 
 2. Start Metro in production-app-env mode:
 
@@ -195,16 +189,8 @@ npm run ios:prod-debug -- --device "Your iPhone Name"
 Why this works:
 
 - `npm run ios` alone is still a normal Debug build and Metro reads `frontend/.env`
-- `npm run start:prod-debug` and `npm run ios:prod-debug` set `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production.local` even in Debug
+- `npm run start:prod-debug` and `npm run ios:prod-debug` set `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production` even in Debug
 - this gives you live Metro logs while the app talks to `https://api.journalio.app/api/v1`
-
-In Debug builds, the API client now logs a one-time base URL resolution line such as:
-
-```txt
-[apiClient] base URL resolved { source: "env", resolvedBaseUrl: "https://api.journalio.app/api/v1" }
-```
-
-If you do not see that line, the app is still not running against the expected env file.
 
 # Learn More
 

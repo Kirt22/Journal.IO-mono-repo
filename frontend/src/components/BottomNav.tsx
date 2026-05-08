@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Calendar,
@@ -41,7 +41,6 @@ export default function BottomNav({
 }: BottomNavProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const lastLoggedKeyRef = useRef<BottomNavKey | null>(null);
 
   const barStyle = useMemo(
     () => ({
@@ -51,63 +50,13 @@ export default function BottomNav({
     [theme.colors.border, theme.colors.card]
   );
 
-  useEffect(() => {
-    if (!__DEV__) {
-      return;
-    }
-
-    if (lastLoggedKeyRef.current === activeKey) {
-      return;
-    }
-
-    lastLoggedKeyRef.current = activeKey;
-    console.log("[BottomNav] activeKey changed", activeKey);
-  }, [activeKey]);
-
-  const handleLayout = (event: {
-    nativeEvent: { layout: { width: number; height: number } };
-  }) => {
-    if (!__DEV__) {
-      return;
-    }
-
-    const { width, height } = event.nativeEvent.layout;
-    console.log("[BottomNav] container size", { width, height });
-  };
-
   const handlePress = (key: BottomNavKey) => {
-    if (__DEV__) {
-      console.log("[BottomNav] navigate", { from: activeKey, to: key });
-    }
-
     onPress?.(key);
   };
 
   return (
-    <View
-      style={styles.wrapper}
-      pointerEvents="box-none"
-      onLayout={handleLayout}
-    >
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={styles.controlsShell} pointerEvents="box-none">
-        {/* <Svg width="100%" height={24} style={styles.fade}>
-          <Defs>
-            <LinearGradient id="nav-fade" x1="0" y1="0" x2="0" y2="1">
-              <Stop
-                offset="0%"
-                stopColor={theme.colors.background}
-                stopOpacity="0"
-              />
-              <Stop
-                offset="100%"
-                stopColor={theme.colors.background}
-                stopOpacity="1"
-              />
-            </LinearGradient>
-          </Defs>
-          <Rect x="0" y="0" width="100%" height="24" fill="url(#nav-fade)" />
-        </Svg> */}
-
         <View style={[styles.bar, barStyle]}>
           <View
             style={[

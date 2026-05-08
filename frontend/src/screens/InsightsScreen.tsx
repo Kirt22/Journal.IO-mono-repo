@@ -50,6 +50,12 @@ import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 
 type InsightTab = "overview" | "analysis";
+type SwipeTouchEvent = {
+  nativeEvent: {
+    locationX: number;
+    locationY: number;
+  };
+};
 
 const MOOD_COLORS: Record<string, string> = {
   amazing: "#E6816D",
@@ -1611,6 +1617,7 @@ export default function InsightsScreen() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const thumbX = useRef(new Animated.Value(0)).current;
   const contentProgress = useRef(new Animated.Value(1)).current;
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const horizontalPadding = useMemo(() => Math.max(16, Math.min(24, width * 0.05)), [width]);
   const layoutMaxWidth = width >= 430 ? 470 : 430;
   const thumbWidth = segmentedWidth > 0 ? (segmentedWidth - 6 - 4) / 2 : 0;
@@ -1676,24 +1683,64 @@ export default function InsightsScreen() {
     [aiAnalysis, isAiOptedIn, isPremiumUser]
   );
 
-  const handleSelectTab = (nextTab: InsightTab) => {
-    if (nextTab === "analysis" && !isPremiumUser) {
-      trackPaywallEvent({
-        placementKey: "insights_ai_tab_locked",
-        screenKey: "insights",
-        eventType: "locked_feature_tap",
-        wasInterruptive: false,
-      }).catch(() => undefined);
-      openPaywallForPlacement({
-        placementKey: "insights_ai_tab_locked",
-        returnStage: "main-app",
-        screenKey: "insights",
-      });
-      return;
-    }
+  const handleSelectTab = useCallback(
+    (nextTab: InsightTab) => {
+      if (nextTab === "analysis" && !isPremiumUser) {
+        trackPaywallEvent({
+          placementKey: "insights_ai_tab_locked",
+          screenKey: "insights",
+          eventType: "locked_feature_tap",
+          wasInterruptive: false,
+        }).catch(() => undefined);
+        openPaywallForPlacement({
+          placementKey: "insights_ai_tab_locked",
+          returnStage: "main-app",
+          screenKey: "insights",
+        });
+        return;
+      }
 
-    setActiveTab(nextTab);
-  };
+      setActiveTab(nextTab);
+    },
+    [isPremiumUser, openPaywallForPlacement]
+  );
+
+  const handleSwipeStart = useCallback((event: SwipeTouchEvent) => {
+    swipeStartRef.current = {
+      x: event.nativeEvent.locationX,
+      y: event.nativeEvent.locationY,
+    };
+  }, []);
+
+  const handleSwipeEnd = useCallback(
+    (event: SwipeTouchEvent) => {
+      const start = swipeStartRef.current;
+      swipeStartRef.current = null;
+
+      if (!start) {
+        return;
+      }
+
+      const dx = event.nativeEvent.locationX - start.x;
+      const dy = event.nativeEvent.locationY - start.y;
+      const isHorizontalSwipe =
+        Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy);
+
+      if (!isHorizontalSwipe) {
+        return;
+      }
+
+      if (dx < 0 && activeTab === "overview") {
+        handleSelectTab("analysis");
+        return;
+      }
+
+      if (dx > 0 && activeTab === "analysis") {
+        handleSelectTab("overview");
+      }
+    },
+    [activeTab, handleSelectTab]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1893,81 +1940,88 @@ export default function InsightsScreen() {
             }}
           />
         ) : (
-          <Animated.View
-            style={[
-              styles.sectionTransition,
-              {
-                opacity: contentProgress,
-                transform: [
-                  {
-                    translateY: contentProgress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [10, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
+          <View
+            testID="insights-view-swipe-zone"
+            style={styles.swipeZone}
+            onTouchStart={handleSwipeStart}
+            onTouchEnd={handleSwipeEnd}
           >
-            {activeTab === "overview" ? (
-              <OverviewSection
-                data={data}
-                isVisible={activeTab === "overview"}
-                selectedActivityIndex={selectedActivityIndex}
-                onSelectActivityIndex={setSelectedActivityIndex}
-                selectedSegmentIndex={selectedSegmentIndex}
-                onSelectSegmentIndex={setSelectedSegmentIndex}
-              />
-            ) : !isPremiumUser ? (
-              <LockedAiAnalysisCard
-                onOpenSubscription={() => {
-                  trackPaywallEvent({
-                    placementKey: "insights_ai_tab_locked",
-                    screenKey: "insights",
-                    eventType: "locked_feature_tap",
-                    wasInterruptive: false,
-                  }).catch(() => undefined);
-                  openPaywallForPlacement({
-                    placementKey: "insights_ai_tab_locked",
-                    returnStage: "main-app",
-                    screenKey: "insights",
-                  });
-                }}
-              />
-            ) : !isAiOptedIn ? (
-              <DisabledAiAnalysisCard />
-            ) : isAnalysisLoading ? (
-              <AnalysisLoadingState />
-            ) : analysisError || !aiAnalysis ? (
-              <ErrorState
-                title="Unable to load AI analysis"
-                message="We could not build your weekly AI analysis right now."
-                onRetry={() => {
-                  loadAiAnalysis({ force: true }).catch(() => undefined);
-                }}
-              />
-            ) : collectingAnalysis ? (
-              <CollectingAiAnalysisCard
-                collecting={collectingAnalysis}
-                onKeepJournaling={() => setMainAppTab("home")}
-              />
-            ) : insufficientAnalysis ? (
-              <InsufficientAiAnalysisCard
-                analysis={insufficientAnalysis}
-                onKeepJournaling={() => setMainAppTab("home")}
-              />
-            ) : readyAnalysis ? (
-              <AnalysisSection analysis={readyAnalysis!} />
-            ) : (
-              <ErrorState
-                title="AI analysis unavailable"
-                message="The latest AI analysis wasn't ready yet. Please try again in a moment."
-                onRetry={() => {
-                  loadAiAnalysis({ force: true }).catch(() => undefined);
-                }}
-              />
-            )}
-          </Animated.View>
+            <Animated.View
+              style={[
+                styles.sectionTransition,
+                {
+                  opacity: contentProgress,
+                  transform: [
+                    {
+                      translateY: contentProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              {activeTab === "overview" ? (
+                <OverviewSection
+                  data={data}
+                  isVisible={activeTab === "overview"}
+                  selectedActivityIndex={selectedActivityIndex}
+                  onSelectActivityIndex={setSelectedActivityIndex}
+                  selectedSegmentIndex={selectedSegmentIndex}
+                  onSelectSegmentIndex={setSelectedSegmentIndex}
+                />
+              ) : !isPremiumUser ? (
+                <LockedAiAnalysisCard
+                  onOpenSubscription={() => {
+                    trackPaywallEvent({
+                      placementKey: "insights_ai_tab_locked",
+                      screenKey: "insights",
+                      eventType: "locked_feature_tap",
+                      wasInterruptive: false,
+                    }).catch(() => undefined);
+                    openPaywallForPlacement({
+                      placementKey: "insights_ai_tab_locked",
+                      returnStage: "main-app",
+                      screenKey: "insights",
+                    });
+                  }}
+                />
+              ) : !isAiOptedIn ? (
+                <DisabledAiAnalysisCard />
+              ) : isAnalysisLoading ? (
+                <AnalysisLoadingState />
+              ) : analysisError || !aiAnalysis ? (
+                <ErrorState
+                  title="Unable to load AI analysis"
+                  message="We could not build your weekly AI analysis right now."
+                  onRetry={() => {
+                    loadAiAnalysis({ force: true }).catch(() => undefined);
+                  }}
+                />
+              ) : collectingAnalysis ? (
+                <CollectingAiAnalysisCard
+                  collecting={collectingAnalysis}
+                  onKeepJournaling={() => setMainAppTab("home")}
+                />
+              ) : insufficientAnalysis ? (
+                <InsufficientAiAnalysisCard
+                  analysis={insufficientAnalysis}
+                  onKeepJournaling={() => setMainAppTab("home")}
+                />
+              ) : readyAnalysis ? (
+                <AnalysisSection analysis={readyAnalysis!} />
+              ) : (
+                <ErrorState
+                  title="AI analysis unavailable"
+                  message="The latest AI analysis wasn't ready yet. Please try again in a moment."
+                  onRetry={() => {
+                    loadAiAnalysis({ force: true }).catch(() => undefined);
+                  }}
+                />
+              )}
+            </Animated.View>
+          </View>
         )}
       </View>
     </TabScreenLayout>
@@ -2059,6 +2113,9 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   sectionTransition: {
+    width: "100%",
+  },
+  swipeZone: {
     width: "100%",
   },
   sectionCard: {

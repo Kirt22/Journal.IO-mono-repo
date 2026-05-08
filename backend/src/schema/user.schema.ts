@@ -22,6 +22,7 @@ export interface IUser extends Document {
   emailVerificationCode?: string | null;
   emailVerificationAttempts: number;
   googleUserId?: string | null;
+  appleUserId?: string | null;
   authProviders: string[];
   journalingGoals: string[];
   onboardingContext?: IOnboardingContext | null;
@@ -70,9 +71,10 @@ const userSchema = new mongoose.Schema<IUser>(
     emailVerificationCode: { type: String, default: null },
     emailVerificationAttempts: { type: Number, default: 0, required: true },
     googleUserId: { type: String, default: null },
+    appleUserId: { type: String, default: null },
     authProviders: {
       type: [String],
-      enum: ["phone", "google", "email"],
+      enum: ["phone", "google", "email", "apple"],
       default: [],
       required: true,
     },
@@ -134,6 +136,13 @@ userSchema.index(
   {
     unique: true,
     partialFilterExpression: { googleUserId: { $type: "string" } },
+  }
+);
+userSchema.index(
+  { appleUserId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { appleUserId: { $type: "string" } },
   }
 );
 userSchema.index({ createdAt: -1 });

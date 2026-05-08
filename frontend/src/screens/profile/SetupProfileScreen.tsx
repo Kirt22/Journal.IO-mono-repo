@@ -31,7 +31,7 @@ type SetupProfilePayload = {
 
 type SetupProfileScreenProps = {
   authEmail: string;
-  authSource: "email" | "google";
+  authSource: "email" | "google" | "apple";
   onboardingContext: OnboardingCompletionData | null;
   initialName?: string;
   onComplete: (payload: SetupProfilePayload) => Promise<void>;
@@ -78,6 +78,13 @@ export default function SetupProfileScreen({
   const avatarInitialSize = isCompact ? 24 : isWide ? 30 : 28;
   const colorSwatchSize = isCompact ? 30 : isWide ? 38 : 34;
   const titleBottomSpacing = isCompact ? 6 : 8;
+  const isGoogleAuth = authSource === "google";
+  const isAppleAuth = authSource === "apple";
+  const connectedAccountLabel = isGoogleAuth
+    ? "Google connected"
+    : isAppleAuth
+      ? "Apple connected"
+      : "Email verified";
 
   const initials = useMemo(() => {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -191,7 +198,7 @@ export default function SetupProfileScreen({
                   { marginTop: titleBottomSpacing, color: theme.colors.mutedForeground },
                 ]}
               >
-                {authSource === "google"
+                {isGoogleAuth || isAppleAuth
                   ? "Almost there. Confirm your details."
                   : "Let's get to know you a little."}
               </Text>
@@ -321,15 +328,17 @@ export default function SetupProfileScreen({
 
               <View style={[styles.connectionCard, { backgroundColor: theme.colors.accent }]}>
                 <View style={styles.connectionIconWrap}>
-                  {authSource === "google" ? (
+                  {isGoogleAuth ? (
                     <GoogleMark />
+                  ) : isAppleAuth ? (
+                    <AppleMark />
                   ) : (
                     <Mail color={theme.colors.primary} size={16} />
                   )}
                 </View>
                 <View style={styles.connectionCopyWrap}>
                   <Text style={[styles.connectionLabel, { color: theme.colors.mutedForeground }]}>
-                    {authSource === "google" ? "Google connected" : "Email verified"}
+                    {connectedAccountLabel}
                   </Text>
                   <Text style={[styles.connectionValue, { color: theme.colors.foreground }]}>
                     {authEmail}
@@ -533,6 +542,21 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
 });
+
+function AppleMark() {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M16.62 12.72c-.02-2.02 1.65-2.99 1.73-3.04-.94-1.38-2.41-1.57-2.93-1.59-1.25-.13-2.44.73-3.07.73-.64 0-1.61-.71-2.65-.69-1.36.02-2.62.79-3.32 2.01-1.42 2.46-.36 6.1 1.02 8.09.68.98 1.49 2.08 2.55 2.04 1.02-.04 1.41-.66 2.65-.66 1.23 0 1.59.66 2.67.64 1.1-.02 1.8-1 2.47-1.98.78-1.14 1.1-2.24 1.12-2.3-.02-.01-2.15-.82-2.24-3.25Z"
+        fill="#111111"
+      />
+      <Path
+        d="M14.6 6.77c.56-.68.94-1.62.84-2.56-.81.03-1.79.54-2.37 1.22-.52.6-.97 1.56-.85 2.48.9.07 1.82-.46 2.38-1.14Z"
+        fill="#111111"
+      />
+    </Svg>
+  );
+}
 
 function GoogleMark() {
   return (

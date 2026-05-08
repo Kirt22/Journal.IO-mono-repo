@@ -34,7 +34,8 @@ Minimum requirements:
 - token invalidation on logout
 - authorization checks before read/update/delete operations
 - Google mobile sign-in must verify the Google ID token server-side before linking or creating a user
-- Google provider tokens must never be treated as the app's own access or refresh tokens
+- Apple mobile sign-in must verify the Apple identity token signature, issuer, audience, expiry, and nonce server-side before linking or creating a user
+- Provider tokens must never be treated as the app's own access or refresh tokens
 
 ---
 

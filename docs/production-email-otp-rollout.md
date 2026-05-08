@@ -20,9 +20,11 @@ Production values are env-driven in these runtime paths:
 - Render blueprint env declarations:
   - [render.yaml](/Users/kirtansolanki/Desktop/Journal.IO/render.yaml)
 
-Tracked local-first env examples:
+Frontend env files:
 
-- [frontend/.env.example](/Users/kirtansolanki/Desktop/Journal.IO/frontend/.env.example)
+- [frontend/.env](/Users/kirtansolanki/Desktop/Journal.IO/frontend/.env)
+- [frontend/.env.local](/Users/kirtansolanki/Desktop/Journal.IO/frontend/.env.local)
+- [frontend/.env.production](/Users/kirtansolanki/Desktop/Journal.IO/frontend/.env.production)
 - [backend/.env.example](/Users/kirtansolanki/Desktop/Journal.IO/backend/.env.example)
 
 ## Repo Verification Command
@@ -125,7 +127,7 @@ Notes:
 
 Keep repo defaults local-first:
 
-- `frontend/.env.example` stays on `http://localhost:3000/api/v1`
+- `frontend/.env` stays on `http://localhost:3000/api/v1`
 
 For production builds only, inject:
 
@@ -135,7 +137,7 @@ API_BASE_URL=https://api.journalio.app/api/v1
 
 Safe switch guidance:
 
-- set the production value only in the production mobile build environment
+- set the production value in `frontend/.env.production` for production mobile builds
 - keep local development and simulator runs on local values
 - do not commit the production API base URL into the tracked local `.env` defaults
 

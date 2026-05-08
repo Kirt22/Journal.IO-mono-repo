@@ -1,0 +1,807 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import {
+  PACKAGE_TYPE,
+  type CustomerInfo,
+  type PurchasesOfferings,
+  type PurchasesOffering,
+  type PurchasesPackage,
+} from "react-native-purchases";
+import RevenueCatUI from "react-native-purchases-ui";
+import { ShieldCheck, Sparkles } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ActionSuccessScreen from "../../components/ActionSuccessScreen";
+import {
+  findRevenueCatPackageByProductIdentifier,
+  getRevenueCatActiveEntitlement,
+  getRevenueCatHostedOffering,
+  hasPremiumAccess,
+  hasRevenueCatHostedPaywall,
+  refreshRevenueCatEntitlementState,
+  type RevenueCatHostedPaywallTarget,
+} from "../../services/revenueCatService";
+import {
+  cancelFreeTrialEndingReminder,
+  scheduleFreeTrialEndingReminder,
+} from "../../services/reminderNotificationsService";
+import {
+  getPaywallConfig,
+  syncPaywallPurchase,
+  trackPaywallEvent,
+  type PaywallOffering,
+  type ResolvedPaywallConfig,
+} from "../../services/paywallService";
+import { useAppStore } from "../../store/appStore";
+import { useTheme } from "../../theme/provider";
+
+type ScreenState = "launching" | "success";
+
+type HostedPaywallLoadState = {
+  offering: PurchasesOffering | null;
+  offerings: PurchasesOfferings | null;
+  isReady: boolean;
+};
+
+const getDefaultPlacementKey = (target: RevenueCatHostedPaywallTarget) =>
+  target === "exit" ? "post_auth_exit_offer" : "post_auth";
+
+const getSurfaceLabel = (target: RevenueCatHostedPaywallTarget) =>
+  target === "exit" ? "hosted_exit" : "hosted_main";
+
+const getPaywallOfferingKey = (
+  target: RevenueCatHostedPaywallTarget,
+  matchedPackage: PurchasesPackage | null,
+  paywallConfig: ResolvedPaywallConfig | null
+): PaywallOffering["key"] => {
+  if (target === "exit") {
+    return "yearly_exit_offer";
+  }
+
+  switch (matchedPackage?.packageType) {
+    case PACKAGE_TYPE.WEEKLY:
+      return "weekly";
+    case PACKAGE_TYPE.MONTHLY:
+      return "monthly";
+    case PACKAGE_TYPE.LIFETIME:
+      return "lifetime";
+    case PACKAGE_TYPE.ANNUAL:
+      return "yearly";
+    default:
+      return paywallConfig?.offerings[0]?.key ?? "yearly";
+  }
+};
+
+const syncHostedTrialReminder = (
+  target: RevenueCatHostedPaywallTarget,
+  premiumActivatedAt: string | null | undefined,
+  matchedPackage: PurchasesPackage | null,
+  options: { wasRestore?: boolean } = {}
+) => {
+  const hasFreeTrial =
+    target === "main" &&
+    !options.wasRestore &&
+    matchedPackage?.packageType === PACKAGE_TYPE.ANNUAL &&
+    matchedPackage.product.introPrice?.price === 0;
+
+  if (!hasFreeTrial) {
+    cancelFreeTrialEndingReminder().catch(() => undefined);
+    return;
+  }
+
+  scheduleFreeTrialEndingReminder(premiumActivatedAt).catch(() => undefined);
+};
+
+export default function HostedRevenueCatPaywallScreen() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
+  const activeHostedPaywallTarget = useAppStore(
+    state => state.activeHostedPaywallTarget
+  );
+  const activePaywallPlacementKey = useAppStore(
+    state => state.activePaywallPlacementKey
+  );
+  const activePaywallScreenKey = useAppStore(state => state.activePaywallScreenKey);
+  const activePaywallTriggerMode = useAppStore(
+    state => state.activePaywallTriggerMode
+  );
+  const continueFromHostedPaywall = useAppStore(
+    state => state.continueFromHostedPaywall
+  );
+  const fallbackFromHostedPaywall = useAppStore(
+    state => state.fallbackFromHostedPaywall
+  );
+  const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
+  const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+  const [screenState, setScreenState] = useState<ScreenState>("launching");
+  const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
+  const [hostedPaywallState, setHostedPaywallState] =
+    useState<HostedPaywallLoadState>({
+      offering: null,
+      offerings: null,
+      isReady: false,
+    });
+  const [processingLabel, setProcessingLabel] = useState<string | null>(null);
+  const iconEntrance = useRef(new Animated.Value(0)).current;
+  const iconFloat = useRef(new Animated.Value(0)).current;
+  const copyEntrance = useRef(new Animated.Value(0)).current;
+  const paywallConfigRef = useRef<ResolvedPaywallConfig | null>(null);
+  const didCompleteHostedActionRef = useRef(false);
+  const hostedTargetRef = useRef(activeHostedPaywallTarget ?? "main");
+  const paywallContextRef = useRef({
+    placementKey:
+      activePaywallPlacementKey ||
+      getDefaultPlacementKey(hostedTargetRef.current),
+    screenKey: activePaywallScreenKey || null,
+    triggerMode: activePaywallTriggerMode,
+  });
+
+  const hostedTarget = hostedTargetRef.current;
+  const hostedPlacementKey = paywallContextRef.current.placementKey;
+  const hostedScreenKey = paywallContextRef.current.screenKey;
+  const hostedTriggerMode = paywallContextRef.current.triggerMode;
+  const isExitOffer = hostedTarget === "exit";
+  const horizontalPadding = width >= 430 ? 30 : width < 360 ? 20 : 24;
+  const maxWidth = width >= 430 ? 430 : 400;
+  const launchTitle = isExitOffer
+    ? "Opening your special offer"
+    : "Opening secure checkout";
+  const launchBody = isExitOffer
+    ? "We are preparing the follow-up offer now."
+    : "We are loading the RevenueCat paywall for this step.";
+
+  const trackEvent = useCallback((
+    eventType:
+      | "paywall_impression"
+      | "paywall_dismiss"
+      | "cta_tap"
+      | "purchase_success"
+      | "restore_success"
+      | "purchase_failure",
+    metadata?: Record<string, unknown>,
+    offeringKey?: PaywallOffering["key"]
+  ) => {
+    const activePaywallConfig = paywallConfigRef.current;
+
+    if (!activePaywallConfig?.template) {
+      return;
+    }
+
+    trackPaywallEvent({
+      placementKey: activePaywallConfig.placementKey,
+      screenKey: activePaywallConfig.screenKey || undefined,
+      eventType,
+      templateKey: activePaywallConfig.template.key,
+      offeringKey,
+      wasInterruptive: activePaywallConfig.wasInterruptive,
+      metadata: {
+        surface: getSurfaceLabel(hostedTarget),
+        ...metadata,
+      },
+    }).catch(() => undefined);
+  }, [hostedTarget]);
+
+  useEffect(() => {
+    iconEntrance.setValue(0);
+    copyEntrance.setValue(0);
+    iconFloat.setValue(0);
+
+    const entrance = Animated.stagger(90, [
+      Animated.timing(iconEntrance, {
+        toValue: 1,
+        duration: 420,
+        easing: Easing.out(Easing.back(1.2)),
+        useNativeDriver: true,
+      }),
+      Animated.timing(copyEntrance, {
+        toValue: 1,
+        duration: 360,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(iconFloat, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconFloat, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    entrance.start();
+    floatLoop.start();
+
+    return () => {
+      entrance.stop();
+      floatLoop.stop();
+    };
+  }, [copyEntrance, iconEntrance, iconFloat]);
+
+  const completePremiumActivation = useCallback(async (
+    customerInfo: CustomerInfo,
+    offerings: PurchasesOfferings | null,
+    options: { wasRestore?: boolean } = {}
+  ) => {
+    const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
+    const premiumAccess = hasPremiumAccess(customerInfo);
+
+    setLastPurchaseStore(activeEntitlement?.store ?? null);
+
+    if (!premiumAccess) {
+      return false;
+    }
+
+    const matchedPackage = findRevenueCatPackageByProductIdentifier(
+      offerings,
+      activeEntitlement?.productIdentifier
+    );
+    const activePaywallConfig = paywallConfigRef.current;
+    const offeringKey = getPaywallOfferingKey(
+      hostedTarget,
+      matchedPackage,
+      activePaywallConfig
+    );
+
+    if (!activeEntitlement) {
+      await setSessionPremiumStatus(true);
+      syncHostedTrialReminder(hostedTarget, null, matchedPackage, options);
+      setScreenState("success");
+      return true;
+    }
+
+    const updatedProfile = await syncPaywallPurchase({
+      offeringKey,
+      revenueCatOfferingId:
+        matchedPackage?.presentedOfferingContext?.offeringIdentifier ||
+        matchedPackage?.product.presentedOfferingContext?.offeringIdentifier ||
+        activePaywallConfig?.offerings.find(offering => offering.key === offeringKey)
+          ?.revenueCatOfferingId ||
+        hostedPlacementKey,
+      revenueCatPackageId:
+        matchedPackage?.identifier ||
+        activeEntitlement.productIdentifier ||
+        "unknown",
+      store: activeEntitlement.store || "unknown",
+      entitlementId: activeEntitlement.identifier || "unknown",
+      wasRestore: Boolean(options.wasRestore),
+    });
+
+    setSessionUserProfile(updatedProfile);
+    syncHostedTrialReminder(
+      hostedTarget,
+      updatedProfile.premiumActivatedAt,
+      matchedPackage,
+      options
+    );
+    setScreenState("success");
+    return true;
+  }, [
+    hostedPlacementKey,
+    hostedTarget,
+    setSessionPremiumStatus,
+    setSessionUserProfile,
+  ]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadHostedPaywall = async () => {
+      if (!hasRevenueCatHostedPaywall(hostedTarget)) {
+        fallbackFromHostedPaywall();
+        return;
+      }
+
+      const resolvedConfig = sessionUserId
+        ? await getPaywallConfig({
+            placementKey: hostedPlacementKey,
+            screenKey: hostedScreenKey || undefined,
+            triggerMode: hostedTriggerMode,
+          })
+        : null;
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (resolvedConfig) {
+        paywallConfigRef.current = resolvedConfig;
+      }
+
+      if (resolvedConfig && !resolvedConfig.shouldShow) {
+        continueFromHostedPaywall("continue");
+        return;
+      }
+
+      if (resolvedConfig?.template) {
+        trackPaywallEvent({
+          placementKey: resolvedConfig.placementKey,
+          screenKey: resolvedConfig.screenKey || undefined,
+          eventType: "paywall_impression",
+          templateKey: resolvedConfig.template.key,
+          offeringKey: resolvedConfig.offerings[0]?.key,
+          wasInterruptive: resolvedConfig.wasInterruptive,
+          metadata: {
+            surface: getSurfaceLabel(hostedTarget),
+          },
+        }).catch(() => undefined);
+      }
+
+      const hostedResult = await getRevenueCatHostedOffering(
+        hostedTarget,
+        hostedPlacementKey,
+        sessionUserId
+      );
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!hostedResult.offering) {
+        fallbackFromHostedPaywall();
+        return;
+      }
+
+      setHostedPaywallState({
+        offering: hostedResult.offering,
+        offerings: hostedResult.offerings,
+        isReady: true,
+      });
+    };
+
+    loadHostedPaywall().catch(error => {
+      if (!isMounted) {
+        return;
+      }
+
+      trackEvent("purchase_failure", {
+        message: error instanceof Error ? error.message : "Hosted paywall failed.",
+      });
+      fallbackFromHostedPaywall();
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    continueFromHostedPaywall,
+    fallbackFromHostedPaywall,
+    hostedPlacementKey,
+    hostedScreenKey,
+    hostedTarget,
+    hostedTriggerMode,
+    sessionUserId,
+    trackEvent,
+  ]);
+
+  const finalizeHostedPurchase = useCallback(
+    async (
+      customerInfo: CustomerInfo,
+      offerings: PurchasesOfferings | null,
+      options: { wasRestore?: boolean } = {}
+    ) => {
+      setProcessingLabel("Finalizing your access...");
+
+      try {
+        const activated = await completePremiumActivation(
+          customerInfo,
+          offerings,
+          options
+        );
+
+        if (!activated && sessionUserId) {
+          const refreshedEntitlementState = await refreshRevenueCatEntitlementState(
+            sessionUserId
+          );
+
+          if (refreshedEntitlementState.customerInfo) {
+            const refreshedActivated = await completePremiumActivation(
+              refreshedEntitlementState.customerInfo,
+              offerings,
+              options
+            );
+
+            if (refreshedActivated) {
+              trackEvent(
+                options.wasRestore ? "restore_success" : "purchase_success"
+              );
+              return true;
+            }
+          }
+        }
+
+        if (!activated) {
+          Alert.alert(
+            "Purchase completed",
+            "Your purchase went through, but access has not updated yet. Please check again in a moment."
+          );
+          continueFromHostedPaywall("continue");
+          return false;
+        }
+
+        trackEvent(options.wasRestore ? "restore_success" : "purchase_success");
+        return true;
+      } finally {
+        setProcessingLabel(null);
+      }
+    },
+    [
+      completePremiumActivation,
+      continueFromHostedPaywall,
+      sessionUserId,
+      trackEvent,
+    ]
+  );
+
+  const handleHostedPurchaseStarted = useCallback(
+    ({ packageBeingPurchased }: { packageBeingPurchased: PurchasesPackage }) => {
+      setProcessingLabel("Processing your purchase...");
+      trackEvent(
+        "cta_tap",
+        {
+          action: "purchase",
+          packageId: packageBeingPurchased.identifier,
+        },
+        getPaywallOfferingKey(
+          hostedTarget,
+          packageBeingPurchased,
+          paywallConfigRef.current
+        )
+      );
+    },
+    [hostedTarget, trackEvent]
+  );
+
+  const handleHostedRestoreStarted = useCallback(() => {
+    setProcessingLabel("Restoring your purchase...");
+    trackEvent(
+      "cta_tap",
+      {
+        action: "restore",
+      },
+      paywallConfigRef.current?.offerings[0]?.key
+    );
+  }, [trackEvent]);
+
+  const handleHostedDismiss = useCallback(() => {
+    if (didCompleteHostedActionRef.current) {
+      return;
+    }
+
+    setProcessingLabel(null);
+    trackEvent("paywall_dismiss");
+    continueFromHostedPaywall("dismiss");
+  }, [continueFromHostedPaywall, trackEvent]);
+
+  const handleHostedPurchaseCancelled = useCallback(() => {
+    setProcessingLabel(null);
+  }, []);
+
+  const handleHostedPurchaseError = useCallback(
+    ({ error }: { error: unknown }) => {
+      setProcessingLabel(null);
+      trackEvent("purchase_failure", {
+        message: error instanceof Error ? error.message : "Purchase failed.",
+      });
+    },
+    [trackEvent]
+  );
+
+  const handleHostedPurchaseCompleted = useCallback(
+    async ({
+      customerInfo,
+    }: {
+      customerInfo: CustomerInfo;
+      storeTransaction: unknown;
+    }) => {
+      didCompleteHostedActionRef.current = true;
+      await finalizeHostedPurchase(customerInfo, hostedPaywallState.offerings, {
+        wasRestore: false,
+      });
+    },
+    [finalizeHostedPurchase, hostedPaywallState.offerings]
+  );
+
+  const handleHostedRestoreCompleted = useCallback(
+    async ({ customerInfo }: { customerInfo: CustomerInfo }) => {
+      didCompleteHostedActionRef.current = true;
+      await finalizeHostedPurchase(customerInfo, hostedPaywallState.offerings, {
+        wasRestore: true,
+      });
+    },
+    [finalizeHostedPurchase, hostedPaywallState.offerings]
+  );
+
+  const handleHostedRestoreError = useCallback(
+    ({ error }: { error: unknown }) => {
+      setProcessingLabel(null);
+      trackEvent("purchase_failure", {
+        message: error instanceof Error ? error.message : "Restore failed.",
+      });
+    },
+    [trackEvent]
+  );
+
+  const iconTranslateY = useMemo(
+    () =>
+      iconFloat.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -8],
+      }),
+    [iconFloat]
+  );
+
+  if (screenState === "success") {
+    return (
+      <ActionSuccessScreen
+        variant="payment"
+        title="You're Premium"
+        subtitle={
+          lastPurchaseStore === "TEST_STORE"
+            ? "Your premium access is ready. You can continue into Journal.IO."
+            : "Your premium access is now active on this account."
+        }
+        buttonLabel="Continue"
+        onPrimaryAction={() => continueFromHostedPaywall("continue")}
+      />
+    );
+  }
+
+  if (!hostedPaywallState.isReady || !hostedPaywallState.offering) {
+    return (
+      <View style={[styles.screenRoot, { backgroundColor: theme.colors.background }]}>
+        <View
+          style={[
+            styles.root,
+            {
+              paddingTop: insets.top + 18,
+              paddingBottom: insets.bottom + 24,
+              paddingHorizontal: horizontalPadding,
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.card,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+                maxWidth,
+                opacity: copyEntrance,
+                transform: [
+                  {
+                    translateY: copyEntrance.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.iconWrap,
+                {
+                  backgroundColor: theme.colors.accent,
+                  borderColor: theme.colors.border,
+                  opacity: iconEntrance,
+                  transform: [{ translateY: iconTranslateY }],
+                },
+              ]}
+            >
+              {isExitOffer ? (
+                <Sparkles size={34} color={theme.colors.primary} strokeWidth={1.9} />
+              ) : (
+                <ShieldCheck
+                  size={34}
+                  color={theme.colors.primary}
+                  strokeWidth={1.9}
+                />
+              )}
+            </Animated.View>
+
+            <Text style={[styles.title, { color: theme.colors.foreground }]}>
+              {launchTitle}
+            </Text>
+            <Text
+              style={[styles.body, { color: theme.colors.mutedForeground }]}
+            >
+              {launchBody}
+            </Text>
+
+            <View
+              style={[
+                styles.progressCard,
+                {
+                  backgroundColor: theme.colors.secondary,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <ActivityIndicator color={theme.colors.primary} />
+              <Text
+                style={[styles.progressText, { color: theme.colors.foreground }]}
+              >
+                RevenueCat is preparing the checkout surface.
+              </Text>
+            </View>
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+      <View style={[styles.screenRoot, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.paywallRoot, { backgroundColor: theme.colors.background }]}>
+          <RevenueCatUI.Paywall
+            style={styles.paywallSurface}
+            options={{
+              offering: hostedPaywallState.offering,
+              displayCloseButton: true,
+            }}
+            onPurchaseStarted={handleHostedPurchaseStarted}
+            onPurchaseCompleted={handleHostedPurchaseCompleted}
+            onPurchaseCancelled={handleHostedPurchaseCancelled}
+            onPurchaseError={handleHostedPurchaseError}
+            onRestoreStarted={handleHostedRestoreStarted}
+            onRestoreCompleted={handleHostedRestoreCompleted}
+            onRestoreError={handleHostedRestoreError}
+            onDismiss={handleHostedDismiss}
+          />
+
+          {processingLabel ? (
+            <View
+              pointerEvents="auto"
+              style={[
+                styles.processingOverlay,
+                {
+                  backgroundColor: theme.colors.background,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.processingCard,
+                  {
+                    backgroundColor: theme.colors.card,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <ActivityIndicator color={theme.colors.primary} />
+                <Text
+                  style={[
+                    styles.processingTitle,
+                    { color: theme.colors.foreground },
+                  ]}
+                >
+                  {processingLabel}
+                </Text>
+                <Text
+                  style={[
+                    styles.processingBody,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  RevenueCat is confirming the payment.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+const styles = StyleSheet.create({
+  screenRoot: {
+    flex: 1,
+  },
+  root: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  card: {
+    width: "100%",
+    borderRadius: 28,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: "center",
+    gap: 14,
+  },
+  iconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  body: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  progressCard: {
+    width: "100%",
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 6,
+  },
+  progressText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  paywallRoot: {
+    flex: 1,
+  },
+  paywallSurface: {
+    flex: 1,
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  processingCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    alignItems: "center",
+    gap: 10,
+  },
+  processingTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  processingBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+});

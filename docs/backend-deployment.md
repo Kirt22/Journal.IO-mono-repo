@@ -68,7 +68,7 @@ For the email OTP production rollout:
 
 For the frontend production API switch:
 
-- keep `frontend/.env.example` local-first
+- keep `frontend/.env` local-first
 - inject `API_BASE_URL=https://api.journalio.app/api/v1` only in the production mobile build environment
 - do not replace the local tracked `frontend/.env` value with the production URL
 

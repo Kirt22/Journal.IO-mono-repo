@@ -1,23 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ComponentType } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Easing,
-  PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
   type PurchasesError,
 } from "react-native-purchases";
-import { ArrowRight, Crown, RefreshCcw, X } from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  BarChart3,
+  Brain,
+  Check,
+  Crown,
+  Download,
+  Sparkles,
+  Star,
+  X,
+} from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import {
   getRevenueCatActiveEntitlement,
@@ -30,20 +42,15 @@ import {
   restoreRevenueCatPurchases,
   type RevenueCatPaywallPlan,
 } from "../../services/revenueCatService";
-import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
   syncPaywallPurchase,
   trackPaywallEvent,
-  type PaywallFeatureCard,
   type PaywallOffering,
   type ResolvedPaywallConfig,
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
-import { getPaywallLayoutMetrics } from "./paywallLayout";
-
-const mascotImage = require("../../assets/png/Masscott.png");
 
 type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
 
@@ -52,54 +59,16 @@ type LifetimeOfferPaywallScreenProps = {
   currentPlanKey?: SubscriptionPlanKey;
 };
 
-type LifetimePlan = {
-  id: string;
+type LifetimeScreenPlan = RevenueCatPaywallPlan;
+
+type FeatureRow = {
+  icon: ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
   title: string;
-  durationLabel: string;
-  price: string;
-  subtitle: string;
-  highlight?: string;
-  badge?: string;
-  offeringKey: "lifetime";
-  revenueCatOfferingId: string | null;
-  revenueCatPackageId: string | null;
-  rcPackage: RevenueCatPaywallPlan["rcPackage"];
 };
 
-type OfferPreviewCard = {
-  id: string;
-  title: string;
-  body: string;
-  footer: string;
-};
-
-const DEFAULT_TEMPLATE = {
-  title: "Lifetime Offer",
-  headline: "A one-time premium unlock for the first 100 Journal.IO members.",
-  subheadline: "Reserve lifetime premium access while the launch offer is still available.",
-  heroBadgeLabel: "Lifetime access",
-  purchaseChipTitle: "One-time",
-  purchaseChipBody: "No renewal",
-  featureCarouselTitle: "What lifetime unlocks",
-  socialProofLine: "Be one of the first users to be part of this family.",
-  footerLegal: "One-time purchase. Premium stays on this account after sync.",
-  featureList: [
-    {
-      title: "A calmer premium path",
-      body: "Keep AI insights, prompt support, and deeper review tools available whenever you come back to journal.",
-      footer: "No weekly or yearly plan switching required.",
-    },
-    {
-      title: "Built for a longer journaling rhythm",
-      body: "Lifetime access fits the users who want Journal.IO to stay in the background for months, not just one billing cycle.",
-      footer: "One purchase. Ongoing access.",
-    },
-    {
-      title: "Lifetime-offer positioning",
-      body: "This screen is intentionally more expressive than the standard paywall so the lifetime offer feels distinct and worth stopping for.",
-      footer: "Still calm, just more premium.",
-    },
-  ] satisfies PaywallFeatureCard[],
+type Testimonial = {
+  name: string;
+  quote: string;
 };
 
 const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
@@ -111,15 +80,44 @@ const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
   badge: "One time offer",
   highlight: "First 100 users",
   sortOrder: 0,
-  revenueCatOfferingId: "journalio_offering_dev",
+  revenueCatOfferingId: "journalio_offering_lifetime_dev",
   revenueCatPackageId: "$rc_lifetime",
   purchasedUsersCount: 0,
   purchaseLimit: 100,
 };
 
-const SWIPE_RAIL_HEIGHT = 64;
-const SWIPE_THUMB_INSET_COMPACT = 6;
-const SWIPE_THUMB_INSET_REGULAR = 7;
+const LIFETIME_BADGE = "LIMITED";
+const LIFETIME_LOADER_COPY = "Loading lifetime offer...";
+
+const FEATURE_ROWS: FeatureRow[] = [
+  {
+    icon: Brain,
+    title: "Unlimited AI insights & personalised prompts",
+  },
+  {
+    icon: BarChart3,
+    title: "Advanced analytics & emotion tracking",
+  },
+  {
+    icon: Download,
+    title: "Securely export all your entries",
+  },
+];
+
+const TESTIMONIALS: Testimonial[] = [
+  {
+    name: "Sarah M.",
+    quote: '"Best investment for my mental health."',
+  },
+  {
+    name: "James K.",
+    quote: '"I journal every day now. Worth every penny."',
+  },
+  {
+    name: "Priya R.",
+    quote: '"The AI insights changed how I see myself."',
+  },
+];
 
 const isPurchasesError = (error: unknown): error is PurchasesError =>
   typeof error === "object" &&
@@ -138,15 +136,15 @@ const getPurchaseErrorMessage = (error: unknown) => {
     error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
     error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
   ) {
-    return "We could not reach purchases right now. Check your connection and try again.";
+    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
-    return "This lifetime offer is not ready yet. Please try again in a moment.";
+    return "RevenueCat is configured, but the lifetime package is not ready yet.";
   }
 
   if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-    return "This payment is pending. Your access will update as soon as the store confirms it.";
+    return "This payment is pending. RevenueCat will update the entitlement when the store confirms it.";
   }
 
   return error.message;
@@ -166,58 +164,64 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-const buildPreviewCards = (
-  paywallConfig: ResolvedPaywallConfig | null
-): OfferPreviewCard[] => {
-  const featureList =
-    paywallConfig?.template?.featureList?.length
-      ? paywallConfig.template.featureList
-      : DEFAULT_TEMPLATE.featureList;
+function buildFallbackPlan(
+  configuredOffering: PaywallOffering = DEFAULT_LIFETIME_OFFERING
+): LifetimeScreenPlan {
+  return {
+    id: "lifetime",
+    title: configuredOffering.title,
+    durationLabel: configuredOffering.price,
+    price: configuredOffering.price,
+    subtitle: configuredOffering.subtitle ?? "One-time unlock",
+    highlight: configuredOffering.highlight ?? undefined,
+    badge: configuredOffering.badge ?? undefined,
+    revenueCatOfferingId: configuredOffering.revenueCatOfferingId,
+    revenueCatPackageId: configuredOffering.revenueCatPackageId,
+    rcPackage: null,
+    planKey: "lifetime",
+    introOffer: null,
+  };
+}
 
-  return featureList.slice(0, 3).map((feature, index) => ({
-    id: `lifetime-preview-${index}`,
-    title: feature.title,
-    body: feature.body,
-    footer: feature.footer || "Premium tools that stay close to your journaling rhythm.",
-  }));
-};
-
-const buildFallbackPlan = (): LifetimePlan => ({
-  id: "lifetime",
-  title: DEFAULT_LIFETIME_OFFERING.title,
-  durationLabel: "",
-  price: "",
-  subtitle: DEFAULT_LIFETIME_OFFERING.subtitle || "One-time unlock",
-  highlight: DEFAULT_LIFETIME_OFFERING.highlight || undefined,
-  badge: DEFAULT_LIFETIME_OFFERING.badge || undefined,
-  offeringKey: "lifetime",
-  revenueCatOfferingId: DEFAULT_LIFETIME_OFFERING.revenueCatOfferingId,
-  revenueCatPackageId: DEFAULT_LIFETIME_OFFERING.revenueCatPackageId,
-  rcPackage: null,
-});
+function FeatureItem({
+  icon: Icon,
+  title,
+  accentColor,
+  iconColor,
+  textColor,
+  containerStyle,
+}: {
+  icon: FeatureRow["icon"];
+  title: string;
+  accentColor: string;
+  iconColor: string;
+  textColor: string;
+  containerStyle?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.featureRow, containerStyle]}>
+      <View style={[styles.featureIconWrap, { backgroundColor: accentColor }]}>
+        <Icon size={18} color={iconColor} strokeWidth={2} />
+      </View>
+      <Text style={[styles.featureTitle, { color: textColor }]}>{title}</Text>
+    </View>
+  );
+}
 
 export default function LifetimeOfferPaywallScreen({
   onBack,
   currentPlanKey,
 }: LifetimeOfferPaywallScreenProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const {
-    footerReservedSpace,
-    horizontalPadding,
-    isCompact,
-    lifetimeHeroLayout,
-    lifetimeMascotStageWidth,
-    swipeRailTextHorizontalPadding,
-    swipeRailTextSize,
-  } = getPaywallLayoutMetrics(width);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const sessionUserName = useAppStore(state => state.session?.user.name || "you");
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+  const [plan, setPlan] = useState<LifetimeScreenPlan>(buildFallbackPlan);
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
   );
-  const [plan, setPlan] = useState<LifetimePlan>(buildFallbackPlan);
   const [plansError, setPlansError] = useState<string | null>(
     getRevenueCatConfigurationError()
   );
@@ -225,99 +229,83 @@ export default function LifetimeOfferPaywallScreen({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<"offer" | "success">("offer");
-  const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
-  const [previewIndex, setPreviewIndex] = useState(0);
+  const [testimonialIndex, setTestimonialIndex] = useState(0);
 
-  const headerAnim = useRef(new Animated.Value(0)).current;
-  const heroAnim = useRef(new Animated.Value(0)).current;
-  const contentAnim = useRef(new Animated.Value(0)).current;
-  const footerAnim = useRef(new Animated.Value(0)).current;
-  const swipeTranslate = useRef(new Animated.Value(0)).current;
-  const swipeTriggeredRef = useRef(false);
-  const mascotFloat = useRef(new Animated.Value(0)).current;
-  const haloPulse = useRef(new Animated.Value(0)).current;
-  const orbitSpin = useRef(new Animated.Value(0)).current;
-  const chipDrift = useRef(new Animated.Value(0)).current;
-  const backgroundDrift = useRef(new Animated.Value(0)).current;
-  const previewTransition = useRef(new Animated.Value(1)).current;
-
-  const previewCards = useMemo(
-    () => buildPreviewCards(paywallConfig),
-    [paywallConfig]
-  );
-  const activePreviewCard = previewCards[previewIndex] ?? previewCards[0];
-  const heroTitle = paywallConfig?.template?.title || DEFAULT_TEMPLATE.title;
-  const heroBadgeLabel =
-    paywallConfig?.template?.heroBadgeLabel || DEFAULT_TEMPLATE.heroBadgeLabel;
-  const lifetimeOffering =
-    paywallConfig?.offerings.find(offering => offering.key === "lifetime") ||
-    DEFAULT_LIFETIME_OFFERING;
-  const purchaseChipTitle =
-    paywallConfig?.template?.purchaseChipTitle || DEFAULT_TEMPLATE.purchaseChipTitle;
-  const purchaseChipBody =
-    paywallConfig?.template?.purchaseChipBody || DEFAULT_TEMPLATE.purchaseChipBody;
-  const featureCarouselTitle =
-    paywallConfig?.template?.featureCarouselTitle ||
-    DEFAULT_TEMPLATE.featureCarouselTitle;
-  const socialProofLine =
-    paywallConfig?.template?.socialProofLine || DEFAULT_TEMPLATE.socialProofLine;
-  const footerLegalCopy =
-    paywallConfig?.template?.footerLegal || DEFAULT_TEMPLATE.footerLegal;
+  const palette = theme.colors;
+  const isCompact = width < 380;
+  const horizontalPadding = isCompact ? 20 : width >= 430 ? 28 : 22;
+  const maxContentWidth = width >= 430 ? 430 : 410;
   const isBusy = isProcessing || isRestoring;
-  const canPurchase = Boolean(plan.rcPackage) && currentPlanKey !== "lifetime";
-  const swipeThumbInset = isCompact
-    ? SWIPE_THUMB_INSET_COMPACT
-    : SWIPE_THUMB_INSET_REGULAR;
-  const swipeThumbSize = SWIPE_RAIL_HEIGHT - swipeThumbInset * 2;
-  const swipeThumbTopOffset = Math.max((SWIPE_RAIL_HEIGHT - swipeThumbSize) / 2, 0);
-  const swipeTrackWidth = width - horizontalPadding * 2;
-  const swipeMaxDistance = Math.max(swipeTrackWidth - swipeThumbSize - 10, 0);
-  const swipeThreshold = swipeMaxDistance * 0.7;
-  const footerBottomPadding = 0;
-  const footerCtaLabel =
-    currentPlanKey === "lifetime"
-      ? "Lifetime already active"
-      : isProcessing
-        ? "Claiming lifetime access..."
-        : isLoadingPlan
-          ? "Loading offer..."
-        : "Claim Lifetime Access";
-  const lifetimePurchaseLimit =
-    lifetimeOffering.purchaseLimit ?? DEFAULT_LIFETIME_OFFERING.purchaseLimit;
-  const lifetimeMembersCopy = lifetimePurchaseLimit
-    ? `${lifetimeOffering.purchasedUsersCount}/${lifetimePurchaseLimit} users claimed lifetime access.`
-    : `${lifetimeOffering.purchasedUsersCount} users claimed lifetime access.`;
-  const hasResolvedPrice = Boolean(plan.durationLabel.trim());
+  const canPurchase =
+    Boolean(plan.rcPackage) && currentPlanKey !== "lifetime" && !isBusy;
+  const buttonLabel = currentPlanKey === "lifetime"
+    ? "Lifetime already active"
+    : isProcessing
+      ? "Processing..."
+      : "Unlock Lifetime Premium";
+  const lifetimeOffering =
+    paywallConfig?.offerings.find(offering => offering.key === "lifetime") ??
+    DEFAULT_LIFETIME_OFFERING;
+  const displayedPrice = lifetimeOffering.price || plan.durationLabel || DEFAULT_LIFETIME_OFFERING.price;
+  const claimLimit = lifetimeOffering.purchaseLimit ?? null;
+  const claimCount = lifetimeOffering.purchasedUsersCount ?? 0;
+  const claimProgress =
+    claimLimit && claimLimit > 0 ? Math.min(claimCount / claimLimit, 1) : 0;
+  const claimText = claimLimit ? `${claimCount}/${claimLimit} claimed` : `${claimCount} claimed`;
+  const priceSupportText = [
+    paywallConfig?.template?.purchaseChipTitle
+      ? `${paywallConfig.template.purchaseChipTitle} purchase`
+      : lifetimeOffering.priceSuffix?.trim()
+        ? lifetimeOffering.priceSuffix.includes("one-time")
+          ? "One-time purchase"
+          : lifetimeOffering.priceSuffix.trim()
+        : "One-time purchase",
+    paywallConfig?.template?.purchaseChipBody || null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+
+  const closeEntrance = useRef(new Animated.Value(0)).current;
+  const heroEntrance = useRef(new Animated.Value(0)).current;
+  const priceEntrance = useRef(new Animated.Value(0)).current;
+  const footerEntrance = useRef(new Animated.Value(0)).current;
+  const featureAnims = useRef(FEATURE_ROWS.map(() => new Animated.Value(0))).current;
+  const topGlowPulse = useRef(new Animated.Value(0)).current;
+  const bottomGlowPulse = useRef(new Animated.Value(0)).current;
+  const heroGlowPulse = useRef(new Animated.Value(0)).current;
+  const sparklePulse = useRef(new Animated.Value(0)).current;
+  const priceSheen = useRef(new Animated.Value(0)).current;
+  const ctaSheen = useRef(new Animated.Value(0)).current;
+  const claimProgressAnim = useRef(new Animated.Value(0)).current;
+  const testimonialTransition = useRef(new Animated.Value(1)).current;
+
+  const currentTestimonial =
+    TESTIMONIALS[testimonialIndex % TESTIMONIALS.length] ?? TESTIMONIALS[0];
 
   const trackLifetimeEvent = useCallback(
     (
       eventType:
         | "paywall_impression"
-        | "plan_select"
         | "cta_tap"
         | "purchase_success"
         | "restore_success"
         | "purchase_failure",
       metadata?: Record<string, unknown>
     ) => {
-      if (!paywallConfig?.template) {
+      if (!sessionUserId) {
         return Promise.resolve(null);
       }
 
       return trackPaywallEvent({
-        placementKey: paywallConfig.placementKey,
+        placementKey: "profile_upgrade_banner",
         screenKey: "profile",
         eventType,
-        templateKey: paywallConfig.template.key,
+        templateKey: "lifetime-launch",
         offeringKey: "lifetime",
-        wasInterruptive: paywallConfig.wasInterruptive,
-        metadata: {
-          previewEntry: "profile_dev_button",
-          ...metadata,
-        },
+        metadata,
       }).catch(() => null);
     },
-    [paywallConfig]
+    [sessionUserId]
   );
 
   useEffect(() => {
@@ -328,73 +316,59 @@ export default function LifetimeOfferPaywallScreen({
       setIsLoadingPlan(true);
 
       try {
-        const resolvedConfig = sessionUserId
-          ? await getPaywallConfig({
-              placementKey: "profile_upgrade_banner",
-              screenKey: "profile",
-            })
-          : null;
+        const [configResult, offeringsResult] = await Promise.allSettled([
+          sessionUserId
+            ? getPaywallConfig({
+                placementKey: "profile_upgrade_banner",
+                screenKey: "profile",
+                triggerMode: "contextual",
+              })
+            : Promise.resolve(null),
+          getRevenueCatOfferings(sessionUserId),
+        ]);
 
         if (!isMounted) {
           return;
         }
 
-        const configToUse =
-          resolvedConfig?.template?.key === "lifetime-launch" ? resolvedConfig : null;
+        const resolvedConfig =
+          configResult.status === "fulfilled" ? configResult.value : null;
 
-        if (configToUse) {
-          setPaywallConfig(configToUse);
-        }
-
-        const offerings = await getRevenueCatOfferings(sessionUserId);
-
-        if (!isMounted) {
+        if (resolvedConfig?.shouldShow === false) {
+          onBack();
           return;
         }
 
-        const configuredLifetimeOfferings = configToUse?.offerings.filter(
-          offering => offering.key === "lifetime"
-        ) || [DEFAULT_LIFETIME_OFFERING];
-        const resolvedPlan = getRevenueCatPaywallPlans(
-          offerings,
-          configuredLifetimeOfferings
-        ).find(candidate => candidate.planKey === "lifetime");
+        setPaywallConfig(resolvedConfig);
 
-        if (!resolvedPlan) {
-          setPlan(buildFallbackPlan());
-          setPlansError(
-            previous =>
-              previous ||
-              "This lifetime offer is not available right now."
-          );
-          return;
+        const configuredLifetimeOffering =
+          resolvedConfig?.offerings.find(offering => offering.key === "lifetime") ??
+          DEFAULT_LIFETIME_OFFERING;
+
+        if (offeringsResult.status !== "fulfilled") {
+          throw offeringsResult.reason;
         }
 
-        setPlan({
-          id: resolvedPlan.id,
-          title: resolvedPlan.title,
-          durationLabel: resolvedPlan.durationLabel,
-          price: resolvedPlan.price,
-          subtitle: resolvedPlan.subtitle,
-          highlight: resolvedPlan.highlight,
-          badge: configuredLifetimeOfferings[0]?.badge || resolvedPlan.badge,
-          offeringKey: "lifetime",
-          revenueCatOfferingId:
-            configuredLifetimeOfferings[0]?.revenueCatOfferingId || null,
-          revenueCatPackageId:
-            configuredLifetimeOfferings[0]?.revenueCatPackageId || null,
-          rcPackage: resolvedPlan.rcPackage,
-        });
+        const resolvedPlan =
+          getRevenueCatPaywallPlans(
+            offeringsResult.value,
+            [configuredLifetimeOffering],
+            { placementKey: "profile_upgrade_banner" }
+          ).find(candidate => candidate.planKey === "lifetime") ??
+          buildFallbackPlan(configuredLifetimeOffering);
+
+        setPlan(resolvedPlan);
         setPlansError(
           resolvedPlan.rcPackage
             ? null
-            : "This lifetime offer is not available right now."
+            : "This lifetime offer is visible, but the live purchase package is not available yet."
         );
       } catch (error) {
         if (!isMounted) {
           return;
         }
 
+        setPaywallConfig(null);
         setPlan(buildFallbackPlan());
         setPlansError(
           error instanceof Error
@@ -413,167 +387,243 @@ export default function LifetimeOfferPaywallScreen({
     return () => {
       isMounted = false;
     };
-  }, [sessionUserId]);
+  }, [onBack, sessionUserId]);
 
   useEffect(() => {
-    Animated.stagger(90, [
-      Animated.timing(headerAnim, {
+    if (isLoadingPlan || screenState !== "offer") {
+      closeEntrance.setValue(0);
+      heroEntrance.setValue(0);
+      priceEntrance.setValue(0);
+      footerEntrance.setValue(0);
+      featureAnims.forEach(animation => animation.setValue(0));
+      return;
+    }
+
+    closeEntrance.setValue(0);
+    heroEntrance.setValue(0);
+    priceEntrance.setValue(0);
+    footerEntrance.setValue(0);
+    featureAnims.forEach(animation => animation.setValue(0));
+
+    Animated.parallel([
+      Animated.timing(closeEntrance, {
         toValue: 1,
-        duration: 260,
+        duration: 280,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(heroAnim, {
+      Animated.timing(heroEntrance, {
         toValue: 1,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
+        duration: 520,
+        delay: 80,
+        easing: Easing.out(Easing.back(1.1)),
         useNativeDriver: true,
       }),
-      Animated.timing(contentAnim, {
+      Animated.timing(priceEntrance, {
         toValue: 1,
         duration: 360,
+        delay: 240,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(footerAnim, {
+      Animated.stagger(
+        100,
+        featureAnims.map(animation =>
+          Animated.timing(animation, {
+            toValue: 1,
+            duration: 260,
+            delay: 340,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          })
+        )
+      ),
+      Animated.timing(footerEntrance, {
         toValue: 1,
-        duration: 300,
+        duration: 360,
+        delay: 560,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
 
-    const loops = [
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(mascotFloat, {
-            toValue: 1,
-            duration: 1800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(mascotFloat, {
-            toValue: 0,
-            duration: 1800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(haloPulse, {
-            toValue: 1,
-            duration: 1700,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(haloPulse, {
-            toValue: 0,
-            duration: 1700,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-      Animated.loop(
-        Animated.timing(orbitSpin, {
+    const topGlowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(topGlowPulse, {
           toValue: 1,
-          duration: 12000,
-          easing: Easing.linear,
+          duration: 3000,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
-        })
-      ),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(chipDrift, {
-            toValue: 1,
-            duration: 2400,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(chipDrift, {
-            toValue: 0,
-            duration: 2400,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(backgroundDrift, {
-            toValue: 1,
-            duration: 3200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(backgroundDrift, {
-            toValue: 0,
-            duration: 3200,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-    ];
+        }),
+        Animated.timing(topGlowPulse, {
+          toValue: 0,
+          duration: 3000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
 
-    loops.forEach(loop => loop.start());
+    const bottomGlowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bottomGlowPulse, {
+          toValue: 1,
+          duration: 4000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(bottomGlowPulse, {
+          toValue: 0,
+          duration: 4000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const heroGlowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroGlowPulse, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroGlowPulse, {
+          toValue: 0,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const sparkleLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sparklePulse, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sparklePulse, {
+          toValue: 0,
+          duration: 1000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const priceSheenLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(priceSheen, {
+          toValue: 1,
+          duration: 3000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(priceSheen, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+        Animated.delay(2000),
+      ])
+    );
+
+    const ctaSheenLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ctaSheen, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ctaSheen, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+        Animated.delay(3000),
+      ])
+    );
+
+    topGlowLoop.start();
+    bottomGlowLoop.start();
+    heroGlowLoop.start();
+    sparkleLoop.start();
+    priceSheenLoop.start();
+    ctaSheenLoop.start();
 
     return () => {
-      loops.forEach(loop => loop.stop());
+      topGlowLoop.stop();
+      bottomGlowLoop.stop();
+      heroGlowLoop.stop();
+      sparkleLoop.stop();
+      priceSheenLoop.stop();
+      ctaSheenLoop.stop();
     };
   }, [
-    backgroundDrift,
-    chipDrift,
-    contentAnim,
-    footerAnim,
-    haloPulse,
-    headerAnim,
-    heroAnim,
-    mascotFloat,
-    orbitSpin,
+    bottomGlowPulse,
+    closeEntrance,
+    ctaSheen,
+    featureAnims,
+    footerEntrance,
+    heroEntrance,
+    heroGlowPulse,
+    isLoadingPlan,
+    priceEntrance,
+    priceSheen,
+    screenState,
+    sparklePulse,
+    topGlowPulse,
   ]);
 
   useEffect(() => {
-    if (!paywallConfig?.template) {
-      return;
-    }
+    claimProgressAnim.setValue(0);
 
-    trackLifetimeEvent("paywall_impression");
-  }, [paywallConfig, trackLifetimeEvent]);
+    Animated.timing(claimProgressAnim, {
+      toValue: claimProgress,
+      duration: 1200,
+      delay: 800,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [claimProgress, claimProgressAnim]);
 
   useEffect(() => {
-    if (previewCards.length < 2) {
+    testimonialTransition.stopAnimation();
+    testimonialTransition.setValue(0);
+
+    Animated.timing(testimonialTransition, {
+      toValue: 1,
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [testimonialIndex, testimonialTransition]);
+
+  useEffect(() => {
+    if (TESTIMONIALS.length < 2) {
       return;
     }
 
     const intervalId = setInterval(() => {
-      setPreviewIndex(previous => (previous + 1) % previewCards.length);
-    }, 2600);
+      setTestimonialIndex(previous => (previous + 1) % TESTIMONIALS.length);
+    }, 4000);
 
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [previewCards.length]);
+    return () => clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
-    previewTransition.stopAnimation();
-    previewTransition.setValue(0);
-    Animated.timing(previewTransition, {
-      toValue: 1,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [activePreviewCard, previewTransition]);
+    trackLifetimeEvent("paywall_impression");
+  }, [trackLifetimeEvent]);
 
   const completePremiumActivation = useCallback(
     async (customerInfo: CustomerInfo, options: { wasRestore?: boolean } = {}) => {
       const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
       const premiumAccess = hasPremiumAccess(customerInfo);
-
-      setLastPurchaseStore(activeEntitlement?.store ?? null);
 
       if (!premiumAccess) {
         return false;
@@ -596,7 +646,6 @@ export default function LifetimeOfferPaywallScreen({
       });
 
       setSessionUserProfile(updatedProfile);
-      cancelFreeTrialEndingReminder().catch(() => undefined);
       setScreenState("success");
       return true;
     },
@@ -619,31 +668,14 @@ export default function LifetimeOfferPaywallScreen({
         return false;
       }
 
-      return completePremiumActivation(
-        refreshedEntitlementState.customerInfo,
-        options
-      );
+      return completePremiumActivation(refreshedEntitlementState.customerInfo, options);
     },
     [completePremiumActivation, sessionUserId]
   );
 
-  const resetSwipe = useCallback(() => {
-    Animated.spring(swipeTranslate, {
-      toValue: 0,
-      // The swipe rail fill animates width, so this value must stay on the JS driver.
-      useNativeDriver: false,
-      bounciness: 0,
-      speed: 18,
-    }).start();
-  }, [swipeTranslate]);
-
   const handlePurchase = useCallback(async () => {
     if (currentPlanKey === "lifetime") {
-      Alert.alert(
-        "Lifetime already active",
-        "This account already has lifetime access."
-      );
-      resetSwipe();
+      Alert.alert("Lifetime already active", "This account already has lifetime access.");
       return;
     }
 
@@ -652,11 +684,9 @@ export default function LifetimeOfferPaywallScreen({
         "Offer unavailable",
         "This lifetime offer is not available right now."
       );
-      resetSwipe();
       return;
     }
 
-    let purchaseCompleted = false;
     setIsProcessing(true);
     await trackLifetimeEvent("cta_tap");
 
@@ -667,13 +697,10 @@ export default function LifetimeOfferPaywallScreen({
       if (!activated) {
         Alert.alert(
           "Purchase completed",
-          "Your purchase went through, but access has not updated yet. Please check again in a moment."
+          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
         );
-        resetSwipe();
         return;
       }
-
-      purchaseCompleted = true;
 
       await trackLifetimeEvent("purchase_success", {
         store: getRevenueCatActiveEntitlement(result.customerInfo)?.store || "unknown",
@@ -683,9 +710,6 @@ export default function LifetimeOfferPaywallScreen({
         isPurchasesError(error) &&
         error.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR
       ) {
-        if (__DEV__) {
-          console.info("[RevenueCat] Lifetime paywall purchase cancelled by user.");
-        }
         return;
       }
 
@@ -699,22 +723,16 @@ export default function LifetimeOfferPaywallScreen({
       Alert.alert("Purchase failed", getPurchaseErrorMessage(error));
     } finally {
       setIsProcessing(false);
-      swipeTriggeredRef.current = false;
-
-      if (!purchaseCompleted) {
-        resetSwipe();
-      }
     }
   }, [
     currentPlanKey,
     finalizePremiumActivation,
     plan.rcPackage,
-    resetSwipe,
     sessionUserId,
     trackLifetimeEvent,
   ]);
 
-  const handleRestore = async () => {
+  const handleRestore = useCallback(async () => {
     setIsRestoring(true);
 
     try {
@@ -726,7 +744,7 @@ export default function LifetimeOfferPaywallScreen({
       if (!activated) {
         Alert.alert(
           "No active purchase found",
-          "We could not find an active premium purchase for this account."
+          "RevenueCat did not return an active premium entitlement for this account."
         );
         return;
       }
@@ -748,591 +766,529 @@ export default function LifetimeOfferPaywallScreen({
     } finally {
       setIsRestoring(false);
     }
-  };
-
-  const swipePanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          canPurchase &&
-          !isLoadingPlan &&
-          !isRestoring &&
-          !isProcessing &&
-          Math.abs(gestureState.dx) > 6 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
-        onPanResponderMove: (_, gestureState) => {
-          const clampedDx = Math.max(0, Math.min(gestureState.dx, swipeMaxDistance));
-          swipeTranslate.setValue(clampedDx);
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const clampedDx = Math.max(0, Math.min(gestureState.dx, swipeMaxDistance));
-
-          if (clampedDx >= swipeThreshold && !swipeTriggeredRef.current) {
-            swipeTriggeredRef.current = true;
-
-            Animated.timing(swipeTranslate, {
-              toValue: swipeMaxDistance,
-              duration: 120,
-              easing: Easing.out(Easing.cubic),
-              useNativeDriver: false,
-            }).start(({ finished }) => {
-              if (finished) {
-                handlePurchase().catch(() => undefined);
-              } else {
-                swipeTriggeredRef.current = false;
-                resetSwipe();
-              }
-            });
-
-            return;
-          }
-
-          resetSwipe();
-        },
-        onPanResponderTerminate: () => {
-          resetSwipe();
-        },
-      }),
-    [
-      canPurchase,
-      handlePurchase,
-      isLoadingPlan,
-      isProcessing,
-      isRestoring,
-      resetSwipe,
-      swipeMaxDistance,
-      swipeThreshold,
-      swipeTranslate,
-    ]
-  );
-
-  const headerTranslate = headerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-14, 0],
-  });
-  const heroTranslate = heroAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [20, 0],
-  });
-  const contentTranslate = contentAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [26, 0],
-  });
-  const footerTranslate = footerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [28, 0],
-  });
-  const swipeFillWidth = swipeTranslate.interpolate({
-    inputRange: [0, swipeMaxDistance || 1],
-    outputRange: [swipeThumbSize + 10, swipeMaxDistance + swipeThumbSize + 10],
-    extrapolate: "clamp",
-  });
-  const mascotTranslate = mascotFloat.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -10],
-  });
-  const haloScale = haloPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.94, 1.08],
-  });
-  const haloOpacity = haloPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.34, 0.62],
-  });
-  const orbitRotation = orbitSpin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-  const chipLift = chipDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -8],
-  });
-  const backgroundLift = backgroundDrift.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-8, 8],
-  });
-  const previewTranslate = previewTransition.interpolate({
-    inputRange: [0, 1],
-    outputRange: [14, 0],
-  });
+  }, [finalizePremiumActivation, sessionUserId, trackLifetimeEvent]);
 
   if (screenState === "success") {
     return (
       <ActionSuccessScreen
         variant="payment"
-        title="Lifetime access is active"
-        subtitle={
-          lastPurchaseStore === "TEST_STORE"
-            ? "Your lifetime access is now active on this account."
-            : `Journal.IO now has permanent premium access on this account for ${sessionUserName}.`
-        }
+        title="Lifetime access is active."
+        subtitle={`Journal.IO now has permanent premium access on this account for ${sessionUserName}.`}
         buttonLabel="Return to Subscription"
         onPrimaryAction={onBack}
       />
     );
   }
 
+  if (isLoadingPlan) {
+    return (
+      <View style={[styles.safeArea, { backgroundColor: palette.background }]}>
+        <View style={styles.loaderRoot}>
+          <View
+            style={[
+              styles.loaderCard,
+              {
+                backgroundColor: hexToRgba(palette.card, 0.88),
+                borderColor: hexToRgba(palette.border, 0.7),
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.loaderIconWrap,
+                { backgroundColor: hexToRgba(palette.primary, 0.14) },
+              ]}
+            >
+              <Crown size={20} color={palette.primary} strokeWidth={2.1} />
+            </View>
+            <ActivityIndicator size="small" color={palette.primary} />
+            <Text style={[styles.loaderTitle, { color: palette.foreground }]}>
+              {LIFETIME_LOADER_COPY}
+            </Text>
+            <Text
+              style={[styles.loaderSubtitle, { color: palette.mutedForeground }]}
+            >
+              Fetching current pricing and claim availability.
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const topGlowScale = topGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.2],
+  });
+  const topGlowOpacity = topGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.45],
+  });
+  const bottomGlowScale = bottomGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.15],
+  });
+  const bottomGlowOpacity = bottomGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.2, 0.35],
+  });
+  const heroScale = heroEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.5, 1],
+  });
+  const heroRotate = heroEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["-20deg", "0deg"],
+  });
+  const heroOpacity = heroEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const heroTextTranslate = heroEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, 0],
+  });
+  const heroGlowScale = heroGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.15],
+  });
+  const heroGlowOpacity = heroGlowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.6],
+  });
+  const sparkleOpacity = sparklePulse.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, 1, 0],
+  });
+  const sparkleScale = sparklePulse.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.5, 1, 0.5],
+  });
+  const priceTranslate = priceEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+  const footerTranslate = footerEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, 0],
+  });
+  const closeOpacity = closeEntrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const priceSheenTranslate = priceSheen.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-220, 340],
+  });
+  const ctaSheenTranslate = ctaSheen.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-220, 380],
+  });
+  const claimWidth = claimProgressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", `${claimProgress * 100}%`],
+  });
+  const testimonialOpacity = testimonialTransition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const testimonialTranslate = testimonialTransition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [8, 0],
+  });
+
   return (
-    <SafeAreaView
-      edges={["top", "right", "bottom", "left"]}
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
-    >
-      <View style={styles.container}>
+    <View style={[styles.safeArea, { backgroundColor: palette.background }]}>
+      <View style={styles.root}>
         <Animated.View
           pointerEvents="none"
           style={[
-            styles.backgroundBubbleTop,
+            styles.topGlow,
             {
-              backgroundColor: hexToRgba(theme.colors.primary, 0.12),
-              transform: [{ translateY: backgroundLift }],
+              backgroundColor: hexToRgba(palette.primary, 0.2),
+              opacity: topGlowOpacity,
+              transform: [{ scale: topGlowScale }],
             },
           ]}
         />
         <Animated.View
           pointerEvents="none"
           style={[
-            styles.backgroundBubbleMiddle,
+            styles.bottomGlow,
             {
-              backgroundColor: hexToRgba(theme.colors.info, 0.09),
-              transform: [{ translateY: backgroundLift }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.backgroundBubbleBottom,
-            {
-              backgroundColor: hexToRgba(theme.colors.warning, 0.08),
-              transform: [{ translateY: backgroundLift }],
+              backgroundColor: hexToRgba(palette.warning, 0.15),
+              opacity: bottomGlowOpacity,
+              transform: [{ scale: bottomGlowScale }],
             },
           ]}
         />
 
         <Animated.View
           style={[
-            styles.header,
+            styles.closeWrap,
             {
-              paddingHorizontal: horizontalPadding,
-              opacity: headerAnim,
-              transform: [{ translateY: headerTranslate }],
+              top: insets.top + 12,
+              right: horizontalPadding,
+              opacity: closeOpacity,
             },
           ]}
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Close lifetime offer preview"
+            accessibilityLabel="Close lifetime offer"
             onPress={onBack}
             style={({ pressed }) => [
               styles.closeButton,
               {
-                backgroundColor: hexToRgba(theme.colors.foreground, 0.08),
-                borderColor: hexToRgba(theme.colors.foreground, 0.08),
+                backgroundColor: hexToRgba(palette.card, 0.5),
+                borderColor: hexToRgba(palette.border, 0.5),
               },
               pressed && styles.pressed,
             ]}
           >
-            <X size={18} color={theme.colors.foreground} />
+            <X size={16} color={palette.mutedForeground} />
           </Pressable>
         </Animated.View>
 
-        <View style={styles.viewport}>
-          <Animated.View
-            style={[
-              styles.mainContent,
+        <View style={styles.contentWrap}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
               {
+                paddingTop: insets.top + 66,
                 paddingHorizontal: horizontalPadding,
-                paddingBottom: footerReservedSpace,
-                opacity: heroAnim,
-                transform: [{ translateY: heroTranslate }],
               },
             ]}
           >
-            <View
-              style={[
-                styles.offerCard,
-                {
-                  backgroundColor: hexToRgba(theme.colors.card, 0.9),
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.heroTopRow,
-                  lifetimeHeroLayout === "column" ? styles.heroTopRowCompact : null,
-                ]}
-              >
-                <View
+            <View style={[styles.contentShell, { maxWidth: maxContentWidth }]}>
+              <View style={styles.heroSection}>
+                <Animated.View
                   style={[
-                    styles.heroCopy,
-                    lifetimeHeroLayout === "column" ? styles.heroCopyCompact : null,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.heroBadge,
-                      { backgroundColor: hexToRgba(theme.colors.primary, 0.12) },
-                    ]}
-                  >
-                    <Crown size={14} color={theme.colors.primary} />
-                    <Text style={[styles.heroBadgeText, { color: theme.colors.primary }]}>
-                      {heroBadgeLabel}
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.heroTitle,
-                      { color: theme.colors.foreground },
-                      isCompact ? styles.heroTitleCompact : null,
-                    ]}
-                  >
-                    {heroTitle}
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.mascotStage,
-                    { width: lifetimeMascotStageWidth },
-                  ]}
-                >
-                  <Animated.View
-                    style={[
-                      styles.orbitRing,
-                      {
-                        borderColor: hexToRgba(theme.colors.primary, 0.16),
-                        transform: [{ rotate: orbitRotation }],
-                      },
-                    ]}
-                  />
-                  <Animated.View
-                    style={[
-                      styles.mascotHalo,
-                      {
-                        backgroundColor: hexToRgba(theme.colors.primary, 0.22),
-                        opacity: haloOpacity,
-                        transform: [{ scale: haloScale }],
-                      },
-                    ]}
-                  />
-                  <Animated.Image
-                    source={mascotImage}
-                    resizeMode="contain"
-                    style={[
-                      styles.mascot,
-                      {
-                        transform: [{ translateY: mascotTranslate }],
-                      },
-                    ]}
-                  />
-
-                  <Animated.View
-                    style={[
-                      styles.floatingChip,
-                      styles.floatingChipLeft,
-                      {
-                        backgroundColor: hexToRgba(theme.colors.background, 0.94),
-                        borderColor: hexToRgba(theme.colors.primary, 0.16),
-                        transform: [{ translateY: chipLift }],
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.floatingChipTitle, { color: theme.colors.foreground }]}>
-                      {purchaseChipTitle}
-                    </Text>
-                    <Text
-                      style={[styles.floatingChipBody, { color: theme.colors.mutedForeground }]}
-                    >
-                      {purchaseChipBody}
-                    </Text>
-                  </Animated.View>
-
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.priceCard,
-                  {
-                    borderColor: hexToRgba(theme.colors.border, 0.75),
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.priceCardHeader,
-                    isCompact ? styles.priceCardHeaderCompact : null,
-                  ]}
-                >
-                  <View style={styles.priceLabelBlock}>
-                    {isLoadingPlan ? (
-                      <View style={styles.priceLoadingRow}>
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                        <Text
-                          style={[
-                            styles.priceLoadingText,
-                            { color: theme.colors.mutedForeground },
-                          ]}
-                        >
-                          Loading live price
-                        </Text>
-                      </View>
-                    ) : hasResolvedPrice ? (
-                      <Text style={[styles.priceValue, { color: theme.colors.foreground }]}>
-                        {plan.durationLabel}
-                      </Text>
-                    ) : (
-                      <Text
-                        style={[
-                          styles.priceUnavailableText,
-                          { color: theme.colors.mutedForeground },
-                        ]}
-                      >
-                        Price available once the offer loads
-                      </Text>
-                    )}
-                  </View>
-
-                  <View
-                    style={[
-                      styles.offerBadge,
-                      styles.offerBadgeCompact,
-                      { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-                    ]}
-                  >
-                    <Text style={[styles.offerBadgeText, { color: theme.colors.primary }]}>
-                      {plan.badge || "Lifetime"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.priceSupportBlock}>
-                  <View
-                    style={[
-                      styles.priceTrackerPill,
-                      {
-                        backgroundColor: hexToRgba(theme.colors.success, 0.18),
-                        borderColor: hexToRgba(theme.colors.success, 0.34),
-                      },
-                    ]}
-                  >
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.priceTrackerText,
-                        { color: theme.colors.success },
-                      ]}
-                    >
-                      {lifetimeMembersCopy}
-                    </Text>
-                  </View>
-                  <Text
-                    style={[styles.priceSupportText, { color: theme.colors.mutedForeground }]}
-                  >
-                    {socialProofLine}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <Animated.View
-              style={[
-                styles.contentBlock,
-                {
-                  opacity: contentAnim,
-                  transform: [{ translateY: contentTranslate }],
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.previewCard,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    styles.featureShowcaseTitle,
-                    { color: theme.colors.foreground },
-                  ]}
-                >
-                  {featureCarouselTitle}
-                </Text>
-
-                <View
-                  style={[
-                    styles.previewStage,
+                    styles.heroIconWrap,
+                    isCompact && styles.heroIconWrapCompact,
                     {
-                      backgroundColor: hexToRgba(theme.colors.primary, 0.06),
-                      borderColor: hexToRgba(theme.colors.primary, 0.14),
+                      opacity: heroOpacity,
+                      transform: [{ scale: heroScale }, { rotate: heroRotate }],
                     },
                   ]}
                 >
-                  <View
+                  <Animated.View
+                    pointerEvents="none"
                     style={[
-                      styles.previewStageAccent,
-                      { backgroundColor: hexToRgba(theme.colors.primary, 0.18) },
+                      styles.heroGlow,
+                      {
+                        backgroundColor: hexToRgba(palette.primary, 0.3),
+                        opacity: heroGlowOpacity,
+                        transform: [{ scale: heroGlowScale }],
+                      },
                     ]}
                   />
-                  <Animated.View
+                  <View
                     style={[
-                      styles.featureSlide,
+                      styles.heroCore,
                       {
-                        opacity: previewTransition,
-                        transform: [{ translateX: previewTranslate }],
+                        backgroundColor: palette.primary,
+                        shadowColor: palette.primary,
                       },
                     ]}
                   >
-                    <Text style={[styles.previewTitle, { color: theme.colors.foreground }]}>
-                      {activePreviewCard.title}
+                    <Crown size={28} color={palette.primaryForeground} strokeWidth={2} />
+                  </View>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.heroSparkleWrap,
+                      {
+                        opacity: sparkleOpacity,
+                        transform: [{ scale: sparkleScale }],
+                      },
+                    ]}
+                  >
+                    <Sparkles size={14} color={palette.warning} />
+                  </Animated.View>
+                </Animated.View>
+
+                <Animated.Text
+                  style={[
+                    styles.heroTitle,
+                    isCompact ? styles.heroTitleCompact : styles.heroTitleRegular,
+                    {
+                      color: palette.foreground,
+                      opacity: heroOpacity,
+                      transform: [{ translateY: heroTextTranslate }],
+                    },
+                  ]}
+                >
+                  Go Premium. <Text style={{ color: palette.primary }}>Forever.</Text>
+                </Animated.Text>
+                <Animated.Text
+                  style={[
+                    styles.heroSubtitle,
+                    {
+                      color: palette.mutedForeground,
+                      opacity: heroOpacity,
+                      transform: [
+                        {
+                          translateY: heroEntrance.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [10, 0],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  One payment. No subscriptions. No renewals. Yours for life.
+                </Animated.Text>
+              </View>
+
+              <Animated.View
+                style={[
+                  styles.priceCard,
+                  {
+                    backgroundColor: hexToRgba(palette.primary, 0.08),
+                    borderColor: hexToRgba(palette.primary, 0.15),
+                    opacity: priceEntrance,
+                    transform: [{ translateY: priceTranslate }],
+                  },
+                ]}
+              >
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.priceSheen,
+                    {
+                      backgroundColor: hexToRgba(palette.primary, 0.05),
+                      transform: [{ translateX: priceSheenTranslate }],
+                    },
+                  ]}
+                />
+                <View style={styles.priceTopRow}>
+                  <View style={styles.priceTextGroup}>
+                    <View style={styles.priceHeadlineRow}>
+                      <Text style={[styles.priceValue, { color: palette.foreground }]}>
+                        {displayedPrice}
+                      </Text>
+                    </View>
+                    <Text style={[styles.priceSubText, { color: palette.mutedForeground }]}>
+                      {priceSupportText}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.limitedBadge,
+                      {
+                        backgroundColor: hexToRgba(palette.success, 0.1),
+                        borderColor: hexToRgba(palette.success, 0.2),
+                      },
+                    ]}
+                  >
+                    <Star size={10} color={palette.success} fill={palette.success} />
+                    <Text style={[styles.limitedBadgeText, { color: palette.success }]}>
+                      {LIFETIME_BADGE}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.claimRow}>
+                  <View
+                    style={[
+                      styles.claimTrack,
+                      { backgroundColor: hexToRgba(palette.border, 0.5) },
+                    ]}
+                  >
+                    <Animated.View style={[styles.claimFill, { width: claimWidth }]}>
+                      <View
+                        style={[
+                          styles.claimFillMain,
+                          { backgroundColor: palette.primary },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.claimFillTail,
+                          { backgroundColor: palette.warning },
+                        ]}
+                      />
+                    </Animated.View>
+                  </View>
+                  <Text style={[styles.claimText, { color: palette.warning }]}>
+                    {claimText}
+                  </Text>
+                </View>
+              </Animated.View>
+
+              <View style={styles.featureStack}>
+                {FEATURE_ROWS.map((feature, index) => {
+                  const featureTranslate = featureAnims[index].interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-15, 0],
+                  });
+
+                  return (
+                    <Animated.View
+                      key={feature.title}
+                      style={[
+                        styles.featureCard,
+                        {
+                          backgroundColor: hexToRgba(palette.card, 0.6),
+                          borderColor: hexToRgba(palette.border, 0.5),
+                          opacity: featureAnims[index],
+                          transform: [{ translateX: featureTranslate }],
+                        },
+                      ]}
+                    >
+                      <FeatureItem
+                        icon={feature.icon}
+                        title={feature.title}
+                        accentColor={hexToRgba(palette.primary, 0.1)}
+                        iconColor={palette.primary}
+                        textColor={hexToRgba(palette.foreground, 0.9)}
+                      />
+                    </Animated.View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.testimonialSection}>
+                <View style={styles.testimonialInner}>
+                  <Animated.View
+                    key={testimonialIndex}
+                    style={[
+                      styles.testimonialCard,
+                      {
+                        opacity: testimonialOpacity,
+                        transform: [{ translateY: testimonialTranslate }],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.testimonialQuote,
+                        { color: palette.mutedForeground },
+                      ]}
+                    >
+                      {currentTestimonial.quote}
                     </Text>
                     <Text
-                      style={[styles.previewBody, { color: theme.colors.foreground }]}
-                      numberOfLines={3}
+                      style={[
+                        styles.testimonialName,
+                        { color: hexToRgba(palette.primary, 0.7) },
+                      ]}
                     >
-                      {activePreviewCard.body}
-                    </Text>
-                    <Text
-                      style={[styles.previewFooter, { color: theme.colors.mutedForeground }]}
-                      numberOfLines={2}
-                    >
-                      {activePreviewCard.footer}
+                      — {currentTestimonial.name}
                     </Text>
                   </Animated.View>
                 </View>
-
-                <View style={styles.dotRow}>
-                  {previewCards.map((_, index) => (
-                    <Pressable
-                      key={index}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open lifetime preview card ${index + 1}`}
-                      onPress={() => setPreviewIndex(index)}
-                      style={[
-                        styles.dot,
-                        index === previewIndex
-                          ? [styles.dotActive, { backgroundColor: theme.colors.primary }]
-                          : {
-                              backgroundColor: hexToRgba(
-                                theme.colors.foreground,
-                                0.18
-                              ),
-                            },
-                      ]}
-                    />
-                  ))}
-                </View>
               </View>
-            </Animated.View>
-          </Animated.View>
+            </View>
+          </ScrollView>
 
           <Animated.View
             style={[
-              styles.footer,
+              styles.footerSection,
               {
-                backgroundColor: hexToRgba(theme.colors.background, 0.98),
-                borderTopColor: theme.colors.border,
                 paddingHorizontal: horizontalPadding,
-                paddingBottom: footerBottomPadding,
-                opacity: footerAnim,
+                paddingBottom: Math.max(insets.bottom, 24),
+                opacity: footerEntrance,
                 transform: [{ translateY: footerTranslate }],
               },
             ]}
           >
-            {plansError ? (
-              <Text style={[styles.footerError, { color: theme.colors.warning }]}>
-                {plansError}
-              </Text>
-            ) : null}
-
-            <View
-              style={[
-                styles.swipeRail,
-                {
-                  backgroundColor: hexToRgba(theme.colors.primary, 0.78),
-                },
-                !canPurchase || isLoadingPlan ? styles.swipeRailDisabled : null,
-              ]}
-            >
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.swipeFill,
-                  {
-                    width: swipeFillWidth,
-                    backgroundColor: theme.colors.primary,
-                  },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.swipeRailText,
-                  {
-                    color: theme.colors.primaryForeground,
-                    fontSize: swipeRailTextSize,
-                    paddingHorizontal: swipeRailTextHorizontalPadding,
-                  },
-                ]}
-              >
-                {footerCtaLabel === "Claim Lifetime Access"
-                  ? "Swipe to unlock lifetime access"
-                  : footerCtaLabel}
-              </Text>
-
-              <Animated.View
-                {...swipePanResponder.panHandlers}
-                style={[
-                  styles.swipeThumb,
-                  {
-                    width: swipeThumbSize,
-                    height: swipeThumbSize,
-                    top: swipeThumbTopOffset,
-                    backgroundColor: theme.colors.primaryForeground,
-                    transform: [{ translateX: swipeTranslate }],
-                  },
-                ]}
-              >
-                {isProcessing ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <ArrowRight size={18} color={theme.colors.primary} />
-                )}
-              </Animated.View>
-            </View>
-
-            <View style={styles.footerActionRow}>
-              <Text style={[styles.footerLegal, { color: theme.colors.mutedForeground }]}>
-                {footerLegalCopy}
-              </Text>
+            <View style={[styles.footerShell, { maxWidth: maxContentWidth }]}>
+              {plansError ? (
+                <Text style={[styles.footerNote, { color: palette.mutedForeground }]}>
+                  {plansError}
+                </Text>
+              ) : null}
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Restore purchases"
-                onPress={handleRestore}
-                disabled={isBusy || isLoadingPlan}
-                style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed]}
+                accessibilityLabel="Unlock Lifetime Premium"
+                onPress={handlePurchase}
+                disabled={!canPurchase || isLoadingPlan}
+                style={({ pressed }) => [
+                  styles.ctaButton,
+                  {
+                    backgroundColor: palette.primary,
+                    shadowColor: palette.primary,
+                  },
+                  (!canPurchase || isLoadingPlan) && styles.ctaDisabled,
+                  pressed && canPurchase && !isLoadingPlan && styles.ctaPressed,
+                ]}
               >
-                {isRestoring ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <>
-                    <RefreshCcw size={15} color={theme.colors.primary} />
-                    <Text style={[styles.restoreText, { color: theme.colors.primary }]}>
-                      Restore Purchases
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.ctaSheen,
+                    {
+                      transform: [{ translateX: ctaSheenTranslate }],
+                    },
+                  ]}
+                />
+                {isProcessing ? (
+                  <View style={styles.processingContent}>
+                    <Animated.View
+                      style={{
+                        transform: [
+                          {
+                            rotate: sparklePulse.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: ["0deg", "360deg"],
+                            }),
+                          },
+                        ],
+                      }}
+                    >
+                      <Sparkles
+                        size={16}
+                        color={palette.primaryForeground}
+                        strokeWidth={2}
+                      />
+                    </Animated.View>
+                    <Text style={[styles.ctaText, { color: palette.primaryForeground }]}>
+                      {buttonLabel}
                     </Text>
-                  </>
+                  </View>
+                ) : (
+                  <View style={styles.ctaContent}>
+                    <Crown size={18} color={palette.primaryForeground} strokeWidth={2.2} />
+                    <Text style={[styles.ctaText, { color: palette.primaryForeground }]}>
+                      {buttonLabel}
+                    </Text>
+                  </View>
                 )}
               </Pressable>
+
+              <View style={styles.guaranteeRow}>
+                <Check size={10} color={palette.success} />
+                <Text style={[styles.guaranteeText, { color: palette.mutedForeground }]}>
+                  30-day money back guarantee
+                </Text>
+                <Text style={[styles.guaranteeDot, { color: palette.border }]}>·</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore"
+                  onPress={handleRestore}
+                  disabled={isBusy || isLoadingPlan}
+                  style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed]}
+                >
+                  {isRestoring ? (
+                    <ActivityIndicator size="small" color={palette.primary} />
+                  ) : (
+                    <Text style={[styles.restoreText, { color: hexToRgba(palette.primary, 0.6) }]}>
+                      Restore
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
             </View>
           </Animated.View>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1340,362 +1296,390 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  container: {
+  loaderRoot: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  loaderCard: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    gap: 12,
+  },
+  loaderIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loaderTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  loaderSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  root: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  contentWrap: {
     flex: 1,
   },
-  backgroundBubbleTop: {
+  topGlow: {
     position: "absolute",
-    top: 88,
-    right: -22,
-    width: 196,
-    height: 196,
-    borderRadius: 196,
+    top: "-20%",
+    right: "-15%",
+    width: "70%",
+    height: "50%",
+    borderRadius: 999,
   },
-  backgroundBubbleMiddle: {
+  bottomGlow: {
     position: "absolute",
-    top: 340,
-    left: -44,
-    width: 178,
-    height: 178,
-    borderRadius: 178,
+    bottom: "-15%",
+    left: "-20%",
+    width: "60%",
+    height: "45%",
+    borderRadius: 999,
   },
-  backgroundBubbleBottom: {
+  closeWrap: {
     position: "absolute",
-    bottom: 160,
-    right: -56,
-    width: 220,
-    height: 220,
-    borderRadius: 220,
-  },
-  header: {
-    paddingTop: 8,
-    paddingBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
+    zIndex: 20,
   },
   closeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  viewport: {
-    flex: 1,
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  mainContent: {
-    flex: 1,
-    gap: 10,
-  },
-  offerCard: {
-    borderWidth: 1,
-    borderRadius: 26,
-    padding: 16,
-    gap: 12,
-    overflow: "hidden",
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  heroTopRowCompact: {
-    flexDirection: "column",
-    alignItems: "stretch",
-  },
-  heroCopy: {
-    flex: 1,
-    gap: 8,
-  },
-  heroCopyCompact: {
-    alignItems: "center",
-  },
-  heroBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  heroBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  heroTitle: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "700",
-    letterSpacing: -0.8,
-  },
-  heroTitleCompact: {
-    textAlign: "center",
-  },
-  mascotStage: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 138,
-  },
-  orbitRing: {
-    position: "absolute",
-    width: 128,
-    height: 128,
-    borderRadius: 128,
-    borderWidth: 1,
-  },
-  mascotHalo: {
-    position: "absolute",
-    width: 108,
-    height: 108,
-    borderRadius: 108,
-  },
-  mascot: {
-    width: 94,
-    height: 94,
-  },
-  floatingChip: {
-    position: "absolute",
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    width: 82,
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 18,
-    elevation: 1,
-  },
-  floatingChipLeft: {
-    left: -4,
-    bottom: 16,
-  },
-  floatingChipTitle: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  floatingChipBody: {
-    marginTop: 2,
-    fontSize: 9,
-    lineHeight: 12,
-  },
-  contentBlock: {
-    gap: 8,
-  },
-  priceCard: {
-    borderWidth: 1,
+    width: 36,
+    height: 36,
     borderRadius: 18,
-    padding: 12,
-    gap: 10,
-  },
-  priceCardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  priceCardHeaderCompact: {
-    alignItems: "flex-start",
-    flexDirection: "column",
-  },
-  priceLabelBlock: {
-    flex: 1,
-    gap: 0,
-  },
-  priceLoadingRow: {
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  priceLoadingText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  priceValue: {
-    fontSize: 32,
-    lineHeight: 34,
-    fontWeight: "700",
-    letterSpacing: -1,
-  },
-  priceUnavailableText: {
-    minHeight: 34,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  priceSupportBlock: {
-    marginTop: 8,
-    alignItems: "center",
-    gap: 2,
-  },
-  priceTrackerPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
-  priceTrackerText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  priceSupportText: {
-    fontSize: 12,
-    lineHeight: 16,
-    textAlign: "center",
-  },
-  offerBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  offerBadgeCompact: {
-    alignSelf: "flex-start",
-  },
-  offerBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  previewCard: {
-    borderWidth: 1,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 12,
-    gap: 10,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.4,
-  },
-  featureShowcaseTitle: {
-    textAlign: "center",
-    fontSize: 17,
-  },
-  previewStage: {
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 14,
-    overflow: "hidden",
-  },
-  previewStageAccent: {
-    alignSelf: "center",
-    width: 46,
-    height: 5,
-    borderRadius: 999,
-    marginBottom: 10,
-  },
-  featureSlide: {
-    minHeight: 132,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    borderWidth: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: "center",
+  },
+  contentShell: {
+    width: "100%",
+    flexGrow: 1,
+  },
+  heroSection: {
+    alignItems: "center",
+    paddingTop: 4,
+    paddingBottom: 16,
     paddingHorizontal: 4,
   },
-  previewTitle: {
-    textAlign: "center",
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: -0.45,
-  },
-  previewBody: {
-    textAlign: "center",
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  previewFooter: {
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  dotRow: {
-    flexDirection: "row",
+  heroIconWrap: {
+    width: 88,
+    height: 88,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    position: "relative",
+    marginBottom: 16,
   },
-  dot: {
-    width: 8,
-    height: 8,
+  heroIconWrapCompact: {
+    marginBottom: 14,
+  },
+  heroGlow: {
+    position: "absolute",
+    top: -12,
+    right: -12,
+    bottom: -12,
+    left: -12,
     borderRadius: 999,
+    shadowRadius: 12,
+    shadowOpacity: 0.1,
+    shadowOffset: {
+      width: 0,
+      height: 0,
+    },
   },
-  dotActive: {
-    width: 20,
-  },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopWidth: 1,
-    paddingTop: 10,
-    gap: 6,
-  },
-  footerError: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  swipeRail: {
+  heroCore: {
+    width: 64,
+    height: 64,
     borderRadius: 18,
-    height: SWIPE_RAIL_HEIGHT,
+    alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    paddingHorizontal: 12,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    elevation: 3,
   },
-  swipeFill: {
+  heroSparkleWrap: {
     position: "absolute",
-    left: 0,
+    top: 4,
+    right: 4,
+  },
+  heroTitle: {
+    textAlign: "center",
+    fontWeight: "900",
+    letterSpacing: -1.2,
+  },
+  heroTitleRegular: {
+    fontSize: 39,
+    lineHeight: 46,
+  },
+  heroTitleCompact: {
+    fontSize: 36,
+    lineHeight: 42,
+  },
+  heroSubtitle: {
+    textAlign: "center",
+    maxWidth: 260,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "400",
+    marginTop: 6,
+  },
+  priceCard: {
+    marginHorizontal: 0,
+    borderRadius: 24,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  priceSheen: {
+    position: "absolute",
     top: 0,
     bottom: 0,
-    borderRadius: 18,
+    width: "50%",
   },
-  swipeRailDisabled: {
-    opacity: 0.72,
+  priceTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
   },
-  swipeRailText: {
-    textAlign: "center",
-    fontSize: 17,
-    fontWeight: "700",
-    paddingHorizontal: 68,
-  },
-  swipeThumb: {
-    position: "absolute",
-    left: 5,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  footerActionRow: {
-    marginTop: 12,
-    alignItems: "center",
-    justifyContent: "center",
+  priceTextGroup: {
+    flex: 1,
     gap: 2,
   },
-  restoreButton: {
+  priceHeadlineRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  priceValue: {
+    fontSize: 46,
+    lineHeight: 48,
+    fontWeight: "900",
+    letterSpacing: -1.5,
+  },
+  priceSubText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
+  limitedBadge: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+  },
+  limitedBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  claimRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  claimTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  claimFill: {
+    height: "100%",
+    flexDirection: "row",
+    overflow: "hidden",
+    borderRadius: 999,
+  },
+  claimFillMain: {
+    flex: 7,
+  },
+  claimFillTail: {
+    flex: 3,
+  },
+  claimText: {
+    minWidth: 82,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
+  featureStack: {
+    gap: 10,
+    marginTop: 20,
+  },
+  featureCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  featureIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  featureTitle: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  testimonialSection: {
+    flex: 1,
+    minHeight: 72,
+    justifyContent: "center",
+    marginTop: 16,
+    paddingBottom: 6,
+  },
+  testimonialInner: {
+    width: "100%",
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  testimonialCard: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 20,
+  },
+  testimonialQuote: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "400",
+    fontStyle: "italic",
+    textAlign: "center",
+  },
+  testimonialName: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "700",
+  },
+  footerSection: {
+    paddingTop: 8,
+  },
+  footerShell: {
+    width: "100%",
+    alignSelf: "center",
+    gap: 12,
+  },
+  footerNote: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  ctaButton: {
+    minHeight: 56,
+    borderRadius: 20,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    elevation: 3,
+  },
+  ctaSheen: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: "40%",
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  ctaContent: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    minHeight: 24,
+  },
+  processingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  ctaText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
+  ctaDisabled: {
+    opacity: 0.7,
+  },
+  ctaPressed: {
+    opacity: 0.95,
+    transform: [{ scale: 0.97 }],
+  },
+  guaranteeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    flexWrap: "wrap",
+  },
+  guaranteeText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+  },
+  guaranteeDot: {
+    fontSize: 10,
+    lineHeight: 10,
+    marginHorizontal: 4,
+  },
+  restoreButton: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   restoreText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  footerLegal: {
-    fontSize: 11,
-    lineHeight: 15,
-    textAlign: "center",
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
   },
   pressed: {
-    opacity: 0.82,
+    opacity: 0.85,
   },
 });

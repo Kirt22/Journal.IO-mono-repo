@@ -85,6 +85,14 @@ Frontend structure:
 - `frontend/src/store`
 - `frontend/src/navigation`
 
+Mobile navigation is now route-based instead of stage-swapped:
+
+- the app owns a root `NavigationContainer` with a React Navigation native stack
+- auth, paywall, onboarding, and legal surfaces live at the root stack level
+- the authenticated app shell uses a nested native stack for Home, Calendar, Insights, Profile, Settings, Privacy, Subscription, journal detail/edit, search, reminders, and new-entry routes
+- the bottom nav is treated as shell chrome over the nested stack, not as a separate tabs navigator
+- hosted legal pages open through a root-stack modal route so the app can keep the in-app browser inside the navigator flow
+
 Frontend architectural pattern: MVVM.
 
 - View: screens and reusable UI components
@@ -96,6 +104,7 @@ Low-level shared helpers like API clients and secure token storage belong in `fr
 Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
 Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
 For Google mobile sign-in, the device only forwards the Google `idToken`; the backend verifies it with Google and then issues the normal Journal.IO access and refresh tokens.
+For Apple mobile sign-in, the device forwards the Apple `identityToken` plus the raw nonce; the backend verifies the Apple signature, issuer, audience, expiry, and nonce before issuing the normal Journal.IO access and refresh tokens.
 
 Home-screen lightweight data note:
 
@@ -223,7 +232,7 @@ Current paywall architecture:
 - MongoDB stores paywall offerings, templates, placement mappings, raw paywall events, and the singleton interruptive/cooldown configuration
 - the mobile client asks `GET /paywall/config` for a placement-specific paywall decision before opening the paywall screen
 - the backend resolves lifetime-launch eligibility, template fallback, and interruptive eligibility from stored config plus recent user event history
-- the mobile paywall UI renders backend-provided copy and offer metadata, while RevenueCat still executes the actual purchase or restore
+- the mobile app still asks the backend for placement/template resolution, but the post-auth purchase step and post-auth exit offer can now hand off into RevenueCat-hosted paywall surfaces while the app keeps local fallback screens for those same placements
 - after a successful checkout or restore, the client calls `POST /paywall/purchase-sync` so backend user premium state, purchased plan attribution, and lifetime sold counts stay authoritative
 - premium-intent and paywall lifecycle events are written through `POST /paywall/events` and used for cooldown gating and future paywall tuning
 - the user schema stores premium attribution fields such as `premiumPlanKey`, `premiumActivatedAt`, `premiumSource`, and `lifetimePurchaseRecordedAt` so premium gating and campaign limits are not inferred only from local client state

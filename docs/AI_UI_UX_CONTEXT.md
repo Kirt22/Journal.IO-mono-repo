@@ -46,6 +46,11 @@ The current design flow is:
    - settings
    - privacy
 
+Navigation implementation note:
+
+- the mobile shell is now route-based with React Navigation native stack screens rather than stage-swapped full-screen replacements, and the bottom nav remains visible inside the authenticated shell
+- pushed main-app screens now keep the native iOS swipe-back gesture, while the tab-style bottom-nav routes stay replace-driven
+
 ---
 
 # 3) Onboarding Experience
@@ -88,7 +93,7 @@ The onboarding sequence now uses 8 steps:
 8. Privacy and trust:
    - user data control
    - no data selling
-   - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review
+   - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review, and the onboarding flow should open those links through the app's root-stack modal route rather than sending users to Safari
    - export/delete controls
    - explicit agreement checkbox
 
@@ -160,25 +165,29 @@ Paywall expectations:
 - treat the backend `subheadline` as stored merchandising copy, but do not require the mobile paywall UI to render it
 - render the premium preview area from structured backend feature cards with `title`, `body`, and optional `footer` fields instead of treating the feature list as plain strings
 - render pricing, badges, subtitles, and other merchandising copy from backend-configured offering metadata
-- for the dedicated lifetime-offer surface, also let the backend `lifetime-launch` template own supporting merchandising copy such as the hero badge, small one-time purchase chip, feature-carousel title, social-proof support line, and footer legal text so the screen stays in sync with Mongo-backed paywall configuration
+- for the dedicated lifetime-offer surface, follow the fixed Figma Make lifetime screen copy and layout exactly, while still resolving the separate lifetime RevenueCat offering id for the manual purchase path
 - use RevenueCat purchase and restore flows for checkout, then call the dedicated backend purchase-sync route so the authenticated premium state and purchased plan attribution update immediately
 - log paywall lifecycle and premium-intent events through the backend paywall events route so placements and cooldowns can be tuned without a client release
 - in development builds, support RevenueCat Test Store verification so billing can be checked before App Store / Play Store release
 - use the mascot subtly in the hero area or brand moments
 - preserve the existing app aesthetic rather than introducing a separate monetization style
 - after every successful post-auth entry for a non-premium user, show a dedicated 3-step post-auth paywall first:
-  - free-trial introduction step
-  - reminder reassurance step
-  - purchase step with monthly and yearly plans only
-- on the post-auth purchase step, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
+  - free-trial introduction step rendered in-app
+  - reminder reassurance step rendered in-app
+  - purchase step opened as the hosted RevenueCat main paywall as a full-screen embedded surface
+- if the hosted RevenueCat main paywall cannot be opened, fall back to the current in-app purchase step instead of trapping the user
+- when the hosted RevenueCat main paywall is used, keep backend placement resolution, paywall-event logging, purchase-sync, and an explicit purchase-progress loading overlay unchanged around that hosted surface
+- if the in-app fallback purchase step is used, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
 - when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder on day 5 that 2 trial days remain; this v1 reminder does not require push infrastructure
-- if the user dismisses the post-auth paywall, immediately follow it with a dedicated yearly-only exit-offer screen before continuing into the normal post-auth destination
-- keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain
+- if the user dismisses the hosted post-auth main paywall, immediately show a deterministic spin-wheel reveal with `20%`, `10%`, `30%`, `40%`, and `Gift`, always land on `Gift`, and then open the hosted RevenueCat exit-offer surface for the dedicated `50%` yearly offer
+- if the hosted exit-offer surface cannot be opened, fall back to the current in-app yearly-only exit-offer screen before continuing into the normal post-auth destination
+- keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain and it should stay on the manual purchase flow rather than the hosted RevenueCat presenter
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
 - treat privacy-data export as a premium-gated surface for free users: keep the export card visible, but show it in a locked premium state and route taps into the backend-selected `privacy_export_locked` paywall placement
-- keep contextual locked-feature paywalls simpler than the post-auth flow; they can continue to open directly on a purchase surface instead of replaying the full 3-step sequence
+- keep contextual locked-feature paywalls simpler than the post-auth flow; they should open the hosted RevenueCat standard `other screens` purchase surface directly instead of replaying the full 3-step sequence
+- if the hosted contextual purchase surface cannot be opened, fall back to the current in-app purchase screen instead of trapping the user
 - allow interruptive paywalls only on eligible Home or Insights entries after repeated premium-intent signals; never interrupt while the user is actively writing or editing
-- for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to paywall, while premium users can see a lightweight membership-management view
+- for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to the hosted standard `other screens` paywall, while premium users can see a lightweight membership-management view
 
 ---
 
@@ -242,6 +251,7 @@ Insights screen expectations:
 - the `AI Analysis` tab should load from a dedicated backend route instead of reusing overview placeholder text
 - the Insights screen should call only the overview API on initial page load; the `AI Analysis` API should be requested only after the user switches to that tab
 - the analysis tab should present structured, scan-friendly cards rather than a single text block
+- the Overview and `AI Analysis` surfaces should also support horizontal swipe gestures on the content area so users can move between them without only using the segmented control
 - for non-premium users, keep the `AI Analysis` tab visible but locked, with a premium explainer instead of AI content
 - tapping the locked `AI Analysis` tab as a free user should log a premium-intent event and open the backend-selected `insights_ai_tab_locked` paywall placement
 - after repeated premium-intent actions, eligible free users may also see an interruptive paywall on a later Insights entry if backend cooldown rules allow it
@@ -295,7 +305,7 @@ Settings and privacy expectations:
 - locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
 - the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
-- the Privacy screen should open the hosted public legal pages at `journalio.app/privacy`, `journalio.app/terms`, and `journalio.app/privacy-choices` so the app and store listing point to the same sources
+- the Privacy screen should open the hosted public legal pages at `api.journalio.app/privacy`, `api.journalio.app/terms`, and `api.journalio.app/privacy-choices` inside the app’s in-app browser modal route so the app and store listing point to the same sources without sending users to Safari
 
 ---
 

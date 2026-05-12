@@ -10,7 +10,7 @@ import {
 } from "../src/screens/main/MainAppShell";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
-const mockNewEntryScreen = jest.fn(() => null);
+const mockNewEntryScreen = jest.fn((_props: unknown) => null);
 
 jest.mock("../src/screens/NewEntryScreen", () => ({
   __esModule: true,

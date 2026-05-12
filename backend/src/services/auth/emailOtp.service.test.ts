@@ -39,10 +39,12 @@ const originalEnv = Object.fromEntries(
 ) as Record<(typeof AUTH_EMAIL_ENV_KEYS)[number], string | undefined>;
 
 const originalConsoleInfo = console.info;
+const originalConsoleWarn = console.warn;
 
 afterEach(() => {
   resetSmtpTransportForTests();
   console.info = originalConsoleInfo;
+  console.warn = originalConsoleWarn;
 
   for (const key of AUTH_EMAIL_ENV_KEYS) {
     const originalValue = originalEnv[key];
@@ -136,4 +138,33 @@ test("sendEmailVerificationCode rejects SMTP mode when required config is missin
     }),
     /Email verification delivery is not configured/
   );
+});
+
+test("sendEmailVerificationCode falls back to console when SMTP fails outside production", async () => {
+  process.env.NODE_ENV = "development";
+  process.env.AUTH_EMAIL_DELIVERY_MODE = "smtp";
+  process.env.AUTH_EMAIL_FROM_ADDRESS = "no-reply@journal.io";
+  process.env.RESEND_SMTP_PASSWORD = "re_test_key";
+
+  let loggedMessage = "";
+  let warnedMessage = "";
+
+  console.info = (message?: unknown, ...optionalParams: unknown[]) => {
+    loggedMessage = [message, ...optionalParams].join(" ");
+  };
+  console.warn = (message?: unknown, ...optionalParams: unknown[]) => {
+    warnedMessage = [message, ...optionalParams].join(" ");
+  };
+  setSmtpTransportForTests(async () => {
+    throw new Error("SMTP connection timed out.");
+  });
+
+  await sendEmailVerificationCode({
+    email: "alex@example.com",
+    code: "123456",
+  });
+
+  assert.match(warnedMessage, /smtp_delivery_failed_dev_fallback/);
+  assert.match(loggedMessage, /alex@example\.com/);
+  assert.match(loggedMessage, /123456/);
 });

@@ -32,6 +32,7 @@ Behavior:
 - resend generates a fresh OTP and updates the pending verification state
 - email delivery uses console logging in local fallback mode
 - email delivery uses Resend SMTP when SMTP mode is enabled or SMTP credentials are present
+- outside production, SMTP delivery failures fall back to console logging so local account creation can still reach the OTP screen
 
 ## Recommended domain structure
 
@@ -113,6 +114,8 @@ Use:
 
 - `smtp` for real email sending
 - `console` for local fallback logging instead of sending mail
+
+In non-production environments, an SMTP transport failure is logged and the OTP is printed to the backend console. Production keeps failing closed so missing or broken email delivery does not silently hide a real outage.
 
 This value is chosen by the app, not provided by Resend.
 
@@ -307,7 +310,9 @@ Recommended reasoning:
 
 ### Local development
 
-Use this if the backend is running on your machine:
+For day-to-day local development, prefer `AUTH_EMAIL_DELIVERY_MODE=console` so OTPs print directly to the backend console.
+
+Use this only when intentionally testing Resend SMTP from your machine:
 
 ```env
 AUTH_EMAIL_DELIVERY_MODE=smtp
@@ -361,7 +366,7 @@ AUTH_EMAIL_HELO_HOST=your-service-name.up.railway.app
 - forgetting that `RESEND_SMTP_PASSWORD` should be the Resend API key
 - using a sender address that is not on a verified Resend domain
 - setting `AUTH_EMAIL_HELO_HOST` to an email address instead of a hostname
-- leaving SMTP mode enabled without valid credentials
+- leaving SMTP mode enabled without valid credentials; in development this falls back to console OTP logging, but production rejects the request
 
 ## Practical default recommendation
 

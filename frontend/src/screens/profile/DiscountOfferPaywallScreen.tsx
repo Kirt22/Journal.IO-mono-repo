@@ -19,6 +19,7 @@ import {
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
+  type PurchasesPackage,
 } from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
@@ -47,6 +48,10 @@ import {
   buildPaywallPlans,
   getPurchaseErrorMessage,
   isPurchasesError,
+  NO_RESTORED_PURCHASE_MESSAGE,
+  NO_RESTORED_PURCHASE_TITLE,
+  PURCHASE_UPDATING_SUCCESS_MESSAGE,
+  PURCHASE_UPDATING_SUCCESS_TITLE,
   type PaywallPlan,
 } from "./paywallShared";
 import { getPaywallLayoutMetrics } from "./paywallLayout";
@@ -112,7 +117,7 @@ const getHighestPricedLabel = (
 };
 
 const getPackageClosestToConfiguredPrice = (
-  annualPackages: Array<{ product: { priceString: string } }>,
+  annualPackages: PurchasesPackage[],
   configuredPriceLabel: string | null
 ) => {
   const configuredPriceValue = parsePriceValue(configuredPriceLabel);
@@ -202,6 +207,8 @@ export default function DiscountOfferPaywallScreen({
   const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<"offer" | "success">("offer");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
+  const [isPurchaseAccessUpdating, setIsPurchaseAccessUpdating] = useState(false);
+  const [hasAnnualFallbackPackage, setHasAnnualFallbackPackage] = useState(false);
   const [regularAnnualPriceLabel, setRegularAnnualPriceLabel] = useState<string | null>(
     null
   );
@@ -492,13 +499,16 @@ export default function DiscountOfferPaywallScreen({
         }
 
         setPlans(nextPlans);
+        setHasAnnualFallbackPackage(annualPackages.length > 0);
         setRegularAnnualPriceLabel(
           getHighestPricedLabel(
             annualPackages.map(rcPackage => rcPackage.product.priceString)
           )
         );
         setPlansError(
-          nextPlans.some(candidate => candidate.rcPackage)
+          nextPlans.length &&
+            (nextPlans.some(candidate => candidate.rcPackage) ||
+              annualPackages.length > 0)
             ? null
             : "This offer is not available right now."
         );
@@ -523,6 +533,7 @@ export default function DiscountOfferPaywallScreen({
             ? error.message
             : "We could not load the special exit offer right now."
         );
+        setHasAnnualFallbackPackage(false);
       } finally {
         if (isMounted) {
           setIsLoadingPlans(false);
@@ -539,6 +550,7 @@ export default function DiscountOfferPaywallScreen({
 
   useEffect(() => {
     if (isPremiumUser) {
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
     }
   }, [isPremiumUser]);
@@ -581,6 +593,7 @@ export default function DiscountOfferPaywallScreen({
 
     if (!targetPlan.offeringKey) {
       await setSessionPremiumStatus(true);
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
       return true;
     }
@@ -599,6 +612,7 @@ export default function DiscountOfferPaywallScreen({
 
     setSessionUserProfile(updatedProfile);
     cancelFreeTrialEndingReminder().catch(() => undefined);
+    setIsPurchaseAccessUpdating(false);
     setScreenState("success");
     return true;
   };
@@ -635,7 +649,15 @@ export default function DiscountOfferPaywallScreen({
   };
 
   const handleUpgrade = async () => {
-    let purchasePackage = plan?.rcPackage ?? null;
+    if (!plan) {
+      Alert.alert(
+        "Billing unavailable",
+        plansError || "This offer is not available right now."
+      );
+      return;
+    }
+
+    let purchasePackage = plan.rcPackage ?? null;
 
     if (sessionUserId) {
       const liveOfferings = await getRevenueCatOfferings(sessionUserId).catch(
@@ -666,6 +688,15 @@ export default function DiscountOfferPaywallScreen({
     setIsProcessing(true);
 
     try {
+      const purchasePlan =
+        purchasePackage === plan.rcPackage
+          ? plan
+          : {
+              ...plan,
+              rcPackage: purchasePackage,
+              revenueCatPackageId: purchasePackage.identifier,
+            };
+
       trackEvent("cta_tap");
       const purchaseResult = await purchaseRevenueCatPackage(
         purchasePackage,
@@ -673,14 +704,13 @@ export default function DiscountOfferPaywallScreen({
       );
       const activated = await finalizePremiumActivation(
         purchaseResult.customerInfo,
-        plan
+        purchasePlan
       );
 
       if (!activated) {
-        Alert.alert(
-          "Purchase completed",
-          "Your purchase went through, but access has not updated yet. Please check again in a moment."
-        );
+        setIsPurchaseAccessUpdating(true);
+        setScreenState("success");
+        trackEvent("purchase_success");
       } else {
         trackEvent("purchase_success");
       }
@@ -725,8 +755,8 @@ export default function DiscountOfferPaywallScreen({
 
       if (!premiumAccess) {
         Alert.alert(
-          "No purchases found",
-          "We could not find an active premium purchase for this account."
+          NO_RESTORED_PURCHASE_TITLE,
+          NO_RESTORED_PURCHASE_MESSAGE
         );
         return;
       }
@@ -741,14 +771,23 @@ export default function DiscountOfferPaywallScreen({
   };
 
   const isBusy = isProcessing || isRestoring;
+  const canAttemptPurchase = Boolean(
+    plan?.rcPackage || (plan && hasAnnualFallbackPackage)
+  );
 
   if (screenState === "success") {
     return (
       <ActionSuccessScreen
         variant="payment"
-        title="You're Premium"
+        title={
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_TITLE
+            : "You're Premium"
+        }
         subtitle={
-          lastPurchaseStore === "TEST_STORE"
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_MESSAGE
+            : lastPurchaseStore === "TEST_STORE"
             ? "Your premium access is ready. You can continue into Journal.IO."
             : "Your yearly premium access is now active on this account."
         }
@@ -1094,7 +1133,7 @@ export default function DiscountOfferPaywallScreen({
                     loading={isProcessing}
                     tone="accent"
                     icon={<ArrowRight size={18} color={theme.colors.primaryForeground} />}
-                    disabled={!plan?.rcPackage || isLoadingPlans || isRestoring}
+                    disabled={!canAttemptPurchase || isLoadingPlans || isRestoring}
                   />
                 </Animated.View>
 

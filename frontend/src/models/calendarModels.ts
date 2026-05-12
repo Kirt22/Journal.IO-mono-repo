@@ -104,6 +104,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-15",
     date: new Date(2026, 2, 15),
+    createdAt: new Date(2026, 2, 15).toISOString(),
+    type: "journal",
     title: "Morning Reflections",
     content:
       "Started the day with a beautiful sunrise walk. Feeling grateful for the small moments of peace. The crisp air helped reset my mind for the week ahead.",
@@ -115,6 +117,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-14",
     date: new Date(2026, 2, 14),
+    createdAt: new Date(2026, 2, 14).toISOString(),
+    type: "journal",
     title: "Challenging Day at Work",
     content:
       "Today was tough. Had a difficult meeting that didn't go as planned. But I learned something important about speaking up earlier.",
@@ -126,6 +130,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-13",
     date: new Date(2026, 2, 13),
+    createdAt: new Date(2026, 2, 13).toISOString(),
+    type: "journal",
     title: "Evening Meditation",
     content:
       "Spent 20 minutes in meditation tonight. My mind was racing at first, but eventually found stillness. These pauses seem to help more than I expect.",
@@ -137,6 +143,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-12",
     date: new Date(2026, 2, 12),
+    createdAt: new Date(2026, 2, 12).toISOString(),
+    type: "journal",
     title: "Family Time",
     content:
       "Had dinner with family and felt recharged afterward. The evening was simple, calm, and exactly what I needed.",
@@ -148,6 +156,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-11",
     date: new Date(2026, 2, 11),
+    createdAt: new Date(2026, 2, 11).toISOString(),
+    type: "journal",
     title: "Planning Ahead",
     content:
       "Spent time organizing tomorrow's tasks. Writing them down reduced a lot of noise in my head and made the evening feel lighter.",
@@ -159,6 +169,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-10",
     date: new Date(2026, 2, 10),
+    createdAt: new Date(2026, 2, 10).toISOString(),
+    type: "journal",
     title: "Quiet Reset",
     content:
       "Took a slower pace today and noticed how much it helped my focus. Small pauses made the evening feel more grounded.",
@@ -170,6 +182,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-9",
     date: new Date(2026, 2, 9),
+    createdAt: new Date(2026, 2, 9).toISOString(),
+    type: "journal",
     title: "Deep Work Session",
     content:
       "Had a productive block of time where distractions stayed low. It felt good to make steady progress on one important task.",
@@ -181,6 +195,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-8",
     date: new Date(2026, 2, 8),
+    createdAt: new Date(2026, 2, 8).toISOString(),
+    type: "journal",
     title: "Checking In With Family",
     content:
       "Called family in the evening and felt lighter afterward. The conversation was simple but meaningful.",
@@ -192,6 +208,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-7",
     date: new Date(2026, 2, 7),
+    createdAt: new Date(2026, 2, 7).toISOString(),
+    type: "journal",
     title: "Notebook Thoughts",
     content:
       "Wrote down a few loose thoughts before bed. Getting them out of my head made the night feel calmer.",
@@ -203,6 +221,8 @@ export const calendarSampleEntries: CalendarEntry[] = [
   {
     id: "mar-6",
     date: new Date(2026, 2, 6),
+    createdAt: new Date(2026, 2, 6).toISOString(),
+    type: "journal",
     title: "Morning Walk",
     content:
       "Started the day with a short walk and some fresh air. It helped me settle into the day more easily.",
@@ -218,11 +238,12 @@ export const calendarSampleJournalEntries: JournalEntry[] = calendarSampleEntrie
     _id: entry.id,
     title: entry.title,
     content: entry.content,
-    type: "journal",
+    type: entry.type,
+    aiPrompt: null,
     images: [],
     tags: entry.tags,
-    createdAt: entry.date.toISOString(),
-    updatedAt: entry.date.toISOString(),
+    createdAt: entry.createdAt,
+    updatedAt: entry.createdAt,
   })
 );
 

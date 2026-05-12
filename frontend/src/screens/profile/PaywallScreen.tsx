@@ -59,6 +59,10 @@ import {
   getPurchaseErrorMessage,
   getTrialFootnote,
   isPurchasesError,
+  NO_RESTORED_PURCHASE_MESSAGE,
+  NO_RESTORED_PURCHASE_TITLE,
+  PURCHASE_UPDATING_SUCCESS_MESSAGE,
+  PURCHASE_UPDATING_SUCCESS_TITLE,
   type PaywallPlan,
 } from "./paywallShared";
 import { getPaywallLayoutMetrics } from "./paywallLayout";
@@ -486,6 +490,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<ScreenState>("paywall");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
+  const [isPurchaseAccessUpdating, setIsPurchaseAccessUpdating] = useState(false);
   const [postAuthStep, setPostAuthStep] = useState<PostAuthStep>("trial");
   const introHeroProgress = useRef(new Animated.Value(0)).current;
   const introMascotFloat = useRef(new Animated.Value(0)).current;
@@ -679,6 +684,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
   useEffect(() => {
     if (isPremiumUser) {
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
     }
   }, [isPremiumUser]);
@@ -931,6 +937,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     if (!targetPlan.offeringKey) {
       await setSessionPremiumStatus(true);
       syncTrialEndingReminderForActivation(null, targetPlan, options);
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
       return true;
     }
@@ -952,6 +959,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       targetPlan,
       options
     );
+    setIsPurchaseAccessUpdating(false);
     setScreenState("success");
     return true;
   };
@@ -1048,10 +1056,11 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       );
 
       if (!activated) {
-        Alert.alert(
-          "Purchase completed",
-          "Your purchase went through, but access has not updated yet. Please check again in a moment."
-        );
+        setIsPurchaseAccessUpdating(true);
+        setScreenState("success");
+        trackEvent("purchase_success", {
+          activationPending: true,
+        });
       } else {
         trackEvent("purchase_success");
       }
@@ -1086,8 +1095,8 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
       if (!premiumAccess) {
         Alert.alert(
-          "No purchases found",
-          "We could not find an active premium purchase for this account."
+          NO_RESTORED_PURCHASE_TITLE,
+          NO_RESTORED_PURCHASE_MESSAGE
         );
         return;
       }
@@ -1917,9 +1926,15 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     return (
       <ActionSuccessScreen
         variant="payment"
-        title="You're Premium"
+        title={
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_TITLE
+            : "You're Premium"
+        }
         subtitle={
-          lastPurchaseStore === "TEST_STORE"
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_MESSAGE
+            : lastPurchaseStore === "TEST_STORE"
             ? "Your premium access is ready. You can continue into Journal.IO."
             : "Your premium access is now active on this account."
         }

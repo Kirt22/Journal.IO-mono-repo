@@ -17,7 +17,6 @@ import {
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
-  type PurchasesError,
 } from "react-native-purchases";
 import {
   BarChart3,
@@ -51,6 +50,14 @@ import {
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import {
+  getPurchaseErrorMessage,
+  isPurchasesError,
+  NO_RESTORED_PURCHASE_MESSAGE,
+  NO_RESTORED_PURCHASE_TITLE,
+  PURCHASE_UPDATING_SUCCESS_MESSAGE,
+  PURCHASE_UPDATING_SUCCESS_TITLE,
+} from "./paywallShared";
 
 type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
 
@@ -118,37 +125,6 @@ const TESTIMONIALS: Testimonial[] = [
     quote: '"The AI insights changed how I see myself."',
   },
 ];
-
-const isPurchasesError = (error: unknown): error is PurchasesError =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  "message" in error;
-
-const getPurchaseErrorMessage = (error: unknown) => {
-  if (!isPurchasesError(error)) {
-    return error instanceof Error
-      ? error.message
-      : "We could not complete that purchase right now. Please try again.";
-  }
-
-  if (
-    error.code === PURCHASES_ERROR_CODE.NETWORK_ERROR ||
-    error.code === PURCHASES_ERROR_CODE.OFFLINE_CONNECTION_ERROR
-  ) {
-    return "The purchase could not reach RevenueCat right now. Check your connection and try again.";
-  }
-
-  if (error.code === PURCHASES_ERROR_CODE.CONFIGURATION_ERROR) {
-    return "RevenueCat is configured, but the lifetime package is not ready yet.";
-  }
-
-  if (error.code === PURCHASES_ERROR_CODE.PAYMENT_PENDING_ERROR) {
-    return "This payment is pending. RevenueCat will update the entitlement when the store confirms it.";
-  }
-
-  return error.message;
-};
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -229,6 +205,7 @@ export default function LifetimeOfferPaywallScreen({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [screenState, setScreenState] = useState<"offer" | "success">("offer");
+  const [isPurchaseAccessUpdating, setIsPurchaseAccessUpdating] = useState(false);
   const [testimonialIndex, setTestimonialIndex] = useState(0);
 
   const palette = theme.colors;
@@ -646,6 +623,7 @@ export default function LifetimeOfferPaywallScreen({
       });
 
       setSessionUserProfile(updatedProfile);
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
       return true;
     },
@@ -695,10 +673,11 @@ export default function LifetimeOfferPaywallScreen({
       const activated = await finalizePremiumActivation(result.customerInfo);
 
       if (!activated) {
-        Alert.alert(
-          "Purchase completed",
-          "RevenueCat completed the purchase, but no active premium entitlement was returned yet."
-        );
+        setIsPurchaseAccessUpdating(true);
+        setScreenState("success");
+        await trackLifetimeEvent("purchase_success", {
+          activationPending: true,
+        });
         return;
       }
 
@@ -743,8 +722,8 @@ export default function LifetimeOfferPaywallScreen({
 
       if (!activated) {
         Alert.alert(
-          "No active purchase found",
-          "RevenueCat did not return an active premium entitlement for this account."
+          NO_RESTORED_PURCHASE_TITLE,
+          NO_RESTORED_PURCHASE_MESSAGE
         );
         return;
       }
@@ -759,9 +738,7 @@ export default function LifetimeOfferPaywallScreen({
 
       Alert.alert(
         "Restore failed",
-        error instanceof Error
-          ? error.message
-          : "We could not restore purchases right now."
+        getPurchaseErrorMessage(error)
       );
     } finally {
       setIsRestoring(false);
@@ -772,8 +749,16 @@ export default function LifetimeOfferPaywallScreen({
     return (
       <ActionSuccessScreen
         variant="payment"
-        title="Lifetime access is active."
-        subtitle={`Journal.IO now has permanent premium access on this account for ${sessionUserName}.`}
+        title={
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_TITLE
+            : "Lifetime access is active."
+        }
+        subtitle={
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_MESSAGE
+            : `Journal.IO now has permanent premium access on this account for ${sessionUserName}.`
+        }
         buttonLabel="Return to Subscription"
         onPrimaryAction={onBack}
       />

@@ -14,6 +14,7 @@ describe("apiClient", () => {
     globalWithFetch.__DEV__ = true;
     globalWithFetch.fetch = jest.fn();
     alertSpy = jest.fn();
+    jest.spyOn(console, "log").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -81,6 +82,64 @@ describe("apiClient", () => {
   test("uses the Metro host in dev when no API override is configured", async () => {
     jest.doMock("@env", () => ({
       API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
+    jest.doMock("react-native", () => ({
+      Alert: {
+        alert: alertSpy,
+      },
+      NativeModules: {
+        SourceCode: {
+          scriptURL: "http://192.168.1.24:8081/index.bundle?platform=ios&dev=true",
+        },
+      },
+      Platform: { OS: "ios" },
+    }));
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      __esModule: true,
+      default: {
+        stage: "onboarding",
+        activeTab: "home",
+        email: null,
+        apiBaseUrl: null,
+      },
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      getAccessToken: jest.fn(async () => null),
+    }));
+
+    globalWithFetch.fetch!.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        message: "ok",
+        data: { email: "alex@example.com" },
+      }),
+    });
+
+    const { request } = require("../src/utils/apiClient");
+
+    await request("/auth/sign_up_with_email", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "alex@example.com",
+        password: "password123",
+      }),
+    });
+
+    expect(globalWithFetch.fetch).toHaveBeenCalledWith(
+      "http://192.168.1.24:3000/api/v1/auth/sign_up_with_email",
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
+  });
+
+  test("does not use the production API URL in a dev build when Metro host is available", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "https://api.journalio.app/api/v1",
       GOOGLE_WEB_CLIENT_ID: "",
       GOOGLE_IOS_CLIENT_ID: "",
     }));
@@ -244,6 +303,77 @@ describe("apiClient", () => {
     expect(alertSpy).toHaveBeenCalledWith(
       "Connection issue",
       "We're having trouble connecting right now. Please check your internet connection and try again."
+    );
+  });
+
+  test("logs sanitized response details in dev mode", async () => {
+    jest.doMock("@env", () => ({
+      API_BASE_URL: "",
+      GOOGLE_WEB_CLIENT_ID: "",
+      GOOGLE_IOS_CLIENT_ID: "",
+    }));
+    jest.doMock("react-native", () => ({
+      Alert: {
+        alert: alertSpy,
+      },
+      NativeModules: {
+        SourceCode: {
+          scriptURL: "http://192.168.1.24:8081/index.bundle?platform=ios&dev=true",
+        },
+      },
+      Platform: { OS: "ios" },
+    }));
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      __esModule: true,
+      default: {
+        stage: "onboarding",
+        activeTab: "home",
+        email: null,
+        apiBaseUrl: "http://127.0.0.1:5050/api/v1",
+      },
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      getAccessToken: jest.fn(async () => null),
+    }));
+
+    globalWithFetch.fetch!.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        success: false,
+        message: "Please review the details and try again.",
+        data: {},
+        error: {
+          code: "VALIDATION_FAILED",
+          errors: [
+            {
+              path: "body.email",
+              message: "Expected string",
+            },
+          ],
+        },
+      }),
+    });
+
+    const { request } = require("../src/utils/apiClient");
+
+    await expect(request("/auth/apple/mobile", { method: "POST" })).rejects.toMatchObject({
+      message: "Please review the details and try again.",
+      status: 400,
+    });
+
+    expect(console.log).toHaveBeenCalledWith(
+      "[apiClient] response",
+      {
+        requestUrl: "http://127.0.0.1:5050/api/v1/auth/apple/mobile",
+        method: "POST",
+        status: 400,
+        ok: false,
+        success: false,
+        message: "Please review the details and try again.",
+        errorCode: "VALIDATION_FAILED",
+        errorPaths: ["body.email"],
+      }
     );
   });
 

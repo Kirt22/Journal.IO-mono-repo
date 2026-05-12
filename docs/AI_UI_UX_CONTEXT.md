@@ -125,6 +125,7 @@ Auth should prioritize low-friction entry:
   - clear success transition into profile setup
 - dedicated sign-in screen for returning email users
 - Google sign-in path
+- Apple sign-in path should treat `@privaterelay.appleid.com` addresses as Apple private relay contact addresses and avoid presenting them as the user's real iCloud email
 - onboarding goals should remain available as hidden flow context during auth and setup steps
 - on app launch, a valid stored session should go directly to home before any onboarding/auth screens render
 - once onboarding has been completed, future app launches should begin at auth unless the user is already signed in
@@ -137,7 +138,7 @@ Post-auth setup:
 - avatar color selection
 - optional lightweight profile customization
 - authenticated profile setup should persist the user’s name, avatar color, and selected onboarding context where applicable
-- setup should support users arriving from email verification or Google sign-in
+- setup should support users arriving from email verification, Google sign-in, or Apple sign-in
 
 Behavioral requirements:
 
@@ -169,6 +170,9 @@ Paywall expectations:
 - use RevenueCat purchase and restore flows for checkout, then call the dedicated backend purchase-sync route so the authenticated premium state and purchased plan attribution update immediately
 - log paywall lifecycle and premium-intent events through the backend paywall events route so placements and cooldowns can be tuned without a client release
 - in development builds, support RevenueCat Test Store verification so billing can be checked before App Store / Play Store release
+- keep purchase and restore failure copy app-owned and calm; RevenueCat Test Store simulated failures should be described as a declined test purchase with no charge, not shown as raw SDK/store error text
+- after any completed purchase from a hosted or in-app paywall, show the shared payment success screen; if RevenueCat purchase completion succeeds before premium entitlement sync catches up, use the success screen with access-updating copy instead of an alert or immediate route continuation
+- restore purchases must inspect the restored RevenueCat `CustomerInfo` for active premium access before advancing; if no active entitlement is present, keep the user on the current paywall surface and show the shared `No purchases found` dialog
 - use the mascot subtly in the hero area or brand moments
 - preserve the existing app aesthetic rather than introducing a separate monetization style
 - after every successful post-auth entry for a non-premium user, show a dedicated 3-step post-auth paywall first:
@@ -177,6 +181,7 @@ Paywall expectations:
   - purchase step opened as the hosted RevenueCat main paywall as a full-screen embedded surface
 - if the hosted RevenueCat main paywall cannot be opened, fall back to the current in-app purchase step instead of trapping the user
 - when the hosted RevenueCat main paywall is used, keep backend placement resolution, paywall-event logging, purchase-sync, and an explicit purchase-progress loading overlay unchanged around that hosted surface
+- while a hosted RevenueCat purchase or restore is in progress, ignore native dismiss callbacks so checkout completion can render the shared payment success screen instead of accidentally advancing the flow early
 - if the in-app fallback purchase step is used, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
 - when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder on day 5 that 2 trial days remain; this v1 reminder does not require push infrastructure
 - if the user dismisses the hosted post-auth main paywall, immediately show a deterministic spin-wheel reveal with `20%`, `10%`, `30%`, `40%`, and `Gift`, always land on `Gift`, and then open the hosted RevenueCat exit-offer surface for the dedicated `50%` yearly offer

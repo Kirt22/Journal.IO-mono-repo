@@ -14,8 +14,17 @@ const NETWORK_ALERT_MESSAGE =
 
 let lastNetworkAlertAt = 0;
 let hasLoggedBaseUrlResolution = false;
+const globalWithProcess = globalThis as typeof globalThis & {
+  process?: {
+    env?: {
+      JEST_WORKER_ID?: string;
+    };
+  };
+};
 const isJestRuntime =
-  typeof process !== "undefined" && Boolean(process.env.JEST_WORKER_ID);
+  Boolean(globalWithProcess.process?.env?.JEST_WORKER_ID);
+const PRODUCTION_API_HOST = "api.journalio.app";
+const PRODUCTION_API_HOST_PATTERN = PRODUCTION_API_HOST.replace(/\./g, "\\.");
 
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -47,35 +56,50 @@ const getBundleHost = () => {
   return hostMatch?.[1] || null;
 };
 
-const getBaseUrl = () => {
-  const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
+const isProductionApiBaseUrl = (value: string) => {
+  return new RegExp(
+    `^https?://${PRODUCTION_API_HOST_PATTERN}(?::\\d+)?(?:/|$)`,
+    "i"
+  ).test(value);
+};
 
-  if (envBaseUrl) {
-    if (__DEV__ && !hasLoggedBaseUrlResolution) {
-      hasLoggedBaseUrlResolution = true;
-      console.log("[apiClient] base URL resolved", {
-        source: "env",
-        resolvedBaseUrl: envBaseUrl,
-      });
-    }
-
-    return envBaseUrl;
+const logApiClientDev = (event: string, details: Record<string, unknown>) => {
+  if (!__DEV__) {
+    return;
   }
 
+  console.log(`[apiClient] ${event}`, details);
+};
+
+const logBaseUrlResolution = (source: string, resolvedBaseUrl: string) => {
+  if (!__DEV__ || hasLoggedBaseUrlResolution) {
+    return;
+  }
+
+  hasLoggedBaseUrlResolution = true;
+  logApiClientDev("base URL resolved", {
+    source,
+    resolvedBaseUrl,
+  });
+};
+
+const getBaseUrl = () => {
   const configuredBaseUrl = normalizeBaseUrl(
     __DEV__ ? (devLaunchConfig as DevLaunchConfig).apiBaseUrl : null
   );
 
   if (configuredBaseUrl) {
-    if (__DEV__ && !hasLoggedBaseUrlResolution) {
-      hasLoggedBaseUrlResolution = true;
-      console.log("[apiClient] base URL resolved", {
-        source: "devLaunchConfig",
-        resolvedBaseUrl: configuredBaseUrl,
-      });
-    }
-
+    logBaseUrlResolution("devLaunchConfig", configuredBaseUrl);
     return configuredBaseUrl;
+  }
+
+  const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
+  const shouldUseEnvBaseUrl =
+    envBaseUrl && (!__DEV__ || !isProductionApiBaseUrl(envBaseUrl));
+
+  if (shouldUseEnvBaseUrl) {
+    logBaseUrlResolution("env", envBaseUrl);
+    return envBaseUrl;
   }
 
   const bundleHost = __DEV__ ? getBundleHost() : null;
@@ -83,41 +107,25 @@ const getBaseUrl = () => {
   if (bundleHost) {
     const resolvedBaseUrl = `http://${bundleHost}:3000/api/v1`;
 
-    if (__DEV__ && !hasLoggedBaseUrlResolution) {
-      hasLoggedBaseUrlResolution = true;
-      console.log("[apiClient] base URL resolved", {
-        source: "bundleHostFallback",
-        resolvedBaseUrl,
-      });
-    }
-
+    logBaseUrlResolution("bundleHostFallback", resolvedBaseUrl);
     return resolvedBaseUrl;
+  }
+
+  if (envBaseUrl) {
+    logBaseUrlResolution("env", envBaseUrl);
+    return envBaseUrl;
   }
 
   if (Platform.OS === "android") {
     const resolvedBaseUrl = "http://10.0.2.2:3000/api/v1";
 
-    if (__DEV__ && !hasLoggedBaseUrlResolution) {
-      hasLoggedBaseUrlResolution = true;
-      console.log("[apiClient] base URL resolved", {
-        source: "androidEmulatorFallback",
-        resolvedBaseUrl,
-      });
-    }
-
+    logBaseUrlResolution("androidEmulatorFallback", resolvedBaseUrl);
     return resolvedBaseUrl;
   }
 
   const resolvedBaseUrl = "http://localhost:3000/api/v1";
 
-  if (__DEV__ && !hasLoggedBaseUrlResolution) {
-    hasLoggedBaseUrlResolution = true;
-    console.log("[apiClient] base URL resolved", {
-      source: "iosLocalhostFallback",
-      resolvedBaseUrl,
-    });
-  }
-
+  logBaseUrlResolution("iosLocalhostFallback", resolvedBaseUrl);
   return resolvedBaseUrl;
 };
 
@@ -168,6 +176,45 @@ const showNetworkIssueAlert = () => {
   Alert.alert(NETWORK_ALERT_TITLE, NETWORK_ALERT_MESSAGE);
 };
 
+const getApiErrorCode = (error: unknown) => {
+  if (
+    typeof error === "object" &&
+    error &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return undefined;
+};
+
+const getApiErrorPaths = (error: unknown) => {
+  if (
+    typeof error !== "object" ||
+    !error ||
+    !("errors" in error) ||
+    !Array.isArray(error.errors)
+  ) {
+    return undefined;
+  }
+
+  return error.errors
+    .map(item => {
+      if (
+        typeof item === "object" &&
+        item &&
+        "path" in item &&
+        typeof item.path === "string"
+      ) {
+        return item.path;
+      }
+
+      return null;
+    })
+    .filter((path): path is string => Boolean(path));
+};
+
 const request = async <T>(
   path: string,
   options: RequestInit = {}
@@ -196,12 +243,10 @@ const request = async <T>(
 
   const requestUrl = `${getBaseUrl()}${path}`;
 
-  if (__DEV__) {
-    console.log("[apiClient] request start", {
-      requestUrl,
-      method: options.method || "GET",
-    });
-  }
+  logApiClientDev("request start", {
+    requestUrl,
+    method: options.method || "GET",
+  });
 
   let response: Response;
 
@@ -212,6 +257,12 @@ const request = async <T>(
     });
   } catch (error) {
     showNetworkIssueAlert();
+
+    logApiClientDev("request network error", {
+      requestUrl,
+      method: options.method || "GET",
+      message: error instanceof Error ? error.message : "Network request failed",
+    });
 
     throw new ApiError(
       "We're having trouble connecting right now. Please check your internet connection and try again.",
@@ -230,6 +281,17 @@ const request = async <T>(
   } catch {
     payload = null;
   }
+
+  logApiClientDev("response", {
+    requestUrl,
+    method: options.method || "GET",
+    status: response.status,
+    ok: response.ok,
+    success: payload?.success ?? null,
+    message: payload?.message || null,
+    errorCode: getApiErrorCode(payload?.error),
+    errorPaths: getApiErrorPaths(payload?.error),
+  });
 
   if (!response.ok || !payload?.success) {
     const message =

@@ -36,6 +36,7 @@ type EmailVerificationChallenge = {
   email: string;
   verificationRequired: boolean;
   expiresInSeconds: number;
+  verificationCode?: string;
 };
 
 type SignUpWithEmailPayload = {
@@ -186,6 +187,12 @@ const signUpWithEmail = async (payload: SignUpWithEmailPayload) => {
       body: JSON.stringify(payload),
     }
   );
+
+  if (__DEV__ && response.data.verificationCode) {
+    console.info(
+      `[Auth] Email verification code for ${response.data.email}: ${response.data.verificationCode}`
+    );
+  }
 
   return response.data;
 };

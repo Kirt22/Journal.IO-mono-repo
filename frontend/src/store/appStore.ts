@@ -1179,10 +1179,46 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
   },
   signIn: async payload => {
-    const response = await signInWithEmail({
-      ...payload,
-      onboardingCompleted: true,
-    });
+    let response: AuthSession;
+
+    try {
+      response = await signInWithEmail({
+        ...payload,
+        onboardingCompleted: true,
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "EMAIL_NOT_VERIFIED") {
+        throw error;
+      }
+
+      const pendingEmail = payload.email.trim();
+
+      set({
+        authSource: "email",
+        pendingEmail,
+        stage: "verify-email",
+      });
+
+      navigateRoot("VerifyEmail");
+
+      await resendEmailVerification({
+        email: pendingEmail,
+      }).catch(resendError => {
+        if (__DEV__) {
+          console.warn(
+            `[Auth] Unable to resend verification code after sign-in ${JSON.stringify({
+              email: pendingEmail,
+              message:
+              resendError instanceof Error
+                ? resendError.message
+                : "Unknown resend failure",
+            })}`
+          );
+        }
+      });
+
+      return;
+    }
 
     await saveTokens({
       accessToken: response.accessToken,

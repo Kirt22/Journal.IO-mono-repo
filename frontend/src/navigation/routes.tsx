@@ -18,7 +18,6 @@ import SpinWheelScreen from "../screens/profile/SpinWheelScreen";
 import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
 import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
-import type { ThemeMode } from "../theme/theme";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
 import type { AuthSession } from "../services/authService";
 
@@ -52,7 +51,6 @@ type AppFlowRoutesProps = {
   onSkipProfile: () => Promise<void>;
   onRestart: () => void;
   onCloseNewEntry: () => void;
-  onToggleTheme: (nextMode: ThemeMode | null) => void;
 };
 
 export function AppFlowRoutes({
@@ -85,7 +83,6 @@ export function AppFlowRoutes({
   onSkipProfile,
   onRestart,
   onCloseNewEntry,
-  onToggleTheme,
 }: AppFlowRoutesProps) {
   const selectedGoals = onboardingData?.goals || [];
 
@@ -155,7 +152,7 @@ export function AppFlowRoutes({
         />
       );
     case "main-app":
-      return <MainAppShell onToggleTheme={onToggleTheme} />;
+      return <MainAppShell />;
     case "new-entry":
       return (
         <NewEntryScreen

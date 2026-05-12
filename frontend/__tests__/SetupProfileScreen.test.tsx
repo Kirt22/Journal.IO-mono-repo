@@ -88,3 +88,27 @@ test("shows Apple as the connected auth provider", async () => {
 
   expect(treeText).toContain("Apple connected");
 });
+
+test("labels Apple private relay addresses without showing them as real email", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SetupProfileScreen
+          authEmail="jdjpqfw9hq@privaterelay.appleid.com"
+          authSource="apple"
+          onboardingContext={null}
+          initialName="Alex"
+          onComplete={jest.fn(async () => undefined)}
+          onSkip={jest.fn(async () => undefined)}
+        />
+      </SafeAreaProvider>
+    );
+  });
+
+  const treeText = extractText(root!.toJSON());
+
+  expect(treeText).toContain("Apple private relay email");
+  expect(treeText).not.toContain("jdjpqfw9hq@privaterelay.appleid.com");
+});

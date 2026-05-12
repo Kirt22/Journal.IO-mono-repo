@@ -42,6 +42,13 @@ import {
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import {
+  getPurchaseErrorMessage,
+  NO_RESTORED_PURCHASE_MESSAGE,
+  NO_RESTORED_PURCHASE_TITLE,
+  PURCHASE_UPDATING_SUCCESS_MESSAGE,
+  PURCHASE_UPDATING_SUCCESS_TITLE,
+} from "./paywallShared";
 
 type ScreenState = "launching" | "success";
 
@@ -125,6 +132,7 @@ export default function HostedRevenueCatPaywallScreen() {
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [screenState, setScreenState] = useState<ScreenState>("launching");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
+  const [isPurchaseAccessUpdating, setIsPurchaseAccessUpdating] = useState(false);
   const [hostedPaywallState, setHostedPaywallState] =
     useState<HostedPaywallLoadState>({
       offering: null,
@@ -137,6 +145,7 @@ export default function HostedRevenueCatPaywallScreen() {
   const copyEntrance = useRef(new Animated.Value(0)).current;
   const paywallConfigRef = useRef<ResolvedPaywallConfig | null>(null);
   const didCompleteHostedActionRef = useRef(false);
+  const isHostedActionInProgressRef = useRef(false);
   const hostedTargetRef = useRef(activeHostedPaywallTarget ?? "main");
   const paywallContextRef = useRef({
     placementKey:
@@ -265,6 +274,7 @@ export default function HostedRevenueCatPaywallScreen() {
     if (!activeEntitlement) {
       await setSessionPremiumStatus(true);
       syncHostedTrialReminder(hostedTarget, null, matchedPackage, options);
+      setIsPurchaseAccessUpdating(false);
       setScreenState("success");
       return true;
     }
@@ -293,6 +303,7 @@ export default function HostedRevenueCatPaywallScreen() {
       matchedPackage,
       options
     );
+    setIsPurchaseAccessUpdating(false);
     setScreenState("success");
     return true;
   }, [
@@ -430,12 +441,24 @@ export default function HostedRevenueCatPaywallScreen() {
         }
 
         if (!activated) {
-          Alert.alert(
-            "Purchase completed",
-            "Your purchase went through, but access has not updated yet. Please check again in a moment."
-          );
-          continueFromHostedPaywall("continue");
-          return false;
+          if (options.wasRestore) {
+            Alert.alert(
+              NO_RESTORED_PURCHASE_TITLE,
+              NO_RESTORED_PURCHASE_MESSAGE
+            );
+            trackEvent("purchase_failure", {
+              action: "restore",
+              message: NO_RESTORED_PURCHASE_MESSAGE,
+            });
+            return false;
+          }
+
+          setIsPurchaseAccessUpdating(true);
+          setScreenState("success");
+          trackEvent("purchase_success", {
+            activationPending: true,
+          });
+          return true;
         }
 
         trackEvent(options.wasRestore ? "restore_success" : "purchase_success");
@@ -454,6 +477,7 @@ export default function HostedRevenueCatPaywallScreen() {
 
   const handleHostedPurchaseStarted = useCallback(
     ({ packageBeingPurchased }: { packageBeingPurchased: PurchasesPackage }) => {
+      isHostedActionInProgressRef.current = true;
       setProcessingLabel("Processing your purchase...");
       trackEvent(
         "cta_tap",
@@ -472,6 +496,7 @@ export default function HostedRevenueCatPaywallScreen() {
   );
 
   const handleHostedRestoreStarted = useCallback(() => {
+    isHostedActionInProgressRef.current = true;
     setProcessingLabel("Restoring your purchase...");
     trackEvent(
       "cta_tap",
@@ -483,7 +508,10 @@ export default function HostedRevenueCatPaywallScreen() {
   }, [trackEvent]);
 
   const handleHostedDismiss = useCallback(() => {
-    if (didCompleteHostedActionRef.current) {
+    if (
+      didCompleteHostedActionRef.current ||
+      isHostedActionInProgressRef.current
+    ) {
       return;
     }
 
@@ -493,15 +521,20 @@ export default function HostedRevenueCatPaywallScreen() {
   }, [continueFromHostedPaywall, trackEvent]);
 
   const handleHostedPurchaseCancelled = useCallback(() => {
+    isHostedActionInProgressRef.current = false;
     setProcessingLabel(null);
   }, []);
 
   const handleHostedPurchaseError = useCallback(
     ({ error }: { error: unknown }) => {
+      isHostedActionInProgressRef.current = false;
       setProcessingLabel(null);
+      const message = getPurchaseErrorMessage(error);
+
       trackEvent("purchase_failure", {
-        message: error instanceof Error ? error.message : "Purchase failed.",
+        message,
       });
+      Alert.alert("Purchase not completed", message);
     },
     [trackEvent]
   );
@@ -513,30 +546,56 @@ export default function HostedRevenueCatPaywallScreen() {
       customerInfo: CustomerInfo;
       storeTransaction: unknown;
     }) => {
-      didCompleteHostedActionRef.current = true;
-      await finalizeHostedPurchase(customerInfo, hostedPaywallState.offerings, {
-        wasRestore: false,
-      });
+      isHostedActionInProgressRef.current = true;
+      const activated = await finalizeHostedPurchase(
+        customerInfo,
+        hostedPaywallState.offerings,
+        {
+          wasRestore: false,
+        }
+      );
+
+      if (activated) {
+        didCompleteHostedActionRef.current = true;
+        return;
+      }
+
+      isHostedActionInProgressRef.current = false;
     },
     [finalizeHostedPurchase, hostedPaywallState.offerings]
   );
 
   const handleHostedRestoreCompleted = useCallback(
     async ({ customerInfo }: { customerInfo: CustomerInfo }) => {
-      didCompleteHostedActionRef.current = true;
-      await finalizeHostedPurchase(customerInfo, hostedPaywallState.offerings, {
-        wasRestore: true,
-      });
+      isHostedActionInProgressRef.current = true;
+      const activated = await finalizeHostedPurchase(
+        customerInfo,
+        hostedPaywallState.offerings,
+        {
+          wasRestore: true,
+        }
+      );
+
+      if (activated) {
+        didCompleteHostedActionRef.current = true;
+        return;
+      }
+
+      isHostedActionInProgressRef.current = false;
     },
     [finalizeHostedPurchase, hostedPaywallState.offerings]
   );
 
   const handleHostedRestoreError = useCallback(
     ({ error }: { error: unknown }) => {
+      isHostedActionInProgressRef.current = false;
       setProcessingLabel(null);
+      const message = getPurchaseErrorMessage(error);
+
       trackEvent("purchase_failure", {
-        message: error instanceof Error ? error.message : "Restore failed.",
+        message,
       });
+      Alert.alert("Restore unavailable", message);
     },
     [trackEvent]
   );
@@ -554,9 +613,15 @@ export default function HostedRevenueCatPaywallScreen() {
     return (
       <ActionSuccessScreen
         variant="payment"
-        title="You're Premium"
+        title={
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_TITLE
+            : "You're Premium"
+        }
         subtitle={
-          lastPurchaseStore === "TEST_STORE"
+          isPurchaseAccessUpdating
+            ? PURCHASE_UPDATING_SUCCESS_MESSAGE
+            : lastPurchaseStore === "TEST_STORE"
             ? "Your premium access is ready. You can continue into Journal.IO."
             : "Your premium access is now active on this account."
         }

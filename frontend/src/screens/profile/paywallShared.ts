@@ -87,11 +87,68 @@ export const isPurchasesError = (error: unknown): error is PurchasesError =>
   "code" in error &&
   "message" in error;
 
+const DEFAULT_PURCHASE_ERROR_MESSAGE =
+  "We could not complete that purchase right now. No charge was made. Please try again.";
+
+const TEST_STORE_PURCHASE_ERROR_MESSAGE =
+  "The test purchase was declined. No charge was made. You can try again when you're ready.";
+
+export const NO_RESTORED_PURCHASE_TITLE = "No purchases found";
+
+export const NO_RESTORED_PURCHASE_MESSAGE =
+  "We could not find an active premium purchase for this account.";
+
+export const PURCHASE_UPDATING_SUCCESS_TITLE = "Purchase received";
+
+export const PURCHASE_UPDATING_SUCCESS_MESSAGE =
+  "Your purchase went through. We are still updating premium access on this account. If Premium does not appear in a moment, use Restore Purchases.";
+
+const normalizeErrorMessage = (error: unknown) => {
+  if (!error) {
+    return "";
+  }
+
+  if (error instanceof Error) {
+    return error.message.toLowerCase();
+  }
+
+  if (typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    return typeof message === "string" ? message.toLowerCase() : "";
+  }
+
+  return "";
+};
+
+const getPurchaseErrorCode = (error: unknown) =>
+  typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : null;
+
+const isTestStoreSimulatedPurchaseFailure = (error: unknown) => {
+  const message = normalizeErrorMessage(error);
+
+  return (
+    getPurchaseErrorCode(error) ===
+      PURCHASES_ERROR_CODE.TEST_STORE_SIMULATED_PURCHASE_ERROR ||
+    message.includes("purchase failure simulated") ||
+    message.includes("test purchase failure")
+  );
+};
+
 export const getPurchaseErrorMessage = (error: unknown) => {
+  if (isTestStoreSimulatedPurchaseFailure(error)) {
+    return TEST_STORE_PURCHASE_ERROR_MESSAGE;
+  }
+
   if (!isPurchasesError(error)) {
-    return error instanceof Error
-      ? error.message
-      : "We could not complete that purchase right now. Please try again.";
+    const message = normalizeErrorMessage(error);
+
+    if (message.includes("purchases are not available")) {
+      return "Purchases are not available right now. Please try again a little later.";
+    }
+
+    return DEFAULT_PURCHASE_ERROR_MESSAGE;
   }
 
   if (
@@ -109,7 +166,24 @@ export const getPurchaseErrorMessage = (error: unknown) => {
     return "This payment is pending. Your access will update as soon as the store confirms it.";
   }
 
-  return error.message;
+  if (error.code === PURCHASES_ERROR_CODE.PRODUCT_ALREADY_PURCHASED_ERROR) {
+    return "This purchase already appears to be active. Try restoring purchases to refresh access.";
+  }
+
+  if (error.code === PURCHASES_ERROR_CODE.OPERATION_ALREADY_IN_PROGRESS_ERROR) {
+    return "A purchase is already in progress. Please wait a moment and try again.";
+  }
+
+  if (
+    error.code === PURCHASES_ERROR_CODE.STORE_PROBLEM_ERROR ||
+    error.code === PURCHASES_ERROR_CODE.PURCHASE_NOT_ALLOWED_ERROR ||
+    error.code === PURCHASES_ERROR_CODE.PURCHASE_INVALID_ERROR ||
+    error.code === PURCHASES_ERROR_CODE.PRODUCT_NOT_AVAILABLE_FOR_PURCHASE_ERROR
+  ) {
+    return "The store could not complete that purchase. No charge was made. Please try again.";
+  }
+
+  return DEFAULT_PURCHASE_ERROR_MESSAGE;
 };
 
 export const getTrialFootnote = (

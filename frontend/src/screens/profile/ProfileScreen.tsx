@@ -23,6 +23,7 @@ import TabScreenLayout from "../../components/TabScreenLayout";
 import { trackPaywallEvent } from "../../services/paywallService";
 import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
 import { useTheme } from "../../theme/provider";
+import { isApplePrivateRelayEmail } from "../../utils/authEmailDisplay";
 
 type ProfileScreenProps = {
   userName?: string;
@@ -336,7 +337,10 @@ export default function ProfileScreen({
   }, []);
 
   const initials = useMemo(() => getInitials(userName), [userName]);
-  const displayedEmail = userEmail || fallbackEmail || DUMMY_EMAIL;
+  const accountEmail = userEmail || fallbackEmail || DUMMY_EMAIL;
+  const displayedEmail = isApplePrivateRelayEmail(accountEmail)
+    ? "Apple private relay email"
+    : accountEmail;
   const displayedGoals = userGoals.length > 0 ? userGoals : onboardingGoals;
   const hasGoals = displayedGoals.length > 0;
   const showPremiumBanner = !isPremium;

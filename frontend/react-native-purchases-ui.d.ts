@@ -1,5 +1,10 @@
 declare module "react-native-purchases-ui" {
-  import type { PurchasesOffering } from "react-native-purchases";
+  import type { ComponentType } from "react";
+  import type {
+    CustomerInfo,
+    PurchasesOffering,
+    PurchasesPackage,
+  } from "react-native-purchases";
 
   export const PAYWALL_RESULT: {
     readonly NOT_PRESENTED: "NOT_PRESENTED";
@@ -10,6 +15,26 @@ declare module "react-native-purchases-ui" {
   };
 
   const RevenueCatUI: {
+    Paywall: ComponentType<{
+      style?: unknown;
+      options?: {
+        offering?: PurchasesOffering;
+        displayCloseButton?: boolean;
+      };
+      onPurchaseStarted?: (payload: {
+        packageBeingPurchased: PurchasesPackage;
+      }) => void;
+      onPurchaseCompleted?: (payload: {
+        customerInfo: CustomerInfo;
+        storeTransaction: unknown;
+      }) => void;
+      onPurchaseCancelled?: () => void;
+      onPurchaseError?: (payload: { error: unknown }) => void;
+      onRestoreStarted?: () => void;
+      onRestoreCompleted?: (payload: { customerInfo: CustomerInfo }) => void;
+      onRestoreError?: (payload: { error: unknown }) => void;
+      onDismiss?: () => void;
+    }>;
     presentPaywall: (options?: {
       offering?: PurchasesOffering;
     }) => Promise<

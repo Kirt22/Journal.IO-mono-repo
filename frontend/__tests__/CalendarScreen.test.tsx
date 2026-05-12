@@ -32,6 +32,12 @@ const formatCalendarDateLabel = (date: Date) =>
     year: "numeric",
   }).format(date);
 
+const formatCalendarMonthLabel = (date: Date) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+
 test("renders the calendar screen layout", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
@@ -65,7 +71,10 @@ test("renders the calendar screen layout", async () => {
 
   const calendarTree = JSON.stringify(root!.toJSON());
 
-  expect(calendarTree).toContain("April 2026");
+  const currentMonth = new Date();
+  const previousMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+
+  expect(calendarTree).toContain(formatCalendarMonthLabel(currentMonth));
   expect(calendarTree).toContain("S");
   expect(calendarTree).toContain("M");
   expect(calendarTree).toContain("T");
@@ -80,7 +89,23 @@ test("renders the calendar screen layout", async () => {
 
   const previousMonthTree = JSON.stringify(root!.toJSON());
 
-  expect(previousMonthTree).toContain("March 2026");
+  expect(previousMonthTree).toContain(formatCalendarMonthLabel(previousMonth));
+
+  const seededEntryDate = new Date(2026, 2, 15);
+  const selectedMonthOffset =
+    (seededEntryDate.getFullYear() - previousMonth.getFullYear()) * 12 +
+    seededEntryDate.getMonth() -
+    previousMonth.getMonth();
+  const monthNavigationLabel =
+    selectedMonthOffset > 0 ? "Next month" : "Previous month";
+
+  for (let index = 0; index < Math.abs(selectedMonthOffset); index += 1) {
+    await ReactTestRenderer.act(() => {
+      root!.root
+        .findAllByProps({ accessibilityLabel: monthNavigationLabel })[0]
+        .props.onPress();
+    });
+  }
 
   await ReactTestRenderer.act(() => {
     root!.root
@@ -135,6 +160,7 @@ test("loads today's entries immediately when opening calendar view", async () =>
     title: "Today entry",
     content: "Today journal content",
     type: "journal",
+    aiPrompt: null,
     images: [],
     tags: ["today"],
     isFavorite: false,
@@ -198,7 +224,7 @@ test("swipes between the list and calendar views", async () => {
 
   const calendarTree = JSON.stringify(root!.toJSON());
 
-  expect(calendarTree).toContain("April 2026");
+  expect(calendarTree).toContain(formatCalendarMonthLabel(new Date()));
   expect(calendarTree).toContain("S");
 
   ReactTestRenderer.act(() => {

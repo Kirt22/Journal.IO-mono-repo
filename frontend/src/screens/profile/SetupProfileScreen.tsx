@@ -23,6 +23,7 @@ import { Path, Svg } from "react-native-svg";
 import PrimaryButton from "../../components/PrimaryButton";
 import type { OnboardingCompletionData } from "../onboarding/OnboardingScreen";
 import { useTheme } from "../../theme/provider";
+import { getAuthEmailDisplay } from "../../utils/authEmailDisplay";
 
 type SetupProfilePayload = {
   name: string;
@@ -85,6 +86,7 @@ export default function SetupProfileScreen({
     : isAppleAuth
       ? "Apple connected"
       : "Email verified";
+  const displayedAuthEmail = getAuthEmailDisplay(authEmail, authSource);
 
   const initials = useMemo(() => {
     const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -341,7 +343,7 @@ export default function SetupProfileScreen({
                     {connectedAccountLabel}
                   </Text>
                   <Text style={[styles.connectionValue, { color: theme.colors.foreground }]}>
-                    {authEmail}
+                    {displayedAuthEmail}
                   </Text>
                 </View>
                 <Check color={theme.colors.success} size={16} />

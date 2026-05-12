@@ -4,12 +4,14 @@
 
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import HostedRevenueCatPaywallScreen from "../src/screens/profile/HostedRevenueCatPaywallScreen";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import { hasRevenueCatHostedPaywall } from "../src/services/revenueCatService";
 import {
   getPaywallConfig,
+  syncPaywallPurchase,
   trackPaywallEvent,
 } from "../src/services/paywallService";
 
@@ -258,5 +260,205 @@ describe("HostedRevenueCatPaywallScreen", () => {
       })
     );
     expect(extractText(renderer?.toJSON())).toContain("Processing your purchase...");
+  });
+
+  it("shows sanitized copy for hosted Test Store purchase failures", async () => {
+    const alertSpy = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+            <HostedRevenueCatPaywallScreen />
+          </SafeAreaProvider>
+        );
+
+        await flushPromises();
+      });
+
+      const { default: RevenueCatUI } = require("react-native-purchases-ui");
+
+      await ReactTestRenderer.act(async () => {
+        RevenueCatUI.Paywall.mock.calls[0][0].onPurchaseError({
+          error: {
+            code: "42",
+            message:
+              "Error 42: Purchase failure simulated successfully in Test Store.",
+            readableErrorCode: "TEST_STORE_SIMULATED_PURCHASE_ERROR",
+            userInfo: {
+              readableErrorCode: "TEST_STORE_SIMULATED_PURCHASE_ERROR",
+            },
+            underlyingErrorMessage:
+              "Purchase failure simulated successfully in Test Store.",
+            userCancelled: false,
+          },
+        });
+        await flushPromises();
+      });
+
+      const sanitizedMessage =
+        "The test purchase was declined. No charge was made. You can try again when you're ready.";
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "Purchase not completed",
+        sanitizedMessage
+      );
+      expect(trackPaywallEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "purchase_failure",
+          metadata: expect.objectContaining({
+            message: sanitizedMessage,
+          }),
+        })
+      );
+    } finally {
+      alertSpy.mockRestore();
+    }
+  });
+
+  it("does not continue when hosted restore finds no active purchase", async () => {
+    const alertSpy = jest
+      .spyOn(Alert, "alert")
+      .mockImplementation(() => undefined);
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+            <HostedRevenueCatPaywallScreen />
+          </SafeAreaProvider>
+        );
+
+        await flushPromises();
+      });
+
+      const { default: RevenueCatUI } = require("react-native-purchases-ui");
+
+      await ReactTestRenderer.act(async () => {
+        RevenueCatUI.Paywall.mock.calls[0][0].onRestoreCompleted({
+          customerInfo: {
+            entitlements: {
+              active: {},
+            },
+          },
+        });
+        await flushPromises();
+      });
+
+      const noPurchasesMessage =
+        "We could not find an active premium purchase for this account.";
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "No purchases found",
+        noPurchasesMessage
+      );
+      expect(syncPaywallPurchase).not.toHaveBeenCalled();
+      expect(useAppStore.getState().stage).toBe("hosted-paywall");
+      expect(trackPaywallEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "purchase_failure",
+          metadata: expect.objectContaining({
+            action: "restore",
+            message: noPurchasesMessage,
+          }),
+        })
+      );
+    } finally {
+      alertSpy.mockRestore();
+    }
+  });
+
+  it("keeps the hosted success flow alive when RevenueCat dismisses during first-time purchase finalization", async () => {
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <HostedRevenueCatPaywallScreen />
+        </SafeAreaProvider>
+      );
+
+      await flushPromises();
+    });
+
+    const { default: RevenueCatUI } = require("react-native-purchases-ui");
+    const paywallCallIndex = RevenueCatUI.Paywall.mock.calls.length - 1;
+    const paywallProps = RevenueCatUI.Paywall.mock.calls[paywallCallIndex][0];
+
+    await ReactTestRenderer.act(async () => {
+      paywallProps.onPurchaseStarted({
+        packageBeingPurchased: {
+          identifier: "$rc_annual",
+        },
+      });
+      paywallProps.onDismiss();
+      await flushPromises();
+    });
+
+    expect(useAppStore.getState().stage).toBe("hosted-paywall");
+    expect(trackPaywallEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "paywall_dismiss",
+      })
+    );
+    expect(extractText(renderer?.toJSON())).toContain(
+      "Processing your purchase..."
+    );
+
+    await ReactTestRenderer.act(async () => {
+      paywallProps.onPurchaseCompleted({
+        customerInfo: {
+          entitlements: {
+            active: {},
+          },
+        },
+        storeTransaction: {},
+      });
+      await flushPromises();
+    });
+
+    expect(extractText(renderer?.toJSON())).toContain("Purchase received");
+    expect(useAppStore.getState().stage).toBe("hosted-paywall");
+  });
+
+  it("shows the payment success surface when hosted purchase is completed before entitlement sync catches up", async () => {
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <HostedRevenueCatPaywallScreen />
+        </SafeAreaProvider>
+      );
+
+      await flushPromises();
+    });
+
+    const { default: RevenueCatUI } = require("react-native-purchases-ui");
+
+    await ReactTestRenderer.act(async () => {
+      RevenueCatUI.Paywall.mock.calls[0][0].onPurchaseCompleted({
+        customerInfo: {
+          entitlements: {
+            active: {},
+          },
+        },
+        storeTransaction: {},
+      });
+      await flushPromises();
+    });
+
+    expect(syncPaywallPurchase).not.toHaveBeenCalled();
+    expect(extractText(renderer?.toJSON())).toContain("Purchase received");
+    expect(extractText(renderer?.toJSON())).toContain(
+      "Your purchase went through. We are still updating premium access on this account."
+    );
+    expect(useAppStore.getState().stage).toBe("hosted-paywall");
+    expect(trackPaywallEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "purchase_success",
+        metadata: expect.objectContaining({
+          activationPending: true,
+        }),
+      })
+    );
   });
 });

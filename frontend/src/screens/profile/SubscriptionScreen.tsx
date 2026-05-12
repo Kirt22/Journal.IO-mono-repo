@@ -29,6 +29,11 @@ import {
 import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
 import { syncPaywallPurchase } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
+import {
+  getPurchaseErrorMessage,
+  NO_RESTORED_PURCHASE_MESSAGE,
+  NO_RESTORED_PURCHASE_TITLE,
+} from "./paywallShared";
 
 type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
 
@@ -278,8 +283,8 @@ export default function SubscriptionScreen({
 
       if (!premiumAccess || !activeEntitlement) {
         Alert.alert(
-          "No active purchase found",
-          "We could not find an active premium purchase for this account."
+          NO_RESTORED_PURCHASE_TITLE,
+          NO_RESTORED_PURCHASE_MESSAGE
         );
         return;
       }
@@ -322,9 +327,7 @@ export default function SubscriptionScreen({
 
       Alert.alert(
         "Restore failed",
-        error instanceof Error
-          ? error.message
-          : "We could not restore purchases right now."
+        getPurchaseErrorMessage(error)
       );
     } finally {
       setIsRestoring(false);

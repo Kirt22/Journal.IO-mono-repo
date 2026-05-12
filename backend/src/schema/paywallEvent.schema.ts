@@ -71,6 +71,7 @@ const paywallEventSchema = new mongoose.Schema<IPaywallEvent>(
 
 paywallEventSchema.index({ userId: 1, createdAt: -1 });
 paywallEventSchema.index({ placementKey: 1, createdAt: -1 });
+paywallEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
 
 export const paywallEventModel: Model<IPaywallEvent> =
   connectMongoDB.model<IPaywallEvent>("paywall_events", paywallEventSchema);

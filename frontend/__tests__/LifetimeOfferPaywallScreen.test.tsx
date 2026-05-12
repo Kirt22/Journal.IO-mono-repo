@@ -283,6 +283,9 @@ describe("LifetimeOfferPaywallScreen", () => {
     expect(getRevenueCatOfferings).toHaveBeenCalledTimes(1);
     expect(getRevenueCatPaywallPlans).toHaveBeenCalledTimes(1);
     expect(trackPaywallEvent).toHaveBeenCalled();
+    expect(extractText(renderer!.toJSON())).toContain(
+      "Lifetime access is active."
+    );
   });
 
   it("uses the active app theme instead of a hardcoded dark palette", async () => {

@@ -60,7 +60,10 @@ describe("revenueCatService", () => {
     } as any);
 
     expect(plans).toHaveLength(2);
-    expect(plans.map(plan => plan.title)).toEqual(["YEARLY", "WEEKLY"]);
+    expect(plans.map((plan: { title: string }) => plan.title)).toEqual([
+      "YEARLY",
+      "WEEKLY",
+    ]);
     expect(plans[0]?.badge).toBe("Most Value");
     expect(plans[0]?.subtitle).toBe("$5.00/month equivalent");
     expect(plans[1]?.price).toBe("$7.99/week");

@@ -62,16 +62,24 @@ import {
 } from "../services/reminderNotificationsService";
 import { useAppStore } from "../store/appStore";
 import { useTheme, useThemeTransition } from "../theme/provider";
+import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
 import { getJournalEntries } from "../services/journalService";
 
 type HomeScreenProps = {
   userName?: string;
+  userEmail?: string | null;
+  fallbackEmail?: string | null;
+  userGoals?: string[];
+  onboardingGoals?: string[];
+  userAvatarColor?: string | null;
+  userProfilePic?: string | null;
+  isPremium?: boolean;
   onOpenNewEntry: (initialPrompt?: string) => void;
   onOpenStreaks: () => void;
   onOpenSearch?: () => void;
   onOpenReminders?: () => void;
-  onToggleTheme: (nextMode: "light" | "dark") => void;
+  onToggleTheme: (nextMode: ThemeMode | null) => void;
 };
 
 type MoodType = MoodValue;

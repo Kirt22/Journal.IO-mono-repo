@@ -422,7 +422,19 @@ const sendEmailVerificationCode = async ({
     helloHost: getEnvValue("AUTH_EMAIL_HELO_HOST") || os.hostname() || "localhost",
   });
 
-  await sendMailViaSmtpImpl(buildSmtpMailInput({ email, code }));
+  try {
+    await sendMailViaSmtpImpl(buildSmtpMailInput({ email, code }));
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") {
+      throw error;
+    }
+
+    console.warn("[Auth][email_verification] smtp_delivery_failed_dev_fallback", {
+      to: maskEmailAddress(email),
+      message: error instanceof Error ? error.message : "Unknown SMTP failure",
+    });
+    console.info(`[Auth] Email verification code for ${email}: ${code}`);
+  }
 };
 
 export {

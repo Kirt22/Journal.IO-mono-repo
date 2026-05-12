@@ -48,7 +48,12 @@ export function navigateRoot<RouteName extends keyof RootStackParamList>(
     return;
   }
 
-  navigationRef.navigate(name, params as never);
+  navigationRef.dispatch(
+    CommonActions.navigate({
+      name: name as string,
+      params,
+    })
+  );
 }
 
 export function navigateMainApp<RouteName extends keyof MainAppStackParamList>(

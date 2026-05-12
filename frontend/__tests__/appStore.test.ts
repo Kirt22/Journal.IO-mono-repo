@@ -40,6 +40,9 @@ describe("appStore", () => {
   afterEach(() => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
+    jest.dontMock("../src/services/authService");
+    jest.dontMock("../src/services/userService");
+    jest.dontMock("../src/utils/tokenStorage");
     resetAppStore();
   });
 
@@ -329,6 +332,66 @@ describe("appStore", () => {
     expect(callOrder).toEqual(["saveTokens", "updatePremiumStatus"]);
     expect(freshStore.getState().session?.user.isPremium).toBe(true);
     expect(freshStore.getState().pendingPremiumActivation).toBe(false);
+  });
+
+  it("routes unverified email sign-ins to the verification screen", async () => {
+    jest.resetModules();
+
+    const resendEmailVerification = jest.fn(async () => ({
+      email: "alex@example.com",
+      verificationRequired: true,
+      expiresInSeconds: 1800,
+    }));
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    jest.doMock("../src/services/authService", () => {
+      const { ApiError } = require("../src/utils/apiClient");
+
+      return {
+        resendEmailVerification,
+        logout: jest.fn(async () => undefined),
+        signInWithEmail: jest.fn(async () => {
+          throw new ApiError("Please verify your email before signing in.", {
+            status: 403,
+            code: "EMAIL_NOT_VERIFIED",
+          });
+        }),
+        signInWithApple: jest.fn(),
+        signInWithGoogle: jest.fn(),
+        signUpWithEmail: jest.fn(),
+        verifyEmail: jest.fn(),
+      };
+    });
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().signIn({
+        email: " alex@example.com ",
+        password: "password-123",
+      });
+    });
+
+    expect(freshStore.getState().stage).toBe("verify-email");
+    expect(freshStore.getState().pendingEmail).toBe("alex@example.com");
+    expect(freshStore.getState().authSource).toBe("email");
+    expect(resendEmailVerification).toHaveBeenCalledWith({
+      email: "alex@example.com",
+    });
   });
 
   it("clears local reminders when onboarding selects no reminders", async () => {

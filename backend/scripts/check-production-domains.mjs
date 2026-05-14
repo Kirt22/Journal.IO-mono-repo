@@ -5,6 +5,10 @@ const resolver = new Resolver();
 const apiDomain = process.env.PRODUCTION_API_DOMAIN?.trim() || "api.journalio.app";
 const apiBaseUrl =
   process.env.PRODUCTION_API_BASE_URL?.trim() || `https://${apiDomain}`;
+const publicDomain =
+  process.env.PRODUCTION_PUBLIC_DOMAIN?.trim() || "journalio.app";
+const publicBaseUrl =
+  process.env.PRODUCTION_PUBLIC_BASE_URL?.trim() || `https://${publicDomain}`;
 const mailDomain =
   process.env.PRODUCTION_MAIL_DOMAIN?.trim() || "mail.journalio.app";
 const expectedSender =
@@ -140,6 +144,26 @@ const fetchJson = async url => {
   }
 };
 
+const fetchPage = async url => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      finalUrl: response.url,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const checkEndpoint = async ({ label, url }) => {
   try {
     const response = await fetchJson(url);
@@ -151,6 +175,27 @@ const checkEndpoint = async ({ label, url }) => {
       detail: JSON.stringify({
         status: response.status,
         payload: response.payload,
+      }),
+    });
+  } catch (error) {
+    pushResult({
+      label,
+      status: "fail",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const checkPageEndpoint = async ({ label, url }) => {
+  try {
+    const response = await fetchPage(url);
+
+    pushResult({
+      label,
+      status: response.ok ? "pass" : "fail",
+      detail: JSON.stringify({
+        status: response.status,
+        finalUrl: response.finalUrl,
       }),
     });
   } catch (error) {
@@ -178,6 +223,7 @@ const summarize = () => {
   console.log("-------");
   console.log(`Expected sender: ${expectedSender}`);
   console.log(`API base URL: ${apiBaseUrl}`);
+  console.log(`Public base URL: ${publicBaseUrl}`);
   console.log(`Failures: ${failCount}`);
   console.log(`Warnings: ${warnCount}`);
 
@@ -195,6 +241,7 @@ const summarize = () => {
 };
 
 await checkDns(apiDomain);
+await checkDns(publicDomain);
 await checkDns(mailDomain);
 
 printSection("HTTP checks");
@@ -205,6 +252,26 @@ await checkEndpoint({
 await checkEndpoint({
   label: `${apiBaseUrl}/ready`,
   url: `${apiBaseUrl}/ready`,
+});
+await checkPageEndpoint({
+  label: `${publicBaseUrl}/privacy`,
+  url: `${publicBaseUrl}/privacy`,
+});
+await checkPageEndpoint({
+  label: `${publicBaseUrl}/terms`,
+  url: `${publicBaseUrl}/terms`,
+});
+await checkPageEndpoint({
+  label: `${publicBaseUrl}/privacy-choices`,
+  url: `${publicBaseUrl}/privacy-choices`,
+});
+await checkPageEndpoint({
+  label: `${publicBaseUrl}/account-deletion`,
+  url: `${publicBaseUrl}/account-deletion`,
+});
+await checkPageEndpoint({
+  label: `${publicBaseUrl}/support`,
+  url: `${publicBaseUrl}/support`,
 });
 
 printSection("Results");

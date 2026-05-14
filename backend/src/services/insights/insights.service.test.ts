@@ -98,7 +98,7 @@ test("getInsightsAiAnalysis blocks opted-out users before loading AI analysis", 
       assert.ok(error instanceof AiAnalysisDisabledError);
       assert.equal(
         (error as Error).message,
-        "AI analysis is turned off for this account."
+        "AI analysis is turned off for your account."
       );
       return true;
     }
@@ -125,7 +125,7 @@ test("getInsightsAiAnalysis blocks non-premium users before loading AI analysis"
       assert.ok(error instanceof PremiumFeatureRequiredError);
       assert.equal(
         (error as Error).message,
-        "Premium membership is required for this feature."
+        "This feature is available with Premium."
       );
       return true;
     }

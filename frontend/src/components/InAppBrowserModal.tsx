@@ -59,7 +59,6 @@ export default function InAppBrowserModal() {
           {
             borderBottomColor: theme.colors.border,
             backgroundColor: theme.colors.background,
-            paddingTop: 15,
           },
         ]}
       >
@@ -221,6 +220,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     alignItems: "center",
+    paddingTop: 15,
     paddingHorizontal: 16,
     paddingBottom: 10,
     gap: 12,

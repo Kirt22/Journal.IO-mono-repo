@@ -195,6 +195,6 @@ Your continued use of the Services after the updated policy becomes effective me
 
 ## 12. Contact Us
 
-If you have questions or requests about this Privacy Policy or your personal information, contact us at:
+If you have questions or requests about this Privacy Policy or your personal information, please use the Journal.IO support page:
 
-- Email: support@journalio.app
+- `https://api.journalio.app/support`

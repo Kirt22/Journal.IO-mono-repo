@@ -12,11 +12,21 @@ type LegalPageDocument = {
   description: string;
   effectiveDate: string;
   sections: LegalSection[];
+  actions?: Array<{
+    label: string;
+    href: string;
+    variant?: "primary" | "secondary";
+    external?: boolean;
+  }>;
+  helperNote?: string;
+  privacyNote?: string;
 };
 
-type LegalPageSlug = "privacy" | "terms" | "privacy-choices";
+type LegalPageSlug = "privacy" | "terms" | "privacy-choices" | "support";
 
-const SUPPORT_EMAIL = "support@journalio.app";
+const LEGAL_BASE_URL = "https://api.journalio.app";
+const SUPPORT_PAGE_URL = `${LEGAL_BASE_URL}/support`;
+const SUPPORT_FORM_URL = "https://forms.gle/Y2WSwrtQCmTXtHLUA";
 const EFFECTIVE_DATE = "April 22, 2026";
 
 const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
@@ -100,7 +110,7 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
       {
         heading: "Contact",
         paragraphs: [
-          `If you have questions or requests about privacy or your personal information, contact ${SUPPORT_EMAIL}.`,
+          `If you have questions or requests about privacy or your personal information, please use the Journal.IO support page at ${SUPPORT_PAGE_URL}.`,
         ],
       },
     ],
@@ -179,7 +189,9 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
       },
       {
         heading: "Contact",
-        paragraphs: [`Questions about these terms can be sent to ${SUPPORT_EMAIL}.`],
+        paragraphs: [
+          `Questions about these terms can be submitted through the Journal.IO support page at ${SUPPORT_PAGE_URL}.`,
+        ],
       },
     ],
   },
@@ -208,10 +220,57 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
       {
         heading: "Need Help",
         paragraphs: [
-          `If you cannot access the app and need help with privacy or deletion, email ${SUPPORT_EMAIL} from the address associated with your account.`,
+          `If you cannot access the app and need help with privacy or deletion, use the Journal.IO support page at ${SUPPORT_PAGE_URL} and include the email address associated with your account.`,
         ],
       },
     ],
+  },
+  support: {
+    pageLabel: "Support",
+    title: "Journal.IO Support",
+    description:
+      "Need help with Journal.IO? Submit a support request and we’ll review it as soon as possible.",
+    effectiveDate: EFFECTIVE_DATE,
+    sections: [
+      {
+        heading: "How Support Works",
+        paragraphs: [
+          "Use the Journal.IO support ticket form to ask for help with account access, subscriptions, app issues, reminders, AI insights, privacy questions, or general feedback.",
+          "This page is public and does not require a Journal.IO login.",
+        ],
+      },
+      {
+        heading: "Support Categories",
+        bullets: [
+          "Login or account help",
+          "Subscription or billing questions",
+          "App bugs or crashes",
+          "Journal entry or reminder issues",
+          "AI insights or premium feature issues",
+          "Privacy or data questions",
+          "General feedback",
+        ],
+      },
+      {
+        heading: "What Journal.IO Can Help With",
+        paragraphs: [
+          "We’re here to help with account access, subscriptions, app issues, reminders, AI insights, privacy questions, and general feedback.",
+          "Journal.IO can help with product and account questions, but it does not provide medical, psychiatric, or crisis-response support.",
+        ],
+      },
+    ],
+    actions: [
+      {
+        label: "Submit a Support Ticket",
+        href: SUPPORT_FORM_URL,
+        variant: "primary",
+        external: true,
+      },
+    ],
+    helperNote:
+      "Please include the email address associated with your Journal.IO account so we can help you faster.",
+    privacyNote:
+      "Support requests may include your email address and issue details. Please do not include passwords, payment card details, medical information, or private journal entries in your support request.",
   },
 };
 
@@ -242,6 +301,48 @@ const renderSection = (section: LegalSection): string => {
   `;
 };
 
+const renderActions = (
+  actions: NonNullable<LegalPageDocument["actions"]>
+): string => `
+  <div class="action-grid">
+    ${actions
+      .map(action => {
+        const target = action.external ? ` target="_blank" rel="noreferrer noopener"` : "";
+        const variant = action.variant || "secondary";
+
+        return `<a class="action-button ${variant}" href="${escapeHtml(action.href)}"${target}>${escapeHtml(action.label)}</a>`;
+      })
+      .join("")}
+  </div>
+`;
+
+const renderNotes = ({
+  helperNote,
+  privacyNote,
+}: Pick<LegalPageDocument, "helperNote" | "privacyNote">): string => {
+  const notes: string[] = [];
+
+  if (helperNote) {
+    notes.push(`
+      <section class="note-card">
+        <h2>Before You Submit</h2>
+        <p>${escapeHtml(helperNote)}</p>
+      </section>
+    `);
+  }
+
+  if (privacyNote) {
+    notes.push(`
+      <section class="note-card warning">
+        <h2>Privacy Note</h2>
+        <p>${escapeHtml(privacyNote)}</p>
+      </section>
+    `);
+  }
+
+  return notes.join("");
+};
+
 const renderLayout = ({
   pageTitle,
   heroTitle,
@@ -266,8 +367,9 @@ const renderLayout = ({
         --text: #201914;
         --muted: #65574a;
         --border: #e6d8ca;
-        --accent: #8e4636;
-        --accent-soft: #f2e4da;
+        --accent: #e87461;
+        --accent-strong: #cf5f4e;
+        --accent-soft: #f8e3de;
       }
 
       * {
@@ -376,6 +478,61 @@ const renderLayout = ({
         font-size: 0.92rem;
       }
 
+      .action-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 24px 0;
+      }
+
+      .action-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+        transition: transform 140ms ease, box-shadow 140ms ease;
+      }
+
+      .action-button:hover {
+        transform: translateY(-1px);
+      }
+
+      .action-button.primary {
+        color: #ffffff;
+        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+        box-shadow: 0 16px 30px rgba(232, 116, 97, 0.18);
+      }
+
+      .action-button.secondary {
+        color: var(--accent);
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid var(--border);
+      }
+
+      .note-card {
+        margin-top: 18px;
+        padding: 16px 18px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .note-card.warning {
+        background: #fff7f4;
+      }
+
+      .note-card h2 {
+        margin-bottom: 8px;
+      }
+
+      .note-card p {
+        margin: 0;
+      }
+
       .card-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -423,13 +580,14 @@ const renderLayout = ({
             <a href="/privacy">Privacy Policy</a>
             <a href="/terms">Terms of Service</a>
             <a href="/privacy-choices">Privacy Choices</a>
+            <a href="/support">Support</a>
           </nav>
           <h1>${escapeHtml(heroTitle)}</h1>
           <p class="lede">${escapeHtml(description)}</p>
         </header>
         <div class="content">
           ${body}
-          <p class="footer">Questions can be sent to <a class="inline-link" href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
+          <p class="footer">Need help with Journal.IO? Visit <a class="inline-link" href="/support">Support</a>.</p>
         </div>
       </div>
     </main>
@@ -439,9 +597,13 @@ const renderLayout = ({
 export const getLegalPageHtml = (slug: LegalPageSlug): string => {
   const document = legalDocuments[slug];
   const sections = document.sections.map(renderSection).join("");
+  const actions = document.actions?.length ? renderActions(document.actions) : "";
+  const notes = renderNotes(document);
   const body = `
     <div class="effective-date">Effective Date: ${escapeHtml(document.effectiveDate)}</div>
     ${sections}
+    ${actions}
+    ${notes}
   `;
 
   return renderLayout({
@@ -457,7 +619,7 @@ export const getLegalHubHtml = (): string =>
     pageTitle: "Journal.IO Legal",
     heroTitle: "Journal.IO Legal",
     description:
-      "Public legal pages for app-review and user access, including privacy, terms, and account-deletion guidance.",
+      "Public legal and support pages for app-review and user access, including privacy, terms, account-deletion guidance, and support contact.",
     body: `
       <div class="card-grid">
         <a class="card" href="/privacy">
@@ -471,6 +633,10 @@ export const getLegalHubHtml = (): string =>
         <a class="card" href="/privacy-choices">
           <h2>Privacy Choices</h2>
           <p>How to delete an account, export data, and manage privacy controls.</p>
+        </a>
+        <a class="card" href="/support">
+          <h2>Support</h2>
+          <p>How to contact Journal.IO for account, billing, privacy, and app help.</p>
         </a>
       </div>
     `,
@@ -499,5 +665,9 @@ export const registerLegalRoutes = (app: Express): void => {
 
   app.get("/account-deletion", (_req: Request, res: Response) => {
     res.redirect(302, "/privacy-choices");
+  });
+
+  app.get("/support", (_req: Request, res: Response) => {
+    sendHtml(res, getLegalPageHtml("support"));
   });
 };

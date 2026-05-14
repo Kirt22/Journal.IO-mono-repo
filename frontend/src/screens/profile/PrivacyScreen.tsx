@@ -19,7 +19,7 @@ import { trackPaywallEvent } from "../../services/paywallService";
 import { deleteAccount, exportAllEntries } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
-import { LEGAL_URLS, SUPPORT_EMAIL, openExternalUrl } from "../../utils/legalLinks";
+import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 
 type PrivacyScreenProps = {
@@ -320,15 +320,19 @@ export default function PrivacyScreen({
         ]}
       >
         <Text style={[styles.supportTitle, { color: theme.colors.foreground }]}>
-          Have questions about your data?
+          Help & Support
+        </Text>
+        <Text style={[styles.supportBody, { color: theme.colors.mutedForeground }]}>
+          Need help with account access, subscriptions, reminders, AI insights, privacy questions,
+          or general feedback? Open the public Journal.IO support page to submit a support ticket.
         </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() =>
             handleOpenLink(
-              LEGAL_URLS.supportEmail,
+              LEGAL_URLS.supportPage,
               "Support",
-              `Unable to open your email app right now. Contact ${SUPPORT_EMAIL}.`
+              "Unable to open the support page right now."
             )
           }
           style={({ pressed }) => [
@@ -341,7 +345,7 @@ export default function PrivacyScreen({
           ]}
         >
           <Text style={[styles.supportButtonText, { color: theme.colors.foreground }]}>
-            Contact Support
+            Open Support Page
           </Text>
         </Pressable>
       </View>
@@ -463,6 +467,11 @@ const styles = StyleSheet.create({
   supportTitle: {
     fontSize: 15,
     fontWeight: "600",
+    textAlign: "center",
+  },
+  supportBody: {
+    fontSize: 13,
+    lineHeight: 19,
     textAlign: "center",
   },
   supportButton: {

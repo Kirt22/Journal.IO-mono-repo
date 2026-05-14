@@ -15,9 +15,8 @@ jest.mock("../src/utils/legalLinks", () => ({
     termsOfService: "https://api.journalio.app/terms",
     privacyChoices: "https://api.journalio.app/privacy-choices",
     accountDeletion: "https://api.journalio.app/account-deletion",
-    supportEmail: "mailto:support@journalio.app",
+    supportPage: "https://api.journalio.app/support",
   },
-  SUPPORT_EMAIL: "support@journalio.app",
   openExternalUrl: jest.fn(async () => undefined),
 }));
 
@@ -149,7 +148,7 @@ test("opens hosted legal pages from the privacy screen", async () => {
   );
 });
 
-test("opens the support mail link from the privacy screen", async () => {
+test("opens the support page from the privacy screen", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(() => {
@@ -165,11 +164,11 @@ test("opens the support mail link from the privacy screen", async () => {
   });
 
   await ReactTestRenderer.act(async () => {
-    await findPressableByLabel(root!, "Contact Support").props.onPress();
+    await findPressableByLabel(root!, "Open Support Page").props.onPress();
   });
 
   expect(openExternalUrl).toHaveBeenCalledWith(
-    LEGAL_URLS.supportEmail,
+    LEGAL_URLS.supportPage,
     "Support"
   );
 });

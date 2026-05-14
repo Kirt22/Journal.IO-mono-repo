@@ -312,7 +312,7 @@ test("updatePrivacyAiOptOut rejects non-premium users", async () => {
       assert.ok(error instanceof PremiumPrivacyModeRequiredError);
       assert.equal(
         (error as Error).message,
-        "Premium membership is required for Privacy Mode."
+        "Privacy Mode is available with Premium."
       );
       return true;
     }

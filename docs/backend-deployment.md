@@ -74,14 +74,15 @@ For the frontend production API switch:
 
 For public legal pages needed by App Store / Play review:
 
-- add `journalio.app` as an additional custom domain on the same Render backend service
-- keep `api.journalio.app` for the mobile API base URL
+- keep `api.journalio.app` as both the mobile API base URL and the host for the public legal/support pages
 - the backend now serves the public legal pages at:
-  - `https://journalio.app/privacy`
-  - `https://journalio.app/terms`
-  - `https://journalio.app/privacy-choices`
-  - `https://journalio.app/account-deletion`
-- if you also use `www.journalio.app`, point it at the same service or redirect it to `journalio.app`
+  - `https://api.journalio.app/privacy`
+  - `https://api.journalio.app/terms`
+  - `https://api.journalio.app/privacy-choices`
+  - `https://api.journalio.app/account-deletion`
+  - `https://api.journalio.app/support`
+- use `https://api.journalio.app/support` as the App Store Connect Support URL
+- keep the `/support` page public and have it link users to the Google Form support ticket flow instead of exposing a raw form URL as the App Store listing URL
 
 ## Render Deploy Steps
 

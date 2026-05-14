@@ -134,7 +134,7 @@ Last updated: `2026-04-16`
 - `[ ]` App icon and launch/store assets finalized
 - `[ ]` App Store screenshots finalized
 - `[ ]` App description / subtitle / keywords finalized
-- `[ ]` Privacy policy and support URLs finalized
+- `[x]` Privacy policy and support URLs finalized
 - `[ ]` App Store privacy questionnaire completed
 - `[ ]` In-app purchase metadata reviewed in App Store Connect
 - `[ ]` Final production build generated and tested

@@ -13,6 +13,9 @@
 logs
 *.log
 
+# Local design/reference assets
+Journal.io assets/
+
 
 ############################################
 # BACKEND (Node.js)

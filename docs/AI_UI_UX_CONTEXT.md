@@ -310,7 +310,7 @@ Settings and privacy expectations:
 - locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
 - the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
-- the Privacy screen should open the hosted public legal pages at `api.journalio.app/privacy`, `api.journalio.app/terms`, and `api.journalio.app/privacy-choices` inside the app’s in-app browser modal route so the app and store listing point to the same sources without sending users to Safari
+- the Privacy screen should open the hosted public legal pages at `api.journalio.app/privacy`, `api.journalio.app/terms`, and `api.journalio.app/privacy-choices`, and its support/help action should open `api.journalio.app/support`, all inside the app’s in-app browser modal route so the app and store listing point to the same sources without sending users to Safari
 
 ---
 

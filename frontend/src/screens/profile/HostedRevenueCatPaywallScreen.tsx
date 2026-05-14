@@ -469,7 +469,6 @@ export default function HostedRevenueCatPaywallScreen() {
     },
     [
       completePremiumActivation,
-      continueFromHostedPaywall,
       sessionUserId,
       trackEvent,
     ]

@@ -76,7 +76,7 @@ test("suggestJournalTags rejects non-premium users before generating suggestions
       assert.ok(error instanceof PremiumTagSuggestionsRequiredError);
       assert.equal(
         (error as Error).message,
-        "Premium membership is required for AI tag suggestions."
+        "AI tag suggestions are available with Premium."
       );
       return true;
     }
@@ -96,7 +96,7 @@ test("getJournalQuickAnalysis rejects non-premium users", async () => {
       assert.ok(error instanceof PremiumQuickAnalysisRequiredError);
       assert.equal(
         (error as Error).message,
-        "Premium membership is required for quick analysis."
+        "Quick analysis is available with Premium."
       );
       return true;
     }
@@ -116,7 +116,7 @@ test("getJournalQuickAnalysis rejects opted-out users", async () => {
       assert.ok(error instanceof QuickAnalysisDisabledError);
       assert.equal(
         (error as Error).message,
-        "Quick analysis is turned off for this account."
+        "Quick analysis is turned off for your account."
       );
       return true;
     }

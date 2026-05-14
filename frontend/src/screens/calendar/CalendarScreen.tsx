@@ -316,6 +316,10 @@ export default function CalendarScreen() {
     }
   };
 
+  const handleFavoritePress = (entryId: string, nextFavorite: boolean) => {
+    handleFavoriteToggle(entryId, nextFavorite).catch(() => undefined);
+  };
+
   const handleViewModeChange = useCallback((nextView: ViewMode) => {
     if (view === nextView) {
       return;
@@ -435,9 +439,7 @@ export default function CalendarScreen() {
                     key={entry.id}
                     entry={entry}
                     onPress={() => openJournalEntry(entry.id)}
-                    onFavoritePress={() =>
-                      void handleFavoriteToggle(entry.id, !entry.isFavorite)
-                    }
+                    onFavoritePress={() => handleFavoritePress(entry.id, !entry.isFavorite)}
                     isFavoriteUpdating={favoriteUpdatingId === entry.id}
                     previewLines={3}
                   />
@@ -604,7 +606,7 @@ export default function CalendarScreen() {
                           entry={entry}
                           onPress={() => openJournalEntry(entry.id)}
                           onFavoritePress={() =>
-                            void handleFavoriteToggle(entry.id, !entry.isFavorite)
+                            handleFavoritePress(entry.id, !entry.isFavorite)
                           }
                           isFavoriteUpdating={favoriteUpdatingId === entry.id}
                           previewLines={3}

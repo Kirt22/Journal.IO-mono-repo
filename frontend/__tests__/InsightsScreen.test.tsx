@@ -505,7 +505,7 @@ test("shows a locked AI analysis state for non-premium users", async () => {
 
   expect(getInsightsOverview).toHaveBeenCalledTimes(1);
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
-  expect(useAppStore.getState().stage).toBe("paywall");
+  expect(useAppStore.getState().stage).toBe("hosted-paywall");
   expect(useAppStore.getState().activePaywallPlacementKey).toBe(
     "insights_ai_tab_locked"
   );

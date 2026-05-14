@@ -12,6 +12,8 @@ import {
   restoreRevenueCatPurchases,
 } from "../src/services/revenueCatService";
 
+const originalConsoleError = console.error;
+
 jest.mock("../src/services/revenueCatService", () => ({
   getRevenueCatActiveEntitlement: jest.fn(customerInfo =>
     customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null
@@ -115,7 +117,14 @@ function extractText(node: unknown): string {
   return "";
 }
 
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
 beforeEach(() => {
+  console.error = jest.fn();
+
   ReactTestRenderer.act(() => {
     resetAppStore();
   });
@@ -146,8 +155,22 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  console.error = originalConsoleError;
+});
+
 test("shows member-facing details for renewable premium plans", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  let resolveMembershipRefresh:
+    | ((value: { hasPremiumAccess: boolean; customerInfo?: unknown }) => void)
+    | null = null;
+
+  (refreshRevenueCatEntitlementState as jest.Mock).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        resolveMembershipRefresh = resolve;
+      })
+  );
 
   await ReactTestRenderer.act(async () => {
     root = ReactTestRenderer.create(
@@ -155,7 +178,24 @@ test("shows member-facing details for renewable premium plans", async () => {
         <SubscriptionScreen onBack={jest.fn()} currentPlanKey="weekly" />
       </SafeAreaProvider>
     );
-    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    resolveMembershipRefresh?.({
+      hasPremiumAccess: true,
+      customerInfo: {
+        entitlements: {
+          active: {
+            "Journal.IO Pro": {
+              identifier: "Journal.IO Pro",
+              isActive: true,
+              store: "APP_STORE",
+            },
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
   });
 
   expect(refreshRevenueCatEntitlementState).toHaveBeenCalledWith("user-test");
@@ -170,6 +210,16 @@ test("shows member-facing details for renewable premium plans", async () => {
 
 test("shows non-recurring messaging for lifetime members", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  let resolveMembershipRefresh:
+    | ((value: { hasPremiumAccess: boolean; customerInfo?: unknown }) => void)
+    | null = null;
+
+  (refreshRevenueCatEntitlementState as jest.Mock).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        resolveMembershipRefresh = resolve;
+      })
+  );
 
   await ReactTestRenderer.act(async () => {
     root = ReactTestRenderer.create(
@@ -177,7 +227,24 @@ test("shows non-recurring messaging for lifetime members", async () => {
         <SubscriptionScreen onBack={jest.fn()} currentPlanKey="lifetime" />
       </SafeAreaProvider>
     );
-    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    resolveMembershipRefresh?.({
+      hasPremiumAccess: true,
+      customerInfo: {
+        entitlements: {
+          active: {
+            "Journal.IO Pro": {
+              identifier: "Journal.IO Pro",
+              isActive: true,
+              store: "APP_STORE",
+            },
+          },
+        },
+      },
+    });
+    await flushMicrotasks();
   });
 
   expect(extractText(root!.toJSON())).toContain("Lifetime Premium");

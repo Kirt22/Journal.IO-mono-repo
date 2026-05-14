@@ -67,7 +67,7 @@ Journal.IO may change pricing, packaging, or feature availability in the future.
 
 Your use of the Services is also governed by the Journal.IO Privacy Policy:
 
-- `https://journalio.app/privacy`
+- `https://api.journalio.app/privacy`
 
 ## 8. Suspension and Termination
 
@@ -109,6 +109,6 @@ Your continued use of Journal.IO after updated terms become effective means the 
 
 ## 13. Contact
 
-Questions about these terms can be sent to:
+Questions about these terms can be submitted through the Journal.IO support page:
 
-- support@journalio.app
+- `https://api.journalio.app/support`

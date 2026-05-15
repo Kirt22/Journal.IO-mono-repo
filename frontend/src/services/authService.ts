@@ -64,6 +64,7 @@ type VerifyEmailOptions = {
 type SignInWithEmailPayload = {
   email: string;
   password: string;
+  onboardingContext?: AuthOnboardingContext;
   onboardingCompleted?: boolean;
 };
 

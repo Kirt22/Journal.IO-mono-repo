@@ -61,6 +61,7 @@ const signInWithEmailSchema = z.object({
   body: z.object({
     email: emailSchema,
     password: passwordSchema,
+    onboardingContext: onboardingContextSchema,
     onboardingCompleted: z.boolean().optional(),
   }),
   query: z.object({}).optional(),

@@ -155,10 +155,11 @@ const verifyEmailController = async (req: Request, res: Response) => {
 
 const signInWithEmailController = async (req: Request, res: Response) => {
   try {
-    const { email, password, onboardingCompleted } = req.body;
+    const { email, password, onboardingContext, onboardingCompleted } = req.body;
     const result = await signInWithEmail({
       email,
       password,
+      onboardingContext,
       onboardingCompleted,
     });
 

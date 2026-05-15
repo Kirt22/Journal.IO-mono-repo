@@ -969,9 +969,19 @@ Request:
 {
   "email": "alex@example.com",
   "password": "strong-password",
+  "onboardingContext": {
+    "goals": ["Daily Reflection"],
+    "reminderPreference": "Evening",
+    "aiOptIn": false,
+    "privacyConsentAccepted": true
+  },
   "onboardingCompleted": true
 }
 ```
+
+Notes:
+
+- when onboarding context is present, the backend persists it on the user before returning the session
 
 Success `data`:
 

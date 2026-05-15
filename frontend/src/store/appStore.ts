@@ -1180,10 +1180,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   signIn: async payload => {
     let response: AuthSession;
+    const onboardingContext = buildOnboardingContext(get().onboardingData);
 
     try {
       response = await signInWithEmail({
         ...payload,
+        ...(onboardingContext ? { onboardingContext } : {}),
         onboardingCompleted: true,
       });
     } catch (error) {

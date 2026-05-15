@@ -61,6 +61,7 @@ AI opt-out must be enforced at runtime, not stored as cosmetic onboarding state 
 - `aiOptIn === false` must block `GET /insights/ai-analysis`
 - Home and Insights AI surfaces must stay hidden or disabled when the user has opted out
 - opting out should clear cached weekly AI-analysis payloads so stale AI summaries are not resurfaced later
+- onboarding AI preference must be persisted during email, Google, and Apple sign-in flows when onboarding context is supplied, so a user-selected Privacy Mode state is reflected after premium activation and later login
 
 Reminder controls are also privacy-sensitive:
 

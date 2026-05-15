@@ -94,6 +94,7 @@ type VerifyEmailInput = {
 type SignInWithEmailInput = {
   email: string;
   password: string;
+  onboardingContext?: EmailOnboardingContextInput;
   onboardingCompleted?: boolean;
 };
 
@@ -927,6 +928,7 @@ const verifyEmail = async ({
 const signInWithEmail = async ({
   email,
   password,
+  onboardingContext,
   onboardingCompleted,
 }: SignInWithEmailInput): Promise<
   | AuthSuccess<{
@@ -936,6 +938,8 @@ const signInWithEmail = async ({
   | AuthFailure
 > => {
   const normalizedEmail = normalizeEmail(email);
+  const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
+  const onboardingGoals = normalizedOnboardingContext?.goals || [];
   const user = await userModel.findOne({ email: normalizedEmail });
   const storedPasswordHash = user ? getStoredPasswordHash(user) : null;
 
@@ -959,6 +963,14 @@ const signInWithEmail = async ({
 
   if (!user.authProviders.includes("email")) {
     user.authProviders = [...user.authProviders, "email"];
+  }
+
+  if (normalizedOnboardingContext) {
+    user.onboardingContext = normalizedOnboardingContext;
+  }
+
+  if (onboardingGoals.length > 0) {
+    user.journalingGoals = onboardingGoals;
   }
 
   if (onboardingCompleted) {

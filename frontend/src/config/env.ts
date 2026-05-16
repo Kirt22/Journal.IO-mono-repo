@@ -9,6 +9,8 @@ import {
   REVENUECAT_MAIN_PAYWALL_OFFERING_ID,
   REVENUECAT_OTHER_SCREENS_OFFERING_ID,
   REVENUECAT_LIFETIME_OFFERING_ID,
+  IOS_APP_STORE_ID,
+  ANDROID_PLAY_STORE_PACKAGE_NAME,
 } from "@env";
 
 const normalizeEnvValue = (value?: string | null) => {
@@ -40,6 +42,10 @@ const env = {
   ),
   revenueCatLifetimeOfferingId: normalizeEnvValue(
     REVENUECAT_LIFETIME_OFFERING_ID
+  ),
+  iosAppStoreId: normalizeEnvValue(IOS_APP_STORE_ID),
+  androidPlayStorePackageName: normalizeEnvValue(
+    ANDROID_PLAY_STORE_PACKAGE_NAME
   ),
 } as const;
 

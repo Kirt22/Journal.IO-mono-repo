@@ -24,7 +24,7 @@ The interface should never feel clinical, gamified, or visually overwhelming.
 
 The current design flow is:
 
-1. Onboarding (8 steps)
+1. Onboarding (9 steps)
 2. Auth entry (email or Google)
 3. Create account (email path)
 4. Verify email (email path)
@@ -55,7 +55,7 @@ Navigation implementation note:
 
 # 3) Onboarding Experience
 
-The onboarding sequence now uses 8 steps:
+The onboarding sequence now uses 9 steps:
 
 1. Value introduction:
    - AI-powered insights
@@ -90,7 +90,13 @@ The onboarding sequence now uses 8 steps:
 7. AI comfort and feature explanation:
    - explain that AI-assisted prompts, summaries, tag suggestions, and Privacy Mode unlock with Premium
    - allow opt-in / opt-out posture without pressure so the preference is ready if the user upgrades later
-8. Privacy and trust:
+8. Excitement rating:
+   - show a warm, primary-tinted rating card with a 5-star selector
+   - update the supportive message based on the selected rating
+   - keep the rating block and testimonial card visually centered in the screen
+   - show testimonials as an individually paged horizontal carousel
+   - selecting any star should immediately show a Journal.IO rating dialog; choosing `Rate now` should request the native in-app rating prompt through the platform review bridge
+9. Privacy and trust:
    - user data control
    - no data selling
    - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review, and the onboarding flow should open those links through the app's root-stack modal route rather than sending users to Safari

@@ -124,6 +124,7 @@ Last updated: `2026-04-16`
 - `[~]` Production environment variable review
 - `[~]` MongoDB paywall/offering/template data review
 - `[~]` RevenueCat production identifiers and offering mapping review
+- `[ ]` Native in-app rating prompt QA on TestFlight / internal Android testing
 - `[ ]` Production API domain and mobile environment verification
 - `[ ]` Final secrets/config handoff check
 

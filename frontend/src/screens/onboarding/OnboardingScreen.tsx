@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +24,7 @@ import {
   Sparkles,
   Shield,
   ShieldOff,
+  Star,
   Sun,
   Target,
   TrendingUp,
@@ -29,12 +32,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
+import { requestAppRating } from "../../services/appRatingService";
 import { requestAndSyncOnboardingReminderPreference } from "../../services/reminderNotificationsService";
 import { useTheme } from "../../theme/provider";
 import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 
 const mascotImage = require("../../assets/png/Masscott.png");
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 const isTestEnvironment = typeof jest !== "undefined";
 
 const valueCards = [
@@ -173,6 +177,33 @@ const reminderPreferences = [
   },
 ];
 
+const ratingTestimonials = [
+  {
+    id: "sarah",
+    initial: "S",
+    name: "Sarah M.",
+    meta: "Verified user",
+    quote:
+      "Journal.IO completely changed my mornings. I was hesitant at first, but taking that first step made all the difference.",
+  },
+  {
+    id: "maya",
+    initial: "M",
+    name: "Maya R.",
+    meta: "Daily journaler",
+    quote:
+      "The prompts feel gentle and specific. It helped me build a reflection habit without making the app feel noisy.",
+  },
+  {
+    id: "jordan",
+    initial: "J",
+    name: "Jordan P.",
+    meta: "Verified user",
+    quote:
+      "I like seeing small patterns over time. It makes journaling feel useful without turning it into another task list.",
+  },
+];
+
 export type OnboardingCompletionData = {
   ageRange: string;
   journalingExperience: string;
@@ -224,7 +255,7 @@ export function OnboardingScreen({
   onContinue,
 }: OnboardingScreenProps) {
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const responsiveMetrics = getOnboardingResponsiveMetrics(width);
   const [step, setStep] = useState(1);
   const [selectedAgeRange, setSelectedAgeRange] = useState("");
@@ -233,14 +264,25 @@ export function OnboardingScreen({
   const [selectedSupportAreas, setSelectedSupportAreas] = useState<string[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("evening");
   const [aiComfort, setAiComfort] = useState(true);
+  const [excitementRating, setExcitementRating] = useState(0);
+  const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
+  const [isRequestingAppRating, setIsRequestingAppRating] = useState(false);
+  const [hasRequestedAppRating, setHasRequestedAppRating] = useState(false);
+  const [appRatingMessage, setAppRatingMessage] = useState<string | null>(null);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
   const [isApplyingReminderPreference, setIsApplyingReminderPreference] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
+  const testimonialScrollRef = useRef<ScrollView | null>(null);
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const mascotFloatY = useRef(new Animated.Value(0)).current;
+  const ratingEntrance = useRef(new Animated.Value(1)).current;
+  const starScales = useRef(
+    Array.from({ length: 5 }, () => new Animated.Value(1))
+  ).current;
 
   const {
+    availableSheetWidth,
     goalCardWidth,
     goalGridGap,
     heroSize,
@@ -255,6 +297,37 @@ export function OnboardingScreen({
   const aiComfortPrimaryBackground = aiComfort ? theme.colors.primary : "transparent";
   const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
   const privacyConsentBackground = agreedToPrivacy ? theme.colors.primary : "transparent";
+  const ratingStepMinHeight = Math.max(height - (isCompact ? 270 : 315), 420);
+  const ratingStepDynamicStyle = { minHeight: ratingStepMinHeight };
+  const ratingEntranceStyle = {
+    opacity: ratingEntrance,
+    transform: [
+      {
+        translateY: ratingEntrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [18, 0],
+        }),
+      },
+      {
+        scale: ratingEntrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.97, 1],
+        }),
+      },
+    ],
+  };
+  const testimonialSlideStyle = [
+    styles.testimonialSlide,
+    { width: availableSheetWidth },
+  ];
+  const ratingMessages = [
+    "Tap to set your excitement level",
+    "A bit hesitant? We'll guide you.",
+    "Ready to take the first step",
+    "Looking forward to it",
+    "Highly motivated",
+    "100% committed and ready",
+  ];
 
   const handleOpenLegalDocument = (
     url: string,
@@ -337,6 +410,53 @@ export function OnboardingScreen({
     };
   }, [mascotFloatY, step]);
 
+  useEffect(() => {
+    if (step !== 8) {
+      ratingEntrance.setValue(1);
+      return;
+    }
+
+    if (isTestEnvironment) {
+      ratingEntrance.setValue(1);
+      return;
+    }
+
+    ratingEntrance.setValue(0);
+    Animated.spring(ratingEntrance, {
+      toValue: 1,
+      damping: 14,
+      stiffness: 130,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }, [ratingEntrance, step]);
+
+  useEffect(() => {
+    if (
+      isTestEnvironment ||
+      step !== 8 ||
+      ratingTestimonials.length < 2 ||
+      availableSheetWidth <= 0
+    ) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setActiveTestimonialIndex(previous => {
+        const nextIndex = (previous + 1) % ratingTestimonials.length;
+        testimonialScrollRef.current?.scrollTo({
+          x: nextIndex * availableSheetWidth,
+          animated: true,
+        });
+        return nextIndex;
+      });
+    }, 4600);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [availableSheetWidth, step]);
+
   const goBack = () => {
     if (step === 1) {
       return;
@@ -414,6 +534,92 @@ export function OnboardingScreen({
         : [...previous, supportAreaId]
     );
   };
+
+  const animateStarSelection = (star: number) => {
+    if (isTestEnvironment) {
+      return;
+    }
+
+    const scale = starScales[star - 1];
+    scale.setValue(0.82);
+
+    Animated.spring(scale, {
+      toValue: 1,
+      damping: 7,
+      stiffness: 280,
+      mass: 0.6,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const requestNativeAppRating = () => {
+    setHasRequestedAppRating(true);
+    setIsRequestingAppRating(true);
+    requestAppRating()
+      .then(result => {
+        if (result.status === "requested" || result.status === "opened") {
+          setAppRatingMessage("Thanks for supporting Journal.IO.");
+        } else if (result.status === "unavailable") {
+          setAppRatingMessage(
+            "App rating will be available once the native review prompt is configured."
+          );
+        } else {
+          setAppRatingMessage("Unable to open app rating right now.");
+        }
+      })
+      .catch(() => {
+        setAppRatingMessage("Unable to open app rating right now.");
+      })
+      .finally(() => {
+        setIsRequestingAppRating(false);
+      });
+  };
+
+  const handleSelectExcitementRating = (star: number) => {
+    setExcitementRating(star);
+    setAppRatingMessage(null);
+    setStepError(null);
+    animateStarSelection(star);
+
+    if (hasRequestedAppRating || isRequestingAppRating) {
+      return;
+    }
+
+    Alert.alert(
+      "Rate Journal.IO",
+      "Your feedback helps us keep Journal.IO calm, useful, and focused on reflection.",
+      [
+        {
+          text: "Not now",
+          style: "cancel",
+        },
+        {
+          text: "Rate now",
+          onPress: requestNativeAppRating,
+        },
+      ]
+    );
+  };
+
+  const handleTestimonialMomentumEnd = (
+    event: NativeSyntheticEvent<NativeScrollEvent>
+  ) => {
+    const pageWidth = event.nativeEvent.layoutMeasurement.width;
+
+    if (pageWidth <= 0) {
+      return;
+    }
+
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
+    setActiveTestimonialIndex(
+      Math.min(Math.max(nextIndex, 0), ratingTestimonials.length - 1)
+    );
+  };
+
+  const getStarScaleStyle = (star: number) => [
+    styles.starScale,
+    { transform: [{ scale: starScales[star - 1] }] },
+  ];
 
   const renderStepContent = () => {
     if (step === 1) {
@@ -936,6 +1142,173 @@ export function OnboardingScreen({
       );
     }
 
+    if (step === 8) {
+      return (
+        <View style={[styles.stepSection, styles.ratingStepSection, ratingStepDynamicStyle]}>
+          <Animated.View
+            style={[
+              styles.ratingAnimatedContent,
+              ratingEntranceStyle,
+            ]}
+          >
+            <View style={styles.ratingHeaderBlock}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  styles.ratingSectionTitle,
+                  { fontSize: sectionTitleSize, color: theme.colors.foreground },
+                ]}
+              >
+                How excited are you to begin?
+              </Text>
+              <Text
+                style={[
+                  styles.sectionSubtitle,
+                  styles.ratingSectionSubtitle,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                Your personalized mindfulness plan is ready. How are you feeling about the journey ahead?
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.ratingCard,
+                theme.mode === "dark" ? styles.ratingCardDark : styles.ratingCardLight,
+              ]}
+            >
+              <View style={styles.starRow}>
+                {[1, 2, 3, 4, 5].map(star => {
+                  const filled = excitementRating >= star;
+
+                  return (
+                    <Pressable
+                      key={star}
+                      accessibilityLabel={`Rate excitement ${star} out of 5`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: filled }}
+                      onPress={() => handleSelectExcitementRating(star)}
+                      style={({ pressed }) => [
+                        styles.starButton,
+                        pressed && styles.starButtonPressed,
+                      ]}
+                    >
+                      <Animated.View style={getStarScaleStyle(star)}>
+                        <Star
+                          color={filled ? theme.colors.primary : theme.colors.mutedForeground}
+                          fill={filled ? theme.colors.primary : "transparent"}
+                          opacity={filled ? 1 : 0.34}
+                          size={42}
+                          strokeWidth={1.5}
+                        />
+                      </Animated.View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.ratingMessageWrap}>
+                <Text style={[styles.ratingMessage, { color: theme.colors.foreground }]}>
+                  {ratingMessages[excitementRating]}
+                </Text>
+                {excitementRating >= 4 ? (
+                  <Text style={[styles.ratingHint, { color: theme.colors.mutedForeground }]}>
+                    Channel that energy. Your rating helps us inspire others.
+                  </Text>
+                ) : null}
+                {isRequestingAppRating ? (
+                  <ActivityIndicator color={theme.colors.primary} size="small" />
+                ) : null}
+                {appRatingMessage ? (
+                  <Text style={[styles.ratingStatusText, { color: theme.colors.mutedForeground }]}>
+                    {appRatingMessage}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            <ScrollView
+              ref={testimonialScrollRef}
+              horizontal
+              pagingEnabled
+              bounces={false}
+              decelerationRate="fast"
+              onMomentumScrollEnd={handleTestimonialMomentumEnd}
+              scrollEventThrottle={16}
+              showsHorizontalScrollIndicator={false}
+              style={styles.testimonialScroller}
+            >
+              {ratingTestimonials.map(testimonial => (
+                <View key={testimonial.id} style={testimonialSlideStyle}>
+                  <View
+                    style={[
+                      styles.testimonialCard,
+                      {
+                        backgroundColor: theme.colors.card,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.testimonialHeader}>
+                      <View style={styles.testimonialUserRow}>
+                        <View style={[styles.testimonialAvatar, { backgroundColor: theme.colors.accent }]}>
+                          <Text style={[styles.testimonialInitial, { color: theme.colors.primary }]}>
+                            {testimonial.initial}
+                          </Text>
+                        </View>
+                        <View style={styles.testimonialUserCopy}>
+                          <Text style={[styles.testimonialName, { color: theme.colors.foreground }]}>
+                            {testimonial.name}
+                          </Text>
+                          <Text style={[styles.testimonialMeta, { color: theme.colors.mutedForeground }]}>
+                            {testimonial.meta}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.testimonialStars}>
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <Star
+                            key={`${testimonial.id}-star-${star}`}
+                            color={theme.colors.primary}
+                            fill={theme.colors.primary}
+                            size={12}
+                            strokeWidth={0}
+                          />
+                        ))}
+                      </View>
+                    </View>
+
+                    <Text style={[styles.testimonialQuote, { color: theme.colors.foreground }]}>
+                      &quot;{testimonial.quote}&quot;
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.testimonialDots}>
+              {ratingTestimonials.map((testimonial, index) => (
+                <View
+                  key={`${testimonial.id}-dot`}
+                  style={[
+                    styles.testimonialDot,
+                    {
+                      backgroundColor:
+                        activeTestimonialIndex === index
+                          ? theme.colors.primary
+                          : theme.colors.border,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+          </Animated.View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.stepSection}>
         <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
@@ -1387,6 +1760,150 @@ const styles = StyleSheet.create({
   supportNoteText: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  ratingStepSection: {
+    justifyContent: "center",
+  },
+  ratingAnimatedContent: {
+    alignItems: "center",
+    gap: 18,
+    width: "100%",
+  },
+  ratingHeaderBlock: {
+    alignItems: "center",
+    width: "100%",
+  },
+  ratingSectionTitle: {
+    textAlign: "center",
+  },
+  ratingSectionSubtitle: {
+    marginBottom: 0,
+    maxWidth: 340,
+    textAlign: "center",
+  },
+  ratingCard: {
+    alignItems: "center",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 18,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+    paddingVertical: 24,
+    width: "100%",
+  },
+  ratingCardLight: {
+    backgroundColor: "rgba(232, 116, 97, 0.07)",
+    borderColor: "rgba(232, 116, 97, 0.16)",
+  },
+  ratingCardDark: {
+    backgroundColor: "rgba(255, 138, 117, 0.07)",
+    borderColor: "rgba(255, 138, 117, 0.16)",
+  },
+  starRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
+  starButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 4,
+  },
+  starScale: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  starButtonPressed: {
+    transform: [{ scale: 0.88 }],
+  },
+  ratingMessageWrap: {
+    alignItems: "center",
+    gap: 8,
+  },
+  ratingMessage: {
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  ratingHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    maxWidth: 280,
+    textAlign: "center",
+  },
+  ratingStatusText: {
+    fontSize: 12,
+    lineHeight: 18,
+    maxWidth: 280,
+    textAlign: "center",
+  },
+  testimonialScroller: {
+    width: "100%",
+  },
+  testimonialSlide: {
+    paddingHorizontal: 1,
+  },
+  testimonialCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 12,
+    padding: 20,
+  },
+  testimonialHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  testimonialUserRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  testimonialAvatar: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  testimonialInitial: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  testimonialUserCopy: {
+    gap: 2,
+  },
+  testimonialName: {
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  testimonialMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  testimonialStars: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+  },
+  testimonialQuote: {
+    fontSize: 14,
+    fontStyle: "italic",
+    lineHeight: 21,
+    opacity: 0.9,
+  },
+  testimonialDots: {
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
+  testimonialDot: {
+    borderRadius: 999,
+    height: 6,
+    width: 6,
   },
   privacyList: {
     gap: 10,

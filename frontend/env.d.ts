@@ -9,4 +9,6 @@ declare module "@env" {
   export const REVENUECAT_EXIT_PAYWALL_OFFERING_ID: string | undefined;
   export const REVENUECAT_OTHER_SCREENS_OFFERING_ID: string | undefined;
   export const REVENUECAT_LIFETIME_OFFERING_ID: string | undefined;
+  export const IOS_APP_STORE_ID: string | undefined;
+  export const ANDROID_PLAY_STORE_PACKAGE_NAME: string | undefined;
 }

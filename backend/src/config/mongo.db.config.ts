@@ -48,6 +48,29 @@ export const resolveMongoUri = (
   return stageSpecificUri;
 };
 
+export const getMongoUriForLogging = (
+  env: NodeJS.ProcessEnv = process.env
+): string => {
+  const mongoUri = resolveMongoUri(env);
+
+  if (env.LOG_FULL_MONGO_URI?.trim().toLowerCase() === "true") {
+    return mongoUri;
+  }
+
+  try {
+    const parsedMongoUri = new URL(mongoUri);
+
+    if (parsedMongoUri.username || parsedMongoUri.password) {
+      parsedMongoUri.username = parsedMongoUri.username ? "***" : "";
+      parsedMongoUri.password = parsedMongoUri.password ? "***" : "";
+    }
+
+    return parsedMongoUri.toString();
+  } catch {
+    return mongoUri;
+  }
+};
+
 export const isMongoReady = (): boolean => mongoose.connection.readyState === 1;
 
 export const getMongoConnectionStateLabel = (): string =>
@@ -83,7 +106,9 @@ const removeLegacyUserIndexes = async (): Promise<void> => {
 
 export const init_mongoDB = async (): Promise<void> => {
   try {
-    await mongoose.connect(resolveMongoUri());
+    const mongoUri = resolveMongoUri();
+    console.log(`MongoDB connection target: ${getMongoUriForLogging()}`);
+    await mongoose.connect(mongoUri);
     await removeLegacyUserIndexes();
     console.log("✅ Connected to MongoDB");
   } catch (err) {

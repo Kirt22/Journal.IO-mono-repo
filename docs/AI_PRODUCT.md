@@ -38,7 +38,7 @@ Insight language must remain uncertainty-aware, for example:
 
 Primary user journey represented by the latest design context:
 
-1. Onboarding (8 steps)
+1. Onboarding (9 steps)
 2. Auth entry (email or Google)
 3. Create account (email path)
 4. Verify email (email path)

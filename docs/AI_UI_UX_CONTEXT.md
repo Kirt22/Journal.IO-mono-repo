@@ -24,7 +24,7 @@ The interface should never feel clinical, gamified, or visually overwhelming.
 
 The current design flow is:
 
-1. Onboarding (8 steps)
+1. Onboarding (9 steps)
 2. Auth entry (email or Google)
 3. Create account (email path)
 4. Verify email (email path)
@@ -50,12 +50,13 @@ Navigation implementation note:
 
 - the mobile shell is now route-based with React Navigation native stack screens rather than stage-swapped full-screen replacements, and the bottom nav remains visible inside the authenticated shell
 - pushed main-app screens now keep the native iOS swipe-back gesture, while the tab-style bottom-nav routes stay replace-driven
+- the native app is locked to portrait orientation on iOS and Android; screen layouts should assume portrait-first behavior and should not require landscape-specific states
 
 ---
 
 # 3) Onboarding Experience
 
-The onboarding sequence now uses 8 steps:
+The onboarding sequence now uses 9 steps:
 
 1. Value introduction:
    - AI-powered insights
@@ -90,7 +91,13 @@ The onboarding sequence now uses 8 steps:
 7. AI comfort and feature explanation:
    - explain that AI-assisted prompts, summaries, tag suggestions, and Privacy Mode unlock with Premium
    - allow opt-in / opt-out posture without pressure so the preference is ready if the user upgrades later
-8. Privacy and trust:
+8. Excitement rating:
+   - show a warm, primary-tinted rating card with a 5-star selector
+   - update the supportive message based on the selected rating
+   - keep the rating block and testimonial card visually centered in the screen
+   - show testimonials as an individually paged horizontal carousel
+   - selecting any star should immediately show a Journal.IO rating dialog; choosing `Rate now` should request the native in-app rating prompt through the platform review bridge
+9. Privacy and trust:
    - user data control
    - no data selling
    - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review, and the onboarding flow should open those links through the app's root-stack modal route rather than sending users to Safari
@@ -296,6 +303,7 @@ Reminders screen expectations:
   - smart reminder toggles
   - device-permission helper copy
 - load the current reminder from backend reminders CRUD instead of hardcoded local defaults once a reminder exists
+- after auth, persist the onboarding reminder preference into the authenticated user's `daily_journal` reminder record and resync any existing stored reminder to local device notifications
 - enabling reminders must request system notification permission and then schedule local device notifications with Notifee
 - changing time, weekday coverage, or streak-warning behavior must re-sync the local notification schedule
 - skip-on-entry behavior should suppress the current day's reminder after a journal entry is saved when that toggle is enabled

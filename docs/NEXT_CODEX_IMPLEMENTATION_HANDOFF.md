@@ -30,7 +30,7 @@ Implementation guidance:
 
 ### 1. Onboarding
 
-Replace the current 3-step onboarding with the new 8-step flow:
+The current onboarding implementation follows the latest 9-step Figma Make flow:
 
 1. Welcome / value intro
 2. Age range
@@ -39,7 +39,8 @@ Replace the current 3-step onboarding with the new 8-step flow:
 5. What the user wants help with
 6. Reminder preference
 7. AI comfort / explanation
-8. Privacy consent
+8. Excitement rating
+9. Privacy consent
 
 Current replacement point:
 

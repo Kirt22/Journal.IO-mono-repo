@@ -2,8 +2,13 @@ import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import {
   cancelFreeTrialEndingReminder,
+  getDefaultReminderTimezone,
+  getReminderPermissionGranted,
   syncOnboardingReminderPreference,
+  syncReminderNotifications,
+  syncStoredDailyReminderNotifications,
 } from "../src/services/reminderNotificationsService";
+import { syncOnboardingReminderRecordPreference } from "../src/services/remindersService";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -16,7 +21,27 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
 
 jest.mock("../src/services/reminderNotificationsService", () => ({
   cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
+  cancelReminderNotifications: jest.fn(async () => undefined),
+  getDefaultReminderTimezone: jest.fn(() => "Asia/Kolkata"),
+  getReminderPermissionGranted: jest.fn(async () => true),
   syncOnboardingReminderPreference: jest.fn(async () => undefined),
+  syncReminderNotifications: jest.fn(async () => undefined),
+  syncStoredDailyReminderNotifications: jest.fn(async () => null),
+}));
+
+jest.mock("../src/services/remindersService", () => ({
+  syncOnboardingReminderRecordPreference: jest.fn(async () => ({
+    reminderId: "reminder-1",
+    type: "daily_journal",
+    enabled: true,
+    time: "20:00",
+    timezone: "Asia/Kolkata",
+    skipIfCompletedToday: true,
+    includeWeekends: true,
+    streakWarnings: true,
+    createdAt: "2026-04-03T10:00:00.000Z",
+    updatedAt: "2026-04-03T10:00:00.000Z",
+  })),
 }));
 
 const onboardingData = {
@@ -34,7 +59,12 @@ describe("appStore", () => {
     resetAppStore();
     jest.useFakeTimers();
     (cancelFreeTrialEndingReminder as jest.Mock).mockClear();
+    (getDefaultReminderTimezone as jest.Mock).mockClear();
+    (getReminderPermissionGranted as jest.Mock).mockClear();
     (syncOnboardingReminderPreference as jest.Mock).mockClear();
+    (syncOnboardingReminderRecordPreference as jest.Mock).mockClear();
+    (syncReminderNotifications as jest.Mock).mockClear();
+    (syncStoredDailyReminderNotifications as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -889,6 +919,100 @@ describe("appStore", () => {
     expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
     expect(freshStore.getState().stage).toBe("paywall");
     expect(freshStore.getState().paywallReturnStage).toBe("main-app");
+  });
+
+  it("syncs the onboarding reminder record after sign in", async () => {
+    jest.resetModules();
+
+    const savedReminder = {
+      reminderId: "reminder-1",
+      type: "daily_journal",
+      enabled: true,
+      time: "20:00",
+      timezone: "Asia/Kolkata",
+      skipIfCompletedToday: true,
+      includeWeekends: true,
+      streakWarnings: true,
+      createdAt: "2026-04-03T10:00:00.000Z",
+      updatedAt: "2026-04-03T10:00:00.000Z",
+    };
+    const syncOnboardingReminderRecordPreference = jest.fn(async () => savedReminder);
+    const syncReminderNotifications = jest.fn(async () => undefined);
+
+    jest.doMock("../src/services/remindersService", () => ({
+      syncOnboardingReminderRecordPreference,
+    }));
+    jest.doMock("../src/services/reminderNotificationsService", () => ({
+      cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
+      cancelReminderNotifications: jest.fn(async () => undefined),
+      getDefaultReminderTimezone: jest.fn(() => "Asia/Kolkata"),
+      getReminderPermissionGranted: jest.fn(async () => true),
+      syncOnboardingReminderPreference: jest.fn(async () => undefined),
+      syncReminderNotifications,
+      syncStoredDailyReminderNotifications: jest.fn(async () => null),
+    }));
+    jest.doMock("../src/services/authService", () => ({
+      resendEmailVerification: jest.fn(),
+      logout: jest.fn(async () => undefined),
+      signInWithEmail: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        user: {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        },
+      })),
+      signInWithApple: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signUpWithEmail: jest.fn(),
+      verifyEmail: jest.fn(),
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => null),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => null),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(),
+      updateProfile: jest.fn(),
+      updatePremiumStatus: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    act(() => {
+      freshStore.setState({ onboardingData });
+    });
+
+    await act(async () => {
+      await freshStore.getState().signIn({
+        email: "alex@example.com",
+        password: "password123",
+      });
+    });
+
+    expect(syncOnboardingReminderRecordPreference).toHaveBeenCalledWith("Evening", {
+      enabled: true,
+      timezone: "Asia/Kolkata",
+    });
+    expect(syncReminderNotifications).toHaveBeenCalledWith(savedReminder);
   });
 
   it("continues with Google using the shared session persistence flow", async () => {

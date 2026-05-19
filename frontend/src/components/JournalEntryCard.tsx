@@ -1,13 +1,27 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Star, Tag } from "lucide-react-native";
+import {
+  BookOpen,
+  Feather,
+  Frown,
+  Heart,
+  Meh,
+  Smile,
+  SmilePlus,
+  Sparkles,
+  Star,
+  Tag,
+} from "lucide-react-native";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
+import EmojiWithFallback from "./EmojiWithFallback";
 import {
   formatDate,
   getEntryEmoji,
+  getEntryVisualKey,
   getEntryTitle,
   getEntryTone,
   getFilteredTags,
+  type JournalEntryVisualKey,
   type JournalEntryCardSource,
 } from "../utils/journalEntryCard";
 
@@ -73,6 +87,28 @@ function getMaskedEntryTitle(entry: JournalEntryCardSource) {
   return "Journal Entry";
 }
 
+function getEntryIcon(visualKey: JournalEntryVisualKey) {
+  switch (visualKey) {
+    case "quick-thought":
+      return Feather;
+    case "mood-checkin":
+      return Heart;
+    case "amazing":
+      return Sparkles;
+    case "good":
+      return SmilePlus;
+    case "okay":
+      return Smile;
+    case "bad":
+      return Meh;
+    case "terrible":
+      return Frown;
+    case "journal":
+    default:
+      return BookOpen;
+  }
+}
+
 type JournalEntryCardProps = {
   entry: JournalEntryCardSource;
   onPress?: () => void;
@@ -92,6 +128,8 @@ export default function JournalEntryCard({
   const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
   const title = hideJournalPreviews ? getMaskedEntryTitle(entry) : getEntryTitle(entry);
   const emoji = getEntryEmoji(entry);
+  const visualKey = getEntryVisualKey(entry);
+  const EntryIcon = getEntryIcon(visualKey);
   const tone = getEntryTone(entry);
   const toneStyle = getToneStyle(theme, tone);
   const displayTags = hideJournalPreviews ? [] : getFilteredTags(entry.tags);
@@ -118,8 +156,18 @@ export default function JournalEntryCard({
     >
       <View style={styles.metaRow}>
         <View style={styles.headerRow}>
-            <View style={styles.emojiDateRow}>
-              <Text style={styles.emoji}>{emoji}</Text>
+            <View style={styles.visualDateRow}>
+              <EmojiWithFallback
+                emoji={emoji}
+                emojiStyle={styles.emoji}
+                fallbackIcon={EntryIcon}
+                fallbackIconColor={toneStyle.foregroundColor}
+                fallbackIconSize={14}
+                fallbackStyle={[
+                  styles.entryIconWrap,
+                  { backgroundColor: toneStyle.backgroundColor },
+                ]}
+              />
               <Text style={[styles.date, { color: theme.colors.mutedForeground }]}>
                 {formatDate(entry.createdAt)}
               </Text>
@@ -207,10 +255,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  emojiDateRow: {
+  visualDateRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  entryIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emoji: {
     fontSize: 18,

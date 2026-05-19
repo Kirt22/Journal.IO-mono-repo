@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getMongoStage, resolveMongoUri } from "./mongo.db.config";
+import {
+  getMongoStage,
+  getMongoUriForLogging,
+  resolveMongoUri,
+} from "./mongo.db.config";
 
 test("resolveMongoUri prefers MONGO_URI when it is configured", () => {
   const mongoUri = resolveMongoUri({
@@ -29,5 +33,25 @@ test("resolveMongoUri rejects missing production MongoDB config", () => {
   assert.throws(
     () => resolveMongoUri({ MONGO_STAGE: "prod" }),
     /MongoDB connection string is not configured/
+  );
+});
+
+test("getMongoUriForLogging redacts credentials by default", () => {
+  const mongoUri = getMongoUriForLogging({
+    MONGO_URI: "mongodb+srv://journalio:super-secret@cluster.example.com/app-db",
+  });
+
+  assert.equal(mongoUri, "mongodb+srv://***:***@cluster.example.com/app-db");
+});
+
+test("getMongoUriForLogging returns the full uri when explicitly enabled", () => {
+  const mongoUri = getMongoUriForLogging({
+    MONGO_URI: "mongodb+srv://journalio:super-secret@cluster.example.com/app-db",
+    LOG_FULL_MONGO_URI: "true",
+  });
+
+  assert.equal(
+    mongoUri,
+    "mongodb+srv://journalio:super-secret@cluster.example.com/app-db"
   );
 });

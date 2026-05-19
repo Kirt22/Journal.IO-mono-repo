@@ -35,6 +35,15 @@ type DeleteReminderResponse = {
   reminderId: string;
 };
 
+const ONBOARDING_REMINDER_TIMES: Record<string, string> = {
+  morning: "08:00",
+  afternoon: "14:00",
+  evening: "20:00",
+};
+
+const normalizeReminderPreference = (preference?: string | null) =>
+  preference?.trim().toLowerCase() || "";
+
 const getReminders = async () => {
   const response = await request<ReminderListResponse>("/reminders", {
     method: "GET",
@@ -80,11 +89,58 @@ const getPrimaryDailyReminder = async () => {
   return reminders.find(reminder => reminder.type === "daily_journal") ?? null;
 };
 
+const syncOnboardingReminderRecordPreference = async (
+  preference: string | null | undefined,
+  options: {
+    enabled: boolean;
+    timezone: string;
+  }
+) => {
+  const normalizedPreference = normalizeReminderPreference(preference);
+  const existingReminder = await getPrimaryDailyReminder();
+
+  if (!normalizedPreference || normalizedPreference === "none") {
+    if (!existingReminder) {
+      return null;
+    }
+
+    return updateReminder(existingReminder.reminderId, {
+      enabled: false,
+      timezone: options.timezone,
+    });
+  }
+
+  const time = ONBOARDING_REMINDER_TIMES[normalizedPreference];
+
+  if (!time) {
+    return existingReminder;
+  }
+
+  const payload = {
+    enabled: options.enabled,
+    time,
+    timezone: options.timezone,
+    skipIfCompletedToday: true,
+    includeWeekends: true,
+    streakWarnings: true,
+  };
+
+  if (existingReminder) {
+    return updateReminder(existingReminder.reminderId, payload);
+  }
+
+  return createReminder({
+    type: "daily_journal",
+    ...payload,
+  });
+};
+
 export {
   createReminder,
   deleteReminder,
   getPrimaryDailyReminder,
   getReminders,
+  syncOnboardingReminderRecordPreference,
   updateReminder,
 };
 export type {

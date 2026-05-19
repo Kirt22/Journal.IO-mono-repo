@@ -50,6 +50,7 @@ Navigation implementation note:
 
 - the mobile shell is now route-based with React Navigation native stack screens rather than stage-swapped full-screen replacements, and the bottom nav remains visible inside the authenticated shell
 - pushed main-app screens now keep the native iOS swipe-back gesture, while the tab-style bottom-nav routes stay replace-driven
+- the native app is locked to portrait orientation on iOS and Android; screen layouts should assume portrait-first behavior and should not require landscape-specific states
 
 ---
 
@@ -302,6 +303,7 @@ Reminders screen expectations:
   - smart reminder toggles
   - device-permission helper copy
 - load the current reminder from backend reminders CRUD instead of hardcoded local defaults once a reminder exists
+- after auth, persist the onboarding reminder preference into the authenticated user's `daily_journal` reminder record and resync any existing stored reminder to local device notifications
 - enabling reminders must request system notification permission and then schedule local device notifications with Notifee
 - changing time, weekday coverage, or streak-warning behavior must re-sync the local notification schedule
 - skip-on-entry behavior should suppress the current day's reminder after a journal entry is saved when that toggle is enabled

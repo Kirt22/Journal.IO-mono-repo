@@ -19,8 +19,14 @@ import { getGoogleIdToken } from "../config/googleSignIn";
 import { getProfile, updatePremiumStatus, updateProfile } from "../services/userService";
 import {
   cancelFreeTrialEndingReminder,
+  cancelReminderNotifications,
+  getDefaultReminderTimezone,
+  getReminderPermissionGranted,
   syncOnboardingReminderPreference,
+  syncReminderNotifications,
+  syncStoredDailyReminderNotifications,
 } from "../services/reminderNotificationsService";
+import { syncOnboardingReminderRecordPreference } from "../services/remindersService";
 import type { ThemeMode } from "../theme/theme";
 import { ApiError } from "../utils/apiClient";
 import {
@@ -148,6 +154,49 @@ function buildOnboardingContext(
     privacyConsentAccepted: data.privacyConsent,
   };
 }
+
+const logReminderSyncWarning = (error: unknown) => {
+  if (!__DEV__) {
+    return;
+  }
+
+  console.warn(
+    `[Reminders] Unable to sync reminder state after auth ${
+      error instanceof Error ? error.message : "Unknown reminder sync failure"
+    }`
+  );
+};
+
+const syncReminderStateAfterAuth = async (
+  onboardingData: OnboardingCompletionData | null
+) => {
+  try {
+    if (!onboardingData?.reminderPreference) {
+      await syncStoredDailyReminderNotifications();
+      return;
+    }
+
+    const preference = onboardingData.reminderPreference;
+    const normalizedPreference = preference.trim().toLowerCase();
+    const permissionGranted = await getReminderPermissionGranted();
+    const savedReminder = await syncOnboardingReminderRecordPreference(preference, {
+      enabled:
+        Boolean(normalizedPreference) &&
+        normalizedPreference !== "none" &&
+        permissionGranted,
+      timezone: getDefaultReminderTimezone(),
+    });
+
+    if (!savedReminder || !savedReminder.enabled) {
+      await cancelReminderNotifications();
+      return;
+    }
+
+    await syncReminderNotifications(savedReminder);
+  } catch (error) {
+    logReminderSyncWarning(error);
+  }
+};
 
 type AppStoreState = {
   stage: FlowStage;
@@ -526,6 +575,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
         await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
         await savePostAuthPaywallSeen(true);
+        await syncReminderStateAfterAuth(null);
 
         set({
           hasBootstrappedAuthGate: true,
@@ -925,7 +975,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
-    const onboardingContext = buildOnboardingContext(get().onboardingData);
+    const onboardingData = get().onboardingData;
+    const onboardingContext = buildOnboardingContext(onboardingData);
 
     const response = await signInWithApple({
       identityToken: credential.identityToken,
@@ -947,6 +998,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     );
 
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
     const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
@@ -993,7 +1045,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
-    const onboardingContext = buildOnboardingContext(get().onboardingData);
+    const onboardingData = get().onboardingData;
+    const onboardingContext = buildOnboardingContext(onboardingData);
 
     const response = await signInWithGoogle({
       idToken,
@@ -1012,6 +1065,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     );
 
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
     const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 
@@ -1137,6 +1191,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     };
 
     await saveOnboardingCompleted(true);
+    await syncReminderStateAfterAuth(onboardingData);
 
     set({
       session: updatedSession,
@@ -1180,7 +1235,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   signIn: async payload => {
     let response: AuthSession;
-    const onboardingContext = buildOnboardingContext(get().onboardingData);
+    const onboardingData = get().onboardingData;
+    const onboardingContext = buildOnboardingContext(onboardingData);
 
     try {
       response = await signInWithEmail({
@@ -1233,6 +1289,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     );
 
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
+    await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
     const showPaywall = shouldShowPostAuthPaywall(syncedSession);
 

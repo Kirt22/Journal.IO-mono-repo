@@ -1,6 +1,15 @@
 import type { JournalEntry } from "../models/journalModels";
 
 export type JournalEntryCardTone = "warm" | "challenge" | "reflective" | "supportive";
+export type JournalEntryVisualKey =
+  | "quick-thought"
+  | "mood-checkin"
+  | "journal"
+  | "amazing"
+  | "good"
+  | "okay"
+  | "bad"
+  | "terrible";
 
 export type JournalEntryCardSource = Pick<
   JournalEntry,
@@ -49,7 +58,7 @@ function getMoodValue(tags: string[]) {
 
   const mood = moodTag.split(":")[1]?.trim().toLowerCase() || "";
 
-  return mood in MOOD_EMOJIS ? mood : null;
+  return mood in MOOD_TONES ? mood : null;
 }
 
 function getFilteredTags(tags: string[]) {
@@ -92,6 +101,26 @@ function getEntryTone(entry: Pick<JournalEntryCardSource, "tags" | "type" | "isF
   return "reflective";
 }
 
+function getEntryVisualKey(
+  entry: Pick<JournalEntryCardSource, "tags" | "type">
+): JournalEntryVisualKey {
+  if (entry.type === "quick-thought") {
+    return "quick-thought";
+  }
+
+  if (entry.type === "mood-checkin") {
+    return "mood-checkin";
+  }
+
+  const moodValue = getMoodValue(entry.tags);
+
+  if (moodValue) {
+    return moodValue as JournalEntryVisualKey;
+  }
+
+  return "journal";
+}
+
 function getEntryEmoji(entry: Pick<JournalEntryCardSource, "tags" | "type">) {
   if (entry.type === "quick-thought") {
     return QUICK_THOUGHT_EMOJI;
@@ -127,6 +156,7 @@ function getEntryTitle(entry: Pick<JournalEntryCardSource, "title" | "type" | "c
 export {
   formatDate,
   getEntryEmoji,
+  getEntryVisualKey,
   getEntryTitle,
   getEntryTone,
   getFilteredTags,

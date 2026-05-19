@@ -15,10 +15,14 @@ import {
   Calendar,
   ChevronRight,
   Crown,
+  Flame,
   Phone,
   Settings,
   Shield,
+  Target,
+  Trophy,
 } from "lucide-react-native";
+import EmojiWithFallback from "../../components/EmojiWithFallback";
 import TabScreenLayout from "../../components/TabScreenLayout";
 import { trackPaywallEvent } from "../../services/paywallService";
 import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
@@ -263,6 +267,21 @@ function ContactRow({
   );
 }
 
+function getAchievementIcon(achievement: StreakAchievement) {
+  switch (achievement.key) {
+    case "7-day-streak":
+    case "30-day-streak":
+      return Flame;
+    case "50-entries":
+    case "100-entries":
+      return Target;
+    case "first-entry":
+      return Trophy;
+    default:
+      return Award;
+  }
+}
+
 function getAchievementEmoji(achievement: StreakAchievement) {
   switch (achievement.key) {
     case "7-day-streak":
@@ -276,6 +295,24 @@ function getAchievementEmoji(achievement: StreakAchievement) {
     case "first-entry":
     default:
       return "🏆";
+  }
+}
+
+function getAchievementIconColor(
+  achievement: StreakAchievement,
+  theme: ReturnType<typeof useTheme>
+) {
+  switch (achievement.key) {
+    case "7-day-streak":
+      return theme.colors.primary;
+    case "30-day-streak":
+      return theme.colors.success;
+    case "50-entries":
+    case "100-entries":
+      return theme.colors.info;
+    case "first-entry":
+    default:
+      return theme.colors.warning;
   }
 }
 
@@ -405,6 +442,8 @@ export default function ProfileScreen({
     .filter(achievement => achievement.unlocked)
     .slice(0, 3)
     .map(achievement => ({
+      icon: getAchievementIcon(achievement),
+      iconColor: getAchievementIconColor(achievement, theme),
       emoji: getAchievementEmoji(achievement),
       label: achievement.title,
     }));
@@ -627,25 +666,36 @@ export default function ProfileScreen({
 
         {hasUnlockedAchievements ? (
           <View style={styles.achievementRow}>
-            {achievements.map(achievement => (
-              <View
-                key={achievement.label}
-                style={[
-                  styles.achievementCard,
-                  { backgroundColor: theme.colors.accent },
-                ]}
-              >
-                <Text style={styles.achievementEmoji}>{achievement.emoji}</Text>
-                <Text
+            {achievements.map(achievement => {
+              const AchievementIcon = achievement.icon;
+
+              return (
+                <View
+                  key={achievement.label}
                   style={[
-                    styles.achievementLabel,
-                    { color: theme.colors.mutedForeground },
+                    styles.achievementCard,
+                    { backgroundColor: theme.colors.accent },
                   ]}
                 >
-                  {achievement.label}
-                </Text>
-              </View>
-            ))}
+                  <EmojiWithFallback
+                    emoji={achievement.emoji}
+                    emojiStyle={styles.achievementEmoji}
+                    fallbackIcon={AchievementIcon}
+                    fallbackIconColor={achievement.iconColor}
+                    fallbackIconSize={24}
+                    fallbackStyle={styles.achievementIcon}
+                  />
+                  <Text
+                    style={[
+                      styles.achievementLabel,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    {achievement.label}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         ) : (
           <View
@@ -654,7 +704,14 @@ export default function ProfileScreen({
               { backgroundColor: theme.colors.accent },
             ]}
           >
-            <Text style={styles.achievementEmptyEmoji}>🏆</Text>
+            <EmojiWithFallback
+              emoji="🏆"
+              emojiStyle={styles.achievementEmptyEmoji}
+              fallbackIcon={Award}
+              fallbackIconColor={theme.colors.warning}
+              fallbackIconSize={24}
+              fallbackStyle={styles.achievementEmptyIcon}
+            />
             <Text
               style={[
                 styles.achievementEmptyTitle,
@@ -971,6 +1028,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  achievementIcon: {
+    marginBottom: 8,
+  },
   achievementEmoji: {
     fontSize: 24,
     marginBottom: 8,
@@ -985,6 +1045,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 18,
     alignItems: "center",
+  },
+  achievementEmptyIcon: {
+    marginBottom: 10,
   },
   achievementEmptyEmoji: {
     fontSize: 24,

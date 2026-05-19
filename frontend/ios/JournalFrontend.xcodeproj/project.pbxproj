@@ -17,9 +17,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		13B07F961A680F5B00A75B9A /* JournalFrontend.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JournalFrontend.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppRatingModule.swift; path = JournalFrontend/AppRatingModule.swift; sourceTree = "<group>"; };
 		0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppRatingModule.m; path = JournalFrontend/AppRatingModule.m; sourceTree = "<group>"; };
+		13B07F961A680F5B00A75B9A /* JournalFrontend.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JournalFrontend.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = JournalFrontend/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalFrontend/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = JournalFrontend/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -204,9 +204,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -243,9 +247,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -276,7 +284,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
@@ -309,7 +317,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;

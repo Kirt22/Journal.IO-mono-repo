@@ -11,13 +11,14 @@ Implement features sequentially as complete vertical slices.
 Scope:
 
 - multi-step onboarding
-- 8-screen personalization flow
+- 9-screen personalization flow
 - age range capture
 - journaling experience capture
 - goal selection capture
 - support-focus capture
 - reminder preference capture
 - AI comfort / opt-in explanation
+- excitement rating screen
 - privacy agreement capture
 
 Includes:
@@ -28,7 +29,7 @@ Includes:
 
 Current slice note:
 
-- latest design expects an 8-step onboarding flow whose collected preferences carry forward into auth and profile setup
+- latest design expects a 9-step onboarding flow whose collected preferences carry forward into auth and profile setup
 
 ---
 

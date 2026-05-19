@@ -142,6 +142,13 @@ Minimum for the live backend:
 API_BASE_URL=https://api.journalio.app/api/v1
 ```
 
+Optional fallback store-rating links. The onboarding rating step uses the native in-app review prompt first; these values are only used if the native review bridge is unavailable.
+
+```env
+IOS_APP_STORE_ID=1234567890
+ANDROID_PLAY_STORE_PACKAGE_NAME=app.journalio
+```
+
 2. Install pods if needed:
 
 ```sh

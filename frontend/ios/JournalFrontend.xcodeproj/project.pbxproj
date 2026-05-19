@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0C80B921A6F3F58F76C31292 /* libPods-JournalFrontend.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */; };
+		0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */; };
+		0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
@@ -16,6 +18,8 @@
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* JournalFrontend.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JournalFrontend.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppRatingModule.swift; path = JournalFrontend/AppRatingModule.swift; sourceTree = "<group>"; };
+		0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppRatingModule.m; path = JournalFrontend/AppRatingModule.m; sourceTree = "<group>"; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = JournalFrontend/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalFrontend/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = JournalFrontend/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -44,6 +48,8 @@
 			isa = PBXGroup;
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
+				0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */,
+				0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
@@ -253,6 +259,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */,
+				0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

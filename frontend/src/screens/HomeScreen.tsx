@@ -40,6 +40,7 @@ import {
 } from "lucide-react-native";
 import TabScreenLayout from "../components/TabScreenLayout";
 import JournalEntryCard from "../components/JournalEntryCard";
+import EmojiWithFallback from "../components/EmojiWithFallback";
 import {
   createJournalEntry,
   toggleJournalFavorite,
@@ -1003,6 +1004,7 @@ export default function HomeScreen({
   const savedMoodData = savedMood
     ? moods.find(mood => mood.value === savedMood)
     : null;
+  const SavedMoodIcon = savedMoodData?.icon || Smile;
 
   const currentMoodTone =
     displayedMood === "amazing"
@@ -1265,14 +1267,23 @@ export default function HomeScreen({
           >
             {greeting}
           </Text>
-          <Text
-            style={[
-              styles.title,
-              { color: theme.colors.foreground, fontSize: titleSize },
-            ]}
-          >
-            {firstName} <Text style={styles.wave}>👋</Text>
-          </Text>
+          <View style={styles.titleRow}>
+            <Text
+              style={[
+                styles.title,
+                { color: theme.colors.foreground, fontSize: titleSize },
+              ]}
+            >
+              {firstName}
+            </Text>
+            <EmojiWithFallback
+              emoji="👋"
+              emojiStyle={styles.wave}
+              fallbackIcon={Sparkles}
+              fallbackIconColor={theme.colors.warning}
+              fallbackIconSize={isCompact ? 19 : 22}
+            />
+          </View>
           <Text
             style={[
               styles.date,
@@ -1630,9 +1641,13 @@ export default function HomeScreen({
                               transform: [{ rotate: moodEmojiRotate }],
                             }}
                           >
-                            <Text style={styles.moodEmoji}>
-                              {savedMoodData.emoji}
-                            </Text>
+                            <EmojiWithFallback
+                              emoji={savedMoodData.emoji}
+                              emojiStyle={styles.moodEmoji}
+                              fallbackIcon={SavedMoodIcon}
+                              fallbackIconColor={currentMoodTone.color}
+                              fallbackIconSize={20}
+                            />
                           </Animated.View>
                         </View>
                         <View style={styles.moodSavedCopy}>
@@ -2330,6 +2345,11 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 13,
     marginBottom: 4,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   title: {
     fontWeight: "600",

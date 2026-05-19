@@ -6,7 +6,7 @@ import notifee, {
   type TimestampTrigger,
 } from "@notifee/react-native";
 import { Platform } from "react-native";
-import type { Reminder } from "./remindersService";
+import { getPrimaryDailyReminder, type Reminder } from "./remindersService";
 import type { InsightsAiAnalysisCollecting } from "./insightsService";
 
 const REMINDER_CHANNEL_ID = "journal-daily-reminders";
@@ -357,6 +357,25 @@ const syncOnboardingReminderPreference = async (preference?: string | null) => {
   });
 };
 
+const syncStoredDailyReminderNotifications = async () => {
+  const reminder = await getPrimaryDailyReminder();
+
+  if (!reminder || !reminder.enabled) {
+    await cancelReminderNotifications();
+    return reminder;
+  }
+
+  const permissionGranted = await getReminderPermissionGranted();
+
+  if (!permissionGranted) {
+    await cancelReminderNotifications();
+    return reminder;
+  }
+
+  await syncReminderNotifications(reminder);
+  return reminder;
+};
+
 const requestAndSyncOnboardingReminderPreference = async (
   preference?: string | null
 ) => {
@@ -421,5 +440,6 @@ export {
   scheduleFreeTrialEndingReminder,
   syncOnboardingReminderPreference,
   syncReminderNotifications,
+  syncStoredDailyReminderNotifications,
   syncWeeklyInsightNotifications,
 };

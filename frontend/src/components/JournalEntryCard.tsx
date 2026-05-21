@@ -159,6 +159,7 @@ export default function JournalEntryCard({
             <View style={styles.visualDateRow}>
               <EmojiWithFallback
                 emoji={emoji}
+                debugLabel={`journal-entry-${visualKey}`}
                 emojiStyle={styles.emoji}
                 fallbackIcon={EntryIcon}
                 fallbackIconColor={toneStyle.foregroundColor}

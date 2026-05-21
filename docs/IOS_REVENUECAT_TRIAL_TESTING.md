@@ -7,6 +7,12 @@ Use this checklist when validating the Journal.IO iOS paywall free-trial flow.
 - Test with an iOS sandbox tester or a TestFlight build using Apple sandbox billing.
 - Confirm the App Store subscription product already has the introductory free trial configured and that the same product is attached to the active RevenueCat offering/package used by the standard paywall.
 - The Apple purchase sheet is the source of truth for whether the account is eligible for the introductory offer.
+- For local Debug runs before the App Store products are approved, use `frontend/ios/JournalIO.storekit`. The shared `JournalFrontend` run scheme points to this file so StoreKit can provide local product metadata for:
+  - `app.journalio.premium.weekly`
+  - `app.journalio.premium.yearly`
+  - `app.journalio.premium.yearly.exit`
+  - `app.journalio.premium.lifetime`
+- If Xcode does not pick up the file, open `Product > Scheme > Edit Scheme > Run > Options` and confirm `StoreKit Configuration` is set to `JournalIO.storekit`.
 
 ## Trial Eligibility Notes
 

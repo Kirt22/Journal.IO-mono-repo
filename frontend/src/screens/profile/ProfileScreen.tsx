@@ -679,6 +679,7 @@ export default function ProfileScreen({
                 >
                   <EmojiWithFallback
                     emoji={achievement.emoji}
+                    debugLabel={`profile-achievement-${achievement.label}`}
                     emojiStyle={styles.achievementEmoji}
                     fallbackIcon={AchievementIcon}
                     fallbackIconColor={achievement.iconColor}
@@ -706,6 +707,7 @@ export default function ProfileScreen({
           >
             <EmojiWithFallback
               emoji="🏆"
+              debugLabel="profile-achievement-empty"
               emojiStyle={styles.achievementEmptyEmoji}
               fallbackIcon={Award}
               fallbackIconColor={theme.colors.warning}

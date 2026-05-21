@@ -72,12 +72,12 @@ type RevenueCatPlanSelectionContext = {
 };
 
 const DEFAULT_MAIN_PAYWALL_OFFERING_ID =
-  "journalio_offering_post_onboarding_standard_dev";
+  "journalio_offering_post_onboarding_standard";
 const DEFAULT_EXIT_PAYWALL_OFFERING_ID =
-  "journalio_offering_post_onboarding_exit_dev";
+  "journalio_offering_post_onboarding_exit";
 const DEFAULT_OTHER_SCREENS_OFFERING_ID =
-  "journalio_offering_other_screens_standard_dev";
-const DEFAULT_LIFETIME_OFFERING_ID = "journalio_offering_lifetime_dev";
+  "journalio_offering_other_screens_standard";
+const DEFAULT_LIFETIME_OFFERING_ID = "journalio_offering_lifetime";
 
 type RevenueCatHostedPaywallResult = {
   status: "purchased" | "restored" | "cancelled" | "notPresented" | "error";
@@ -102,6 +102,159 @@ const PERIOD_UNIT_LABELS = {
   MONTH: "month",
   YEAR: "year",
 } as const;
+
+const REVENUECAT_DEBUG_PREFIX = "[RevenueCatDebug]";
+
+const shouldLogRevenueCatDebug = () => __DEV__;
+
+const redactValue = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  if (value.length <= 8) {
+    return `${value.slice(0, 2)}...${value.slice(-2)}`;
+  }
+
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+};
+
+const logRevenueCatDebug = (event: string, data?: Record<string, unknown>) => {
+  if (!shouldLogRevenueCatDebug()) {
+    return;
+  }
+
+  console.info(`${REVENUECAT_DEBUG_PREFIX} ${event}`, data ?? {});
+};
+
+const logRevenueCatWarn = (event: string, data?: Record<string, unknown>) => {
+  if (!shouldLogRevenueCatDebug()) {
+    return;
+  }
+
+  console.warn(`${REVENUECAT_DEBUG_PREFIX} ${event}`, data ?? {});
+};
+
+const summarizeError = (error: unknown) => {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const errorRecord = error as Record<string, unknown>;
+
+    return {
+      code: errorRecord.code,
+      message: errorRecord.message,
+      readableErrorCode: errorRecord.readableErrorCode,
+      underlyingErrorMessage: errorRecord.underlyingErrorMessage,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+};
+
+const summarizeEnv = () => ({
+  platform: Platform.OS,
+  platformVersion: Platform.Version,
+  isDev: __DEV__,
+  hasIosApiKey: Boolean(env.revenueCatIosApiKey),
+  iosApiKeyPrefix: redactValue(env.revenueCatIosApiKey),
+  hasAndroidApiKey: Boolean(env.revenueCatAndroidApiKey),
+  androidApiKeyPrefix: redactValue(env.revenueCatAndroidApiKey),
+  entitlementId: env.revenueCatEntitlementId,
+  mainOfferingId: env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID,
+  exitOfferingId: env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID,
+  otherScreensOfferingId:
+    env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID,
+  lifetimeOfferingId: env.revenueCatLifetimeOfferingId || DEFAULT_LIFETIME_OFFERING_ID,
+});
+
+const summarizeProduct = (rcPackage: PurchasesPackage) => ({
+  packageIdentifier: rcPackage.identifier,
+  packageType: rcPackage.packageType,
+  productIdentifier: rcPackage.product.identifier,
+  productTitle: rcPackage.product.title,
+  productDescription: rcPackage.product.description,
+  price: rcPackage.product.price,
+  priceString: rcPackage.product.priceString,
+  currencyCode: rcPackage.product.currencyCode,
+  pricePerMonthString: rcPackage.product.pricePerMonthString,
+  introPrice: rcPackage.product.introPrice
+    ? {
+        price: rcPackage.product.introPrice.price,
+        priceString: rcPackage.product.introPrice.priceString,
+        period: rcPackage.product.introPrice.period,
+        periodUnit: rcPackage.product.introPrice.periodUnit,
+        periodNumberOfUnits:
+          rcPackage.product.introPrice.periodNumberOfUnits,
+        cycles: rcPackage.product.introPrice.cycles,
+      }
+    : null,
+  presentedOfferingIdentifier: getRevenueCatOfferingIdFromPackage(rcPackage),
+});
+
+const summarizeOffering = (offering: PurchasesOffering | null) => {
+  if (!offering) {
+    return null;
+  }
+
+  return {
+    identifier: offering.identifier,
+    serverDescription: offering.serverDescription,
+    packageCount: offering.availablePackages.length,
+    packageIdentifiers: offering.availablePackages.map(
+      rcPackage => rcPackage.identifier
+    ),
+    productIdentifiers: offering.availablePackages.map(
+      rcPackage => rcPackage.product.identifier
+    ),
+    annualProductIdentifier: offering.annual?.product.identifier ?? null,
+    weeklyProductIdentifier: offering.weekly?.product.identifier ?? null,
+    monthlyProductIdentifier: offering.monthly?.product.identifier ?? null,
+    lifetimeProductIdentifier: offering.lifetime?.product.identifier ?? null,
+  };
+};
+
+const summarizeOfferings = (offerings: PurchasesOfferings | null) => {
+  if (!offerings) {
+    return null;
+  }
+
+  const offeringSummaries = Object.values(offerings.all).map(summarizeOffering);
+
+  return {
+    currentOfferingId: offerings.current?.identifier ?? null,
+    allOfferingIds: Object.keys(offerings.all),
+    offeringCount: Object.keys(offerings.all).length,
+    totalPackageCount: offeringSummaries.reduce(
+      (count, offering) => count + (offering?.packageCount ?? 0),
+      0
+    ),
+    offerings: offeringSummaries,
+  };
+};
+
+const summarizeCustomerInfo = (customerInfo: CustomerInfo | null) => {
+  if (!customerInfo) {
+    return null;
+  }
+
+  return {
+    originalAppUserId: redactValue(customerInfo.originalAppUserId),
+    activeEntitlementIds: Object.keys(customerInfo.entitlements.active),
+    allEntitlementIds: Object.keys(customerInfo.entitlements.all),
+    activeSubscriptionIds: customerInfo.activeSubscriptions,
+    allPurchasedProductIds: customerInfo.allPurchasedProductIdentifiers,
+    managementUrl: customerInfo.managementURL ? "present" : null,
+    latestExpirationDate: customerInfo.latestExpirationDate,
+  };
+};
 
 const getRevenueCatApiKey = () => {
   if (Platform.OS === "ios") {
@@ -447,11 +600,17 @@ const findRevenueCatPackageByPlanKey = (
   offerings: PurchasesOfferings | null,
   planKey: RevenueCatPlanKey
 ) => {
-  return (
+  const matchedPackage =
     getPackagesAcrossAllOfferings(offerings).find(
       rcPackage => getPlanKey(rcPackage) === planKey
-    ) || null
-  );
+    ) || null;
+
+  logRevenueCatDebug("find package by plan key", {
+    planKey,
+    matchedPackage: matchedPackage ? summarizeProduct(matchedPackage) : null,
+  });
+
+  return matchedPackage;
 };
 
 const findRevenueCatPackageByProductIdentifier = (
@@ -459,14 +618,21 @@ const findRevenueCatPackageByProductIdentifier = (
   productIdentifier?: string | null
 ) => {
   if (!productIdentifier) {
+    logRevenueCatDebug("skip product lookup: missing product identifier");
     return null;
   }
 
-  return (
+  const matchedPackage =
     getPackagesAcrossAllOfferings(offerings).find(
       rcPackage => rcPackage.product.identifier === productIdentifier
-    ) || null
-  );
+    ) || null;
+
+  logRevenueCatDebug("find package by product identifier", {
+    productIdentifier,
+    matchedPackage: matchedPackage ? summarizeProduct(matchedPackage) : null,
+  });
+
+  return matchedPackage;
 };
 
 const selectPreferredConfiguredPackage = (
@@ -474,6 +640,12 @@ const selectPreferredConfiguredPackage = (
   configuredOffering: PaywallOffering
 ) => {
   if (!packages.length) {
+    logRevenueCatWarn("package selection failed: no candidate packages", {
+      configuredOfferingKey: configuredOffering.key,
+      configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
+      configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
+      configuredPrice: configuredOffering.price,
+    });
     return null;
   }
 
@@ -481,13 +653,43 @@ const selectPreferredConfiguredPackage = (
     const configuredPriceValue = parsePriceValue(configuredOffering.price);
 
     if (configuredPriceValue !== null) {
-      return sortPackagesByPriceDistance(packages, configuredPriceValue)[0] || null;
+      const selectedPackage =
+        sortPackagesByPriceDistance(packages, configuredPriceValue)[0] || null;
+
+      logRevenueCatDebug("selected yearly exit package by price distance", {
+        configuredPrice: configuredOffering.price,
+        configuredPriceValue,
+        selectedPackage: selectedPackage
+          ? summarizeProduct(selectedPackage)
+          : null,
+        candidatePackages: packages.map(summarizeProduct),
+      });
+
+      return selectedPackage;
     }
 
-    return sortPackagesByAscendingPrice(packages)[0] || null;
+    const selectedPackage = sortPackagesByAscendingPrice(packages)[0] || null;
+
+    logRevenueCatDebug("selected yearly exit package by ascending price", {
+      configuredPrice: configuredOffering.price,
+      selectedPackage: selectedPackage ? summarizeProduct(selectedPackage) : null,
+      candidatePackages: packages.map(summarizeProduct),
+    });
+
+    return selectedPackage;
   }
 
-  return packages[0] || null;
+  const selectedPackage = packages[0] || null;
+
+  logRevenueCatDebug("selected configured package", {
+    configuredOfferingKey: configuredOffering.key,
+    configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
+    configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
+    selectedPackage: selectedPackage ? summarizeProduct(selectedPackage) : null,
+    candidatePackages: packages.map(summarizeProduct),
+  });
+
+  return selectedPackage;
 };
 
 const findRevenueCatPackage = (
@@ -496,6 +698,10 @@ const findRevenueCatPackage = (
   context?: RevenueCatPlanSelectionContext
 ) => {
   if (!offerings) {
+    logRevenueCatWarn("package lookup failed: offerings unavailable", {
+      configuredOfferingKey: configuredOffering.key,
+      contextPlacementKey: context?.placementKey,
+    });
     return null;
   }
 
@@ -513,6 +719,21 @@ const findRevenueCatPackage = (
     getPreferredPackages(offering)
   );
   const fallbackPlanKey = getPlanKeyFromOfferingKey(configuredOffering.key);
+
+  logRevenueCatDebug("find configured package candidates", {
+    configuredOfferingKey: configuredOffering.key,
+    configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
+    configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
+    configuredPrice: configuredOffering.price,
+    contextPlacementKey: context?.placementKey,
+    targetOfferingId,
+    foundTargetOffering: targetOfferingId
+      ? Boolean(offerings.all[targetOfferingId])
+      : null,
+    candidateOfferingIds: candidateOfferings.map(offering => offering.identifier),
+    fallbackPlanKey,
+    preferredPackages: preferredPackages.map(summarizeProduct),
+  });
 
   if (
     configuredOffering.key === "yearly_exit_offer" &&
@@ -569,12 +790,25 @@ const getMatchingEntitlement = (
 async function configureRevenueCat(appUserID?: string | null) {
   const apiKey = getRevenueCatApiKey();
 
+  logRevenueCatDebug("configure requested", {
+    env: summarizeEnv(),
+    providedAppUserId: redactValue(appUserID),
+  });
+
   if (!apiKey) {
+    logRevenueCatWarn("configure skipped: missing platform API key", {
+      env: summarizeEnv(),
+    });
     return false;
   }
 
   const normalizedAppUserId = normalizeAppUserId(appUserID);
   const isConfigured = await Purchases.isConfigured().catch(() => false);
+
+  logRevenueCatDebug("configure status", {
+    isConfigured,
+    normalizedAppUserId: redactValue(normalizedAppUserId),
+  });
 
   if (!isConfigured) {
     await Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.INFO);
@@ -584,17 +818,33 @@ async function configureRevenueCat(appUserID?: string | null) {
       diagnosticsEnabled: __DEV__,
     });
 
+    logRevenueCatDebug("configured SDK", {
+      apiKeyPrefix: redactValue(apiKey),
+      appUserId: redactValue(normalizedAppUserId),
+      diagnosticsEnabled: __DEV__,
+      logLevel: __DEV__ ? "DEBUG" : "INFO",
+    });
+
     return true;
   }
 
   if (!normalizedAppUserId) {
+    logRevenueCatDebug("configure complete: already configured anonymous user");
     return true;
   }
 
   const currentAppUserId = await Purchases.getAppUserID().catch(() => null);
 
   if (currentAppUserId !== normalizedAppUserId) {
+    logRevenueCatDebug("logging in configured SDK user", {
+      currentAppUserId: redactValue(currentAppUserId),
+      nextAppUserId: redactValue(normalizedAppUserId),
+    });
     await Purchases.logIn(normalizedAppUserId);
+  } else {
+    logRevenueCatDebug("configured SDK already has requested user", {
+      currentAppUserId: redactValue(currentAppUserId),
+    });
   }
 
   return true;
@@ -603,18 +853,32 @@ async function configureRevenueCat(appUserID?: string | null) {
 async function syncRevenueCatIdentity(appUserID?: string | null) {
   const apiKey = getRevenueCatApiKey();
 
+  logRevenueCatDebug("identity sync requested", {
+    providedAppUserId: redactValue(appUserID),
+    hasApiKey: Boolean(apiKey),
+  });
+
   if (!apiKey) {
+    logRevenueCatWarn("identity sync skipped: missing platform API key", {
+      env: summarizeEnv(),
+    });
     return false;
   }
 
   const normalizedAppUserId = normalizeAppUserId(appUserID);
   const isConfigured = await Purchases.isConfigured().catch(() => false);
 
+  logRevenueCatDebug("identity sync status", {
+    isConfigured,
+    normalizedAppUserId: redactValue(normalizedAppUserId),
+  });
+
   if (!isConfigured) {
     return configureRevenueCat(normalizedAppUserId);
   }
 
   if (!normalizedAppUserId) {
+    logRevenueCatDebug("logging out RevenueCat user for anonymous state");
     await Purchases.logOut().catch(() => undefined);
     return true;
   }
@@ -622,20 +886,86 @@ async function syncRevenueCatIdentity(appUserID?: string | null) {
   const currentAppUserId = await Purchases.getAppUserID().catch(() => null);
 
   if (currentAppUserId !== normalizedAppUserId) {
+    logRevenueCatDebug("logging in RevenueCat user during identity sync", {
+      currentAppUserId: redactValue(currentAppUserId),
+      nextAppUserId: redactValue(normalizedAppUserId),
+    });
     await Purchases.logIn(normalizedAppUserId);
+  } else {
+    logRevenueCatDebug("identity sync no-op: already logged in", {
+      currentAppUserId: redactValue(currentAppUserId),
+    });
   }
 
   return true;
 }
 
 async function getRevenueCatOfferings(appUserID?: string | null) {
+  logRevenueCatDebug("offerings fetch requested", {
+    appUserId: redactValue(appUserID),
+    env: summarizeEnv(),
+  });
+
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
+    logRevenueCatWarn("offerings fetch skipped: SDK not configured");
     return null;
   }
 
-  return Purchases.getOfferings();
+  try {
+    const offerings = await Purchases.getOfferings();
+
+    logRevenueCatDebug("offerings fetch succeeded", {
+      summary: summarizeOfferings(offerings),
+    });
+
+    if (!Object.keys(offerings.all).length) {
+      logRevenueCatWarn("offerings fetch returned no offerings");
+    }
+
+    const totalPackages = Object.values(offerings.all).reduce(
+      (count, offering) => count + offering.availablePackages.length,
+      0
+    );
+
+    if (totalPackages === 0) {
+      logRevenueCatWarn("offerings fetch returned zero packages", {
+        summary: summarizeOfferings(offerings),
+        expectedProductIds: [
+          "app.journalio.premium.weekly",
+          "app.journalio.premium.yearly",
+          "app.journalio.premium.yearly.exit",
+          "app.journalio.premium.lifetime",
+        ],
+        likelyCauses: [
+          "StoreKit configuration file is not active for this run",
+          "App Store Connect products are still READY_TO_SUBMIT",
+          "Product IDs differ between RevenueCat, StoreKit config, and App Store Connect",
+        ],
+      });
+    }
+
+    return offerings;
+  } catch (error) {
+    logRevenueCatWarn("offerings fetch failed", {
+      error: summarizeError(error),
+      env: summarizeEnv(),
+      expectedProductIds: [
+        "app.journalio.premium.weekly",
+        "app.journalio.premium.yearly",
+        "app.journalio.premium.yearly.exit",
+        "app.journalio.premium.lifetime",
+      ],
+      nextChecks: [
+        "Confirm Xcode Run scheme uses JournalIO.storekit",
+        "Confirm app was launched from Xcode Play, not npm run ios",
+        "Confirm App Store Connect IAPs have been submitted with the app version",
+      ],
+    });
+
+    throw error;
+  }
 }
 
 async function getRevenueCatHostedOffering(
@@ -644,13 +974,31 @@ async function getRevenueCatHostedOffering(
   appUserID?: string | null
 ) {
   const offeringId = getRevenueCatHostedOfferingId(target, placementKey);
+
+  logRevenueCatDebug("hosted offering requested", {
+    target,
+    placementKey,
+    resolvedOfferingId: offeringId,
+    appUserId: redactValue(appUserID),
+  });
+
   const offerings = await getRevenueCatOfferings(appUserID);
+  const offering =
+    offeringId && offerings ? offerings.all[offeringId] ?? null : null;
+
+  logRevenueCatDebug("hosted offering resolved", {
+    target,
+    placementKey,
+    resolvedOfferingId: offeringId,
+    foundOffering: Boolean(offering),
+    offering: summarizeOffering(offering),
+    allOfferings: summarizeOfferings(offerings),
+  });
 
   return {
     offeringId,
     offerings,
-    offering:
-      offeringId && offerings ? offerings.all[offeringId] ?? null : null,
+    offering,
   };
 }
 
@@ -663,6 +1011,13 @@ async function getRevenueCatOfferingDetails(appUserID?: string | null) {
 
   const currentOffering = getCurrentOffering(offerings);
 
+  logRevenueCatDebug("offering details resolved", {
+    currentOffering: summarizeOffering(currentOffering),
+    availablePackages: currentOffering
+      ? getPreferredPackages(currentOffering).map(summarizeProduct)
+      : [],
+  });
+
   return {
     offerings,
     currentOffering,
@@ -671,36 +1026,96 @@ async function getRevenueCatOfferingDetails(appUserID?: string | null) {
 }
 
 async function getRevenueCatCustomerInfo(appUserID?: string | null) {
+  logRevenueCatDebug("customer info fetch requested", {
+    appUserId: redactValue(appUserID),
+  });
+
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
+    logRevenueCatWarn("customer info fetch skipped: SDK not configured");
     return null;
   }
 
-  return Purchases.getCustomerInfo();
+  try {
+    const customerInfo = await Purchases.getCustomerInfo();
+
+    logRevenueCatDebug("customer info fetch succeeded", {
+      customerInfo: summarizeCustomerInfo(customerInfo),
+    });
+
+    return customerInfo;
+  } catch (error) {
+    logRevenueCatWarn("customer info fetch failed", {
+      error: summarizeError(error),
+    });
+
+    throw error;
+  }
 }
 
 async function purchaseRevenueCatPackage(
   rcPackage: PurchasesPackage,
   appUserID?: string | null
 ) {
+  logRevenueCatDebug("purchase requested", {
+    appUserId: redactValue(appUserID),
+    rcPackage: summarizeProduct(rcPackage),
+  });
+
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
+    logRevenueCatWarn("purchase blocked: SDK not configured");
     throw new Error("Purchases are not available right now.");
   }
 
-  return Purchases.purchasePackage(rcPackage);
+  try {
+    const result = await Purchases.purchasePackage(rcPackage);
+
+    logRevenueCatDebug("purchase succeeded", {
+      rcPackage: summarizeProduct(rcPackage),
+      customerInfo: summarizeCustomerInfo(result.customerInfo),
+    });
+
+    return result;
+  } catch (error) {
+    logRevenueCatWarn("purchase failed", {
+      rcPackage: summarizeProduct(rcPackage),
+      error: summarizeError(error),
+    });
+
+    throw error;
+  }
 }
 
 async function restoreRevenueCatPurchases(appUserID?: string | null) {
+  logRevenueCatDebug("restore requested", {
+    appUserId: redactValue(appUserID),
+  });
+
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
+    logRevenueCatWarn("restore blocked: SDK not configured");
     throw new Error("Purchases are not available right now.");
   }
 
-  return Purchases.restorePurchases();
+  try {
+    const customerInfo = await Purchases.restorePurchases();
+
+    logRevenueCatDebug("restore succeeded", {
+      customerInfo: summarizeCustomerInfo(customerInfo),
+    });
+
+    return customerInfo;
+  } catch (error) {
+    logRevenueCatWarn("restore failed", {
+      error: summarizeError(error),
+    });
+
+    throw error;
+  }
 }
 
 function hasRevenueCatHostedPaywall(target: RevenueCatHostedPaywallTarget) {
@@ -712,9 +1127,19 @@ async function presentRevenueCatHostedPaywall(
   placementKey?: string | null,
   appUserID?: string | null
 ) {
+  logRevenueCatDebug("hosted paywall presentation requested", {
+    target,
+    placementKey,
+    appUserId: redactValue(appUserID),
+  });
+
   const configured = await configureRevenueCat(appUserID);
 
   if (!configured) {
+    logRevenueCatWarn("hosted paywall blocked: SDK not configured", {
+      target,
+      placementKey,
+    });
     return {
       status: "error",
       customerInfo: null,
@@ -731,6 +1156,12 @@ async function presentRevenueCatHostedPaywall(
   );
 
   if (!offering) {
+    logRevenueCatWarn("hosted paywall not presented: offering missing", {
+      target,
+      placementKey,
+      offerings: summarizeOfferings(offerings),
+    });
+
     return {
       status: "notPresented",
       customerInfo: null,
@@ -741,8 +1172,20 @@ async function presentRevenueCatHostedPaywall(
   }
 
   try {
+    logRevenueCatDebug("presenting hosted paywall", {
+      target,
+      placementKey,
+      offering: summarizeOffering(offering),
+    });
+
     const paywallResult = await RevenueCatUI.presentPaywall({
       offering,
+    });
+
+    logRevenueCatDebug("hosted paywall result", {
+      target,
+      placementKey,
+      paywallResult,
     });
 
     if (paywallResult === PAYWALL_RESULT.PURCHASED) {
@@ -789,6 +1232,12 @@ async function presentRevenueCatHostedPaywall(
       message: "We could not open purchases right now.",
     } satisfies RevenueCatHostedPaywallResult;
   } catch (error) {
+    logRevenueCatWarn("hosted paywall presentation failed", {
+      target,
+      placementKey,
+      error: summarizeError(error),
+    });
+
     return {
       status: "error",
       customerInfo: null,
@@ -804,8 +1253,20 @@ async function presentRevenueCatHostedPaywall(
 }
 
 async function refreshRevenueCatEntitlementState(appUserID?: string | null) {
+  logRevenueCatDebug("entitlement refresh requested", {
+    appUserId: redactValue(appUserID),
+    expectedEntitlementId: env.revenueCatEntitlementId,
+  });
+
   const customerInfo = await getRevenueCatCustomerInfo(appUserID);
   const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
+
+  logRevenueCatDebug("entitlement refresh resolved", {
+    customerInfo: summarizeCustomerInfo(customerInfo),
+    activeEntitlementId: activeEntitlement?.identifier ?? null,
+    activeEntitlementStore: activeEntitlement?.store ?? null,
+    hasPremiumAccess: hasRevenueCatPremiumAccess(customerInfo),
+  });
 
   return {
     customerInfo,
@@ -817,10 +1278,20 @@ async function refreshRevenueCatEntitlementState(appUserID?: string | null) {
 function addRevenueCatCustomerInfoUpdateListener(
   listener: (customerInfo: CustomerInfo) => void
 ) {
-  Purchases.addCustomerInfoUpdateListener(listener);
+  logRevenueCatDebug("customer info listener registered");
+
+  const debugListener = (customerInfo: CustomerInfo) => {
+    logRevenueCatDebug("customer info listener update received", {
+      customerInfo: summarizeCustomerInfo(customerInfo),
+    });
+    listener(customerInfo);
+  };
+
+  Purchases.addCustomerInfoUpdateListener(debugListener);
 
   return () => {
-    Purchases.removeCustomerInfoUpdateListener(listener);
+    logRevenueCatDebug("customer info listener removed");
+    Purchases.removeCustomerInfoUpdateListener(debugListener);
   };
 }
 
@@ -829,6 +1300,11 @@ function getRevenueCatPackageMetadataForPlanKey(
   planKey: RevenueCatPlanKey
 ) {
   const rcPackage = findRevenueCatPackageByPlanKey(offerings, planKey);
+
+  logRevenueCatDebug("package metadata resolved", {
+    planKey,
+    rcPackage: rcPackage ? summarizeProduct(rcPackage) : null,
+  });
 
   return {
     planKey,
@@ -842,11 +1318,19 @@ function getRevenueCatPackagesForPlanKey(
   offerings: PurchasesOfferings | null,
   planKey: RevenueCatPlanKey
 ) {
-  return sortPackagesByAscendingPrice(
+  const packages = sortPackagesByAscendingPrice(
     getPackagesAcrossAllOfferings(offerings).filter(
       rcPackage => getPlanKey(rcPackage) === planKey
     )
   );
+
+  logRevenueCatDebug("packages resolved for plan key", {
+    planKey,
+    packageCount: packages.length,
+    packages: packages.map(summarizeProduct),
+  });
+
+  return packages;
 }
 
 function getRevenueCatPaywallPlans(
@@ -854,8 +1338,14 @@ function getRevenueCatPaywallPlans(
   configuredOfferings?: PaywallOffering[],
   context?: RevenueCatPlanSelectionContext
 ) {
+  logRevenueCatDebug("paywall plans requested", {
+    configuredOfferingKeys: configuredOfferings?.map(offering => offering.key) ?? [],
+    contextPlacementKey: context?.placementKey,
+    offerings: summarizeOfferings(offerings),
+  });
+
   if (configuredOfferings?.length) {
-    return [...configuredOfferings]
+    const plans = [...configuredOfferings]
       .sort((left, right) => left.sortOrder - right.sortOrder)
       .map<RevenueCatPaywallPlan>(configuredOffering => {
         const rcPackage = findRevenueCatPackage(
@@ -896,15 +1386,33 @@ function getRevenueCatPaywallPlans(
           introOffer: getIntroOffer(rcPackage),
         };
       });
+
+    logRevenueCatDebug("configured paywall plans resolved", {
+      plans: plans.map(plan => ({
+        id: plan.id,
+        planKey: plan.planKey,
+        price: plan.price,
+        revenueCatOfferingId: plan.revenueCatOfferingId,
+        revenueCatPackageId: plan.revenueCatPackageId,
+        hasPackage: Boolean(plan.rcPackage),
+        productIdentifier: plan.rcPackage?.product.identifier ?? null,
+        introOffer: plan.introOffer,
+      })),
+    });
+
+    return plans;
   }
 
   const offering = getCurrentOffering(offerings);
 
   if (!offering) {
+    logRevenueCatWarn("paywall plans unavailable: no current offering", {
+      offerings: summarizeOfferings(offerings),
+    });
     return [];
   }
 
-  return getPreferredPackages(offering)
+  const plans = getPreferredPackages(offering)
     .map<RevenueCatPaywallPlan>(rcPackage => {
       const planKey = getPlanKey(rcPackage);
 
@@ -934,6 +1442,21 @@ function getRevenueCatPaywallPlans(
         PLAN_PRIORITY.indexOf(left.planKey) - PLAN_PRIORITY.indexOf(right.planKey)
     )
     .slice(0, MAX_PAYWALL_PLANS);
+
+  logRevenueCatDebug("default paywall plans resolved", {
+    currentOffering: summarizeOffering(offering),
+    plans: plans.map(plan => ({
+      id: plan.id,
+      planKey: plan.planKey,
+      price: plan.price,
+      revenueCatOfferingId: plan.revenueCatOfferingId,
+      revenueCatPackageId: plan.revenueCatPackageId,
+      productIdentifier: plan.rcPackage?.product.identifier ?? null,
+      introOffer: plan.introOffer,
+    })),
+  });
+
+  return plans;
 }
 
 function hasRevenueCatPremiumAccess(customerInfo: CustomerInfo | null) {

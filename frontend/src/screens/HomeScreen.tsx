@@ -1278,6 +1278,7 @@ export default function HomeScreen({
             </Text>
             <EmojiWithFallback
               emoji="👋"
+              debugLabel="home-header-wave"
               emojiStyle={styles.wave}
               fallbackIcon={Sparkles}
               fallbackIconColor={theme.colors.warning}
@@ -1643,6 +1644,7 @@ export default function HomeScreen({
                           >
                             <EmojiWithFallback
                               emoji={savedMoodData.emoji}
+                              debugLabel={`home-saved-mood-${savedMoodData.value}`}
                               emojiStyle={styles.moodEmoji}
                               fallbackIcon={SavedMoodIcon}
                               fallbackIconColor={currentMoodTone.color}

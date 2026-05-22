@@ -5,6 +5,7 @@ import {
   Easing,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -94,6 +95,63 @@ const DEFAULT_HOME_PROMPT: WritingPrompt = {
   topic: "Reflection",
   text: "What felt most steady or grounding in your day?",
 };
+const HOME_PROMPT_FALLBACKS: WritingPrompt[] = [
+  DEFAULT_HOME_PROMPT,
+  {
+    id: "patterns-2",
+    topic: "Patterns",
+    text: "Where did your mood shift, and what seemed to influence it?",
+  },
+  {
+    id: "next-step-3",
+    topic: "Next Step",
+    text: "What is one small thing you want to carry into tomorrow?",
+  },
+  {
+    id: "small-win-4",
+    topic: "Small Win",
+    text: "What felt slightly easier today, and what may have helped?",
+  },
+  {
+    id: "support-5",
+    topic: "Support",
+    text: "Where did you feel supported today, or where did you wish for more support?",
+  },
+];
+const HOME_PROMPT_TARGET_COUNT = 5;
+
+function buildHomePromptOptions(
+  featuredPrompt: WritingPrompt | null | undefined,
+  prompts: WritingPrompt[] | null | undefined
+) {
+  const merged = [...(prompts || []), ...(featuredPrompt ? [featuredPrompt] : []), ...HOME_PROMPT_FALLBACKS];
+  const deduped: WritingPrompt[] = [];
+  const seen = new Set<string>();
+
+  for (const prompt of merged) {
+    const topic = prompt.topic?.trim();
+    const text = prompt.text?.trim();
+
+    if (!topic || !text) {
+      continue;
+    }
+
+    const key = topic.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(prompt);
+
+    if (deduped.length === HOME_PROMPT_TARGET_COUNT) {
+      break;
+    }
+  }
+
+  return deduped;
+}
 
 const moods: {
   value: MoodType;
@@ -563,9 +621,9 @@ export default function HomeScreen({
   const [featuredPrompt, setFeaturedPrompt] = useState<WritingPrompt>(
     DEFAULT_HOME_PROMPT
   );
-  const [promptOptions, setPromptOptions] = useState<WritingPrompt[]>([
-    DEFAULT_HOME_PROMPT,
-  ]);
+  const [promptOptions, setPromptOptions] = useState<WritingPrompt[]>(
+    HOME_PROMPT_FALLBACKS
+  );
   const [isPromptDialogVisible, setIsPromptDialogVisible] = useState(false);
 
   const isCompact = width < 360;
@@ -713,13 +771,13 @@ export default function HomeScreen({
         if (isActive && response.featuredPrompt?.text) {
           setFeaturedPrompt(response.featuredPrompt);
           setPromptOptions(
-            response.prompts.length > 0 ? response.prompts : [response.featuredPrompt]
+            buildHomePromptOptions(response.featuredPrompt, response.prompts)
           );
         }
       } catch {
         if (isActive) {
           setFeaturedPrompt(DEFAULT_HOME_PROMPT);
-          setPromptOptions([DEFAULT_HOME_PROMPT]);
+          setPromptOptions(HOME_PROMPT_FALLBACKS);
         }
       } finally {
         if (isActive) {
@@ -2415,7 +2473,7 @@ export default function HomeScreen({
               pointerEvents="none"
               style={[
                 styles.promptDialogGlow,
-                { backgroundColor: hexToRgba(theme.colors.primary, 0.11) },
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
               ]}
             />
             <View style={styles.promptDialogHeader}>
@@ -2464,7 +2522,12 @@ export default function HomeScreen({
                 Loading prompt options...
               </Text>
             ) : (
-              <View style={styles.promptDialogList}>
+              <ScrollView
+                style={styles.promptDialogScroll}
+                contentContainerStyle={styles.promptDialogList}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
                 {promptOptions.map(prompt => (
                   <Pressable
                     key={prompt.id}
@@ -2498,7 +2561,7 @@ export default function HomeScreen({
                     </Text>
                   </Pressable>
                 ))}
-              </View>
+              </ScrollView>
             )}
           </Animated.View>
         </Animated.View>
@@ -2967,6 +3030,7 @@ const styles = StyleSheet.create({
   promptDialogCard: {
     width: "100%",
     maxWidth: 420,
+    maxHeight: "78%",
     borderWidth: 1,
     borderRadius: 24,
     padding: 18,
@@ -2979,12 +3043,12 @@ const styles = StyleSheet.create({
   },
   promptDialogGlow: {
     position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: -12,
-    height: 28,
+    top: -22,
+    right: -18,
+    width: 156,
+    height: 156,
     borderRadius: 999,
-    opacity: 0.9,
+    opacity: 0.5,
   },
   promptDialogHeader: {
     flexDirection: "row",
@@ -3020,8 +3084,12 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     paddingVertical: 12,
   },
+  promptDialogScroll: {
+    maxHeight: 420,
+  },
   promptDialogList: {
     gap: 10,
+    paddingBottom: 4,
   },
   promptDialogOption: {
     borderWidth: 1,

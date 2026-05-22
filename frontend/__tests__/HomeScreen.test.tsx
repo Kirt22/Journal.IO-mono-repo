@@ -355,6 +355,36 @@ test("renders the home screen layout", async () => {
   });
 
   expect(JSON.stringify(root!.toJSON())).toContain("Choose a writing prompt");
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What felt most steady or grounding in your day?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: Where did your mood shift, and what seemed to influence it?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What is one small habit you want to reinforce tomorrow?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What felt slightly easier today, and what may have helped?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: Where did you feel supported today, or where did you wish for more support?",
+    })
+  ).toBeTruthy();
 
   const secondPromptOption = root!.root.findByProps({
     accessibilityLabel:

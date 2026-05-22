@@ -102,6 +102,8 @@ System behavior must:
 - keep insight language non-clinical
 - route elevated-risk signals to safety handling
 - preserve user dignity and privacy in messaging
+- allow the journal write itself to succeed, then keep self-harm or harm-to-others wording out of normal AI trait/pattern scoring
+- surface support-first wording for elevated-risk analysis instead of diagnosis, certainty, or personality labeling
 
 ---
 

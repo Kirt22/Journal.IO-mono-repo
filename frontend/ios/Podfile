@@ -5,6 +5,11 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
+# RN 0.82.x prebuilt Hermes iOS artifacts exclude dSYMs, which causes
+# App Store Connect to warn about missing hermesvm.framework symbols on upload.
+# Force Hermes to build from source so the archive includes matching dSYMs.
+ENV['RCT_BUILD_HERMES_FROM_SOURCE'] = 'true'
+
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 

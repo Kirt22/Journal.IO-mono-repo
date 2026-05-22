@@ -110,5 +110,6 @@ export default App;
 const appStyles = StyleSheet.create({
   appRoot: {
     flex: 1,
+    backgroundColor: "#FDFCFB",
   },
 });

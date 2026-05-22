@@ -115,6 +115,7 @@ function HomeRoute() {
   const onboardingGoals = useAppStore(
     state => state.onboardingData?.goals ?? EMPTY_GOALS
   );
+  const openNewEntry = useAppStore(state => state.openNewEntry);
   const setThemeModeOverride = useAppStore(state => state.setThemeModeOverride);
 
   useTabFocus("home");
@@ -133,7 +134,9 @@ function HomeRoute() {
         onOpenStreaks={() => navigation.navigate("Streaks")}
         onOpenSearch={() => navigation.navigate("Search")}
         onOpenReminders={() => navigation.navigate("Reminders")}
-        onOpenNewEntry={() => navigation.navigate("NewEntry")}
+        onOpenNewEntry={initialPrompt =>
+          openNewEntry(initialPrompt ? { initialPrompt } : undefined)
+        }
         onToggleTheme={setThemeModeOverride}
       />
     </TabFrame>

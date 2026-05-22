@@ -354,11 +354,21 @@ test("renders the home screen layout", async () => {
     promptsButton.props.onPress();
   });
 
-  expect(Alert.alert).toHaveBeenCalledWith(
-    "Coming soon",
-    "Prompt shortcuts are coming soon."
+  expect(JSON.stringify(root!.toJSON())).toContain("Choose a writing prompt");
+
+  const secondPromptOption = root!.root.findByProps({
+    accessibilityLabel:
+      "Use prompt: What is one small habit you want to reinforce tomorrow?",
+  });
+
+  ReactTestRenderer.act(() => {
+    secondPromptOption.props.onPress();
+  });
+
+  expect(onOpenNewEntry).toHaveBeenCalledWith(
+    "What is one small habit you want to reinforce tomorrow?"
   );
-  expect(onOpenNewEntry).toHaveBeenCalledTimes(2);
+  expect(onOpenNewEntry).toHaveBeenCalledTimes(3);
 });
 
 test("shows loading placeholders while home AI cards are still fetching", async () => {

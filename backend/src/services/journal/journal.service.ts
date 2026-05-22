@@ -7,6 +7,11 @@ import {
 } from "../../helpers/openai.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
 import {
+  detectJournalSafetySignal,
+  hasJournalSafetySignal,
+  type JournalSafetySignal,
+} from "../../helpers/journalSafety.helpers";
+import {
   syncJournalCreatedInsights,
   syncJournalDeletedInsights,
   syncJournalUpdatedInsights,
@@ -554,6 +559,16 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
     content: journal.content || "",
     aiPrompt: journal.aiPrompt,
   });
+  const safetySignal = detectJournalSafetySignal(textQuality.analysisText || journal.content || "");
+
+  if (hasJournalSafetySignal(safetySignal)) {
+    return buildSafetyJournalQuickAnalysis({
+      journal,
+      safetySignal,
+      wordCount: textQuality.analysisWordCount,
+    });
+  }
+
   const analysisText = textQuality.analysisText || textQuality.strippedText;
   const visibleTags = textQuality.lowSignalDetected
     ? []
@@ -843,6 +858,109 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
   };
 };
 
+const buildSafetyJournalQuickAnalysis = ({
+  journal,
+  safetySignal,
+  wordCount,
+}: {
+  journal: IJournal;
+  safetySignal: JournalSafetySignal;
+  wordCount: number;
+}): JournalQuickAnalysisResponse => {
+  const isSelfHarm = safetySignal.category === "self_harm";
+  const headline = isSelfHarm
+    ? "This entry needs real-world support"
+    : "This entry needs a safety-first response";
+  const narrative = isSelfHarm
+    ? "This entry may involve self-harm or suicide risk. Journal.IO will not turn this into a personality read or normal pattern analysis."
+    : "This entry may involve risk of harm to another person. Journal.IO will not turn this into a personality read or normal pattern analysis.";
+  const highlight = isSelfHarm
+    ? "If you might act on this or feel unable to stay safe, contact emergency services now. In the U.S. or Canada, call or text 988."
+    : "If someone could be hurt, create distance from the situation and contact local emergency services or a trusted person now.";
+  const supportTitle = isSelfHarm ? "Get support now" : "Pause and create distance";
+  const supportDescription = isSelfHarm
+    ? "Reach out to a trusted person or crisis support before continuing to analyze this entry. The priority is immediate safety, not a deeper interpretation."
+    : "Step away from the situation if possible and involve a trusted person or emergency support. The priority is preventing harm, not interpreting the entry.";
+
+  return {
+    journalId: journal._id.toString(),
+    summary: {
+      headline,
+      narrative,
+      highlight,
+    },
+    scorecard: {
+      vibeLabel: safetySignal.level === "urgent" ? "Urgent support" : "Support first",
+      vibeTone: "slate",
+      cards: [
+        {
+          key: "words",
+          label: "Words",
+          value: `${wordCount}`,
+          tone: "blue",
+        },
+        {
+          key: "mood",
+          label: "Mood",
+          value: "Needs care",
+          tone: "slate",
+        },
+        {
+          key: "focus",
+          label: "Focus",
+          value: "Safety",
+          tone: "slate",
+        },
+        {
+          key: "depth",
+          label: "Depth",
+          value: "Do not analyze",
+          tone: "slate",
+        },
+      ],
+    },
+    patternTags: [
+      {
+        label: "Safety",
+        tone: "slate",
+      },
+      {
+        label: "Support First",
+        tone: "coral",
+      },
+    ],
+    signals: {
+      whatStoodOut: {
+        title: "Safety matters more than interpretation",
+        description:
+          "The wording may point to immediate risk, so this reflection stays focused on support instead of drawing a behavioral conclusion.",
+        evidence: ["Safety signal", safetySignal.level === "urgent" ? "Urgent wording" : "Support wording"],
+        tone: "slate",
+      },
+      whatNeedsCare: {
+        title: "This should not stay private-only",
+        description:
+          "A journal can hold the words, but this kind of entry should also be shared with a trusted person or crisis/emergency support if there is any chance of harm.",
+        evidence: ["Reach out", "Do not wait"],
+        tone: "coral",
+      },
+      whatToCarryForward: {
+        title: "Use the app after safety is handled",
+        description:
+          "Come back to reflection once immediate safety is steadier. For now, keep the next step simple and real-world.",
+        evidence: ["Support first", "Reflect later"],
+        tone: "blue",
+      },
+    },
+    nextStep: {
+      title: supportTitle,
+      description: supportDescription,
+      focus: "Safety",
+    },
+    generatedAt: new Date().toISOString(),
+  };
+};
+
 const generateOpenAiJournalQuickAnalysis = async ({
   userId,
   journal,
@@ -859,6 +977,7 @@ const generateOpenAiJournalQuickAnalysis = async ({
 
   if (
     !(await canUseOpenAiForUser(userId)) ||
+    hasJournalSafetySignal(detectJournalSafetySignal(textQuality.analysisText || journal.content)) ||
     textQuality.lowSignalDetected ||
     textQuality.analysisText.length < 24
   ) {

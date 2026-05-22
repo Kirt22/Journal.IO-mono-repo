@@ -180,6 +180,62 @@ test("getJournalQuickAnalysis marks prompt-led gibberish as low signal", async (
   assert.equal(analysis?.nextStep.focus, "Specificity");
 });
 
+test("getJournalQuickAnalysis keeps safety-sensitive entries support-first", async () => {
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      _id: {
+        toString: () => "journal-safety",
+      },
+      title: "Not safe",
+      type: "journal",
+      content:
+        "I do not want to live and I keep thinking I might kill myself tonight.",
+      aiPrompt: null,
+      tags: ["mood:terrible"],
+    }),
+  });
+
+  const analysis = await getJournalQuickAnalysis({
+    userId: "user-1",
+    journalId: "journal-safety",
+  });
+
+  assert.ok(analysis);
+  assert.equal(analysis?.summary.headline, "This entry needs real-world support");
+  assert.match(analysis?.summary.narrative || "", /will not turn this into/i);
+  assert.match(analysis?.summary.highlight || "", /988/i);
+  assert.equal(analysis?.scorecard.vibeLabel, "Urgent support");
+  assert.equal(analysis?.patternTags[0]?.label, "Safety");
+  assert.equal(analysis?.nextStep.focus, "Safety");
+});
+
+test("getJournalQuickAnalysis keeps harm-to-others wording out of normal pattern analysis", async () => {
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      _id: {
+        toString: () => "journal-harm",
+      },
+      title: "Angry",
+      type: "journal",
+      content:
+        "I am so angry that I want to kill him and I need to write this down before I do anything.",
+      aiPrompt: null,
+      tags: ["anger", "mood:terrible"],
+    }),
+  });
+
+  const analysis = await getJournalQuickAnalysis({
+    userId: "user-1",
+    journalId: "journal-harm",
+  });
+
+  assert.ok(analysis);
+  assert.equal(analysis?.summary.headline, "This entry needs a safety-first response");
+  assert.match(analysis?.summary.highlight || "", /emergency services/i);
+  assert.equal(analysis?.patternTags[0]?.label, "Safety");
+  assert.equal(analysis?.nextStep.focus, "Safety");
+});
+
 test("suggestJournalTags returns ranked tags and excludes already selected tags", async () => {
   const result = await suggestJournalTags({
     userId: "user-1",

@@ -60,6 +60,18 @@
             ReferencedContainer = "container:JournalFrontend.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "APP_ENV"
+            value = "production"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "BABEL_ENV"
+            value = "production"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <StoreKitConfigurationFileReference
          identifier = "../JournalFrontend/JournalIO.storekit">
       </StoreKitConfigurationFileReference>

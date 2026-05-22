@@ -3,6 +3,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -539,6 +540,7 @@ export default function HomeScreen({
   const moodEmojiSpinProgress = useRef(new Animated.Value(0)).current;
   const moodTickProgress = useRef(new Animated.Value(0)).current;
   const moodStageProgress = useRef(new Animated.Value(0)).current;
+  const promptDialogProgress = useRef(new Animated.Value(0)).current;
   const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
   const [savedMood, setSavedMood] = useState<MoodType | null>(null);
   const [currentStreak, setCurrentStreak] = useState(0);
@@ -561,6 +563,10 @@ export default function HomeScreen({
   const [featuredPrompt, setFeaturedPrompt] = useState<WritingPrompt>(
     DEFAULT_HOME_PROMPT
   );
+  const [promptOptions, setPromptOptions] = useState<WritingPrompt[]>([
+    DEFAULT_HOME_PROMPT,
+  ]);
+  const [isPromptDialogVisible, setIsPromptDialogVisible] = useState(false);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -614,6 +620,36 @@ export default function HomeScreen({
       }).format(new Date()),
     []
   );
+  const promptDialogBackdropStyle = {
+    opacity: promptDialogProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 1],
+    }),
+  } as const;
+  const promptDialogCardAnimatedStyle = {
+    opacity: promptDialogProgress,
+    transform: [
+      { perspective: 900 },
+      {
+        translateY: promptDialogProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [34, 0],
+        }),
+      },
+      {
+        scale: promptDialogProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.9, 1],
+        }),
+      },
+      {
+        rotateX: promptDialogProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: ["8deg", "0deg"],
+        }),
+      },
+    ],
+  } as const;
 
   useEffect(() => {
     if (!isAiInsightEnabled) {
@@ -676,10 +712,14 @@ export default function HomeScreen({
 
         if (isActive && response.featuredPrompt?.text) {
           setFeaturedPrompt(response.featuredPrompt);
+          setPromptOptions(
+            response.prompts.length > 0 ? response.prompts : [response.featuredPrompt]
+          );
         }
       } catch {
         if (isActive) {
           setFeaturedPrompt(DEFAULT_HOME_PROMPT);
+          setPromptOptions([DEFAULT_HOME_PROMPT]);
         }
       } finally {
         if (isActive) {
@@ -694,6 +734,22 @@ export default function HomeScreen({
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPromptDialogVisible) {
+      promptDialogProgress.setValue(0);
+      return;
+    }
+
+    promptDialogProgress.setValue(0);
+    Animated.spring(promptDialogProgress, {
+      toValue: 1,
+      damping: 16,
+      stiffness: 180,
+      mass: 0.72,
+      useNativeDriver: true,
+    }).start();
+  }, [isPromptDialogVisible, promptDialogProgress]);
 
   useEffect(() => {
     if (!homeInsightCards.length) {
@@ -835,8 +891,13 @@ export default function HomeScreen({
     moodTickProgress,
   ]);
 
-  const handleOpenPromptsComingSoon = () => {
-    Alert.alert("Coming soon", "Prompt shortcuts are coming soon.");
+  const handleOpenPromptDialog = () => {
+    setIsPromptDialogVisible(true);
+  };
+
+  const handleSelectPrompt = (prompt: WritingPrompt) => {
+    setIsPromptDialogVisible(false);
+    onOpenNewEntry(prompt.text);
   };
 
   const resetMoodAnimations = () => {
@@ -1278,7 +1339,6 @@ export default function HomeScreen({
             </Text>
             <EmojiWithFallback
               emoji="👋"
-              debugLabel="home-header-wave"
               emojiStyle={styles.wave}
               fallbackIcon={Sparkles}
               fallbackIconColor={theme.colors.warning}
@@ -1644,7 +1704,6 @@ export default function HomeScreen({
                           >
                             <EmojiWithFallback
                               emoji={savedMoodData.emoji}
-                              debugLabel={`home-saved-mood-${savedMoodData.value}`}
                               emojiStyle={styles.moodEmoji}
                               fallbackIcon={SavedMoodIcon}
                               fallbackIconColor={currentMoodTone.color}
@@ -2262,7 +2321,7 @@ export default function HomeScreen({
                 icon={Sparkles}
                 label="Prompts"
                 accessibilityLabel="Open prompts"
-                onPress={handleOpenPromptsComingSoon}
+                onPress={handleOpenPromptDialog}
                 iconColor={theme.colors.primary}
                 labelColor={theme.colors.mutedForeground}
                 borderColor={theme.colors.border}
@@ -2326,6 +2385,124 @@ export default function HomeScreen({
           />
         )}
           </View>
+
+      <Modal
+        animationType="none"
+        transparent
+        visible={isPromptDialogVisible}
+        onRequestClose={() => setIsPromptDialogVisible(false)}
+      >
+        <Animated.View
+          style={[styles.promptDialogBackdrop, promptDialogBackdropStyle]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close prompts"
+            onPress={() => setIsPromptDialogVisible(false)}
+            style={styles.promptDialogDismissLayer}
+          />
+          <Animated.View
+            style={[
+              styles.promptDialogCard,
+              promptDialogCardAnimatedStyle,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View
+              pointerEvents="none"
+              style={[
+                styles.promptDialogGlow,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.11) },
+              ]}
+            />
+            <View style={styles.promptDialogHeader}>
+              <View style={styles.promptDialogTitleWrap}>
+                <Text
+                  style={[
+                    styles.promptDialogTitle,
+                    { color: theme.colors.foreground },
+                  ]}
+                >
+                  Choose a writing prompt
+                </Text>
+                <Text
+                  style={[
+                    styles.promptDialogSubtitle,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  Pick one to start a fuller entry.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close prompts"
+                onPress={() => setIsPromptDialogVisible(false)}
+                style={({ pressed }) => [
+                  styles.promptDialogCloseButton,
+                  {
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.accent,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <X size={16} color={theme.colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            {isLoadingFeaturedPrompt ? (
+              <Text
+                style={[
+                  styles.promptDialogStatus,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                Loading prompt options...
+              </Text>
+            ) : (
+              <View style={styles.promptDialogList}>
+                {promptOptions.map(prompt => (
+                  <Pressable
+                    key={prompt.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use prompt: ${prompt.text}`}
+                    onPress={() => handleSelectPrompt(prompt)}
+                    style={({ pressed }) => [
+                      styles.promptDialogOption,
+                      {
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.background,
+                      },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.promptDialogTopic,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      {prompt.topic}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.promptDialogPrompt,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      {prompt.text}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </TabScreenLayout>
   );
 }
@@ -2776,6 +2953,92 @@ const styles = StyleSheet.create({
   },
   promptLoadingLine: {
     marginTop: 0,
+  },
+  promptDialogBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(30, 28, 26, 0.42)",
+    paddingHorizontal: 24,
+  },
+  promptDialogDismissLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  promptDialogCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 18,
+    position: "relative",
+    shadowColor: "#1E1C1A",
+    shadowOffset: { width: 0, height: 24 },
+    shadowOpacity: 0.26,
+    shadowRadius: 34,
+    elevation: 16,
+  },
+  promptDialogGlow: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: -12,
+    height: 28,
+    borderRadius: 999,
+    opacity: 0.9,
+  },
+  promptDialogHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+    marginBottom: 14,
+  },
+  promptDialogTitleWrap: {
+    flex: 1,
+  },
+  promptDialogTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  promptDialogSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  promptDialogCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  promptDialogStatus: {
+    fontSize: 13,
+    lineHeight: 19,
+    paddingVertical: 12,
+  },
+  promptDialogList: {
+    gap: 10,
+  },
+  promptDialogOption: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  promptDialogTopic: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  promptDialogPrompt: {
+    fontSize: 13,
+    lineHeight: 19,
   },
   shimmerBlock: {
     overflow: "hidden",

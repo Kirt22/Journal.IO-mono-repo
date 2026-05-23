@@ -142,7 +142,7 @@ describe("revenueCatService", () => {
     expect(hasRevenueCatHostedPaywall("main")).toBe(true);
   });
 
-  it("falls back to the known post-auth and exit offering identifiers when env overrides are absent", async () => {
+  it("falls back to the known production post-auth and exit offering identifiers when env overrides are absent", async () => {
     const { env } = require("../src/config/env");
     env.revenueCatMainPaywallOfferingId = null;
     env.revenueCatExitPaywallOfferingId = null;
@@ -152,10 +152,10 @@ describe("revenueCatService", () => {
     );
 
     expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe(
-      "journalio_offering_post_onboarding_standard_dev"
+      "journalio_offering_post_onboarding_standard"
     );
     expect(getRevenueCatHostedOfferingId("exit")).toBe(
-      "journalio_offering_post_onboarding_exit_dev"
+      "journalio_offering_post_onboarding_exit"
     );
   });
 

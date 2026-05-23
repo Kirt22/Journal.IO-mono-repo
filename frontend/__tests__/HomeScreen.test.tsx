@@ -354,11 +354,51 @@ test("renders the home screen layout", async () => {
     promptsButton.props.onPress();
   });
 
-  expect(Alert.alert).toHaveBeenCalledWith(
-    "Coming soon",
-    "Prompt shortcuts are coming soon."
+  expect(JSON.stringify(root!.toJSON())).toContain("Choose a writing prompt");
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What felt most steady or grounding in your day?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: Where did your mood shift, and what seemed to influence it?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What is one small habit you want to reinforce tomorrow?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: What felt slightly easier today, and what may have helped?",
+    })
+  ).toBeTruthy();
+  expect(
+    root!.root.findByProps({
+      accessibilityLabel:
+        "Use prompt: Where did you feel supported today, or where did you wish for more support?",
+    })
+  ).toBeTruthy();
+
+  const secondPromptOption = root!.root.findByProps({
+    accessibilityLabel:
+      "Use prompt: What is one small habit you want to reinforce tomorrow?",
+  });
+
+  ReactTestRenderer.act(() => {
+    secondPromptOption.props.onPress();
+  });
+
+  expect(onOpenNewEntry).toHaveBeenCalledWith(
+    "What is one small habit you want to reinforce tomorrow?"
   );
-  expect(onOpenNewEntry).toHaveBeenCalledTimes(2);
+  expect(onOpenNewEntry).toHaveBeenCalledTimes(3);
 });
 
 test("shows loading placeholders while home AI cards are still fetching", async () => {

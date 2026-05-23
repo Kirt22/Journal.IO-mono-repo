@@ -213,6 +213,7 @@ Current insights overview architecture:
   - deterministic weekly scoring builds the stable metadata and trait/watchpoint structure
   - an OpenAI Responses API call then generates the user-facing summary, pattern tags, action-plan copy, and Journal.IO support guidance when AI is enabled and the backend has `OPENAI_API_KEY`
   - deterministic copy remains the fallback if OpenAI is unavailable
+- before normal quick or weekly analysis, the backend runs a deterministic safety-signal check; self-harm or harm-to-others wording is saved but routed to support-first copy, excluded from normal trait/pattern scoring, and not sent through weekly OpenAI refinement
 - AI-analysis output is structured for the mobile screen into:
   - weekly summary metadata
   - pattern tags

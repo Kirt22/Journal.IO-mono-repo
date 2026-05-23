@@ -8,6 +8,11 @@ import {
   requestStructuredOpenAi,
 } from "../../helpers/openai.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
+import {
+  detectJournalSafetySignal,
+  hasJournalSafetySignal,
+  type JournalSafetySignal,
+} from "../../helpers/journalSafety.helpers";
 import type {
   InsightTone,
   InsightsAiAnalysisCollectingResponse,
@@ -48,6 +53,7 @@ type AnalyzedWeeklyJournalSnapshot = WeeklyJournalSnapshot & {
   reliableTags: string[];
   lowSignalDetected: boolean;
   promptEchoDetected: boolean;
+  safetySignal: JournalSafetySignal;
 };
 
 type WeeklyMoodSnapshot = {
@@ -113,7 +119,7 @@ const AI_ANALYSIS_WINDOW_DAYS = 7;
 const AI_ANALYSIS_MIN_ACTIVE_DAYS = 4;
 const isAiAnalysisDevEarlyReadyEnabled = () =>
   process.env.NODE_ENV !== "production" &&
-  process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY === "true";
+  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY === "true";
 const aiAnalysisEnhancementSchema = z.object({
   summary: z.object({
     headline: z.string().trim().min(1).max(90),
@@ -923,7 +929,7 @@ const monthDayLabel = (date: Date) =>
 
 const readLowerText = (journals: AnalyzedWeeklyJournalSnapshot[]) =>
   journals
-    .filter(journal => !journal.lowSignalDetected)
+    .filter(journal => !journal.lowSignalDetected && !hasJournalSafetySignal(journal.safetySignal))
     .map(journal => `${journal.analysisText} ${journal.reliableTags.join(" ")}`.toLowerCase())
     .join(" ");
 
@@ -934,13 +940,19 @@ const analyzeWeeklyJournals = (journals: WeeklyJournalSnapshot[]): AnalyzedWeekl
       aiPrompt: journal.aiPrompt,
     });
 
+    const safetySignal = detectJournalSafetySignal(textQuality.analysisText || journal.content || "");
+
     return {
       ...journal,
       analysisText: textQuality.analysisText,
       analysisWordCount: textQuality.analysisWordCount,
-      reliableTags: textQuality.lowSignalDetected ? [] : normalizeInsightTags(journal.tags),
+      reliableTags:
+        textQuality.lowSignalDetected || hasJournalSafetySignal(safetySignal)
+          ? []
+          : normalizeInsightTags(journal.tags),
       lowSignalDetected: textQuality.lowSignalDetected,
       promptEchoDetected: textQuality.promptEchoDetected,
+      safetySignal,
     };
   });
 
@@ -1287,6 +1299,118 @@ const buildAppSupport = ({
           "When a pattern starts to repeat, a focused prompt can help you move from description into clearer self-observation and action.",
       },
     ],
+  };
+};
+
+const summarizeWeeklySafetySignals = (journals: AnalyzedWeeklyJournalSnapshot[]) => {
+  const safetySignals = journals
+    .map(journal => journal.safetySignal)
+    .filter(hasJournalSafetySignal);
+  const selfHarmCount = safetySignals.filter(signal => signal.category === "self_harm").length;
+  const harmToOthersCount = safetySignals.filter(
+    signal => signal.category === "harm_to_others"
+  ).length;
+  const urgentCount = safetySignals.filter(signal => signal.level === "urgent").length;
+
+  return {
+    totalCount: safetySignals.length,
+    selfHarmCount,
+    harmToOthersCount,
+    urgentCount,
+    primaryCategory:
+      harmToOthersCount > selfHarmCount
+        ? ("harm_to_others" as const)
+        : selfHarmCount > 0
+          ? ("self_harm" as const)
+          : ("none" as const),
+  };
+};
+
+const applyWeeklySafetySupport = ({
+  analysis,
+  safetySummary,
+}: {
+  analysis: InsightsAiAnalysisReadyResponse;
+  safetySummary: ReturnType<typeof summarizeWeeklySafetySignals>;
+}) => {
+  if (safetySummary.totalCount <= 0 || safetySummary.primaryCategory === "none") {
+    return analysis;
+  }
+
+  const isSelfHarm = safetySummary.primaryCategory === "self_harm";
+  const supportCopy = isSelfHarm
+    ? {
+        headline: "One entry needs support before analysis",
+        narrative:
+          "At least one entry this week may involve self-harm or suicide risk. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis.",
+        highlight:
+          "If you might act on those thoughts or feel unable to stay safe, contact emergency services now. In the U.S. or Canada, call or text 988.",
+        firstStepTitle: "Reach out before reflecting further",
+        firstStepDescription:
+          "Share this with a trusted person or crisis support before continuing to analyze the week. Immediate safety matters more than interpretation.",
+      }
+    : {
+        headline: "One entry needs a safety-first response",
+        narrative:
+          "At least one entry this week may involve risk of harm to another person. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis.",
+        highlight:
+          "If someone could be hurt, create distance from the situation and contact local emergency services or a trusted person now.",
+        firstStepTitle: "Create distance and involve support",
+        firstStepDescription:
+          "Step away from the situation if possible and involve a trusted person or emergency support. Preventing harm matters more than interpretation.",
+      };
+
+  return {
+    ...analysis,
+    freshness: {
+      ...analysis.freshness,
+      confidence: "low" as const,
+      confidenceLabel: "Support-first",
+      note:
+        "One or more entries were treated as safety-sensitive, so this weekly read excludes that wording from normal trait and pattern scoring.",
+    },
+    summary: {
+      headline: supportCopy.headline,
+      narrative: supportCopy.narrative,
+      highlight: supportCopy.highlight,
+    },
+    patternTags: [
+      {
+        label: "Safety",
+        tone: "slate" as const,
+      },
+      {
+        label: "Support First",
+        tone: "coral" as const,
+      },
+      ...analysis.patternTags.filter(item => item.label !== "Safety").slice(0, 1),
+    ],
+    actionPlan: {
+      headline: "Handle safety first, then come back to reflection when things are steadier.",
+      steps: [
+        {
+          title: supportCopy.firstStepTitle,
+          description: supportCopy.firstStepDescription,
+          focus: "Safety",
+        },
+        ...analysis.actionPlan.steps.slice(0, 2),
+      ],
+    },
+    appSupport: {
+      headline: "Journal.IO can save the entry, but it is not a crisis-response service.",
+      items: [
+        {
+          title: "Use real-world support for immediate risk",
+          description:
+            "If there is any chance of harm, contact emergency services, crisis support, or a trusted person now.",
+        },
+        {
+          title: "Reflect after safety is steadier",
+          description:
+            "The app can help you notice patterns later, but it should not replace urgent support.",
+        },
+      ],
+    },
   };
 };
 
@@ -1656,6 +1780,7 @@ const buildWeeklyAiAnalysis = ({
   today?: Date;
 }): InsightsAiAnalysisReadyResponse => {
   const analyzedJournals = analyzeWeeklyJournals(journals);
+  const safetySummary = summarizeWeeklySafetySignals(analyzedJournals);
   const windowMeta = buildWindowFromJournals({ journals: analyzedJournals, window });
   const totalWords = windowMeta.totalWords;
   const activeDays = windowMeta.activeDays;
@@ -1918,7 +2043,7 @@ const buildWeeklyAiAnalysis = ({
         : `${confidenceDetailsResult.note} Some entries were too short or noisy to weight as strongly as the clearer ones.`
       : confidenceDetailsResult.note;
 
-  return {
+  const analysis: InsightsAiAnalysisReadyResponse = {
     status: "ready",
     window: windowMeta,
     freshness: {
@@ -1964,6 +2089,11 @@ const buildWeeklyAiAnalysis = ({
       dominantMood,
     }),
   };
+
+  return applyWeeklySafetySupport({
+    analysis,
+    safetySummary,
+  });
 };
 
 const mergeAiAnalysisEnhancement = (
@@ -2207,6 +2337,10 @@ const generateAiAnalysisEnhancement = async ({
   }
 
   const analyzedJournals = analyzeWeeklyJournals(journals);
+  if (analyzedJournals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+    return null;
+  }
+
   const recentEntries = analyzedJournals.slice(0, 6).map((journal, index) => ({
     order: index + 1,
     createdAt: journal.createdAt.toISOString(),
@@ -2627,10 +2761,15 @@ const getInsightsAiAnalysis = async (
     cachedAnalysis?.status === "ready" || cachedAnalysis?.status === "insufficient"
       ? cachedAnalysis.status
       : null;
+  const cachedEarlyReadyPreview =
+    cachedAnalysis?.status === "ready" &&
+    cachedAnalysis.window.activeDays < AI_ANALYSIS_MIN_ACTIVE_DAYS &&
+    cachedAnalysis.freshness.confidenceLabel === "Dev preview";
 
   if (
     cachedAnalysis &&
     cachedStatus &&
+    (allowEarlyReady || !cachedEarlyReadyPreview) &&
     !insights.aiAnalysisStale &&
     insights.aiAnalysisCacheKey ===
       buildAiAnalysisCacheKey({

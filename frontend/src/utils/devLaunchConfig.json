@@ -2,5 +2,5 @@
   "stage": "onboarding",
   "activeTab": "home",
   "email": null,
-  "apiBaseUrl": null
+  "apiBaseUrl": "https://api.journalio.app/api/v1"
 }

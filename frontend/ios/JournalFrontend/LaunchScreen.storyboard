@@ -1,47 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="15702" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
-    <device id="retina4_7" orientation="portrait" appearance="light"/>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="15704"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
         <capability name="Safe area layout guides" minToolsVersion="9.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <scenes>
-        <!--View Controller-->
+        <!--Journal.IO Launch-->
         <scene sceneID="EHf-IW-A2E">
             <objects>
                 <viewController id="01J-lp-oVM" sceneMemberID="viewController">
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
-                        <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <label opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Journal.IO" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" minimumFontSize="18" translatesAutoresizingMaskIntoConstraints="NO" id="GJd-Yh-RWb">
-                                <rect key="frame" x="0.0" y="202" width="375" height="43"/>
-                                <fontDescription key="fontDescription" type="boldSystem" pointSize="36"/>
+                            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="bgp-7k-o2m">
+                                <rect key="frame" x="0.0" y="74" width="110" height="110"/>
+                                <color key="backgroundColor" red="0.90980392156862744" green="0.45490196078431372" blue="0.38039215686274508" alpha="0.10000000000000001" colorSpace="custom" customColorSpace="sRGB"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="110" id="L6z-9x-qnW"/>
+                                    <constraint firstAttribute="height" constant="110" id="dE9-ls-dTc"/>
+                                </constraints>
+                            </view>
+                            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="bgg-xj-FWc">
+                                <rect key="frame" x="293" y="644" width="100" height="100"/>
+                                <color key="backgroundColor" red="0.90980392156862744" green="0.60784313725490191" blue="0.23529411764705882" alpha="0.11" colorSpace="custom" customColorSpace="sRGB"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="100" id="Ex9-9k-v40"/>
+                                    <constraint firstAttribute="height" constant="100" id="txw-yC-SRf"/>
+                                </constraints>
+                            </view>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchMascot" translatesAutoresizingMaskIntoConstraints="NO" id="mascot-1">
+                                <rect key="frame" x="126.66666666666666" y="276" width="140" height="140"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="140" id="Jb7-rD-ZH2"/>
+                                    <constraint firstAttribute="height" constant="140" id="W5t-8M-nOg"/>
+                                </constraints>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Journal.IO" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="title-1">
+                                <rect key="frame" x="54" y="426" width="285" height="47"/>
+                                <fontDescription key="fontDescription" type="boldSystem" pointSize="40"/>
+                                <color key="textColor" red="0.13725490196078433" green="0.12941176470588237" blue="0.11764705882352941" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <nil key="highlightedColor"/>
                             </label>
-                            <label opaque="NO" clipsSubviews="YES" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Reflect daily. Notice patterns." textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="9" translatesAutoresizingMaskIntoConstraints="NO" id="MN2-I3-ftu">
-                                <rect key="frame" x="0.0" y="626" width="375" height="21"/>
-                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Reflect daily. Notice patterns." textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="subtitle-1">
+                                <rect key="frame" x="54" y="483" width="285" height="22"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="18"/>
+                                <color key="textColor" red="0.52156862745098043" green="0.49019607843137253" blue="0.46666666666666667" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Your private space to write, track, and understand your patterns." textAlignment="center" lineBreakMode="tailTruncation" numberOfLines="2" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="footer-1">
+                                <rect key="frame" x="44" y="746" width="305" height="40"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="15"/>
+                                <color key="textColor" red="0.52156862745098043" green="0.49019607843137253" blue="0.46666666666666667" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                 <nil key="highlightedColor"/>
                             </label>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
-                        <constraints>
-                            <constraint firstItem="Bcu-3y-fUS" firstAttribute="bottom" secondItem="MN2-I3-ftu" secondAttribute="bottom" constant="20" id="OZV-Vh-mqD"/>
-                            <constraint firstItem="Bcu-3y-fUS" firstAttribute="centerX" secondItem="GJd-Yh-RWb" secondAttribute="centerX" id="Q3B-4B-g5h"/>
-                            <constraint firstItem="MN2-I3-ftu" firstAttribute="centerX" secondItem="Bcu-3y-fUS" secondAttribute="centerX" id="akx-eg-2ui"/>
-                            <constraint firstItem="MN2-I3-ftu" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" id="i1E-0Y-4RG"/>
-                            <constraint firstItem="GJd-Yh-RWb" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="bottom" multiplier="1/3" constant="1" id="moa-c2-u7t"/>
-                            <constraint firstItem="GJd-Yh-RWb" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" symbolic="YES" id="x7j-FC-K8j"/>
-                        </constraints>
                         <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
+                        <color key="backgroundColor" red="0.99215686274509807" green="0.9882352941176471" blue="0.98431372549019602" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="bgp-7k-o2m" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="07A-pY-udL"/>
+                            <constraint firstItem="title-1" firstAttribute="top" secondItem="mascot-1" secondAttribute="bottom" constant="20" id="2Pl-NV-Aud"/>
+                            <constraint firstItem="title-1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="43w-u3-Y8s"/>
+                            <constraint firstItem="mascot-1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="8RN-mh-5yx"/>
+                            <constraint firstItem="subtitle-1" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" constant="24" id="AI4-br-S2u"/>
+                            <constraint firstItem="bgp-7k-o2m" firstAttribute="top" secondItem="Bcu-3y-fUS" secondAttribute="top" constant="5" id="DRD-61-gov"/>
+                            <constraint firstItem="title-1" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" constant="24" id="Dyy-FH-udc"/>
+                            <constraint firstItem="footer-1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="MSh-8i-dFI"/>
+                            <constraint firstItem="Bcu-3y-fUS" firstAttribute="bottom" secondItem="footer-1" secondAttribute="bottom" constant="32" id="TaA-34-ZIf"/>
+                            <constraint firstItem="bgg-xj-FWc" firstAttribute="trailing" secondItem="Ze5-6b-2t3" secondAttribute="trailing" id="XLz-vn-731"/>
+                            <constraint firstItem="footer-1" firstAttribute="leading" secondItem="Bcu-3y-fUS" secondAttribute="leading" constant="34" id="ZMv-TF-JhL"/>
+                            <constraint firstItem="subtitle-1" firstAttribute="top" secondItem="title-1" secondAttribute="bottom" constant="10" id="bSx-m1-cLC"/>
+                            <constraint firstItem="subtitle-1" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="h66-PS-xDQ"/>
+                            <constraint firstItem="mascot-1" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-92" id="pqI-6V-q32"/>
+                            <constraint firstItem="bgg-xj-FWc" firstAttribute="bottom" secondItem="Bcu-3y-fUS" secondAttribute="bottom" constant="-55" id="xws-VU-dTY"/>
+                        </constraints>
                     </view>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>
-            <point key="canvasLocation" x="52.173913043478265" y="375"/>
+            <point key="canvasLocation" x="52" y="374"/>
         </scene>
     </scenes>
+    <resources>
+        <image name="LaunchMascot" width="430" height="523"/>
+    </resources>
 </document>

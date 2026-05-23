@@ -703,6 +703,7 @@ Notes:
 - the response is visual-first and signal-first for the entry-detail screen: summary, compact scorecard, pattern tags, three signal cards, and one grounded next step
 - the backend strips any saved `aiPrompt` text from the journal before reading it so the prompt itself is not mistaken for the user's reflection
 - if the remaining text is too short, too noisy, or obviously prompt-led, the response stays intentionally light and surfaces that as a low-signal read instead of forcing a stronger topic or personality interpretation
+- if the entry may involve self-harm, suicide risk, or harm to another person, the entry remains readable but quick analysis switches to support-first copy, avoids normal pattern or personality interpretation, and does not ask OpenAI to refine the entry
 - when OpenAI is available for an eligible user, the backend refines the single-entry reflection with OpenAI
 - if OpenAI is unavailable, the backend falls back to a deterministic, non-clinical quick reflection
 
@@ -1129,6 +1130,8 @@ Behavior:
 - if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
 - the AI-analysis cache key is scoped to `window start + window end + timezone + status`, so the route no longer behaves like a rolling last-7-days cache
 - before weekly synthesis, the backend strips prompt carryover from saved journal content and down-weights low-signal entries such as filler or obvious gibberish so those entries lower confidence and appear as a clarity signal instead of dominating the topic read
+- self-harm, suicide-risk, or harm-to-others wording is kept out of normal weekly trait/pattern scoring; the weekly payload switches to support-first summary/action copy and skips OpenAI refinement for that window
+- development early-ready reports are disabled unless `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY=true` is explicitly set outside production
 
 Collecting response:
 
@@ -1689,6 +1692,7 @@ Field naming should remain consistent across request validators, controllers, se
 # 6) Insight Safety and Language Requirements
 
 Any endpoint returning AI-generated insight summaries must avoid diagnostic language and remain uncertainty-aware.
+Safety-sensitive content must be handled as support-first content, not normal personality or pattern analysis. The journal entry can remain saved, but analysis copy must avoid diagnostic labels, harmful instructions, or certainty.
 
 Allowed tone examples:
 

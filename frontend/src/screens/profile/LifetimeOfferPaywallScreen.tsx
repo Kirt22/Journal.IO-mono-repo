@@ -87,7 +87,7 @@ const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
   badge: "One time offer",
   highlight: "First 100 users",
   sortOrder: 0,
-  revenueCatOfferingId: "journalio_offering_lifetime_dev",
+  revenueCatOfferingId: "journalio_offering_lifetime",
   revenueCatPackageId: "$rc_lifetime",
   purchasedUsersCount: 0,
   purchaseLimit: 100,

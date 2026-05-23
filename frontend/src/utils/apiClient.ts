@@ -23,9 +23,6 @@ const globalWithProcess = globalThis as typeof globalThis & {
 };
 const isJestRuntime =
   Boolean(globalWithProcess.process?.env?.JEST_WORKER_ID);
-const PRODUCTION_API_HOST = "api.journalio.app";
-const PRODUCTION_API_HOST_PATTERN = PRODUCTION_API_HOST.replace(/\./g, "\\.");
-
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
 
@@ -54,13 +51,6 @@ const getBundleHost = () => {
 
   const hostMatch = scriptUrl.match(/^https?:\/\/([^/:?#]+)/i);
   return hostMatch?.[1] || null;
-};
-
-const isProductionApiBaseUrl = (value: string) => {
-  return new RegExp(
-    `^https?://${PRODUCTION_API_HOST_PATTERN}(?::\\d+)?(?:/|$)`,
-    "i"
-  ).test(value);
 };
 
 const logApiClientDev = (event: string, details: Record<string, unknown>) => {
@@ -94,10 +84,8 @@ const getBaseUrl = () => {
   }
 
   const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
-  const shouldUseEnvBaseUrl =
-    envBaseUrl && (!__DEV__ || !isProductionApiBaseUrl(envBaseUrl));
 
-  if (shouldUseEnvBaseUrl) {
+  if (envBaseUrl) {
     logBaseUrlResolution("env", envBaseUrl);
     return envBaseUrl;
   }
@@ -109,11 +97,6 @@ const getBaseUrl = () => {
 
     logBaseUrlResolution("bundleHostFallback", resolvedBaseUrl);
     return resolvedBaseUrl;
-  }
-
-  if (envBaseUrl) {
-    logBaseUrlResolution("env", envBaseUrl);
-    return envBaseUrl;
   }
 
   if (Platform.OS === "android") {

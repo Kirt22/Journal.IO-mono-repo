@@ -207,6 +207,7 @@ export function useThemeTransition() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: "#FDFCFB",
   },
   rippleOverlay: {
     position: "absolute",

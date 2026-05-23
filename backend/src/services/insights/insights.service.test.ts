@@ -59,6 +59,8 @@ const originalMoodFind = moodTarget.find;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAiInsightsDevEarlyReady =
   process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY;
+const originalAiInsightsExperimentalEarlyReady =
+  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
 
 afterEach(() => {
   userTarget.findById = originalFindById;
@@ -75,6 +77,12 @@ afterEach(() => {
       originalAiInsightsDevEarlyReady;
   } else {
     delete process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY;
+  }
+  if (typeof originalAiInsightsExperimentalEarlyReady === "string") {
+    process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY =
+      originalAiInsightsExperimentalEarlyReady;
+  } else {
+    delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
   }
 });
 
@@ -219,7 +227,7 @@ test("getInsightsAiAnalysis returns a collecting payload during the first premiu
 
 test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 active days", async () => {
   process.env.NODE_ENV = "development";
-  process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY = "true";
+  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY = "true";
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -309,9 +317,191 @@ test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 acti
   assert.match(analysis.freshness.note, /Development override/i);
 });
 
-test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly analysis", async () => {
+test("getInsightsAiAnalysis ignores the old dev-preview flag in release-safe mode", async () => {
   process.env.NODE_ENV = "development";
   process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY = "true";
+  delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 2,
+      totalWords: 180,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map([
+        ["2026-04-12", 1],
+        ["2026-04-13", 1],
+      ]),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      aiAnalysis: null,
+      aiAnalysisStale: true,
+      aiAnalysisWindowEndDateKey: null,
+      aiAnalysisCacheKey: null,
+      aiAnalysisComputedAt: null,
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [
+              {
+                content: "Work felt intense but I got a little breathing room at night.",
+                tags: ["work", "stress"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-12T12:00:00.000Z"),
+              },
+              {
+                content: "I felt calmer after walking and resting.",
+                tags: ["rest", "self-care"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-13T12:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const analysis = await getInsightsAiAnalysis("user-123", {
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-14T10:00:00.000Z"),
+  });
+
+  assert.equal(analysis.status, "collecting");
+});
+
+test("getInsightsAiAnalysis recomputes cached dev-preview reports in release mode", async () => {
+  process.env.NODE_ENV = "development";
+  delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 2,
+      totalWords: 180,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map([
+        ["2026-04-12", 1],
+        ["2026-04-13", 1],
+      ]),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      aiAnalysis: {
+        status: "ready",
+        window: {
+          startDate: "2026-04-11",
+          endDate: "2026-04-17",
+          label: "Apr 11 - Apr 17",
+          entryCount: 2,
+          activeDays: 2,
+          totalWords: 180,
+          minimumActiveDays: 4,
+        },
+        freshness: {
+          generatedAt: "2026-04-14T10:00:00.000Z",
+          confidence: "low",
+          confidenceLabel: "Dev preview",
+          note: "Development override is showing this AI analysis early.",
+        },
+      },
+      aiAnalysisStale: false,
+      aiAnalysisWindowEndDateKey: "2026-04-17",
+      aiAnalysisCacheKey: "2026-04-11:2026-04-17:Asia/Kolkata:ready",
+      aiAnalysisComputedAt: new Date("2026-04-14T10:00:00.000Z"),
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [
+              {
+                content: "Work felt intense but I got a little breathing room at night.",
+                tags: ["work", "stress"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-12T12:00:00.000Z"),
+              },
+              {
+                content: "I felt calmer after walking and resting.",
+                tags: ["rest", "self-care"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-13T12:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const analysis = await getInsightsAiAnalysis("user-123", {
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-20T10:00:00.000Z"),
+  });
+
+  assert.equal(analysis.status, "insufficient");
+});
+
+test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly analysis", async () => {
+  process.env.NODE_ENV = "development";
+  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY = "true";
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -400,6 +590,117 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
   assert.match(analysis.freshness.note, /clearer writing/i);
   assert.match(analysis.signals.whatDrained[0]?.title || "", /prompt carryover/i);
   assert.notEqual(analysis.themeBreakdown.items[0]?.label, "Work");
+});
+
+test("getInsightsAiAnalysis uses support-first weekly copy for safety-sensitive entries", async () => {
+  process.env.NODE_ENV = "production";
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 4,
+      totalWords: 360,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map([
+        ["2026-04-12", 1],
+        ["2026-04-13", 1],
+        ["2026-04-14", 1],
+        ["2026-04-15", 1],
+      ]),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      aiAnalysis: null,
+      aiAnalysisStale: true,
+      aiAnalysisWindowEndDateKey: null,
+      aiAnalysisCacheKey: null,
+      aiAnalysisComputedAt: null,
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [
+              {
+                content:
+                  "I keep thinking I might kill myself and I do not feel safe tonight.",
+                aiPrompt: null,
+                tags: ["mood:terrible"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-12T12:00:00.000Z"),
+              },
+              {
+                content: "Work was hard, but I took a walk and felt a little more grounded.",
+                aiPrompt: null,
+                tags: ["work", "self-care"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-13T12:00:00.000Z"),
+              },
+              {
+                content: "I wrote down what helped me calm down after dinner.",
+                aiPrompt: null,
+                tags: ["reflection", "self-care"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-14T12:00:00.000Z"),
+              },
+              {
+                content: "Today I asked for support instead of keeping everything alone.",
+                aiPrompt: null,
+                tags: ["relationships", "growth"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-15T12:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const analysis = await getInsightsAiAnalysis("user-123", {
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-20T10:00:00.000Z"),
+  });
+
+  assert.equal(analysis.status, "ready");
+
+  if (analysis.status !== "ready") {
+    throw new Error("Expected ready AI analysis payload.");
+  }
+
+  assert.equal(analysis.freshness.confidenceLabel, "Support-first");
+  assert.match(analysis.summary.headline, /support/i);
+  assert.match(analysis.summary.highlight, /988/i);
+  assert.equal(analysis.patternTags[0]?.label, "Safety");
+  assert.equal(analysis.actionPlan.steps[0]?.focus, "Safety");
+  assert.match(analysis.appSupport.headline, /not a crisis-response service/i);
 });
 
 test("mergeAiAnalysisEnhancement only replaces the user-facing narrative sections", () => {

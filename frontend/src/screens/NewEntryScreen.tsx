@@ -18,9 +18,7 @@ import {
   Check,
   Frown,
   Heart,
-  Image as ImageIcon,
   Lock,
-  Mic,
   Save,
   Search,
   Smile,
@@ -889,25 +887,6 @@ export default function NewEntryScreen({
                 />
               </View>
 
-              <View style={styles.toolbarRow}>
-                <HeaderIconButton
-                  icon={Mic}
-                  label="Voice note"
-                  onPress={() => {}}
-                  borderColor={theme.colors.border}
-                  backgroundColor={theme.colors.card}
-                  iconColor={theme.colors.foreground}
-                />
-                <HeaderIconButton
-                  icon={ImageIcon}
-                  label="Add image"
-                  onPress={() => {}}
-                  borderColor={theme.colors.border}
-                  backgroundColor={theme.colors.card}
-                  iconColor={theme.colors.foreground}
-                />
-              </View>
-
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Auto-tag with AI"
@@ -1316,11 +1295,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 15,
     lineHeight: 22,
-  },
-  toolbarRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
   },
   autoTagCard: {
     borderWidth: 1,

@@ -22,8 +22,42 @@ type EmojiWithFallbackProps = {
   fallbackDelayMs?: number;
 };
 
+const getIosVersionString = () => {
+  if (Platform.OS !== "ios") {
+    return null;
+  }
+
+  const constantsVersion = Platform.constants?.osVersion;
+
+  if (typeof constantsVersion === "string") {
+    return constantsVersion;
+  }
+
+  return typeof Platform.Version === "string"
+    ? Platform.Version
+    : String(Platform.Version);
+};
+
+const getEmojiFallbackReason = () => {
+  if (Platform.OS !== "ios") {
+    return null;
+  }
+
+  if (Platform.isPad) {
+    return "ios-ipad-fallback";
+  }
+
+  const iosVersion = getIosVersionString();
+
+  if (__DEV__ && iosVersion?.startsWith("26.3")) {
+    return "ios-26.3-debug-emoji-font-runtime";
+  }
+
+  return null;
+};
+
 const shouldFallbackAfterEmojiAttempt = () =>
-  Platform.OS === "ios" && Platform.isPad;
+  Boolean(getEmojiFallbackReason());
 
 export default function EmojiWithFallback({
   emoji,
@@ -36,11 +70,12 @@ export default function EmojiWithFallback({
 }: EmojiWithFallbackProps) {
   const [showFallback, setShowFallback] = useState(false);
   const FallbackIcon = fallbackIcon;
+  const fallbackAfterEmojiAttempt = shouldFallbackAfterEmojiAttempt();
 
   useEffect(() => {
     setShowFallback(false);
 
-    if (!shouldFallbackAfterEmojiAttempt()) {
+    if (!fallbackAfterEmojiAttempt) {
       return undefined;
     }
 
@@ -51,7 +86,7 @@ export default function EmojiWithFallback({
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [emoji, fallbackDelayMs]);
+  }, [emoji, fallbackAfterEmojiAttempt, fallbackDelayMs]);
 
   if (showFallback) {
     return (
@@ -61,7 +96,11 @@ export default function EmojiWithFallback({
     );
   }
 
-  return <Text style={emojiStyle}>{emoji}</Text>;
+  return (
+    <Text style={emojiStyle}>
+      {emoji}
+    </Text>
+  );
 }
 
 const styles = StyleSheet.create({

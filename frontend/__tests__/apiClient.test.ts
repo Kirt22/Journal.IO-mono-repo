@@ -137,11 +137,24 @@ describe("apiClient", () => {
     );
   });
 
-  test("does not use the production API URL in a dev build when Metro host is available", async () => {
-    jest.doMock("@env", () => ({
-      API_BASE_URL: "https://api.journalio.app/api/v1",
-      GOOGLE_WEB_CLIENT_ID: "",
-      GOOGLE_IOS_CLIENT_ID: "",
+  test("uses the configured production API URL in a dev build when env selects production", async () => {
+    const globalWithProcess = globalThis as typeof globalThis & {
+      process?: {
+        env?: {
+          JEST_WORKER_ID?: string;
+        };
+      };
+    };
+    const previousJestWorkerId = globalWithProcess.process?.env?.JEST_WORKER_ID;
+
+    if (globalWithProcess.process?.env) {
+      delete globalWithProcess.process.env.JEST_WORKER_ID;
+    }
+
+    jest.doMock("../src/config/env", () => ({
+      env: {
+        apiBaseUrl: "https://api.journalio.app/api/v1",
+      },
     }));
     jest.doMock("react-native", () => ({
       Alert: {
@@ -177,22 +190,28 @@ describe("apiClient", () => {
       }),
     });
 
-    const { request } = require("../src/utils/apiClient");
+    try {
+      const { request } = require("../src/utils/apiClient");
 
-    await request("/auth/sign_up_with_email", {
-      method: "POST",
-      body: JSON.stringify({
-        email: "alex@example.com",
-        password: "password123",
-      }),
-    });
-
-    expect(globalWithFetch.fetch).toHaveBeenCalledWith(
-      "http://192.168.1.24:3000/api/v1/auth/sign_up_with_email",
-      expect.objectContaining({
+      await request("/auth/sign_up_with_email", {
         method: "POST",
-      })
-    );
+        body: JSON.stringify({
+          email: "alex@example.com",
+          password: "password123",
+        }),
+      });
+
+      expect(globalWithFetch.fetch).toHaveBeenCalledWith(
+        "https://api.journalio.app/api/v1/auth/sign_up_with_email",
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+    } finally {
+      if (globalWithProcess.process?.env && previousJestWorkerId) {
+        globalWithProcess.process.env.JEST_WORKER_ID = previousJestWorkerId;
+      }
+    }
   });
 
   test("includes the request URL in 404 route errors", async () => {

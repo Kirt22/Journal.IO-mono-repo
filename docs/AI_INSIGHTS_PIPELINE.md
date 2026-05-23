@@ -105,7 +105,9 @@ Current implemented prompt and tag generation:
 - `POST /journal/suggest_tags` uses OpenAI to choose from Journal.IO's allowed tag set for the in-progress draft when AI is enabled
 - `POST /journal/quick_analysis` returns a short structured reflection for one saved entry; it is premium-gated, respects AI opt-out, uses OpenAI refinement when available, falls back to deterministic wording otherwise, and now returns a visual-first single-entry payload with summary, scorecard, tags, signals, and one grounded next step
 - quick analysis now strips prompt carryover from the saved entry before reading it and, when the remaining text is too unclear, returns a low-signal reflection that asks for cleaner user-written detail instead of forcing a stronger interpretation
+- quick analysis and weekly AI analysis now run a deterministic safety-signal check before normal interpretation; entries may still be saved, but self-harm or harm-to-others wording receives support-first copy and is excluded from normal trait/pattern scoring
 - both routes fall back to deterministic prompt/tag generation when the user has opted out of AI or the backend is not configured for OpenAI
+- weekly AI analysis uses release behavior by default; the old early-ready development preview flag is ignored, and early ready reports now require the explicit `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY=true` flag in non-production only
 
 ---
 
@@ -129,6 +131,7 @@ All AI-derived user-facing insight text must be:
 - non-clinical
 - uncertainty-aware
 - supportive
+- safety-first for elevated-risk content
 
 Allowed phrases:
 
@@ -141,6 +144,7 @@ Disallowed:
 - diagnosis language
 - medical certainty
 - psychiatric labeling
+- turning self-harm or harm-to-others wording into normal personality/trait conclusions
 
 ---
 

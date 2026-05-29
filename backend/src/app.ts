@@ -1,5 +1,4 @@
 import express, { Express, Request, Response } from "express";
-import path from "node:path";
 import { initializeRoutes } from "./routes";
 import {
   getMongoConnectionStateLabel,
@@ -17,7 +16,6 @@ export const createApp = (): Express => {
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use("/assets", express.static(path.join(__dirname, "..", "public")));
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({

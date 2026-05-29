@@ -75,6 +75,11 @@ For the frontend production API switch:
 For public legal pages needed by App Store / Play review:
 
 - keep `api.journalio.app` as both the mobile API base URL and the host for the public legal/support pages
+- point the apex `journalio.app` domain at the same Render backend service to serve the public marketing landing page from `https://journalio.app/`
+- keep `https://api.journalio.app/api/v1` as the production mobile API base URL; the bare `https://api.journalio.app/` root redirects to `https://journalio.app/`
+- optionally point `www.journalio.app` at the same backend service; its bare root also redirects to `https://journalio.app/`
+- static landing assets are served from `/assets`, with launch screenshots expected under `backend/public/landing`
+- the former root legal hub is now available at `https://api.journalio.app/legal`
 - the backend now serves the public legal pages at:
   - `https://api.journalio.app/privacy`
   - `https://api.journalio.app/terms`

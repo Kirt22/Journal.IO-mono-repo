@@ -387,6 +387,8 @@ const renderLayout = ({
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(pageTitle)}</title>
+    <link rel="icon" type="image/png" href="/assets/landing/favicon.png" />
+    <link rel="apple-touch-icon" href="/assets/landing/favicon.png" />
     <style>
       :root {
         color-scheme: light;
@@ -698,6 +700,8 @@ export const getLandingPageHtml = (): string => `<!doctype html>
       content="A calm journal with mood tracking, practical streaks, and gentle AI insights."
     />
     <meta property="og:type" content="website" />
+    <link rel="icon" type="image/png" href="/assets/landing/favicon.png" />
+    <link rel="apple-touch-icon" href="/assets/landing/favicon.png" />
     <style>
       :root {
         color-scheme: light;

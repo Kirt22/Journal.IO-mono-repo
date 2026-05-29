@@ -677,10 +677,6 @@ const renderLandingScreenshots = (): string =>
           <div class="screenshot-fallback">
             <span>${escapeHtml(screenshot.fallbackLabel)}</span>
           </div>
-          <div class="showcase-copy">
-            <h3>${escapeHtml(screenshot.title)}</h3>
-            <p>${escapeHtml(screenshot.subtitle)}</p>
-          </div>
         </article>
       `
     )
@@ -807,7 +803,6 @@ export const getLandingPageHtml = (): string => `<!doctype html>
         text-align: center;
       }
 
-      .eyebrow,
       .pill {
         display: inline-flex;
         align-items: center;
@@ -912,7 +907,6 @@ export const getLandingPageHtml = (): string => `<!doctype html>
 
       .section-header p,
       .feature-card p,
-      .showcase-copy p,
       .trust-card p,
       .footer p {
         margin: 0;
@@ -975,23 +969,6 @@ export const getLandingPageHtml = (): string => `<!doctype html>
 
       .showcase-card.image-missing .screenshot-fallback {
         display: flex;
-      }
-
-      .showcase-copy {
-        position: absolute;
-        right: 16px;
-        bottom: 16px;
-        left: 16px;
-        padding: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.7);
-        border-radius: 22px;
-        background: rgba(255, 253, 248, 0.88);
-        backdrop-filter: blur(16px);
-      }
-
-      .showcase-copy h3 {
-        margin: 0 0 7px;
-        font-size: 1.15rem;
       }
 
       .feature-grid,
@@ -1146,7 +1123,6 @@ export const getLandingPageHtml = (): string => `<!doctype html>
       </nav>
 
       <header class="hero">
-        <span class="eyebrow">Calm journaling for real life</span>
         <h1>Reflect. Track. Grow.</h1>
         <p class="lede">
           Journal.IO helps you capture daily thoughts, track moods, build streaks, and notice recurring patterns with gentle AI insights.

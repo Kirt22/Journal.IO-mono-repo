@@ -109,6 +109,9 @@ const POST_AUTH_BENEFITS = [
   "Securely export all your entries",
 ] as const;
 
+const PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE =
+  "Premium plans are temporarily unavailable. Please try again later.";
+
 const isAnnualPaywallPlan = (plan: PaywallPlan) =>
   plan.planKey === "annual" || plan.offeringKey === "yearly";
 
@@ -605,7 +608,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         setPlansError(
           nextPlans.some(plan => plan.rcPackage)
             ? null
-            : "This purchase option is not available right now."
+            : PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE
         );
 
         if (resolvedConfig?.template) {
@@ -625,11 +628,8 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           return;
         }
 
-        setPlansError(
-          error instanceof Error
-            ? error.message
-            : "We could not load purchase options right now."
-        );
+        console.warn("[Paywall] Failed to load purchase options", error);
+        setPlansError(PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE);
       } finally {
         if (isMounted) {
           setIsLoadingPlans(false);
@@ -1037,7 +1037,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     if (!selectedPlan?.rcPackage) {
       Alert.alert(
         "Billing unavailable",
-        plansError || "This purchase option is not available right now."
+        plansError || PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE
       );
       return;
     }

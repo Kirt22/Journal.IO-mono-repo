@@ -13,6 +13,7 @@ test("getLandingPageHtml renders the Journal.IO marketing landing page", () => {
   assert.match(html, /Reflect\. Track\. Grow\./);
   assert.match(html, /href="\/privacy"/);
   assert.match(html, /href="\/support"/);
+  assert.match(html, /href="\/assets\/landing\/favicon\.png"/);
   assert.match(html, /\/assets\/landing\/01_reflect_track_grow\.png/);
   assert.match(html, /Supportive, non-clinical/);
 });
@@ -22,6 +23,7 @@ test("getLegalPageHtml renders the privacy policy page", () => {
 
   assert.match(html, /Journal\.IO Privacy Policy/);
   assert.match(html, /href="\/support"/);
+  assert.match(html, /href="\/assets\/landing\/favicon\.png"/);
   assert.match(html, /Effective Date: April 22, 2026/);
 });
 

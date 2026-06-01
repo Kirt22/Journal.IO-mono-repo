@@ -11,11 +11,39 @@ import {
   OnboardingScreen,
 } from "../src/screens/onboarding/OnboardingScreen";
 import { requestAppRating } from "../src/services/appRatingService";
+import { generateOnboardingDemoAnalysis } from "../src/services/onboardingService";
 import { requestAndSyncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
 jest.mock("../src/services/appRatingService", () => ({
   requestAppRating: jest.fn(async () => ({ status: "requested" })),
+}));
+
+jest.mock("../src/services/onboardingService", () => ({
+  generateOnboardingDemoAnalysis: jest.fn(async () => ({
+    moodTone: "neutral and reflective",
+    summary:
+      'You named "scattered" as the feeling underneath the entry. "too many tabs open" appears associated with the part of the day that felt heavier. I noticed "Okay", "scattered", and "too many tabs open" and used those words as anchors for this read.',
+    keywords: [
+      {
+        label: "Okay",
+        description:
+          "Your okay mood check-in gives this demo reflection its emotional starting point.",
+      },
+      {
+        label: "scattered",
+        description:
+          'You named "scattered" as the feeling word, so the reflection keeps that emotion visible without judging it.',
+      },
+      {
+        label: "too many tabs open",
+        description:
+          '"too many tabs open" appears to be the main gentle hurdle you wanted the reflection to notice.',
+      },
+    ],
+    prompt:
+      'What is one small, gentle thing that could make "scattered" feel a little lighter tomorrow?',
+  })),
 }));
 
 jest.mock("../src/services/reminderNotificationsService", () => ({
@@ -26,6 +54,30 @@ beforeEach(() => {
   resetAppStore();
   jest.clearAllMocks();
   jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+  (generateOnboardingDemoAnalysis as jest.Mock).mockResolvedValue({
+    moodTone: "neutral and reflective",
+    summary:
+      'You named "scattered" as the feeling underneath the entry. "too many tabs open" appears associated with the part of the day that felt heavier. I noticed "Okay", "scattered", and "too many tabs open" and used those words as anchors for this read.',
+    keywords: [
+      {
+        label: "Okay",
+        description:
+          "Your okay mood check-in gives this demo reflection its emotional starting point.",
+      },
+      {
+        label: "scattered",
+        description:
+          'You named "scattered" as the feeling word, so the reflection keeps that emotion visible without judging it.',
+      },
+      {
+        label: "too many tabs open",
+        description:
+          '"too many tabs open" appears to be the main gentle hurdle you wanted the reflection to notice.',
+      },
+    ],
+    prompt:
+      'What is one small, gentle thing that could make "scattered" feel a little lighter tomorrow?',
+  });
 });
 
 const safeAreaMetrics = {
@@ -106,6 +158,82 @@ function findLinkByLabel(root: ReactTestRenderer.ReactTestRenderer, label: strin
   return matches[0];
 }
 
+async function advanceToPrivacyStep(root: ReactTestRenderer.ReactTestRenderer) {
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressablesByRole(root, "radio")[0]?.props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressablesByRole(root, "radio")[0]?.props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await findPressableByLabel(root, "Continue").props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+}
+
+async function acceptPrivacyAndOpenJournalDemo(
+  root: ReactTestRenderer.ReactTestRenderer
+) {
+  await ReactTestRenderer.act(async () => {
+    findPressablesByRole(root, "checkbox")[0]?.props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+}
+
+async function fillJournalDemoAndOpenReflection(
+  root: ReactTestRenderer.ReactTestRenderer
+) {
+  await ReactTestRenderer.act(async () => {
+    root.root.findByProps({ accessibilityLabel: "Mood Okay" }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root.root
+      .findByProps({ accessibilityLabel: "One word feeling" })
+      .props.onChangeText("scattered");
+    root.root
+      .findByProps({ accessibilityLabel: "Gentle hurdle" })
+      .props.onChangeText("too many tabs open");
+    root.root
+      .findByProps({ accessibilityLabel: "Journal thoughts" })
+      .props.onChangeText(
+        "I felt pulled in too many directions today, but writing it down already feels lighter."
+      );
+  });
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root, "Continue").props.onPress();
+  });
+}
+
 test("renders the onboarding flow and advances to the next step", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
@@ -120,7 +248,7 @@ test("renders the onboarding flow and advances to the next step", async () => {
   const tree = extractText(root!.toJSON());
 
   expect(tree).toContain("Welcome to Journal.IO");
-  expect(tree).toContain("Step 1 of 9");
+  expect(tree).toContain("Step 1 of 12");
   expect(tree).toContain("Continue");
 
   await ReactTestRenderer.act(() => {
@@ -130,7 +258,7 @@ test("renders the onboarding flow and advances to the next step", async () => {
   const nextTree = extractText(root!.toJSON());
 
   expect(nextTree).toContain("How old are you?");
-  expect(nextTree).toContain("Step 2 of 9");
+  expect(nextTree).toContain("Step 2 of 12");
 });
 
 test("requests local reminder setup when progressing past the reminder step", async () => {
@@ -186,7 +314,7 @@ test("requests local reminder setup when progressing past the reminder step", as
   expect(extractText(root!.toJSON())).toContain("AI comfort and explanation");
 });
 
-test("renders the Figma rating step before privacy consent", async () => {
+test("renders the Figma rating step after the breathing demo", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(() => {
@@ -197,44 +325,33 @@ test("renders the Figma rating step before privacy consent", async () => {
     );
   });
 
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
-  });
+  await advanceToPrivacyStep(root!);
+  await acceptPrivacyAndOpenJournalDemo(root!);
+  await fillJournalDemoAndOpenReflection(root!);
 
-  await ReactTestRenderer.act(async () => {
-    findPressablesByRole(root!, "radio")[0]?.props.onPress();
+  expect(generateOnboardingDemoAnalysis).toHaveBeenCalledWith({
+    mood: "okay",
+    feeling: "scattered",
+    challenge: "too many tabs open",
+    thoughts:
+      "I felt pulled in too many directions today, but writing it down already feels lighter.",
   });
-
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
-  });
-
-  await ReactTestRenderer.act(async () => {
-    findPressablesByRole(root!, "radio")[0]?.props.onPress();
-  });
-
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
-  });
+  expect(extractText(root!.toJSON())).toContain("AI reflection");
+  expect(extractText(root!.toJSON())).toContain("Keywords noticed");
 
   await ReactTestRenderer.act(async () => {
     findPressableByLabel(root!, "Continue").props.onPress();
   });
 
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
-  });
+  expect(extractText(root!.toJSON())).toContain("Let that insight land");
+  expect(extractText(root!.toJSON())).toContain("Are you feeling a little calmer?");
 
   await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
-  });
-
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root!, "Continue").props.onPress();
+    findPressableByLabel(root!, "I feel calmer").props.onPress();
   });
 
   expect(extractText(root!.toJSON())).toContain("How excited are you to begin?");
-  expect(extractText(root!.toJSON())).toContain("Step 8 of 9");
+  expect(extractText(root!.toJSON())).toContain("Step 12 of 12");
 
   const fifthStar = root!.root.findByProps({
     accessibilityLabel: "Rate excitement 5 out of 5",
@@ -269,12 +386,68 @@ test("renders the Figma rating step before privacy consent", async () => {
   expect(requestAppRating).toHaveBeenCalledTimes(1);
   expect(extractText(root!.toJSON())).toContain("Thanks for supporting Journal.IO.");
 
+  expect(extractText(root!.toJSON())).toContain("Get Started");
+});
+
+test("shows the onboarding journal demo and generated AI reflection", async () => {
+  const onContinue = jest.fn();
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <OnboardingScreen isCompleting={false} onContinue={onContinue} />
+      </SafeAreaProvider>
+    );
+  });
+
+  await advanceToPrivacyStep(root!);
+  expect(extractText(root!.toJSON())).toContain("Privacy & security");
+  expect(extractText(root!.toJSON())).toContain("Step 8 of 12");
+
+  await acceptPrivacyAndOpenJournalDemo(root!);
+
+  expect(extractText(root!.toJSON())).toContain("Your first entry");
+  expect(extractText(root!.toJSON())).toContain("Step 9 of 12");
+
+  await fillJournalDemoAndOpenReflection(root!);
+
+  const analysisTree = extractText(root!.toJSON());
+
+  expect(analysisTree).toContain("AI reflection");
+  expect(analysisTree).toContain("Detected aura");
+  expect(analysisTree).toContain("Keywords noticed");
+  expect(analysisTree).toContain("neutral and reflective");
+  expect(analysisTree).toContain("scattered");
+  expect(analysisTree).toContain("too many tabs open");
+  expect(analysisTree).toContain("feeling word");
+  expect(analysisTree).toContain("main gentle hurdle");
+  expect(analysisTree).toContain("Prompt for tomorrow");
+  expect(analysisTree).toContain("Step 10 of 12");
+
   await ReactTestRenderer.act(async () => {
     findPressableByLabel(root!, "Continue").props.onPress();
   });
 
-  expect(extractText(root!.toJSON())).toContain("Privacy & security");
-  expect(extractText(root!.toJSON())).toContain("Step 9 of 9");
+  expect(extractText(root!.toJSON())).toContain("Let that insight land");
+  expect(extractText(root!.toJSON())).not.toContain("Step 11 of 12");
+  expect(extractText(root!.toJSON())).toContain("I feel calmer");
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root!, "I feel calmer").props.onPress();
+  });
+
+  expect(extractText(root!.toJSON())).toContain("How excited are you to begin?");
+
+  await ReactTestRenderer.act(async () => {
+    findPressableByLabel(root!, "Get Started").props.onPress();
+  });
+
+  expect(onContinue).toHaveBeenCalledWith(
+    expect.objectContaining({
+      privacyConsent: true,
+    })
+  );
 });
 
 test("opens the onboarding legal links through the legal browser state", async () => {
@@ -288,49 +461,7 @@ test("opens the onboarding legal links through the legal browser state", async (
     );
   });
 
-  const advanceToConsentStep = async () => {
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressablesByRole(root!, "radio")[0]?.props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressablesByRole(root!, "radio")[0]?.props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-
-    await ReactTestRenderer.act(async () => {
-      findPressableByLabel(root!, "Continue").props.onPress();
-    });
-  };
-
-  await advanceToConsentStep();
+  await advanceToPrivacyStep(root!);
 
   await ReactTestRenderer.act(async () => {
     findLinkByLabel(root!, "privacy policy").props.onPress();

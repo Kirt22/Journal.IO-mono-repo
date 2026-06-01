@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import EntryDetailScreen from "../src/screens/journal/EntryDetailScreen";
 import EditEntryScreen from "../src/screens/journal/EditEntryScreen";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
+import { updateJournalEntry } from "../src/services/journalService";
 
 jest.mock("../src/services/journalService", () => ({
   deleteJournalEntry: jest.fn().mockResolvedValue({}),
@@ -187,7 +188,7 @@ test("entry detail renders the refreshed quick analysis card", async () => {
   expect(tree).toContain("Name what made the morning work");
 });
 
-test("edit entry saves changes and returns to detail", async () => {
+test("edit entry saves changes and returns home", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   ReactTestRenderer.act(() => {
@@ -213,8 +214,67 @@ test("edit entry saves changes and returns to detail", async () => {
     await root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.onPress();
   });
 
-  expect(useAppStore.getState().stage).toBe("journal-detail");
+  expect(useAppStore.getState().stage).toBe("main-app");
+  expect(useAppStore.getState().activeTab).toBe("home");
+  expect(useAppStore.getState().selectedJournalEntryId).toBeNull();
   expect(useAppStore.getState().recentJournalEntries[0].title).toBe(
     "Updated reflections"
   );
+});
+
+test("edit entry shows a spinning save loader while update is in flight", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  let resolveSave: ((value: any) => void) | null = null;
+
+  (updateJournalEntry as jest.Mock).mockImplementationOnce(
+    _payload =>
+      new Promise(resolve => {
+        resolveSave = resolve;
+      })
+  );
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    useAppStore.getState().openJournalEditor("mar-15");
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <EditEntryScreen />
+      </SafeAreaProvider>
+    );
+    await Promise.resolve();
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Entry content" })
+      .props.onChangeText("Updated content for the day.");
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.onPress();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Saving entry" })
+  ).toBeTruthy();
+  expect(JSON.stringify(root!.toJSON())).toContain("Saving...");
+
+  await ReactTestRenderer.act(async () => {
+    resolveSave?.({
+      _id: "mar-15",
+      title: "Morning Reflections",
+      content: "Updated content for the day.",
+      type: "journal",
+      aiPrompt: "What are you grateful for today?",
+      images: [],
+      tags: ["gratitude", "morning", "nature"],
+      isFavorite: true,
+      createdAt: "2026-03-15T08:00:00.000Z",
+      updatedAt: "2026-03-30T08:00:00.000Z",
+    });
+    await Promise.resolve();
+  });
 });

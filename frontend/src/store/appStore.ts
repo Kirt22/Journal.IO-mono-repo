@@ -2,7 +2,6 @@ import { create } from "zustand";
 import type { BottomNavKey } from "../components/BottomNav";
 import type { AuthEntrySource, FlowStage } from "../navigation/appFlow";
 import type { PaywallTriggerMode } from "../services/paywallService";
-import type { OnboardingCompletionData } from "../screens/onboarding/OnboardingScreen";
 import {
   resendEmailVerification,
   logout,
@@ -40,9 +39,13 @@ import {
   saveTokens,
 } from "../utils/tokenStorage";
 import {
+  clearStoredOnboardingData,
   getHideJournalPreviews,
+  getStoredOnboardingData,
   saveHideJournalPreviews,
+  saveStoredOnboardingData,
 } from "../utils/appStorage";
+import type { OnboardingCompletionData } from "../types/onboarding";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
 import {
   goBackOrFallback,
@@ -118,6 +121,20 @@ const getInitialTab = (): BottomNavKey => {
   }
 
   return "home";
+};
+
+const shouldBypassAuthGateForDevLaunch = () => {
+  if (!__DEV__ || !devLaunchConfig.stage) {
+    return false;
+  }
+
+  return ![
+    "onboarding",
+    "auth",
+    "sign-in",
+    "create-account",
+    "verify-email",
+  ].includes(devLaunchConfig.stage);
 };
 
 const normalizeOptionalValue = (value?: string | null) => {
@@ -286,6 +303,7 @@ type AppStoreState = {
   openJournalEditor: (entryId: string) => void;
   closeJournalEntry: () => void;
   closeJournalEditor: () => void;
+  returnHomeFromJournalFlow: () => void;
   setThemeModeOverride: (nextMode: ThemeMode | null) => void;
   setHideJournalPreviews: (nextValue: boolean) => Promise<void>;
   openLegalBrowser: (payload: { url: string; title?: string | null }) => void;
@@ -543,7 +561,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     set({ hideJournalPreviews });
 
-    if (__DEV__ && devLaunchConfig.stage && devLaunchConfig.stage !== "onboarding") {
+    if (shouldBypassAuthGateForDevLaunch()) {
       set({ hasBootstrappedAuthGate: true });
       return;
     }
@@ -554,6 +572,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       await markInstallSeen();
       await clearTokens();
       await saveOnboardingCompleted(false);
+      await clearStoredOnboardingData();
       await savePostAuthPaywallSeen(false);
 
       set({
@@ -580,6 +599,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         set({
           hasBootstrappedAuthGate: true,
           session: hydratedSession,
+          onboardingData: null,
           initialProfileName: profile.name,
           authSource: profile.email ? "email" : null,
           pendingEmail: profile.email || "",
@@ -602,10 +622,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         }
 
         const onboardingCompleted = await getOnboardingCompleted();
+        const storedOnboardingData = onboardingCompleted
+          ? await getStoredOnboardingData()
+          : null;
 
         set({
           hasBootstrappedAuthGate: true,
           session: null,
+          onboardingData: storedOnboardingData,
           initialProfileName: "",
           authSource: null,
           pendingEmail: "",
@@ -625,9 +649,26 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }
 
     const onboardingCompleted = await getOnboardingCompleted();
+    const storedOnboardingData = onboardingCompleted
+      ? await getStoredOnboardingData()
+      : null;
 
     set({
       hasBootstrappedAuthGate: true,
+      session: null,
+      onboardingData: storedOnboardingData,
+      initialProfileName: "",
+      authSource: null,
+      pendingEmail: "",
+      paywallReturnStage: null,
+      activePaywallPlacementKey: null,
+      activePaywallScreenKey: null,
+      activePaywallTriggerMode: "contextual",
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
+      pendingPostAuthDiscountOffer: false,
+      preferredInsightsTab: null,
+      activeTab: "home",
       stage: onboardingCompleted ? "auth" : "onboarding",
     });
   },
@@ -638,12 +679,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
 
     const saveOnboardingCompletedPromise = saveOnboardingCompleted(true);
+    const saveStoredOnboardingDataPromise = saveStoredOnboardingData(data);
     const syncOnboardingReminderPromise = syncOnboardingReminderPreference(
       data.reminderPreference
     ).catch(() => undefined);
     await wait(ONBOARDING_EXIT_DELAY_MS);
     await Promise.all([
       saveOnboardingCompletedPromise,
+      saveStoredOnboardingDataPromise,
       syncOnboardingReminderPromise,
     ]);
 
@@ -1349,6 +1392,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     await cancelFreeTrialEndingReminder().catch(() => undefined);
     await clearTokens();
+    await clearStoredOnboardingData();
 
     set({
       ...createInitialJournalSliceState(),
@@ -1501,6 +1545,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         screen: hasEntry ? "EntryDetail" : getMainAppRouteForTab(get().activeTab),
       })
     );
+  },
+  returnHomeFromJournalFlow: () => {
+    set({
+      activeTab: "home",
+      preferredInsightsTab: null,
+      selectedJournalEntryId: null,
+      pendingNewEntryPrompt: null,
+      stage: "main-app",
+    });
+
+    resetRoot("MainApp", {
+      screen: "Home",
+    });
   },
   setThemeModeOverride: nextMode => {
     set({ themeModeOverride: nextMode });

@@ -27,6 +27,7 @@ The architecture is intentionally MVP-friendly: simple services, clear contracts
 Expected feature services:
 
 - `auth`
+- `onboarding`
 - `user`
 - `journal`
 - `prompts`
@@ -135,6 +136,12 @@ Journal analysis is asynchronous and non-blocking:
 
 Primary flow must not fail if AI analysis fails.
 
+Onboarding demo exception:
+
+- `POST /onboarding/demo-analysis` is a pre-auth demo endpoint for the onboarding questionnaire only
+- it returns deterministic, keyword-aware AI-style copy without persisting the submitted text
+- it does not call the stored journal AI analysis pipeline or create journal records
+
 ---
 
 ## 6) AI Output Contracts
@@ -176,6 +183,7 @@ Core requirements:
 Current implemented backend modules are centered around:
 
 - `auth`
+- `onboarding`
 - `user`
 - `journal`
 - `mood`

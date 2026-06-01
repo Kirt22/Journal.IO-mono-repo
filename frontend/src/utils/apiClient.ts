@@ -83,6 +83,29 @@ const getBaseUrl = () => {
     return configuredBaseUrl;
   }
 
+  if (__DEV__) {
+    const bundleHost = getBundleHost();
+
+    if (bundleHost) {
+      const resolvedBaseUrl = `http://${bundleHost}:3000/api/v1`;
+
+      logBaseUrlResolution("bundleHostFallback", resolvedBaseUrl);
+      return resolvedBaseUrl;
+    }
+
+    if (Platform.OS === "android") {
+      const resolvedBaseUrl = "http://10.0.2.2:3000/api/v1";
+
+      logBaseUrlResolution("androidEmulatorFallback", resolvedBaseUrl);
+      return resolvedBaseUrl;
+    }
+
+    const resolvedBaseUrl = "http://localhost:3000/api/v1";
+
+    logBaseUrlResolution("iosLocalhostFallback", resolvedBaseUrl);
+    return resolvedBaseUrl;
+  }
+
   const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
 
   if (envBaseUrl) {
@@ -90,25 +113,9 @@ const getBaseUrl = () => {
     return envBaseUrl;
   }
 
-  const bundleHost = __DEV__ ? getBundleHost() : null;
-
-  if (bundleHost) {
-    const resolvedBaseUrl = `http://${bundleHost}:3000/api/v1`;
-
-    logBaseUrlResolution("bundleHostFallback", resolvedBaseUrl);
-    return resolvedBaseUrl;
-  }
-
-  if (Platform.OS === "android") {
-    const resolvedBaseUrl = "http://10.0.2.2:3000/api/v1";
-
-    logBaseUrlResolution("androidEmulatorFallback", resolvedBaseUrl);
-    return resolvedBaseUrl;
-  }
-
   const resolvedBaseUrl = "http://localhost:3000/api/v1";
 
-  logBaseUrlResolution("iosLocalhostFallback", resolvedBaseUrl);
+  logBaseUrlResolution("productionFallback", resolvedBaseUrl);
   return resolvedBaseUrl;
 };
 

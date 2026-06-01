@@ -24,7 +24,7 @@ The interface should never feel clinical, gamified, or visually overwhelming.
 
 The current design flow is:
 
-1. Onboarding (9 steps)
+1. Onboarding (12 steps)
 2. Auth entry (email or Google)
 3. Create account (email path)
 4. Verify email (email path)
@@ -56,7 +56,7 @@ Navigation implementation note:
 
 # 3) Onboarding Experience
 
-The onboarding sequence now uses 9 steps:
+The onboarding sequence now uses 12 steps:
 
 1. Value introduction:
    - AI-powered insights
@@ -91,18 +91,32 @@ The onboarding sequence now uses 9 steps:
 7. AI comfort and feature explanation:
    - explain that AI-assisted prompts, summaries, tag suggestions, and Privacy Mode unlock with Premium
    - allow opt-in / opt-out posture without pressure so the preference is ready if the user upgrades later
-8. Excitement rating:
-   - show a warm, primary-tinted rating card with a 5-star selector
-   - update the supportive message based on the selected rating
-   - keep the rating block and testimonial card visually centered in the screen
-   - show testimonials as an individually paged horizontal carousel
-   - selecting any star should immediately show a Journal.IO rating dialog; choosing `Rate now` should request the native in-app rating prompt through the platform review bridge
-9. Privacy and trust:
+8. Privacy and trust:
    - user data control
    - no data selling
    - the consent sentence should link directly to the hosted public privacy policy and terms pages used for app-store review, and the onboarding flow should open those links through the app's root-stack modal route rather than sending users to Safari
    - export/delete controls
    - explicit agreement checkbox
+9. First-entry demo:
+   - collect a lightweight mood selection, one-word feeling, optional gentle hurdle, and short reflection in a centered questionnaire
+   - require mood plus at least one written thought before continuing
+   - show a loading state in the Continue button while the demo reflection is generated
+10. AI reflection demo:
+   - call `POST /onboarding/demo-analysis` to generate a deterministic, supportive sample analysis from the questionnaire state
+   - mention keywords noticed from the demo entry, including mood, the one-word feeling, the hurdle, and prominent thought terms, with a short description for why each keyword was noticed
+   - keep copy non-clinical and uncertainty-aware, and do not save the demo entry or call the stored journal AI pipeline
+   - keep the screen centered without decorative circular glow backgrounds
+11. Breathing pause:
+   - show a full-screen, calm, slow pulsing breath screen for 5 seconds using text connected to the AI reflection
+   - hide onboarding progress, back controls, and step counter on this interlude
+   - animate the breathing screen in with a soft fade/slide transition from the AI reflection step
+   - show only one `I feel calmer` button, disabled until the 5-second pause is complete
+12. Excitement rating:
+   - show a warm, primary-tinted rating card with a 5-star selector after the demo and breathing pause
+   - update the supportive message based on the selected rating
+   - keep the rating block and testimonial card visually centered in the screen
+   - show testimonials as an individually paged horizontal carousel
+   - selecting any star should immediately show a Journal.IO rating dialog; choosing `Rate now` should request the native in-app rating prompt through the platform review bridge
 
 Implementation notes:
 
@@ -111,6 +125,7 @@ Implementation notes:
 - keep content readable and lightweight despite the deeper flow
 - include back/continue actions where appropriate
 - preserve any collected onboarding answers through auth and profile setup handoff
+- persist completed onboarding answers locally so closing the app on the auth choice screen restores auth plus the same selected onboarding context for later registration
 - persist onboarding completion so returning launches can begin at auth instead of replaying onboarding
 - treat onboarding completion as device-scoped state so a reinstall restarts the onboarding flow
 
@@ -135,7 +150,7 @@ Auth should prioritize low-friction entry:
 - Apple sign-in path should treat `@privaterelay.appleid.com` addresses as Apple private relay contact addresses and avoid presenting them as the user's real iCloud email
 - onboarding goals should remain available as hidden flow context during auth and setup steps
 - on app launch, a valid stored session should go directly to home before any onboarding/auth screens render
-- once onboarding has been completed, future app launches should begin at auth unless the user is already signed in
+- once onboarding has been completed, future app launches should begin at auth unless the user is already signed in, and they should not enter the authenticated app with fallback/dummy profile data
 - the auth screen is a one-way entry point from onboarding and does not show a back affordance
 - signed-in session state should be install-scoped so deleting and reinstalling the app returns to onboarding or auth instead of home
 
@@ -241,6 +256,7 @@ Shared journal-card rule:
 - keep the Home preview slightly shorter than Calendar
 - do not seed Home or Calendar with fake journal entries at runtime; empty states should render until real local or backend-backed entries exist
 - entry detail and edit screens should show a stored `aiPrompt` prompt-used card when the journal record includes one
+- successful new-entry and journal-edit saves should return the user to Home and clear stale detail/editor state so back navigation cannot reveal unavailable entry screens
 - premium journal detail should offer an on-demand `Quick Analysis` card for the saved entry so users can get a visual, scan-first single-entry reflection while the weekly analysis is still collecting or between weekly reports
 - quick analysis should feel like the single-entry version of `AI Analysis`: compact hero summary, a small stat strip, pattern chips, three signal cards, and one lightweight next-step card
 

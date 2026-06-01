@@ -72,6 +72,12 @@ Reminder controls are also privacy-sensitive:
 
 Current reminder delivery is local-device scheduling from the mobile client. Notification permission must remain explicit opt-in, and reminder records must stay scoped to the authenticated user.
 
+Onboarding demo analysis is the only public journal-like text endpoint:
+
+- `POST /onboarding/demo-analysis` must not persist submitted demo text
+- the controller/service must not log raw demo journal text
+- the endpoint is limited to deterministic onboarding copy and must not expose authenticated journal data
+
 ---
 
 # 5) Logging Rules

@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -17,10 +19,16 @@ import {
   BookHeart,
   Brain,
   Check,
+  CloudRain,
   Coffee,
   Download,
+  Frown,
   Heart,
+  Laugh,
+  Meh,
   Moon,
+  Quote,
+  Smile,
   Sparkles,
   Shield,
   ShieldOff,
@@ -28,17 +36,31 @@ import {
   Sun,
   Target,
   TrendingUp,
+  Wand2,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
 import { requestAppRating } from "../../services/appRatingService";
+import {
+  generateOnboardingDemoAnalysis,
+  type OnboardingDemoAnalysisResponse,
+  type OnboardingDemoMood,
+} from "../../services/onboardingService";
 import { requestAndSyncOnboardingReminderPreference } from "../../services/reminderNotificationsService";
 import { useTheme } from "../../theme/provider";
+import type { OnboardingCompletionData } from "../../types/onboarding";
 import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 
 const mascotImage = require("../../assets/png/Masscott.png");
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 12;
+const PRIVACY_STEP = 8;
+const JOURNAL_DEMO_STEP = 9;
+const AI_REFLECTION_STEP = 10;
+const BREATHING_STEP = 11;
+const RATING_STEP = 12;
+const REFLECTION_WAIT_SECONDS = 3;
+const BREATHING_WAIT_SECONDS = 5;
 const isTestEnvironment = typeof jest !== "undefined";
 
 const valueCards = [
@@ -204,15 +226,43 @@ const ratingTestimonials = [
   },
 ];
 
-export type OnboardingCompletionData = {
-  ageRange: string;
-  journalingExperience: string;
-  goals: string[];
-  supportFocusAreas: string[];
-  reminderPreference: string;
-  aiComfort: boolean;
-  privacyConsent: boolean;
-};
+const journalMoodOptions = [
+  {
+    id: "great",
+    label: "Great",
+    Icon: Laugh,
+    tone: "energized and uplifted",
+  },
+  {
+    id: "good",
+    label: "Good",
+    Icon: Smile,
+    tone: "calm and steady",
+  },
+  {
+    id: "okay",
+    label: "Okay",
+    Icon: Meh,
+    tone: "neutral and reflective",
+  },
+  {
+    id: "low",
+    label: "Low",
+    Icon: Frown,
+    tone: "tender and introspective",
+  },
+  {
+    id: "stressed",
+    label: "Stressed",
+    Icon: CloudRain,
+    tone: "overwhelmed but searching",
+  },
+] satisfies Array<{
+  id: OnboardingDemoMood;
+  label: string;
+  Icon: typeof Laugh;
+  tone: string;
+}>;
 
 type OnboardingScreenProps = {
   isCompleting: boolean;
@@ -270,6 +320,19 @@ export function OnboardingScreen({
   const [hasRequestedAppRating, setHasRequestedAppRating] = useState(false);
   const [appRatingMessage, setAppRatingMessage] = useState<string | null>(null);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
+  const [journalMood, setJournalMood] = useState<OnboardingDemoMood | "">("");
+  const [journalFeeling, setJournalFeeling] = useState("");
+  const [journalChallenge, setJournalChallenge] = useState("");
+  const [journalThoughts, setJournalThoughts] = useState("");
+  const [demoAnalysis, setDemoAnalysis] =
+    useState<OnboardingDemoAnalysisResponse | null>(null);
+  const [isGeneratingDemoAnalysis, setIsGeneratingDemoAnalysis] = useState(false);
+  const [reflectionSecondsRemaining, setReflectionSecondsRemaining] = useState(
+    REFLECTION_WAIT_SECONDS
+  );
+  const [breathingSecondsRemaining, setBreathingSecondsRemaining] = useState(
+    BREATHING_WAIT_SECONDS
+  );
   const [isApplyingReminderPreference, setIsApplyingReminderPreference] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const testimonialScrollRef = useRef<ScrollView | null>(null);
@@ -277,6 +340,8 @@ export function OnboardingScreen({
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const mascotFloatY = useRef(new Animated.Value(0)).current;
   const ratingEntrance = useRef(new Animated.Value(1)).current;
+  const breathingPulse = useRef(new Animated.Value(0)).current;
+  const breathingScreenEnter = useRef(new Animated.Value(0)).current;
   const starScales = useRef(
     Array.from({ length: 5 }, () => new Animated.Value(1))
   ).current;
@@ -293,12 +358,31 @@ export function OnboardingScreen({
     titleSize,
   } = responsiveMetrics;
   const heroSpacingStyle = isCompact ? styles.heroSectionCompact : styles.heroSectionStandard;
-  const primaryButtonText = step === TOTAL_STEPS ? "Get Started" : "Continue";
   const aiComfortPrimaryBackground = aiComfort ? theme.colors.primary : "transparent";
   const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
   const privacyConsentBackground = agreedToPrivacy ? theme.colors.primary : "transparent";
   const ratingStepMinHeight = Math.max(height - (isCompact ? 270 : 315), 420);
+  const demoStepMinHeight = Math.max(height - (isCompact ? 265 : 310), 470);
+  const selectedJournalMood = journalMoodOptions.find(mood => mood.id === journalMood);
+  const aiReflectionKeywords = demoAnalysis?.keywords ?? [];
+  const aiReflectionMoodTone =
+    demoAnalysis?.moodTone || selectedJournalMood?.tone || "calm and reflective";
+  const breathingFocus =
+    demoAnalysis?.keywords.find(keyword => keyword.label !== selectedJournalMood?.label)?.label ||
+    selectedJournalMood?.tone ||
+    "what you noticed";
+  const isAiReflectionReady = reflectionSecondsRemaining <= 0;
+  const isBreathingReady = breathingSecondsRemaining <= 0;
+  const primaryButtonText =
+    step === JOURNAL_DEMO_STEP && isGeneratingDemoAnalysis
+      ? "Preparing reflection"
+      : step === AI_REFLECTION_STEP && !isAiReflectionReady
+        ? `Reflecting ${reflectionSecondsRemaining}s`
+        : step === TOTAL_STEPS
+          ? "Get Started"
+          : "Continue";
   const ratingStepDynamicStyle = { minHeight: ratingStepMinHeight };
+  const demoStepDynamicStyle = { minHeight: demoStepMinHeight };
   const ratingEntranceStyle = {
     opacity: ratingEntrance,
     transform: [
@@ -349,12 +433,33 @@ export function OnboardingScreen({
       return selectedExperience.length > 0;
     }
 
-    if (step === TOTAL_STEPS) {
+    if (step === PRIVACY_STEP) {
       return agreedToPrivacy;
     }
 
+    if (step === JOURNAL_DEMO_STEP) {
+      return journalMood.length > 0 && journalThoughts.trim().length > 0;
+    }
+
+    if (step === AI_REFLECTION_STEP) {
+      return isAiReflectionReady;
+    }
+
+    if (step === BREATHING_STEP) {
+      return isBreathingReady;
+    }
+
     return true;
-  }, [agreedToPrivacy, selectedAgeRange, selectedExperience, step]);
+  }, [
+    agreedToPrivacy,
+    isAiReflectionReady,
+    isBreathingReady,
+    journalMood,
+    journalThoughts,
+    selectedAgeRange,
+    selectedExperience,
+    step,
+  ]);
 
   useEffect(() => {
     if (isTestEnvironment) {
@@ -411,7 +516,7 @@ export function OnboardingScreen({
   }, [mascotFloatY, step]);
 
   useEffect(() => {
-    if (step !== 8) {
+    if (step !== RATING_STEP) {
       ratingEntrance.setValue(1);
       return;
     }
@@ -434,7 +539,7 @@ export function OnboardingScreen({
   useEffect(() => {
     if (
       isTestEnvironment ||
-      step !== 8 ||
+      step !== RATING_STEP ||
       ratingTestimonials.length < 2 ||
       availableSheetWidth <= 0
     ) {
@@ -457,6 +562,98 @@ export function OnboardingScreen({
     };
   }, [availableSheetWidth, step]);
 
+  useEffect(() => {
+    if (step !== AI_REFLECTION_STEP) {
+      setReflectionSecondsRemaining(REFLECTION_WAIT_SECONDS);
+      return;
+    }
+
+    if (isTestEnvironment) {
+      setReflectionSecondsRemaining(0);
+      return;
+    }
+
+    setReflectionSecondsRemaining(REFLECTION_WAIT_SECONDS);
+    const interval = setInterval(() => {
+      setReflectionSecondsRemaining(previous => {
+        if (previous <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+
+        return previous - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== BREATHING_STEP) {
+      setBreathingSecondsRemaining(BREATHING_WAIT_SECONDS);
+      breathingPulse.stopAnimation();
+      breathingPulse.setValue(0);
+      breathingScreenEnter.stopAnimation();
+      breathingScreenEnter.setValue(0);
+      return;
+    }
+
+    if (isTestEnvironment) {
+      setBreathingSecondsRemaining(0);
+      breathingPulse.setValue(1);
+      breathingScreenEnter.setValue(1);
+      return;
+    }
+
+    setBreathingSecondsRemaining(BREATHING_WAIT_SECONDS);
+    breathingScreenEnter.setValue(0);
+    const interval = setInterval(() => {
+      setBreathingSecondsRemaining(previous => {
+        if (previous <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+
+        return previous - 1;
+      });
+    }, 1000);
+
+    breathingPulse.setValue(0);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathingPulse, {
+          toValue: 1,
+          duration: 2500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathingPulse, {
+          toValue: 0,
+          duration: 2500,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    Animated.parallel([
+      Animated.timing(breathingScreenEnter, {
+        toValue: 1,
+        duration: 340,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+    animation.start();
+
+    return () => {
+      clearInterval(interval);
+      animation.stop();
+    };
+  }, [breathingPulse, breathingScreenEnter, step]);
+
   const goBack = () => {
     if (step === 1) {
       return;
@@ -477,8 +674,21 @@ export function OnboardingScreen({
       return;
     }
 
-    if (step === TOTAL_STEPS && !agreedToPrivacy) {
+    if (step === PRIVACY_STEP && !agreedToPrivacy) {
       setStepError("Please agree to the privacy terms to continue.");
+      return;
+    }
+
+    if (step === JOURNAL_DEMO_STEP && (!journalMood || !journalThoughts.trim())) {
+      setStepError("Choose a mood and write one quick reflection to continue.");
+      return;
+    }
+
+    if (step === AI_REFLECTION_STEP && !isAiReflectionReady) {
+      return;
+    }
+
+    if (step === BREATHING_STEP && !isBreathingReady) {
       return;
     }
 
@@ -499,6 +709,39 @@ export function OnboardingScreen({
       } finally {
         setIsApplyingReminderPreference(false);
       }
+    }
+
+    if (step === JOURNAL_DEMO_STEP) {
+      const demoMood = journalMood;
+
+      if (!demoMood) {
+        setStepError("Choose a mood and write one quick reflection to continue.");
+        return;
+      }
+
+      setIsGeneratingDemoAnalysis(true);
+
+      try {
+        const analysis = await generateOnboardingDemoAnalysis({
+          mood: demoMood,
+          feeling: journalFeeling.trim() || undefined,
+          challenge: journalChallenge.trim() || undefined,
+          thoughts: journalThoughts.trim(),
+        });
+
+        setDemoAnalysis(analysis);
+        setStep(previous => previous + 1);
+      } catch (error) {
+        setStepError(
+          error instanceof Error
+            ? error.message
+            : "Unable to prepare your demo reflection right now. Please try again."
+        );
+      } finally {
+        setIsGeneratingDemoAnalysis(false);
+      }
+
+      return;
     }
 
     if (step < TOTAL_STEPS) {
@@ -1142,7 +1385,7 @@ export function OnboardingScreen({
       );
     }
 
-    if (step === 8) {
+    if (step === RATING_STEP) {
       return (
         <View style={[styles.stepSection, styles.ratingStepSection, ratingStepDynamicStyle]}>
           <Animated.View
@@ -1309,8 +1552,9 @@ export function OnboardingScreen({
       );
     }
 
-    return (
-      <View style={styles.stepSection}>
+    if (step === PRIVACY_STEP) {
+      return (
+        <View style={styles.stepSection}>
         <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
           Privacy & security
         </Text>
@@ -1440,8 +1684,392 @@ export function OnboardingScreen({
           </Text>
         </Pressable>
       </View>
-    );
+      );
+    }
+
+    if (step === JOURNAL_DEMO_STEP) {
+      return (
+        <View style={[styles.stepSection, styles.journalDemoSection, demoStepDynamicStyle]}>
+          <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
+            Your first entry
+          </Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
+            Take a deep breath. Let&apos;s do a quick check-in.
+          </Text>
+
+          <View style={styles.journalDemoContent}>
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: theme.colors.mutedForeground }]}>
+                How are you feeling?
+              </Text>
+              <View style={styles.moodSelectorRow}>
+                {journalMoodOptions.map(mood => {
+                  const Icon = mood.Icon;
+                  const selected = journalMood === mood.id;
+
+                  return (
+                    <Pressable
+                      key={mood.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`Mood ${mood.label}`}
+                      onPress={() => {
+                        setJournalMood(mood.id);
+                        setDemoAnalysis(null);
+                        setStepError(null);
+                      }}
+                      style={({ pressed }) => [
+                        styles.demoMoodButton,
+                        {
+                          backgroundColor: selected ? theme.colors.accent : theme.colors.card,
+                          borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        },
+                        pressed && styles.cardPressed,
+                      ]}
+                    >
+                      <Icon
+                        color={selected ? theme.colors.primary : theme.colors.mutedForeground}
+                        size={18}
+                        strokeWidth={2}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.demoMoodLabel,
+                          {
+                            color: selected
+                              ? theme.colors.primary
+                              : theme.colors.mutedForeground,
+                          },
+                        ]}
+                      >
+                        {mood.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.demoInputRow}>
+              <View style={[styles.fieldGroup, styles.demoHalfField]}>
+                <Text style={[styles.fieldLabel, { color: theme.colors.mutedForeground }]}>
+                  In one word
+                </Text>
+                <TextInput
+                  accessibilityLabel="One word feeling"
+                  autoCapitalize="none"
+                  maxLength={24}
+                  onChangeText={value => {
+                    setJournalFeeling(value);
+                    setDemoAnalysis(null);
+                    setStepError(null);
+                  }}
+                  placeholder="e.g. scattered"
+                  placeholderTextColor={theme.colors.mutedForeground}
+                  style={[
+                    styles.demoTextInput,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                      color: theme.colors.foreground,
+                    },
+                  ]}
+                  value={journalFeeling}
+                />
+              </View>
+
+              <View style={[styles.fieldGroup, styles.demoHalfField]}>
+                <Text style={[styles.fieldLabel, { color: theme.colors.mutedForeground }]}>
+                  A gentle hurdle
+                </Text>
+                <TextInput
+                  accessibilityLabel="Gentle hurdle"
+                  maxLength={40}
+                  onChangeText={value => {
+                    setJournalChallenge(value);
+                    setDemoAnalysis(null);
+                    setStepError(null);
+                  }}
+                  placeholder="What felt heavy?"
+                  placeholderTextColor={theme.colors.mutedForeground}
+                  style={[
+                    styles.demoTextInput,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                      color: theme.colors.foreground,
+                    },
+                  ]}
+                  value={journalChallenge}
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <View style={styles.fieldHeaderRow}>
+                <Text style={[styles.fieldLabel, { color: theme.colors.mutedForeground }]}>
+                  What&apos;s on your mind?
+                </Text>
+                <Text style={[styles.characterCount, { color: theme.colors.mutedForeground }]}>
+                  {journalThoughts.length}/240
+                </Text>
+              </View>
+              <TextInput
+                accessibilityLabel="Journal thoughts"
+                maxLength={240}
+                multiline
+                onChangeText={value => {
+                  setJournalThoughts(value);
+                  setDemoAnalysis(null);
+                  setStepError(null);
+                }}
+                placeholder="Pour your thoughts here. Even a single sentence is enough..."
+                placeholderTextColor={theme.colors.mutedForeground}
+                style={[
+                  styles.demoTextarea,
+                  {
+                    backgroundColor: theme.colors.card,
+                    borderColor: theme.colors.border,
+                    color: theme.colors.foreground,
+                  },
+                ]}
+                textAlignVertical="top"
+                value={journalThoughts}
+              />
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (step === AI_REFLECTION_STEP) {
+      return (
+        <View style={[styles.stepSection, styles.aiReflectionSection, demoStepDynamicStyle]}>
+          <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
+            AI reflection
+          </Text>
+          <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
+            A gentle perspective on your thoughts.
+          </Text>
+
+          <View style={styles.aiReflectionOuter}>
+            <View
+              style={[
+                styles.aiReflectionCard,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View style={styles.aiReflectionHeader}>
+                <View style={[styles.aiIconWrap, { backgroundColor: theme.colors.accent }]}>
+                  <Wand2 color={theme.colors.primary} size={18} strokeWidth={2} />
+                </View>
+                <View style={styles.aiHeaderCopy}>
+                  <Text style={[styles.aiKicker, { color: theme.colors.primary }]}>
+                    Detected aura
+                  </Text>
+                  <Text style={[styles.aiAuraText, { color: theme.colors.foreground }]}>
+                    {aiReflectionMoodTone}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.aiReflectionBodyRow}>
+                <Sparkles color={theme.colors.primary} opacity={0.68} size={16} strokeWidth={2} />
+                <Text style={[styles.aiReflectionBody, { color: theme.colors.foreground }]}>
+                  {demoAnalysis?.summary ||
+                    "Your words suggest self-awareness. Naming what is present may help you move through the day with a little more gentleness."}
+                </Text>
+              </View>
+
+              {aiReflectionKeywords.length > 0 ? (
+                <View style={styles.keywordSection}>
+                  <Text style={[styles.keywordLabel, { color: theme.colors.mutedForeground }]}>
+                    Keywords noticed
+                  </Text>
+                  <View style={styles.keywordList}>
+                    {aiReflectionKeywords.map(keyword => (
+                      <View
+                        key={keyword.label}
+                        style={[
+                          styles.keywordDescriptionCard,
+                          {
+                            backgroundColor: theme.colors.accent,
+                            borderColor: theme.colors.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.keywordDescriptionLabel, { color: theme.colors.primary }]}>
+                          {keyword.label}
+                        </Text>
+                        <Text style={[styles.keywordDescriptionText, { color: theme.colors.mutedForeground }]}>
+                          {keyword.description}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              <View
+                style={[
+                  styles.tomorrowPromptCard,
+                  {
+                    backgroundColor: theme.colors.accent,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <View style={styles.tomorrowPromptHeader}>
+                  <Quote color={theme.colors.primary} size={14} strokeWidth={2} />
+                  <Text style={[styles.tomorrowPromptLabel, { color: theme.colors.primary }]}>
+                    Prompt for tomorrow
+                  </Text>
+                </View>
+                <Text style={[styles.tomorrowPromptText, { color: theme.colors.foreground }]}>
+                  &quot;{demoAnalysis?.prompt || "What is one small, gentle thing that softened your day today?"}&quot;
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <Text style={[styles.aiDisclaimer, { color: theme.colors.mutedForeground }]}>
+            Your full reflections will grow richer over time.
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
   };
+
+  if (step === BREATHING_STEP) {
+    return (
+      <SafeAreaView
+        edges={["top", "left", "right", "bottom"]}
+        style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+      >
+        <Animated.View
+          style={[
+            styles.breathingFullScreen,
+            { paddingHorizontal: horizontalPadding },
+            {
+              opacity: breathingScreenEnter,
+              transform: [
+                {
+                  translateY: breathingScreenEnter.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [24, 0],
+                  }),
+                },
+                {
+                  scale: breathingScreenEnter.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.985, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={[styles.breathingFullInner, { maxWidth: layoutMaxWidth }]}>
+            <View style={styles.breathingCopyBlock}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  styles.breathingTitle,
+                  { fontSize: sectionTitleSize, color: theme.colors.foreground },
+                ]}
+              >
+                Let that insight land
+              </Text>
+              <Text
+                style={[
+                  styles.sectionSubtitle,
+                  styles.breathingSubtitle,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                The reflection noticed &quot;{breathingFocus}&quot;. Let it be present, then take one slow breath.
+              </Text>
+            </View>
+
+            <View style={styles.breathingOrbWrap}>
+              <Animated.View
+                style={[
+                  styles.breathingOrb,
+                  {
+                    backgroundColor: theme.colors.accent,
+                    borderColor: theme.colors.primary,
+                    opacity: breathingPulse.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.5, 0.95],
+                    }),
+                    transform: [
+                      {
+                        scale: breathingPulse.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.84, 1.22],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Text style={[styles.breathingOrbText, { color: theme.colors.primary }]}>
+                  {isBreathingReady ? "Ready" : "Breathe"}
+                </Text>
+              </Animated.View>
+            </View>
+
+            <View style={styles.fullScreenCalmPrompt}>
+              <Text style={[styles.calmCheckTitle, { color: theme.colors.foreground }]}>
+                Are you feeling a little calmer?
+              </Text>
+              <Text style={[styles.calmCheckBody, { color: theme.colors.mutedForeground }]}>
+                {isBreathingReady
+                  ? "Take another breath if you need it. Continue only when you feel ready."
+                  : `Take another breath if you need it. The button unlocks in ${breathingSecondsRemaining}s.`}
+              </Text>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={!isBreathingReady}
+              onPress={handleContinue}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                styles.breathingFullButton,
+                {
+                  backgroundColor: isBreathingReady
+                    ? theme.colors.primary
+                    : theme.colors.border,
+                },
+                pressed && isBreathingReady && styles.primaryButtonPressed,
+                !isBreathingReady && styles.primaryButtonDisabled,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  {
+                    color: isBreathingReady
+                      ? theme.colors.primaryForeground
+                      : theme.colors.mutedForeground,
+                  },
+                ]}
+              >
+                I feel calmer
+              </Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <>
@@ -1491,6 +2119,11 @@ export function OnboardingScreen({
                 <View style={styles.actionSlot}>
                   <Pressable
                     accessibilityRole="button"
+                    disabled={
+                      isCompleting ||
+                      isApplyingReminderPreference ||
+                      isGeneratingDemoAnalysis
+                    }
                     onPress={goBack}
                     style={({ pressed }) => [
                       styles.secondaryButton,
@@ -1499,6 +2132,10 @@ export function OnboardingScreen({
                         borderColor: theme.colors.border,
                       },
                       pressed && styles.cardPressed,
+                      (isCompleting ||
+                        isApplyingReminderPreference ||
+                        isGeneratingDemoAnalysis) &&
+                        styles.primaryButtonDisabled,
                     ]}
                   >
                     <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
@@ -1511,7 +2148,12 @@ export function OnboardingScreen({
               <View style={styles.actionSlot}>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={isCompleting || isApplyingReminderPreference || !canProceed}
+                  disabled={
+                    isCompleting ||
+                    isApplyingReminderPreference ||
+                    isGeneratingDemoAnalysis ||
+                    !canProceed
+                  }
                   onPress={handleContinue}
                   style={({ pressed }) => [
                     styles.primaryButton,
@@ -1519,11 +2161,14 @@ export function OnboardingScreen({
                       backgroundColor: canProceed ? theme.colors.primary : theme.colors.border,
                     },
                     pressed && canProceed && styles.primaryButtonPressed,
-                    (isCompleting || isApplyingReminderPreference || !canProceed) &&
+                    (isCompleting ||
+                      isApplyingReminderPreference ||
+                      isGeneratingDemoAnalysis ||
+                      !canProceed) &&
                       styles.primaryButtonDisabled,
                   ]}
                 >
-                  {isCompleting || isApplyingReminderPreference ? (
+                  {isCompleting || isApplyingReminderPreference || isGeneratingDemoAnalysis ? (
                     <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
                   ) : (
                     <Text
@@ -1933,6 +2578,245 @@ const styles = StyleSheet.create({
   consentLink: {
     fontWeight: "600",
     textDecorationLine: "underline",
+  },
+  journalDemoSection: {
+    justifyContent: "center",
+  },
+  journalDemoContent: {
+    gap: 14,
+  },
+  fieldGroup: {
+    gap: 7,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  fieldHeaderRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  characterCount: {
+    fontSize: 10,
+    opacity: 0.7,
+  },
+  moodSelectorRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  demoMoodButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 66,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  demoMoodLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  demoInputRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  demoHalfField: {
+    flex: 1,
+  },
+  demoTextInput: {
+    borderRadius: 14,
+    borderWidth: 1,
+    fontSize: 14,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  demoTextarea: {
+    borderRadius: 18,
+    borderWidth: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 112,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+  },
+  aiReflectionSection: {
+    justifyContent: "center",
+  },
+  aiReflectionOuter: {
+    marginTop: 4,
+    position: "relative",
+  },
+  aiReflectionCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 18,
+    overflow: "hidden",
+    padding: 20,
+  },
+  aiReflectionHeader: {
+    alignItems: "center",
+    borderBottomColor: "rgba(120, 95, 78, 0.16)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingBottom: 16,
+  },
+  aiIconWrap: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  aiHeaderCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  aiKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+  aiAuraText: {
+    fontSize: 14,
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  aiReflectionBodyRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 9,
+  },
+  aiReflectionBody: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 22,
+    opacity: 0.86,
+  },
+  keywordSection: {
+    gap: 9,
+  },
+  keywordLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  keywordList: {
+    gap: 8,
+  },
+  keywordDescriptionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  keywordDescriptionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  keywordDescriptionText: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  tomorrowPromptCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  tomorrowPromptHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  tomorrowPromptLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  tomorrowPromptText: {
+    fontSize: 14,
+    fontStyle: "italic",
+    lineHeight: 22,
+  },
+  aiDisclaimer: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 14,
+    textAlign: "center",
+  },
+  breathingFullScreen: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  breathingFullInner: {
+    alignItems: "center",
+    alignSelf: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  breathingCopyBlock: {
+    alignItems: "center",
+    width: "100%",
+  },
+  breathingTitle: {
+    textAlign: "center",
+  },
+  breathingSubtitle: {
+    marginBottom: 0,
+    maxWidth: 330,
+    textAlign: "center",
+  },
+  breathingOrbWrap: {
+    alignItems: "center",
+    height: 220,
+    justifyContent: "center",
+    width: "100%",
+  },
+  breathingOrb: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 150,
+    justifyContent: "center",
+    shadowColor: "#E87461",
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.22,
+    shadowRadius: 34,
+    width: 150,
+  },
+  breathingOrbText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  fullScreenCalmPrompt: {
+    gap: 7,
+    marginBottom: 28,
+    width: "100%",
+  },
+  calmCheckTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  calmCheckBody: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  breathingFullButton: {
+    width: "100%",
   },
   actionsContainer: {
     alignSelf: "center",

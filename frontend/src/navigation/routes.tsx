@@ -6,10 +6,7 @@ import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
 import NewEntryScreen from "../screens/NewEntryScreen";
 import EntryDetailScreen from "../screens/journal/EntryDetailScreen";
 import EditEntryScreen from "../screens/journal/EditEntryScreen";
-import {
-  OnboardingScreen,
-  type OnboardingCompletionData,
-} from "../screens/onboarding/OnboardingScreen";
+import { OnboardingScreen } from "../screens/onboarding/OnboardingScreen";
 import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import PaywallScreen from "../screens/profile/PaywallScreen";
@@ -18,6 +15,7 @@ import SpinWheelScreen from "../screens/profile/SpinWheelScreen";
 import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
 import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import { useTheme } from "../theme/provider";
+import type { OnboardingCompletionData } from "../types/onboarding";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
 import type { AuthSession } from "../services/authService";
 

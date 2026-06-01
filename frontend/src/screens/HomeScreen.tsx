@@ -2469,13 +2469,6 @@ export default function HomeScreen({
               },
             ]}
           >
-            <View
-              pointerEvents="none"
-              style={[
-                styles.promptDialogGlow,
-                { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-              ]}
-            />
             <View style={styles.promptDialogHeader}>
               <View style={styles.promptDialogTitleWrap}>
                 <Text
@@ -3040,15 +3033,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.26,
     shadowRadius: 34,
     elevation: 16,
-  },
-  promptDialogGlow: {
-    position: "absolute",
-    top: -22,
-    right: -18,
-    width: 156,
-    height: 156,
-    borderRadius: 999,
-    opacity: 0.5,
   },
   promptDialogHeader: {
     flexDirection: "row",

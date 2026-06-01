@@ -21,7 +21,7 @@ import { Alert, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Path, Svg } from "react-native-svg";
 import PrimaryButton from "../../components/PrimaryButton";
-import type { OnboardingCompletionData } from "../onboarding/OnboardingScreen";
+import type { OnboardingCompletionData } from "../../types/onboarding";
 import { useTheme } from "../../theme/provider";
 import { getAuthEmailDisplay } from "../../utils/authEmailDisplay";
 

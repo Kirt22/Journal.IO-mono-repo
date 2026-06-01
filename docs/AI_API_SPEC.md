@@ -204,6 +204,54 @@ Returns:
 
 ---
 
+## 3.1.1 Onboarding Module (`/onboarding`)
+
+### `POST /onboarding/demo-analysis`
+
+Generate the onboarding first-entry demo reflection before auth. This endpoint is intentionally public, does not persist the submitted text, and does not run the stored journal AI pipeline.
+
+Request:
+
+```json
+{
+  "mood": "okay",
+  "feeling": "scattered",
+  "challenge": "too many tabs open",
+  "thoughts": "I felt pulled in too many directions today, but writing it down already feels lighter."
+}
+```
+
+Validation:
+
+- `mood` is required and must be one of `great`, `good`, `okay`, `low`, or `stressed`
+- `thoughts` is required and must be 1-500 characters after trimming
+- `feeling` is optional and limited to 24 characters
+- `challenge` is optional and limited to 80 characters
+
+Success `data`:
+
+```json
+{
+  "moodTone": "neutral and reflective",
+  "summary": "You named \"scattered\" as the feeling underneath the entry. \"too many tabs open\" appears associated with the part of the day that felt heavier. I noticed \"Okay\", \"scattered\", and \"too many tabs open\" and used those words as anchors for this read. Your words suggest a moment of self-awareness...",
+  "keywords": [
+    {
+      "label": "Okay",
+      "description": "Your okay mood check-in gives this demo reflection its emotional starting point."
+    }
+  ],
+  "prompt": "What is one small, gentle thing that could make \"scattered\" feel a little lighter tomorrow?"
+}
+```
+
+Notes:
+
+- this endpoint is used only for the onboarding demo screen
+- response copy must stay supportive, non-clinical, and uncertainty-aware
+- raw demo journal text must not be logged or persisted
+
+---
+
 ## 3.2 User Profile Module (`/users`)
 
 ### `GET /users/profile`

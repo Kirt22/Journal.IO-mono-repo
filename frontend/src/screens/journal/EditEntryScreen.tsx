@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -48,7 +49,9 @@ export default function EditEntryScreen() {
   const closeJournalEntry = useAppStore(state => state.closeJournalEntry);
   const setActiveTab = useAppStore(state => state.setActiveTab);
   const openNewEntry = useAppStore(state => state.openNewEntry);
-  const openJournalEntry = useAppStore(state => state.openJournalEntry);
+  const returnHomeFromJournalFlow = useAppStore(
+    state => state.returnHomeFromJournalFlow
+  );
   const updateRecentJournalEntry = useAppStore(
     state => state.updateRecentJournalEntry
   );
@@ -149,7 +152,7 @@ export default function EditEntryScreen() {
       });
 
       updateRecentJournalEntry(updatedEntry);
-      openJournalEntry(updatedEntry._id);
+      returnHomeFromJournalFlow();
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -289,7 +292,11 @@ export default function EditEntryScreen() {
                   ]}
                 >
                   {isSaving ? (
-                    <Loader2 size={14} color={theme.colors.primaryForeground} />
+                    <ActivityIndicator
+                      accessibilityLabel="Saving entry"
+                      color={theme.colors.primaryForeground}
+                      size="small"
+                    />
                   ) : (
                     <Save size={14} color={theme.colors.primaryForeground} />
                   )}

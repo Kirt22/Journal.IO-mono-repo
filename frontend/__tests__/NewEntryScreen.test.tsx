@@ -231,7 +231,10 @@ test("saves an entry and returns to home", async () => {
     })
   );
   expect(cancelWeeklyInsightNotifications).toHaveBeenCalledTimes(1);
-  expect(onBack).toHaveBeenCalled();
+  expect(onBack).not.toHaveBeenCalled();
+  expect(useAppStore.getState().stage).toBe("main-app");
+  expect(useAppStore.getState().activeTab).toBe("home");
+  expect(useAppStore.getState().selectedJournalEntryId).toBeNull();
 });
 
 test("saves blank titles as untitled entries instead of a generated date title", async () => {

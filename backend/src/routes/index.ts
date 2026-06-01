@@ -3,6 +3,7 @@ import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
 import authRouter from "../services/auth/auth.routes";
 import insightsRouter from "../services/insights/insights.routes";
 import moodRouter from "../services/mood/mood.routes";
+import onboardingRouter from "../services/onboarding/onboarding.routes";
 import journalRouter from "../services/journal/journal.routes";
 import privacyRouter from "../services/privacy/privacy.routes";
 import promptsRouter from "../services/prompts/prompts.routes";
@@ -39,6 +40,7 @@ export const initializeRoutes = (app: Express): void => {
   apiRouter.use("/auth", authRouter);
   apiRouter.use("/users", userRouter);
   apiRouter.use("/mood", moodRouter);
+  apiRouter.use("/onboarding", onboardingRouter);
   apiRouter.use("/journal", journalRouter);
   apiRouter.use("/privacy", privacyRouter);
   apiRouter.use("/prompts", promptsRouter);

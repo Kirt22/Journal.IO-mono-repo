@@ -20,7 +20,6 @@ import {
   Heart,
   Lock,
   Save,
-  Search,
   Smile,
   SmilePlus,
   Sparkles,
@@ -234,42 +233,6 @@ function analyzeContentForTags(text: string, mood?: MoodKey | null): string[] {
   return [];
 }
 
-function HeaderIconButton({
-  icon,
-  onPress,
-  label,
-  borderColor,
-  backgroundColor,
-  iconColor,
-}: {
-  icon: typeof Search;
-  onPress: () => void;
-  label: string;
-  borderColor: string;
-  backgroundColor: string;
-  iconColor: string;
-}) {
-  const Icon = icon;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.headerIconButton,
-        {
-          borderColor,
-          backgroundColor,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Icon color={iconColor} size={18} />
-    </Pressable>
-  );
-}
-
 export default function NewEntryScreen({
   onBack,
   initialPrompt,
@@ -279,7 +242,9 @@ export default function NewEntryScreen({
   const addRecentJournalEntry = useAppStore(
     state => state.addRecentJournalEntry
   );
-  const setActiveTab = useAppStore(state => state.setActiveTab);
+  const returnHomeFromJournalFlow = useAppStore(
+    state => state.returnHomeFromJournalFlow
+  );
   const openPaywallForPlacement = useAppStore(
     state => state.openPaywallForPlacement
   );
@@ -451,9 +416,7 @@ export default function NewEntryScreen({
       await maybeSkipTodaysReminder();
       await cancelWeeklyInsightNotifications();
 
-      setActiveTab("home");
-
-      onBack();
+      returnHomeFromJournalFlow();
     } catch (saveError) {
       setError(
         saveError instanceof Error

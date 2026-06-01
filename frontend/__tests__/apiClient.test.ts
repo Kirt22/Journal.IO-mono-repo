@@ -137,23 +137,10 @@ describe("apiClient", () => {
     );
   });
 
-  test("uses the configured production API URL in a dev build when env selects production", async () => {
-    const globalWithProcess = globalThis as typeof globalThis & {
-      process?: {
-        env?: {
-          JEST_WORKER_ID?: string;
-        };
-      };
-    };
-    const previousJestWorkerId = globalWithProcess.process?.env?.JEST_WORKER_ID;
-
-    if (globalWithProcess.process?.env) {
-      delete globalWithProcess.process.env.JEST_WORKER_ID;
-    }
-
+  test("uses the configured production API URL in a dev build when dev launch config targets production", async () => {
     jest.doMock("../src/config/env", () => ({
       env: {
-        apiBaseUrl: "https://api.journalio.app/api/v1",
+        apiBaseUrl: null,
       },
     }));
     jest.doMock("react-native", () => ({
@@ -173,7 +160,7 @@ describe("apiClient", () => {
         stage: "onboarding",
         activeTab: "home",
         email: null,
-        apiBaseUrl: null,
+        apiBaseUrl: "https://api.journalio.app/api/v1",
       },
     }));
     jest.doMock("../src/utils/tokenStorage", () => ({
@@ -190,28 +177,22 @@ describe("apiClient", () => {
       }),
     });
 
-    try {
-      const { request } = require("../src/utils/apiClient");
+    const { request } = require("../src/utils/apiClient");
 
-      await request("/auth/sign_up_with_email", {
+    await request("/auth/sign_up_with_email", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "alex@example.com",
+        password: "password123",
+      }),
+    });
+
+    expect(globalWithFetch.fetch).toHaveBeenCalledWith(
+      "https://api.journalio.app/api/v1/auth/sign_up_with_email",
+      expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
-          email: "alex@example.com",
-          password: "password123",
-        }),
-      });
-
-      expect(globalWithFetch.fetch).toHaveBeenCalledWith(
-        "https://api.journalio.app/api/v1/auth/sign_up_with_email",
-        expect.objectContaining({
-          method: "POST",
-        })
-      );
-    } finally {
-      if (globalWithProcess.process?.env && previousJestWorkerId) {
-        globalWithProcess.process.env.JEST_WORKER_ID = previousJestWorkerId;
-      }
-    }
+      })
+    );
   });
 
   test("includes the request URL in 404 route errors", async () => {

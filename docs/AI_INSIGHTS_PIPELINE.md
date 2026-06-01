@@ -4,6 +4,8 @@ Journal.IO uses an asynchronous, structured AI pipeline for behavioral insight g
 
 The primary journaling flow must remain available even when AI processing fails.
 
+The onboarding first-entry demo is not part of this stored pipeline. `POST /onboarding/demo-analysis` returns deterministic keyword-aware demo copy before auth, does not persist text, and does not create `entry_features`.
+
 ---
 
 # 1) Pipeline Flow

@@ -190,10 +190,12 @@ function CompleteRoute() {
   );
 }
 
-function getInitialRouteName(stage: string) {
+export function getInitialRouteName(stage: string) {
   switch (stage) {
     case "onboarding":
       return "Onboarding";
+    case "auth":
+      return "AuthChoice";
     case "sign-in":
       return "SignIn";
     case "create-account":

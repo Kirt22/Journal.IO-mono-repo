@@ -209,6 +209,7 @@ Paywall expectations:
 - if the user dismisses the hosted post-auth main paywall, immediately show a deterministic spin-wheel reveal with `20%`, `10%`, `30%`, `40%`, and `Gift`, always land on `Gift`, and then open the hosted RevenueCat exit-offer surface for the dedicated `50%` yearly offer
 - if the hosted exit-offer surface cannot be opened, fall back to the current in-app yearly-only exit-offer screen before continuing into the normal post-auth destination
 - keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain and it should stay on the manual purchase flow rather than the hosted RevenueCat presenter
+- the free-user profile upgrade banner should explicitly mention `Lifetime Premium`, open the dedicated lifetime-offer surface, show a subtle shimmer loader while fetching lifetime claim data, and then show the backend lifetime purchase count in a compact `claimed` progress bar when available so App Review and users can identify the one-time lifetime IAP from the banner itself
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
 - treat privacy-data export as a premium-gated surface for free users: keep the export card visible, but show it in a locked premium state and route taps into the backend-selected `privacy_export_locked` paywall placement
 - keep contextual locked-feature paywalls simpler than the post-auth flow; they should open the hosted RevenueCat standard `other screens` purchase surface directly instead of replaying the full 3-step sequence
@@ -333,7 +334,8 @@ Settings and privacy expectations:
 - `Privacy Mode` and `Hide Journal Previews` should be premium-gated controls in Settings; free users should see them as locked upgrade entry points instead of active toggles
 - locked `Privacy Mode` and `Hide Journal Previews` taps should each log a premium-intent event and open their own backend-controlled paywall placement so merchandising can differ by surface
 - a lightweight device-level privacy toggle may hide journal-card preview content in shared list surfaces such as Home, Calendar, and Search
-- the Privacy screen remains the place for export, delete-account actions, and policy copy rather than duplicating those flows inside Settings
+- the Privacy screen remains the full place for export, delete-account actions, and policy copy
+- Settings and Privacy should use the same account-deletion confirmation copy and actions; premium users should see a non-blocking explanation that deleting the Journal.IO account does not cancel an active App Store subscription, with `Manage Subscription` offered alongside the destructive `Delete Account` action
 - the Privacy screen should open the hosted public legal pages at `api.journalio.app/privacy`, `api.journalio.app/terms`, and `api.journalio.app/privacy-choices`, and its support/help action should open `api.journalio.app/support`, all inside the app’s in-app browser modal route so the app and store listing point to the same sources without sending users to Safari
 
 ---

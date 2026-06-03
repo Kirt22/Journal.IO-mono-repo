@@ -22,9 +22,10 @@ import {
 } from "lucide-react-native";
 import PrimaryButton from "../../components/PrimaryButton";
 import { trackPaywallEvent } from "../../services/paywallService";
-import { updateAiOptOutPreference } from "../../services/privacyService";
+import { deleteAccount, updateAiOptOutPreference } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme, useThemeTransition } from "../../theme/provider";
+import { showAccountDeletionConfirmation } from "./accountDeletionConfirmation";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 import type { ThemeMode } from "../../theme/theme";
 
@@ -152,6 +153,7 @@ export default function SettingsScreen({
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isThemeMenuRendered, setIsThemeMenuRendered] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUpdatingPrivacyMode, setIsUpdatingPrivacyMode] = useState(false);
   const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] = useState(false);
   const themeMenuAnimation = useRef(new Animated.Value(0)).current;
@@ -246,6 +248,31 @@ export default function SettingsScreen({
 
   const handleExport = () => {
     onOpenPrivacy();
+  };
+
+  const handleDeleteAccount = async () => {
+    if (isDeletingAccount) {
+      return;
+    }
+
+    setIsDeletingAccount(true);
+
+    try {
+      const result = await deleteAccount();
+
+      if (!result.deletedAccount) {
+        throw new Error("Unable to delete your account right now.");
+      }
+
+      await onSignOut();
+    } catch (error) {
+      Alert.alert(
+        "Delete account",
+        error instanceof Error ? error.message : "Unable to delete your account right now."
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
   };
 
   const handleOpenPrivacyModePaywall = () => {
@@ -548,8 +575,14 @@ export default function SettingsScreen({
           />
 
           <PrimaryButton
-            label="Delete Account"
-            onPress={onOpenPrivacy}
+            label={isDeletingAccount ? "Deleting Account..." : "Delete Account"}
+            onPress={() =>
+              showAccountDeletionConfirmation({
+                isPremiumUser,
+                onConfirmDelete: handleDeleteAccount,
+              })
+            }
+            disabled={isDeletingAccount}
             variant="outline"
             icon={<Trash2 size={15} color={theme.colors.destructive} />}
             size="sm"

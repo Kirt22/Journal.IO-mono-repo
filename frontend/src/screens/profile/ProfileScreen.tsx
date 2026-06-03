@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
   Alert,
+  Animated,
+  Easing,
   Image,
   Linking,
   Pressable,
@@ -24,7 +26,7 @@ import {
 } from "lucide-react-native";
 import EmojiWithFallback from "../../components/EmojiWithFallback";
 import TabScreenLayout from "../../components/TabScreenLayout";
-import { trackPaywallEvent } from "../../services/paywallService";
+import { getPaywallConfig, trackPaywallEvent } from "../../services/paywallService";
 import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
 import { useTheme } from "../../theme/provider";
 import { isApplePrivateRelayEmail } from "../../utils/authEmailDisplay";
@@ -334,6 +336,12 @@ export default function ProfileScreen({
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [streakSummary, setStreakSummary] = useState<StreakCurrentSummary | null>(null);
+  const [lifetimeClaimState, setLifetimeClaimState] = useState<{
+    count: number;
+    limit: number | null;
+  } | null>(null);
+  const [isLifetimeClaimLoading, setIsLifetimeClaimLoading] = useState(false);
+  const claimShimmerAnim = useRef(new Animated.Value(0)).current;
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -373,6 +381,89 @@ export default function ProfileScreen({
     };
   }, []);
 
+  useEffect(() => {
+    let isActive = true;
+
+    if (isPremium) {
+      setLifetimeClaimState(null);
+      setIsLifetimeClaimLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const loadLifetimeCount = async () => {
+      setIsLifetimeClaimLoading(true);
+
+      try {
+        const config = await getPaywallConfig({
+          placementKey: "profile_upgrade_banner",
+          screenKey: "profile",
+          triggerMode: "contextual",
+        });
+        const lifetimeOffering = config.offerings.find(
+          offering => offering.key === "lifetime"
+        );
+
+        if (isActive) {
+          const count =
+            typeof lifetimeOffering?.purchasedUsersCount === "number"
+              ? lifetimeOffering.purchasedUsersCount
+              : null;
+
+          setLifetimeClaimState(
+            count === null
+              ? null
+              : {
+                  count,
+                  limit:
+                    typeof lifetimeOffering?.purchaseLimit === "number"
+                      ? lifetimeOffering.purchaseLimit
+                      : null,
+                }
+          );
+        }
+      } catch {
+        if (isActive) {
+          setLifetimeClaimState(null);
+        }
+      } finally {
+        if (isActive) {
+          setIsLifetimeClaimLoading(false);
+        }
+      }
+    };
+
+    loadLifetimeCount();
+
+    return () => {
+      isActive = false;
+    };
+  }, [isPremium]);
+
+  useEffect(() => {
+    if (!isLifetimeClaimLoading) {
+      claimShimmerAnim.stopAnimation();
+      claimShimmerAnim.setValue(0);
+      return;
+    }
+
+    const loop = Animated.loop(
+      Animated.timing(claimShimmerAnim, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      })
+    );
+
+    loop.start();
+
+    return () => {
+      loop.stop();
+    };
+  }, [claimShimmerAnim, isLifetimeClaimLoading]);
+
   const initials = useMemo(() => getInitials(userName), [userName]);
   const accountEmail = userEmail || fallbackEmail || DUMMY_EMAIL;
   const displayedEmail = isApplePrivateRelayEmail(accountEmail)
@@ -381,6 +472,20 @@ export default function ProfileScreen({
   const displayedGoals = userGoals.length > 0 ? userGoals : onboardingGoals;
   const hasGoals = displayedGoals.length > 0;
   const showPremiumBanner = !isPremium;
+  const lifetimeClaimLimit = lifetimeClaimState?.limit ?? null;
+  const lifetimeClaimProgress =
+    lifetimeClaimState && lifetimeClaimLimit && lifetimeClaimLimit > 0
+      ? Math.min(lifetimeClaimState.count / lifetimeClaimLimit, 1)
+      : 0;
+  const lifetimeClaimText = lifetimeClaimState
+    ? lifetimeClaimLimit
+      ? `${lifetimeClaimState.count}/${lifetimeClaimLimit} claimed`
+      : `${lifetimeClaimState.count} claimed`
+    : null;
+  const claimShimmerTranslateX = claimShimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-80, 180],
+  });
   const handleOpenUpgradePaywall = () => {
     trackPaywallEvent({
       placementKey: "profile_upgrade_banner",
@@ -608,11 +713,56 @@ export default function ProfileScreen({
               </Text>
             </View>
             <Text style={[styles.upgradeText, { color: theme.colors.primaryForeground }]}>
-              Get unlimited AI insights, advanced analytics, and more
+              Unlock Lifetime Premium with one payment for AI insights, advanced analytics,
+              and secure exports.
             </Text>
+            {isLifetimeClaimLoading ? (
+              <View style={styles.upgradeClaimRow}>
+                <View style={styles.upgradeClaimTrack}>
+                  <Animated.View
+                    style={[
+                      styles.upgradeClaimShimmer,
+                      {
+                        transform: [{ translateX: claimShimmerTranslateX }],
+                      },
+                    ]}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.upgradeClaimText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  Loading claims...
+                </Text>
+              </View>
+            ) : lifetimeClaimText ? (
+              <View style={styles.upgradeClaimRow}>
+                <View style={styles.upgradeClaimTrack}>
+                  <View
+                    style={[
+                      styles.upgradeClaimFill,
+                      {
+                        backgroundColor: theme.colors.primaryForeground,
+                        width: `${lifetimeClaimProgress * 100}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.upgradeClaimText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  {lifetimeClaimText}
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.upgradeCtaRow}>
               <Text style={[styles.upgradeCta, { color: theme.colors.primaryForeground }]}>
-                Limited time offer!
+                View lifetime offer
               </Text>
               <ChevronRight size={16} color={theme.colors.primaryForeground} />
             </View>
@@ -933,6 +1083,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     opacity: 0.95,
+  },
+  upgradeClaimRow: {
+    alignSelf: "center",
+    width: "88%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  upgradeClaimTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.26)",
+  },
+  upgradeClaimFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  upgradeClaimShimmer: {
+    width: 72,
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.42)",
+  },
+  upgradeClaimText: {
+    minWidth: 82,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
   },
   upgradeCtaRow: {
     flexDirection: "row",

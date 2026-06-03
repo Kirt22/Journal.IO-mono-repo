@@ -4,6 +4,7 @@
 
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import PrivacyScreen from "../src/screens/profile/PrivacyScreen";
 import { LEGAL_URLS, openExternalUrl } from "../src/utils/legalLinks";
@@ -171,4 +172,38 @@ test("opens the support page from the privacy screen", async () => {
     LEGAL_URLS.supportPage,
     "Support"
   );
+});
+
+test("uses the premium account deletion confirmation from privacy data", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <PrivacyScreen
+          onBack={jest.fn()}
+          onOpenExportPaywall={jest.fn()}
+          onSignOut={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    findPressableByLabel(root!, "Delete My Account").props.onPress();
+  });
+
+  const actions = alertSpy.mock.calls[0]?.[2] ?? [];
+
+  expect(alertSpy.mock.calls[0]?.[1]).toContain(
+    "Deleting your account does not cancel an active App Store subscription."
+  );
+  expect(actions.map(action => action.text)).toEqual([
+    "Cancel",
+    "Manage Subscription",
+    "Delete Account",
+  ]);
+
+  alertSpy.mockRestore();
 });

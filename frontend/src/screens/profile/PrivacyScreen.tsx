@@ -20,6 +20,7 @@ import { deleteAccount, exportAllEntries } from "../../services/privacyService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
+import { showAccountDeletionConfirmation } from "./accountDeletionConfirmation";
 import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
 
 type PrivacyScreenProps = {
@@ -286,16 +287,12 @@ export default function PrivacyScreen({
 
         <Pressable
           accessibilityRole="button"
-          onPress={() => {
-            Alert.alert(
-              "Delete account?",
-              "This will permanently remove your account and sign you out.",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: handleDelete },
-              ]
-            );
-          }}
+          onPress={() =>
+            showAccountDeletionConfirmation({
+              isPremiumUser,
+              onConfirmDelete: handleDelete,
+            })
+          }
           style={({ pressed }) => [
             styles.destructiveButton,
             {

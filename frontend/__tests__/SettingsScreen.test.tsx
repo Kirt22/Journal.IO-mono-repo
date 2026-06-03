@@ -4,12 +4,16 @@
 
 import React from "react";
 import ReactTestRenderer from "react-test-renderer";
+import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import SettingsScreen from "../src/screens/profile/SettingsScreen";
-import { updateAiOptOutPreference } from "../src/services/privacyService";
+import { deleteAccount, updateAiOptOutPreference } from "../src/services/privacyService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
 jest.mock("../src/services/privacyService", () => ({
+  deleteAccount: jest.fn(async () => ({
+    deletedAccount: true,
+  })),
   updateAiOptOutPreference: jest.fn(async () => ({
     aiOptIn: false,
   })),
@@ -52,6 +56,23 @@ function extractText(node: unknown): string {
   }
 
   return "";
+}
+
+function findPressableByLabel(
+  root: ReactTestRenderer.ReactTestRenderer,
+  label: string
+) {
+  const matches = root.root.findAll(
+    node =>
+      typeof node.props?.onPress === "function" &&
+      extractText(node).includes(label)
+  );
+
+  if (!matches.length) {
+    throw new Error(`Unable to find pressable with label: ${label}`);
+  }
+
+  return matches[0];
 }
 
 const setSession = (isPremium: boolean) => {
@@ -118,4 +139,96 @@ test("locks premium privacy controls for free users", async () => {
 
   expect(onOpenPaywall).toHaveBeenCalledTimes(2);
   expect(updateAiOptOutPreference).not.toHaveBeenCalled();
+});
+
+test("initiates account deletion directly from settings", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const onSignOut = jest.fn(async () => undefined);
+  const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+
+  ReactTestRenderer.act(() => {
+    setSession(false);
+  });
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SettingsScreen
+          onBack={jest.fn()}
+          onOpenPrivacy={jest.fn()}
+          onOpenPrivacyModePaywall={jest.fn()}
+          onOpenHidePreviewsPaywall={jest.fn()}
+          onSignOut={onSignOut}
+          currentThemePreference="system"
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    findPressableByLabel(root!, "Delete Account").props.onPress();
+  });
+
+  expect(alertSpy.mock.calls[0]?.[1]).toContain(
+    "This permanently deletes your Journal.IO account"
+  );
+  expect(alertSpy.mock.calls[0]?.[1]).not.toContain(
+    "does not cancel an active App Store subscription"
+  );
+
+  const destructiveAction = alertSpy.mock.calls[0]?.[2]?.find(
+    action => action.style === "destructive"
+  );
+
+  await ReactTestRenderer.act(async () => {
+    await destructiveAction?.onPress?.();
+  });
+
+  expect(deleteAccount).toHaveBeenCalledTimes(1);
+  expect(onSignOut).toHaveBeenCalledTimes(1);
+
+  alertSpy.mockRestore();
+});
+
+test("explains subscription management before premium account deletion from settings", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+  const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+
+  ReactTestRenderer.act(() => {
+    setSession(true);
+  });
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SettingsScreen
+          onBack={jest.fn()}
+          onOpenPrivacy={jest.fn()}
+          onOpenPrivacyModePaywall={jest.fn()}
+          onOpenHidePreviewsPaywall={jest.fn()}
+          onSignOut={jest.fn()}
+          currentThemePreference="system"
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    findPressableByLabel(root!, "Delete Account").props.onPress();
+  });
+
+  const actions = alertSpy.mock.calls[0]?.[2] ?? [];
+
+  expect(alertSpy.mock.calls[0]?.[1]).toContain(
+    "Deleting your account does not cancel an active App Store subscription."
+  );
+  expect(actions.map(action => action.text)).toEqual([
+    "Cancel",
+    "Manage Subscription",
+    "Delete Account",
+  ]);
+
+  alertSpy.mockRestore();
 });

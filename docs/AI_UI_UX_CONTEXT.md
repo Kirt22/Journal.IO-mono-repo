@@ -203,11 +203,12 @@ Paywall expectations:
   - purchase step opened as the hosted RevenueCat main paywall as a full-screen embedded surface
 - if the hosted RevenueCat main paywall cannot be opened, fall back to the current in-app purchase step instead of trapping the user
 - when the hosted RevenueCat main paywall is used, keep backend placement resolution, paywall-event logging, purchase-sync, and an explicit purchase-progress loading overlay unchanged around that hosted surface
+- the Home summer offer card opens the hosted exit-offer target with `post_auth_exit_offer` placement tracking, and that exit target resolves to `journalio_offering_post_onboarding_exit`; the post-auth main hosted paywall and contextual premium gates resolve to the standard `journalio_offering_other_screens_standard` surface
 - while a hosted RevenueCat purchase or restore is in progress, ignore native dismiss callbacks so checkout completion can render the shared payment success screen instead of accidentally advancing the flow early
 - if the in-app fallback purchase step is used, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
 - when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder on day 5 that 2 trial days remain; this v1 reminder does not require push infrastructure
-- if the user dismisses the hosted post-auth main paywall, immediately show a deterministic spin-wheel reveal with `20%`, `10%`, `30%`, `40%`, and `Gift`, always land on `Gift`, and then open the hosted RevenueCat exit-offer surface for the dedicated `50%` yearly offer
-- if the hosted exit-offer surface cannot be opened, fall back to the current in-app yearly-only exit-offer screen before continuing into the normal post-auth destination
+- if the user dismisses the hosted post-auth main paywall, continue directly into the normal post-auth destination; do not show a spin wheel, exit offer, second paywall, or any other follow-up purchase prompt after the close action
+- legacy gift-wheel and yearly-only discount-offer screens must not be part of the active post-auth dismiss chain; keep any retained fallback code unreachable from paywall dismissal unless App Review-safe purchase guidance explicitly changes
 - keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain and it should stay on the manual purchase flow rather than the hosted RevenueCat presenter
 - the free-user profile upgrade banner should explicitly mention `Lifetime Premium`, open the dedicated lifetime-offer surface, show a subtle shimmer loader while fetching lifetime claim data, and then show the backend lifetime purchase count in a compact `claimed` progress bar when available so App Review and users can identify the one-time lifetime IAP from the banner itself
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
@@ -231,6 +232,7 @@ Home should support quick daily engagement:
 - daily prompt card
 - recent entries preview
 - recent entries should open a detail screen when tapped, with a separate edit screen for changes
+- non-premium Home may show a Figma Make-aligned summer offer card to the right of the current-streak card; the card is globally controlled by `GET /admin/home-offer` and opens the hosted exit-offer RevenueCat paywall when claimed
 - the Home AI insight card should reuse the same backend `AI Analysis` data shown on the Insights screen, but present it as short rotating snippets rather than full cards
 - the Home AI insight card should auto-advance through multiple snippets, keep a small manual next control in the top-right, and open the full `AI Analysis` tab when tapped
 - the Home AI insight card should animate smoothly when the snippet changes

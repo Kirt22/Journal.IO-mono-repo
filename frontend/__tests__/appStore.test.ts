@@ -228,7 +228,7 @@ describe("appStore", () => {
     expect(store.getState().legalBrowserTitle).toBeNull();
   });
 
-  it("moves a dismissed hosted main paywall into the spin wheel before the exit offer", () => {
+  it("continues from a dismissed hosted main paywall to the return stage", () => {
     const store = useAppStore;
 
     act(() => {
@@ -244,21 +244,20 @@ describe("appStore", () => {
       store.getState().continueFromHostedPaywall("dismiss");
     });
 
-    expect(store.getState().stage).toBe("spin-wheel");
+    expect(store.getState().stage).toBe("profile");
     expect(store.getState().activeHostedPaywallTarget).toBeNull();
+    expect(store.getState().pendingPostAuthDiscountOffer).toBe(false);
   });
 
-  it("opens the hosted exit paywall after the spin wheel completes", () => {
+  it("opens the hosted exit paywall directly with exit placement context", () => {
     const store = useAppStore;
 
     act(() => {
       useAppStore.setState({
-        stage: "spin-wheel",
-        activePaywallScreenKey: "auth",
-        paywallReturnStage: "profile",
+        stage: "main-app",
       });
 
-      store.getState().continueFromSpinWheel();
+      store.getState().openHostedPaywall("exit");
     });
 
     expect(store.getState().stage).toBe("hosted-paywall");
@@ -266,6 +265,28 @@ describe("appStore", () => {
     expect(store.getState().activePaywallPlacementKey).toBe(
       "post_auth_exit_offer"
     );
+    expect(store.getState().activePaywallScreenKey).toBe("home");
+  });
+
+  it("preserves post-auth contextual state when opening the hosted main paywall", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({
+        stage: "paywall",
+        activePaywallPlacementKey: "post_auth",
+        activePaywallScreenKey: "auth",
+        activePaywallTriggerMode: "contextual",
+      });
+
+      store.getState().openHostedPaywall("main");
+    });
+
+    expect(store.getState().stage).toBe("hosted-paywall");
+    expect(store.getState().activeHostedPaywallTarget).toBe("main");
+    expect(store.getState().activePaywallPlacementKey).toBe("post_auth");
+    expect(store.getState().activePaywallScreenKey).toBe("auth");
+    expect(store.getState().activePaywallTriggerMode).toBe("contextual");
   });
 
   it("falls back from a hosted main paywall into the local purchase step", () => {

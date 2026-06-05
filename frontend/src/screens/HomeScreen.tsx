@@ -21,6 +21,7 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
+  Crown,
   Feather,
   Hash,
   Heart,
@@ -57,6 +58,7 @@ import {
   logMoodCheckIn,
   type MoodValue,
 } from "../services/moodService";
+import { getHomeOfferConfig } from "../services/adminService";
 import { getPaywallConfig, trackPaywallEvent } from "../services/paywallService";
 import { getWritingPrompts, type WritingPrompt } from "../services/promptsService";
 import {
@@ -574,6 +576,7 @@ export default function HomeScreen({
   const openPaywallForPlacement = useAppStore(
     state => state.openPaywallForPlacement
   );
+  const openHostedPaywall = useAppStore(state => state.openHostedPaywall);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const isAiOptedIn = useAppStore(state => state.session?.user.aiOptIn !== false);
   const shouldAnimateMood = typeof jest === "undefined";
@@ -618,6 +621,7 @@ export default function HomeScreen({
   const [isLoadingHomeAiInsight, setIsLoadingHomeAiInsight] = useState(true);
   const [homeAiInsightError, setHomeAiInsightError] = useState<string | null>(null);
   const [isLoadingFeaturedPrompt, setIsLoadingFeaturedPrompt] = useState(true);
+  const [isHomeSummerOfferVisible, setIsHomeSummerOfferVisible] = useState(false);
   const [featuredPrompt, setFeaturedPrompt] = useState<WritingPrompt>(
     DEFAULT_HOME_PROMPT
   );
@@ -669,6 +673,8 @@ export default function HomeScreen({
       : [0, 1, 2];
   const activeHomeInsight = homeInsightCards[insightIndex] || null;
   const ActiveHomeInsightIcon = activeHomeInsight?.icon || Lightbulb;
+  const shouldShowHomeSummerOffer =
+    !isPremiumUser && isHomeSummerOfferVisible;
   const todayDate = useMemo(
     () =>
       new Intl.DateTimeFormat("en-US", {
@@ -758,6 +764,30 @@ export default function HomeScreen({
       isActive = false;
     };
   }, [isAiInsightEnabled]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadHomeOfferConfig = async () => {
+      try {
+        const config = await getHomeOfferConfig();
+
+        if (isActive) {
+          setIsHomeSummerOfferVisible(config.homeSummerOfferVisible);
+        }
+      } catch {
+        if (isActive) {
+          setIsHomeSummerOfferVisible(false);
+        }
+      }
+    };
+
+    loadHomeOfferConfig().catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -1298,6 +1328,21 @@ export default function HomeScreen({
     openInsightsTab("analysis");
   };
 
+  const handleClaimHomeSummerOffer = () => {
+    trackPaywallEvent({
+      placementKey: "post_auth_exit_offer",
+      screenKey: "home",
+      eventType: "upgrade_tap",
+      wasInterruptive: false,
+      metadata: {
+        source: "home_summer_offer_card",
+        offerLabel: "50_percent_summer_offer",
+      },
+    }).catch(() => undefined);
+
+    openHostedPaywall("exit");
+  };
+
   useEffect(() => {
     if (isPremiumUser || stage !== "main-app") {
       return;
@@ -1445,66 +1490,163 @@ export default function HomeScreen({
         </View>
       </RevealBlock>
 
-      <RevealBlock style={[
-          styles.streakCard,
-          {
-            borderColor: theme.colors.primary,
-            backgroundColor: hexToRgba(theme.colors.primary, 0.08),
-          },
-        ]}>
-        <View style={styles.streakCopy}>
-          <Text
-            style={[styles.sectionLabel, { color: theme.colors.mutedForeground }]}
-          >
-            Current Streak
-          </Text>
-          <View style={styles.streakValueRow}>
-            {isLoadingMoodStatus ? (
-              <View
-                accessibilityLabel="Loading streak"
-                style={styles.streakLoadingRow}
-              >
-                <ShimmerBlock
-                  theme={theme}
-                  width={34}
-                  height={30}
-                  borderRadius={10}
-                />
-                <ShimmerBlock
-                  theme={theme}
-                  width={42}
-                  height={12}
-                  borderRadius={999}
-                />
-              </View>
-            ) : (
-              <>
-                <Text
-                  style={[styles.streakValue, { color: theme.colors.foreground }]}
-                >
-                  {currentStreak}
-                </Text>
-                <Text
-                  style={[
-                    styles.streakSuffix,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  days
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
+      <RevealBlock
+        style={[
+          styles.topCardRow,
+          !shouldShowHomeSummerOffer && styles.topCardRowSingle,
+        ]}
+      >
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Open current streak details"
           onPress={onOpenStreaks}
-          style={({ pressed }) => [styles.ghostButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.streakCard,
+            shouldShowHomeSummerOffer && styles.streakCardCompact,
+            {
+              borderColor: hexToRgba(theme.colors.primary, 0.32),
+              backgroundColor: hexToRgba(theme.colors.primary, 0.08),
+            },
+            pressed && styles.pressed,
+          ]}
         >
-          <Text style={[styles.ghostButtonText, { color: theme.colors.foreground }]}>
-            View Details
-          </Text>
+          <View style={styles.streakCopy}>
+            <Text
+              style={[
+                styles.sectionLabel,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              Current Streak
+            </Text>
+            <View style={styles.streakValueRow}>
+              {isLoadingMoodStatus ? (
+                <View
+                  accessibilityLabel="Loading streak"
+                  style={styles.streakLoadingRow}
+                >
+                  <ShimmerBlock
+                    theme={theme}
+                    width={34}
+                    height={30}
+                    borderRadius={10}
+                  />
+                  <ShimmerBlock
+                    theme={theme}
+                    width={42}
+                    height={12}
+                    borderRadius={999}
+                  />
+                </View>
+              ) : (
+                <>
+                  <Text
+                    style={[
+                      styles.streakValue,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
+                    {currentStreak}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.streakSuffix,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    days
+                  </Text>
+                  <EmojiWithFallback
+                    emoji="🔥"
+                    emojiStyle={styles.streakFireEmoji}
+                    fallbackIcon={Sparkles}
+                    fallbackIconColor={theme.colors.primary}
+                    fallbackIconSize={14}
+                  />
+                </>
+              )}
+            </View>
+          </View>
+          {!shouldShowHomeSummerOffer ? (
+            <View style={styles.ghostButton}>
+              <Text
+                style={[
+                  styles.ghostButtonText,
+                  { color: theme.colors.foreground },
+                ]}
+              >
+                View Details
+              </Text>
+            </View>
+          ) : null}
         </Pressable>
+
+        {shouldShowHomeSummerOffer ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Claim 50 percent summer offer"
+            onPress={handleClaimHomeSummerOffer}
+            style={({ pressed }) => [
+              styles.summerOfferCard,
+              {
+                borderColor: hexToRgba(theme.colors.primary, 0.38),
+                backgroundColor: hexToRgba(theme.colors.primary, 0.11),
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View
+              pointerEvents="none"
+              style={[
+                styles.summerOfferGlow,
+                { backgroundColor: hexToRgba(theme.colors.primary, 0.18) },
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.summerOfferRoseGlow,
+                styles.summerOfferRoseGlowColor,
+              ]}
+            />
+            <View style={styles.summerOfferHeader}>
+              <Crown size={14} color={theme.colors.primary} strokeWidth={1.9} />
+              <Text
+                style={[
+                  styles.summerOfferKicker,
+                  { color: theme.colors.primary },
+                ]}
+              >
+                Summer Offer
+              </Text>
+            </View>
+            <View style={styles.summerOfferBottomRow}>
+              <Text
+                style={[
+                  styles.summerOfferTitle,
+                  { color: theme.colors.foreground },
+                ]}
+              >
+                Unlock 50%{"\n"}Off Premium
+              </Text>
+              <View
+                style={[
+                  styles.summerOfferClaimPill,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.summerOfferClaimText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  Claim
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
       </RevealBlock>
 
           <View style={styles.sectionSpacing}>
@@ -2610,8 +2752,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  streakCard: {
+  topCardRow: {
     marginTop: 22,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+  },
+  topCardRowSingle: {
+    gap: 0,
+  },
+  streakCard: {
+    flex: 1,
+    minHeight: 104,
     borderRadius: 22,
     borderWidth: 1,
     paddingVertical: 18,
@@ -2620,6 +2772,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 14,
+    overflow: "hidden",
+  },
+  streakCardCompact: {
+    minHeight: 118,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingVertical: 22,
+    paddingHorizontal: 18,
   },
   streakCopy: {
     flex: 1,
@@ -2627,6 +2787,9 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 12,
     marginBottom: 4,
+    fontWeight: "600",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
   },
   streakValueRow: {
     flexDirection: "row",
@@ -2647,6 +2810,10 @@ const styles = StyleSheet.create({
   streakSuffix: {
     fontSize: 14,
   },
+  streakFireEmoji: {
+    fontSize: 15,
+    lineHeight: 18,
+  },
   ghostButton: {
     alignSelf: "center",
     paddingHorizontal: 12,
@@ -2656,6 +2823,82 @@ const styles = StyleSheet.create({
   ghostButtonText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  summerOfferCard: {
+    flex: 1.18,
+    minHeight: 118,
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    justifyContent: "space-between",
+    overflow: "hidden",
+    position: "relative",
+  },
+  summerOfferGlow: {
+    position: "absolute",
+    top: -34,
+    right: -28,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    opacity: 1,
+  },
+  summerOfferRoseGlow: {
+    position: "absolute",
+    bottom: -54,
+    right: 18,
+    width: 136,
+    height: 96,
+    borderRadius: 68,
+  },
+  summerOfferRoseGlowColor: {
+    backgroundColor: "rgba(251, 113, 133, 0.13)",
+  },
+  summerOfferHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 1,
+  },
+  summerOfferKicker: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  summerOfferBottomRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 8,
+    zIndex: 1,
+  },
+  summerOfferTitle: {
+    flex: 1,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  summerOfferClaimPill: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: "#2D2A26",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: {
+      width: 0,
+      height: 7,
+    },
+    elevation: 3,
+  },
+  summerOfferClaimText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
   },
   sectionSpacing: {
     marginTop: 12,

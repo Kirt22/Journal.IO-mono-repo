@@ -21,12 +21,62 @@ describe("apiClient", () => {
     jest.clearAllMocks();
   });
 
-  test("uses the configured dev API base URL for requests", async () => {
-    jest.doMock("@env", () => ({
-      API_BASE_URL: "",
-      GOOGLE_WEB_CLIENT_ID: "",
-      GOOGLE_IOS_CLIENT_ID: "",
+  test("uses the env API base URL for requests in dev", async () => {
+    jest.doMock("react-native", () => ({
+      Alert: {
+        alert: alertSpy,
+      },
+      NativeModules: {
+        SourceCode: {
+          scriptURL: "http://192.168.1.24:8081/index.bundle?platform=ios&dev=true",
+        },
+      },
+      Platform: { OS: "ios" },
     }));
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      __esModule: true,
+      default: {
+        stage: "onboarding",
+        activeTab: "home",
+        email: null,
+        apiBaseUrl: "https://api.journalio.app/api/v1",
+      },
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      getAccessToken: jest.fn(async () => null),
+    }));
+    const { env } = require("../src/config/env");
+    env.apiBaseUrl = "http://127.0.0.1:5050/api/v1/";
+
+    globalWithFetch.fetch!.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        message: "ok",
+        data: { email: "alex@example.com" },
+      }),
+    });
+
+    const { request } = require("../src/utils/apiClient");
+
+    await request("/auth/sign_up_with_email", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "alex@example.com",
+        password: "password123",
+      }),
+    });
+
+    expect(globalWithFetch.fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:5050/api/v1/auth/sign_up_with_email",
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
+  });
+
+  test("uses the dev launch config API base URL when the env API base URL is missing", async () => {
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -50,6 +100,8 @@ describe("apiClient", () => {
     jest.doMock("../src/utils/tokenStorage", () => ({
       getAccessToken: jest.fn(async () => null),
     }));
+    const { env } = require("../src/config/env");
+    env.apiBaseUrl = null;
 
     globalWithFetch.fetch!.mockResolvedValue({
       ok: true,
@@ -80,11 +132,6 @@ describe("apiClient", () => {
   });
 
   test("uses the Metro host in dev when no API override is configured", async () => {
-    jest.doMock("@env", () => ({
-      API_BASE_URL: "",
-      GOOGLE_WEB_CLIENT_ID: "",
-      GOOGLE_IOS_CLIENT_ID: "",
-    }));
     jest.doMock("react-native", () => ({
       Alert: {
         alert: alertSpy,
@@ -108,6 +155,8 @@ describe("apiClient", () => {
     jest.doMock("../src/utils/tokenStorage", () => ({
       getAccessToken: jest.fn(async () => null),
     }));
+    const { env } = require("../src/config/env");
+    env.apiBaseUrl = null;
 
     globalWithFetch.fetch!.mockResolvedValue({
       ok: true,

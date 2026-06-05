@@ -18,6 +18,8 @@ npm start
 yarn start
 ```
 
+`npm start` now exports `APP_ENV=local`, so the bundle resolves `frontend/.env.local` when that file exists and falls back to `frontend/.env` otherwise.
+
 ## Step 2: Build and run your app
 
 With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
@@ -58,9 +60,35 @@ npm run ios
 yarn ios
 ```
 
+`npm run ios` now also exports `APP_ENV=local`, which keeps the normal simulator flow pointed at your local env values instead of the production base URL.
+
 If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
 
 This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+
+## Debug Against Local Backend
+
+Use this path when you want Metro, console logs, and the RN dev menu while sending API requests to your local backend.
+
+1. Confirm `frontend/.env.local` points to the local backend:
+
+```env
+API_BASE_URL=http://localhost:3000/api/v1
+```
+
+2. Start Metro in local-app-env mode:
+
+```sh
+npm run start:local-debug
+```
+
+3. In a second terminal, install or relaunch the Debug build without starting another packager:
+
+```sh
+npm run ios:local-debug
+```
+
+Do not use `npm run start:prod-debug` for local backend testing. That command exports `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production`.
 
 ## Step 3: Modify your app
 
@@ -195,7 +223,7 @@ npm run ios:prod-debug -- --device "Your iPhone Name"
 
 Why this works:
 
-- `npm run ios` alone is still a normal Debug build and Metro reads `frontend/.env`
+- `npm start` and `npm run ios` export `APP_ENV=local`, so normal development resolves `frontend/.env.local` when present, with `frontend/.env` as the fallback
 - `npm run start:prod-debug` and `npm run ios:prod-debug` set `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production` even in Debug
 - this gives you live Metro logs while the app talks to `https://api.journalio.app/api/v1`
 

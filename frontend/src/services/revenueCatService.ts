@@ -135,6 +135,24 @@ const logRevenueCatWarn = (event: string, data?: Record<string, unknown>) => {
   console.warn(`${REVENUECAT_DEBUG_PREFIX} ${event}`, data ?? {});
 };
 
+const getSummerOfferPaywallOfferingId = () =>
+  env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID;
+
+const getExitOfferPaywallOfferingId = () => {
+  const configuredExitOfferingId = env.revenueCatExitPaywallOfferingId;
+  const summerOfferPaywallOfferingId = getSummerOfferPaywallOfferingId();
+
+  if (
+    configuredExitOfferingId &&
+    configuredExitOfferingId !== summerOfferPaywallOfferingId &&
+    configuredExitOfferingId !== DEFAULT_OTHER_SCREENS_OFFERING_ID
+  ) {
+    return configuredExitOfferingId;
+  }
+
+  return DEFAULT_EXIT_PAYWALL_OFFERING_ID;
+};
+
 const summarizeError = (error: unknown) => {
   if (error instanceof Error) {
     return {
@@ -168,8 +186,10 @@ const summarizeEnv = () => ({
   hasAndroidApiKey: Boolean(env.revenueCatAndroidApiKey),
   androidApiKeyPrefix: redactValue(env.revenueCatAndroidApiKey),
   entitlementId: env.revenueCatEntitlementId,
-  mainOfferingId: env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID,
-  exitOfferingId: env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID,
+  standardOfferingId:
+    env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID,
+  mainOfferingId: getSummerOfferPaywallOfferingId(),
+  exitOfferingId: getExitOfferPaywallOfferingId(),
   otherScreensOfferingId:
     env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID,
   lifetimeOfferingId: env.revenueCatLifetimeOfferingId || DEFAULT_LIFETIME_OFFERING_ID,
@@ -270,14 +290,11 @@ const getRevenueCatApiKey = () => {
 
 const getRevenueCatHostedOfferingId = (
   target: RevenueCatHostedPaywallTarget,
-  placementKey?: string | null
+  _placementKey?: string | null
 ) =>
   target === "main"
-    ? placementKey && placementKey !== "post_auth"
-      ? env.revenueCatOtherScreensOfferingId ||
-        DEFAULT_OTHER_SCREENS_OFFERING_ID
-      : env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID
-    : env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID;
+    ? getSummerOfferPaywallOfferingId()
+    : getExitOfferPaywallOfferingId();
 
 const getDedicatedRevenueCatOfferingId = (
   configuredOffering: PaywallOffering,
@@ -291,11 +308,11 @@ const getDedicatedRevenueCatOfferingId = (
     configuredOffering.key === "yearly_exit_offer" ||
     context?.placementKey === "post_auth_exit_offer"
   ) {
-    return env.revenueCatExitPaywallOfferingId || DEFAULT_EXIT_PAYWALL_OFFERING_ID;
+    return getExitOfferPaywallOfferingId();
   }
 
   if (context?.placementKey === "post_auth") {
-    return env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID;
+    return getSummerOfferPaywallOfferingId();
   }
 
   if (

@@ -129,39 +129,46 @@ describe("revenueCatService", () => {
     expect(getRevenueCatConfigurationError()).toEqual(expect.any(String));
   });
 
-  it("reports hosted paywalls when the explicit offering id is configured", async () => {
+  it("uses the other-screens offering for hosted main paywalls", async () => {
     const { env } = require("../src/config/env");
     env.revenueCatMainPaywallOfferingId = "main_paywall";
+    env.revenueCatOtherScreensOfferingId =
+      "journalio_offering_other_screens_standard_dev";
 
     const {
       getRevenueCatHostedOfferingId,
       hasRevenueCatHostedPaywall,
     } = require("../src/services/revenueCatService");
 
-    expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe("main_paywall");
+    expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe(
+      "journalio_offering_other_screens_standard_dev"
+    );
     expect(hasRevenueCatHostedPaywall("main")).toBe(true);
   });
 
-  it("falls back to the known production post-auth and exit offering identifiers when env overrides are absent", async () => {
+  it("falls back to the known production hosted main and exit identifiers when env overrides are absent", async () => {
     const { env } = require("../src/config/env");
     env.revenueCatMainPaywallOfferingId = null;
     env.revenueCatExitPaywallOfferingId = null;
+    env.revenueCatOtherScreensOfferingId = null;
 
     const { getRevenueCatHostedOfferingId } = require(
       "../src/services/revenueCatService"
     );
 
     expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe(
-      "journalio_offering_post_onboarding_standard"
+      "journalio_offering_other_screens_standard"
     );
     expect(getRevenueCatHostedOfferingId("exit")).toBe(
       "journalio_offering_post_onboarding_exit"
     );
   });
 
-  it("uses the other-screens hosted offering for contextual premium-gated surfaces", async () => {
+  it("uses separate hosted offering ids for contextual main and home summer exit surfaces", async () => {
     const { env } = require("../src/config/env");
     env.revenueCatMainPaywallOfferingId = null;
+    env.revenueCatExitPaywallOfferingId =
+      "journalio_offering_post_onboarding_exit_dev";
     env.revenueCatOtherScreensOfferingId =
       "journalio_offering_other_screens_standard_dev";
 
@@ -174,6 +181,25 @@ describe("revenueCatService", () => {
     );
     expect(getRevenueCatHostedOfferingId("main", "subscription_screen")).toBe(
       "journalio_offering_other_screens_standard_dev"
+    );
+    expect(getRevenueCatHostedOfferingId("exit")).toBe(
+      "journalio_offering_post_onboarding_exit_dev"
+    );
+  });
+
+  it("does not let a stale other-screens env value override the hosted exit offering", async () => {
+    const { env } = require("../src/config/env");
+    env.revenueCatExitPaywallOfferingId =
+      "journalio_offering_other_screens_standard";
+    env.revenueCatOtherScreensOfferingId =
+      "journalio_offering_other_screens_standard";
+
+    const { getRevenueCatHostedOfferingId } = require(
+      "../src/services/revenueCatService"
+    );
+
+    expect(getRevenueCatHostedOfferingId("exit", "post_auth_exit_offer")).toBe(
+      "journalio_offering_post_onboarding_exit"
     );
   });
 
@@ -228,8 +254,8 @@ describe("revenueCatService", () => {
 
   it("maps Mongo-driven offerings to matching RevenueCat packages", async () => {
     const { env } = require("../src/config/env");
-    env.revenueCatMainPaywallOfferingId =
-      "journalio_offering_post_onboarding_standard_dev";
+    env.revenueCatOtherScreensOfferingId =
+      "journalio_offering_other_screens_standard_dev";
 
     const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
 
@@ -237,8 +263,8 @@ describe("revenueCatService", () => {
       {
         current: null,
         all: {
-          journalio_offering_post_onboarding_standard_dev: {
-            identifier: "journalio_offering_post_onboarding_standard_dev",
+          journalio_offering_other_screens_standard_dev: {
+            identifier: "journalio_offering_other_screens_standard_dev",
             serverDescription: "Journal.IO Offering Dev",
             metadata: {},
             availablePackages: [
@@ -281,7 +307,7 @@ describe("revenueCatService", () => {
           badge: "Most Value",
           highlight: "$8.33/month",
           sortOrder: 1,
-          revenueCatOfferingId: "journalio_offering_post_onboarding_standard_dev",
+          revenueCatOfferingId: "journalio_offering_other_screens_standard_dev",
           revenueCatPackageId: "$rc_annual",
           purchasedUsersCount: 0,
           purchaseLimit: null,
@@ -553,6 +579,9 @@ describe("revenueCatService", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]?.planKey).toBe("annual");
     expect(plans[0]?.durationLabel).toBe("$29.99");
+    expect(plans[0]?.revenueCatOfferingId).toBe(
+      "journalio_offering_post_onboarding_exit_dev"
+    );
     expect(plans[0]?.rcPackage?.product.priceString).toBe("$29.99");
     expect(annualPackages.map((pkg: any) => pkg.product.priceString)).toEqual([
       "$29.99",

@@ -14,15 +14,7 @@ const NETWORK_ALERT_MESSAGE =
 
 let lastNetworkAlertAt = 0;
 let hasLoggedBaseUrlResolution = false;
-const globalWithProcess = globalThis as typeof globalThis & {
-  process?: {
-    env?: {
-      JEST_WORKER_ID?: string;
-    };
-  };
-};
-const isJestRuntime =
-  Boolean(globalWithProcess.process?.env?.JEST_WORKER_ID);
+
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
 
@@ -74,6 +66,13 @@ const logBaseUrlResolution = (source: string, resolvedBaseUrl: string) => {
 };
 
 const getBaseUrl = () => {
+  const envBaseUrl = normalizeBaseUrl(env.apiBaseUrl);
+
+  if (envBaseUrl) {
+    logBaseUrlResolution("env", envBaseUrl);
+    return envBaseUrl;
+  }
+
   const configuredBaseUrl = normalizeBaseUrl(
     __DEV__ ? (devLaunchConfig as DevLaunchConfig).apiBaseUrl : null
   );
@@ -104,13 +103,6 @@ const getBaseUrl = () => {
 
     logBaseUrlResolution("iosLocalhostFallback", resolvedBaseUrl);
     return resolvedBaseUrl;
-  }
-
-  const envBaseUrl = isJestRuntime ? null : normalizeBaseUrl(env.apiBaseUrl);
-
-  if (envBaseUrl) {
-    logBaseUrlResolution("env", envBaseUrl);
-    return envBaseUrl;
   }
 
   const resolvedBaseUrl = "http://localhost:3000/api/v1";

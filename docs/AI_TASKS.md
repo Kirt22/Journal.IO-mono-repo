@@ -95,7 +95,7 @@ Includes:
 
 Current follow-up note:
 
-- RevenueCat now owns the hosted post-auth main and exit-offer paywall UI, so revisit whether Mongo-backed paywall templates, offering config, and `/paywall/events` should remain authoritative for analytics/fallbacks only, be reduced to backend purchase-sync attribution, or be retired for hosted-only surfaces.
+- RevenueCat now owns the hosted post-auth main paywall UI. The post-auth exit-offer chain is disabled for App Review compliance, so revisit whether Mongo-backed exit-offer templates, offering config, and `/paywall/events` should remain for analytics/manual fallback only or be retired.
 
 ---
 

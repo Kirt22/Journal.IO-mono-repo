@@ -53,4 +53,44 @@ describe("post-auth profile flow", () => {
 
     expect(useAppStore.getState().stage).toBe("profile");
   });
+
+  it("does not show a second purchase prompt after dismissing the hosted post-auth paywall", () => {
+    act(() => {
+      useAppStore.setState({
+        stage: "hosted-paywall",
+        paywallReturnStage: "profile",
+        activePaywallPlacementKey: "post_auth",
+        activePaywallScreenKey: "verify-email",
+        activePaywallTriggerMode: "contextual",
+        activeHostedPaywallTarget: "main",
+        pendingPostAuthDiscountOffer: true,
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: true,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      useAppStore.getState().continueFromHostedPaywall("dismiss");
+    });
+
+    expect(useAppStore.getState().stage).toBe("profile");
+    expect(useAppStore.getState().activePaywallPlacementKey).toBeNull();
+    expect(useAppStore.getState().activeHostedPaywallTarget).toBeNull();
+    expect(useAppStore.getState().pendingPostAuthDiscountOffer).toBe(false);
+  });
 });

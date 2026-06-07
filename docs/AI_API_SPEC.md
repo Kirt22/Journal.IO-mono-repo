@@ -328,7 +328,33 @@ This route requires authentication.
 
 ---
 
-## 3.2.1 Paywall Module (`/paywall`)
+## 3.2.1 Admin Module (`/admin`)
+
+The admin module exposes app-wide read-only configuration needed by authenticated clients. The source of truth is the singleton MongoDB `admin_configs` document with `key: "global"`.
+
+### `GET /admin/home-offer`
+
+Return the global Home offer visibility flag for the authenticated user.
+
+Success `data`:
+
+```json
+{
+  "homeSummerOfferVisible": true
+}
+```
+
+Behavior notes:
+
+- the backend creates the singleton admin document with `homeSummerOfferVisible: true` if it does not exist
+- setting `homeSummerOfferVisible` to `false` in MongoDB hides the Home summer offer card for all users
+- the mobile app uses this flag only as a global visibility control; premium eligibility and paywall routing remain client/paywall-flow concerns
+
+This route requires authentication.
+
+---
+
+## 3.2.2 Paywall Module (`/paywall`)
 
 MongoDB now owns the app paywall configuration for offering metadata, paywall templates, placement mapping, and interruptive cooldown rules. RevenueCat still executes purchases and restores, but the mobile app asks the backend which paywall template to show and then syncs the successful purchase back to the backend.
 

@@ -112,6 +112,7 @@ Home-screen lightweight data note:
 - the Home current-streak card does not call the full streak summary endpoint
 - the existing `GET /mood/today` response includes a lightweight `currentStreak` field for the Home bootstrap path
 - the full streaks screen still reads the dedicated streak endpoints for the richer streak surface
+- the Home summer offer card reads `GET /admin/home-offer`; the singleton `admin_configs` document controls whether the card is globally visible, while tapping the card still uses the existing paywall placement flow
 
 Frontend state management split:
 
@@ -240,8 +241,9 @@ Current paywall architecture:
 
 - MongoDB stores paywall offerings, templates, placement mappings, raw paywall events, and the singleton interruptive/cooldown configuration
 - the mobile client asks `GET /paywall/config` for a placement-specific paywall decision before opening the paywall screen
+- Home merchandising can surface a non-interruptive summer offer card when the admin singleton allows it; that card logs an upgrade intent and opens the existing `subscription_screen` placement instead of introducing a separate purchase path
 - the backend resolves lifetime-launch eligibility, template fallback, and interruptive eligibility from stored config plus recent user event history
-- the mobile app still asks the backend for placement/template resolution, but the post-auth purchase step and post-auth exit offer can now hand off into RevenueCat-hosted paywall surfaces while the app keeps local fallback screens for those same placements
+- the mobile app still asks the backend for placement/template resolution, but the post-auth purchase step hands off into a RevenueCat-hosted main paywall; dismissing that hosted paywall returns directly to the normal post-auth destination without a second purchase prompt, spin wheel, or exit offer
 - after a successful checkout or restore, the client calls `POST /paywall/purchase-sync` so backend user premium state, purchased plan attribution, and lifetime sold counts stay authoritative
 - premium-intent and paywall lifecycle events are written through `POST /paywall/events` and used for cooldown gating and future paywall tuning
 - the user schema stores premium attribution fields such as `premiumPlanKey`, `premiumActivatedAt`, `premiumSource`, and `lifetimePurchaseRecordedAt` so premium gating and campaign limits are not inferred only from local client state

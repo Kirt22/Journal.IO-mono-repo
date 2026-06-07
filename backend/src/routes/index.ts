@@ -1,5 +1,6 @@
 import express, { Express } from "express";
 import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
+import adminRouter from "../services/admin/admin.routes";
 import authRouter from "../services/auth/auth.routes";
 import insightsRouter from "../services/insights/insights.routes";
 import moodRouter from "../services/mood/mood.routes";
@@ -38,6 +39,7 @@ export const initializeRoutes = (app: Express): void => {
 
   // Routes
   apiRouter.use("/auth", authRouter);
+  apiRouter.use("/admin", adminRouter);
   apiRouter.use("/users", userRouter);
   apiRouter.use("/mood", moodRouter);
   apiRouter.use("/onboarding", onboardingRouter);

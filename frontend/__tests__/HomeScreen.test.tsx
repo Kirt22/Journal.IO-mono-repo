@@ -11,6 +11,8 @@ import HomeScreen from "../src/screens/HomeScreen";
 import { createJournalEntry } from "../src/services/journalService";
 import { getInsightsAiAnalysis } from "../src/services/insightsService";
 import { getWritingPrompts } from "../src/services/promptsService";
+import { getHomeOfferConfig } from "../src/services/adminService";
+import { trackPaywallEvent } from "../src/services/paywallService";
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
@@ -201,6 +203,22 @@ jest.mock("../src/services/promptsService", () => ({
     ],
     source: "personalized",
     generatedAt: "2026-04-06T10:00:00.000Z",
+  })),
+}));
+
+jest.mock("../src/services/adminService", () => ({
+  getHomeOfferConfig: jest.fn(async () => ({
+    homeSummerOfferVisible: true,
+  })),
+}));
+
+jest.mock("../src/services/paywallService", () => ({
+  getPaywallConfig: jest.fn(async () => ({
+    shouldShow: false,
+  })),
+  trackPaywallEvent: jest.fn(async () => ({
+    eventId: "paywall-event-test",
+    createdAt: "2026-01-01T08:00:00.000Z",
   })),
 }));
 
@@ -966,6 +984,53 @@ test("shows a locked AI insight card for non-premium users", async () => {
     "home_ai_card_locked"
   );
   expect(useAppStore.getState().activeHostedPaywallTarget).toBe("main");
+});
+
+test("opens the hosted exit paywall from the home summer offer card", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(false);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <HomeScreen
+          userName="Journal User"
+          onOpenNewEntry={jest.fn()}
+          onOpenStreaks={jest.fn()}
+          onToggleTheme={jest.fn()}
+        />
+      </SafeAreaProvider>
+    );
+    await flushAsyncWork();
+  });
+
+  await waitForTreeText(root!, "Summer Offer");
+
+  ReactTestRenderer.act(() => {
+    root!
+      .root.findByProps({ accessibilityLabel: "Claim 50 percent summer offer" })
+      .props.onPress();
+  });
+
+  expect(getHomeOfferConfig).toHaveBeenCalled();
+  expect(trackPaywallEvent).toHaveBeenCalledWith(
+    expect.objectContaining({
+      placementKey: "post_auth_exit_offer",
+      screenKey: "home",
+      metadata: expect.objectContaining({
+        source: "home_summer_offer_card",
+      }),
+    })
+  );
+  expect(useAppStore.getState().stage).toBe("hosted-paywall");
+  expect(useAppStore.getState().activePaywallPlacementKey).toBe(
+    "post_auth_exit_offer"
+  );
+  expect(useAppStore.getState().activeHostedPaywallTarget).toBe("exit");
 });
 
 test("shows an AI opt-out card instead of loading AI insights", async () => {

@@ -128,6 +128,8 @@ type PasswordResetChallenge = {
   expiresInSeconds: number;
   resetToken?: string;
   resetLink?: string;
+  resetIssued?: boolean;
+  resetSkippedReason?: "user_not_found" | "email_not_verified";
 };
 
 type AuthFailure = {
@@ -653,16 +655,25 @@ const buildEmailVerificationChallenge = (
 
 const buildPasswordResetChallenge = (
   email: string,
-  resetToken?: string | null
+  resetToken?: string | null,
+  skippedReason?: PasswordResetChallenge["resetSkippedReason"]
 ): PasswordResetChallenge => {
   const challenge: PasswordResetChallenge = {
     email,
     expiresInSeconds: Math.floor(getPasswordResetExpiryMs() / 1000),
   };
 
-  if (process.env.NODE_ENV !== "production" && resetToken) {
-    challenge.resetToken = resetToken;
-    challenge.resetLink = buildPasswordResetLink(resetToken);
+  if (process.env.NODE_ENV !== "production") {
+    challenge.resetIssued = Boolean(resetToken);
+
+    if (skippedReason) {
+      challenge.resetSkippedReason = skippedReason;
+    }
+
+    if (resetToken) {
+      challenge.resetToken = resetToken;
+      challenge.resetLink = buildPasswordResetLink(resetToken);
+    }
   }
 
   return challenge;
@@ -1097,19 +1108,23 @@ const requestPasswordReset = async ({
   const emailVerified = Boolean(user && isEmailVerified(user));
 
   if (!user || !emailVerified) {
+    const skippedReason = !user ? "user_not_found" : "email_not_verified";
+
     console.info("[Auth][password_reset] skipped", {
       email: maskEmailForLogs(normalizedEmail),
       hasUser: Boolean(user),
       hasStoredPassword,
       emailVerified,
-      reason: !user
-        ? "user_not_found"
-        : "email_not_verified",
+      reason: skippedReason,
     });
 
     return {
       ok: true,
-      challenge: buildPasswordResetChallenge(normalizedEmail),
+      challenge: buildPasswordResetChallenge(
+        normalizedEmail,
+        null,
+        skippedReason
+      ),
     };
   }
 

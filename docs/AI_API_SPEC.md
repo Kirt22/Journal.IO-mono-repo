@@ -1098,7 +1098,7 @@ Notes:
 - this endpoint always returns a generic success response so account existence is not exposed
 - if the email belongs to a verified account, the backend stores a hashed one-time reset token and sends a reset link so the user can set or replace an email password
 - reset links use the configured app URL, defaulting to the hosted browser page `https://api.journalio.app/reset-password?token={token}` in production and `http://localhost:3000/reset-password?token={token}` in local development
-- non-production responses may include `resetToken` and `resetLink` for local testing only
+- non-production responses may include `resetToken`, `resetLink`, `resetIssued`, and `resetSkippedReason` for local testing only
 
 Success `data`:
 

@@ -348,6 +348,7 @@ test("requestPasswordReset defaults to the hosted browser reset page in producti
 
   assert.equal(result.ok, true);
   assert.equal(result.challenge.resetLink, undefined);
+  assert.equal(result.challenge.resetIssued, undefined);
   assert.ok(
     loggedMessages.some(message =>
       /^(\[Auth\] Password reset link for alex@example\.com: )https:\/\/api\.journalio\.app\/reset-password\?token=[a-f0-9]{64}$/.test(
@@ -384,6 +385,8 @@ test("requestPasswordReset returns a generic success for unknown emails", async 
   assert.equal(result.challenge.email, "missing@example.com");
   assert.equal(result.challenge.resetToken, undefined);
   assert.equal(result.challenge.resetLink, undefined);
+  assert.equal(result.challenge.resetIssued, false);
+  assert.equal(result.challenge.resetSkippedReason, "user_not_found");
   assert.equal(saveCount, 0);
   assert.ok(loggedMessages.some(message => /user_not_found/.test(message)));
 });
@@ -427,6 +430,8 @@ test("requestPasswordReset returns a generic success for unverified email accoun
   assert.equal(result.challenge.email, "alex@example.com");
   assert.equal(result.challenge.resetToken, undefined);
   assert.equal(result.challenge.resetLink, undefined);
+  assert.equal(result.challenge.resetIssued, false);
+  assert.equal(result.challenge.resetSkippedReason, "email_not_verified");
   assert.equal(saveCount, 0);
   assert.ok(loggedMessages.some(message => /email_not_verified/.test(message)));
 });

@@ -76,6 +76,8 @@ const isFlowStage = (value: string): value is FlowStage =>
   value === "lifetime-offer" ||
   value === "auth" ||
   value === "sign-in" ||
+  value === "forgot-password" ||
+  value === "reset-password" ||
   value === "create-account" ||
   value === "verify-email" ||
   value === "profile" ||
@@ -274,6 +276,8 @@ type AppStoreState = {
   continueWithApple: () => Promise<void>;
   continueWithGoogle: () => Promise<void>;
   goToSignIn: () => void;
+  goToForgotPassword: () => void;
+  goToResetPassword: (token?: string | null) => void;
   goToCreateAccount: () => void;
   createAccount: (payload: {
     email: string;
@@ -459,6 +463,12 @@ const navigateToResolvedStage = (
       return;
     case "sign-in":
       resetRoot("SignIn");
+      return;
+    case "forgot-password":
+      resetRoot("ForgotPassword");
+      return;
+    case "reset-password":
+      resetRoot("ResetPassword");
       return;
     case "create-account":
       resetRoot("CreateAccount");
@@ -1142,7 +1152,15 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   goToSignIn: () => {
     set({ stage: "sign-in" });
 
-    navigateRoot("SignIn");
+    resetRoot("SignIn");
+  },
+  goToForgotPassword: () => {
+    set({ stage: "forgot-password" });
+
+    navigateRoot("ForgotPassword");
+  },
+  goToResetPassword: token => {
+    resetRoot("ResetPassword", token ? { token } : undefined);
   },
   goToCreateAccount: () => {
     set({ stage: "create-account" });

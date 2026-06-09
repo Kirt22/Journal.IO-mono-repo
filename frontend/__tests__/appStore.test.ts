@@ -10,6 +10,7 @@ import {
   syncStoredDailyReminderNotifications,
 } from "../src/services/reminderNotificationsService";
 import { syncOnboardingReminderRecordPreference } from "../src/services/remindersService";
+import { navigateRoot, resetRoot } from "../src/navigation/navigation";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -45,6 +46,15 @@ jest.mock("../src/services/remindersService", () => ({
   })),
 }));
 
+jest.mock("../src/navigation/navigation", () => ({
+  __esModule: true,
+  goBackOrFallback: jest.fn(),
+  navigateMainApp: jest.fn(),
+  navigateRoot: jest.fn(),
+  replaceMainApp: jest.fn(),
+  resetRoot: jest.fn(),
+}));
+
 const onboardingData = {
   ageRange: "25-34",
   journalingExperience: "Occasional journaler",
@@ -70,6 +80,8 @@ describe("appStore", () => {
     (syncOnboardingReminderRecordPreference as jest.Mock).mockClear();
     (syncReminderNotifications as jest.Mock).mockClear();
     (syncStoredDailyReminderNotifications as jest.Mock).mockClear();
+    (navigateRoot as jest.Mock).mockClear();
+    (resetRoot as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -226,6 +238,33 @@ describe("appStore", () => {
 
     expect(store.getState().legalBrowserUrl).toBeNull();
     expect(store.getState().legalBrowserTitle).toBeNull();
+  });
+
+  it("resets the stack when returning to sign in from auth recovery screens", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "reset-password" });
+      store.getState().goToSignIn();
+    });
+
+    expect(store.getState().stage).toBe("sign-in");
+    expect(resetRoot).toHaveBeenCalledWith("SignIn");
+    expect(navigateRoot).not.toHaveBeenCalledWith("SignIn");
+  });
+
+  it("opens reset password as a stack reset without making reset-password the sticky app stage", () => {
+    const store = useAppStore;
+
+    act(() => {
+      useAppStore.setState({ stage: "forgot-password" });
+      store.getState().goToResetPassword("token-123");
+    });
+
+    expect(store.getState().stage).toBe("forgot-password");
+    expect(resetRoot).toHaveBeenCalledWith("ResetPassword", {
+      token: "token-123",
+    });
   });
 
   it("continues from a dismissed hosted main paywall to the return stage", () => {

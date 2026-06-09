@@ -36,6 +36,9 @@ Minimum requirements:
 - Google mobile sign-in must verify the Google ID token server-side before linking or creating a user
 - Apple mobile sign-in must verify the Apple identity token signature, issuer, audience, expiry, and nonce server-side before linking or creating a user
 - Provider tokens must never be treated as the app's own access or refresh tokens
+- password reset requests must not reveal whether an email is registered
+- password reset tokens must be random, hashed before storage, time-limited, one-time use, and cleared after a successful reset
+- successful password reset must invalidate the stored refresh token so existing sessions cannot continue silently with an old password
 
 ---
 

@@ -10,7 +10,6 @@ import {
   View,
 } from "../../infrastructure/reactNative";
 import { ArrowLeft, Eye, EyeOff, Loader2, Mail } from "lucide-react-native";
-import { Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWindowDimensions } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -22,6 +21,7 @@ type SignInScreenProps = {
   onSubmit: (payload: { email: string; password: string }) => Promise<void>;
   onBackToAuth: () => void;
   onGoToCreateAccount: () => void;
+  onForgotPassword: () => void;
 };
 
 const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -30,6 +30,7 @@ export default function SignInScreen({
   onSubmit,
   onBackToAuth,
   onGoToCreateAccount,
+  onForgotPassword,
 }: SignInScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -87,13 +88,6 @@ export default function SignInScreen({
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleForgotPassword = () => {
-    Alert.alert(
-      "Forgot password",
-      "Password recovery will be added in a later slice."
-    );
   };
 
   return (
@@ -212,7 +206,7 @@ export default function SignInScreen({
                     {errors.password}
                   </Text>
                 ) : null}
-                <Pressable onPress={handleForgotPassword} style={styles.forgotLinkRow}>
+                <Pressable onPress={onForgotPassword} style={styles.forgotLinkRow}>
                   <Text style={[styles.linkText, { color: theme.colors.primary }]}>
                     Forgot password?
                   </Text>

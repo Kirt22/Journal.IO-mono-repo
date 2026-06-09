@@ -4,6 +4,8 @@ import {
   appleMobileSignInSchema,
   googleMobileSignInSchema,
   registerFromGoogleOAuthSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
 } from "./auth.validators";
 
 test("googleMobileSignInSchema accepts a valid mobile token payload", () => {
@@ -85,4 +87,36 @@ test("registerFromGoogleOAuthSchema still accepts the legacy route payload", () 
   });
 
   assert.equal(result.success, true);
+});
+
+test("requestPasswordResetSchema accepts a valid email payload", () => {
+  const result = requestPasswordResetSchema.safeParse({
+    body: {
+      email: "Alex@Example.com",
+    },
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("resetPasswordSchema accepts a valid reset payload", () => {
+  const result = resetPasswordSchema.safeParse({
+    body: {
+      token: "a".repeat(64),
+      password: "new-password",
+    },
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("resetPasswordSchema rejects short passwords", () => {
+  const result = resetPasswordSchema.safeParse({
+    body: {
+      token: "a".repeat(64),
+      password: "short",
+    },
+  });
+
+  assert.equal(result.success, false);
 });

@@ -55,6 +55,8 @@ type PasswordResetChallenge = {
   expiresInSeconds: number;
   resetToken?: string;
   resetLink?: string;
+  resetIssued?: boolean;
+  resetSkippedReason?: "user_not_found" | "email_not_verified";
 };
 
 type RequestPasswordResetPayload = {

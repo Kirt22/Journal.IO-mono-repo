@@ -8,6 +8,7 @@ import {
 } from "./config/mongo.db.config";
 import cors from "cors";
 import "dotenv/config";
+import { passwordResetPageController } from "./services/auth/auth.controllers";
 
 const DEFAULT_PORT = 3000;
 
@@ -18,6 +19,7 @@ export const createApp = (): Express => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use("/assets", express.static(path.join(__dirname, "..", "public")));
+  app.get("/reset-password", passwordResetPageController);
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({

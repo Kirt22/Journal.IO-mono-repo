@@ -50,6 +50,22 @@ type ResendEmailVerificationPayload = {
   email: string;
 };
 
+type PasswordResetChallenge = {
+  email: string;
+  expiresInSeconds: number;
+  resetToken?: string;
+  resetLink?: string;
+};
+
+type RequestPasswordResetPayload = {
+  email: string;
+};
+
+type ResetPasswordPayload = {
+  token: string;
+  password: string;
+};
+
 type VerifyEmailPayload = {
   email: string;
   code: string;
@@ -209,7 +225,36 @@ const resendEmailVerification = async (
     }
   );
 
+  if (__DEV__ && response.data.verificationCode) {
+    console.info(
+      `[Auth] Resent verification code for ${response.data.email}: ${response.data.verificationCode}`
+    );
+  }
+
   return response.data;
+};
+
+const requestPasswordReset = async (payload: RequestPasswordResetPayload) => {
+  const response = await request<PasswordResetChallenge>(
+    "/auth/request_password_reset",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (__DEV__ && response.data.resetLink) {
+    console.info(`[Auth] Password reset link: ${response.data.resetLink}`);
+  }
+
+  return response.data;
+};
+
+const resetPassword = async (payload: ResetPasswordPayload) => {
+  await request<{}>("/auth/reset_password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 };
 
 const verifyEmail = async (
@@ -295,7 +340,9 @@ const logout = async () => {
 
 export {
   applyDevPremiumDefault,
+  requestPasswordReset,
   resendEmailVerification,
+  resetPassword,
   logout,
   signInWithApple,
   signInWithEmail,
@@ -310,7 +357,10 @@ export type {
   AppleSignInPayload,
   EmailVerificationChallenge,
   GoogleSignInPayload,
+  PasswordResetChallenge,
+  RequestPasswordResetPayload,
   ResendEmailVerificationPayload,
+  ResetPasswordPayload,
   SignInWithEmailPayload,
   SignUpWithEmailPayload,
   VerifyEmailOptions,

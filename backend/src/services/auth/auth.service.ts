@@ -6,13 +6,17 @@ import {
   type IUser,
   userModel,
 } from "../../schema/user.schema";
-import { sendEmailVerificationCode } from "./emailOtp.service";
+import {
+  sendEmailVerificationCode,
+  sendPasswordResetEmail,
+} from "./emailOtp.service";
 
 const OTP_LENGTH = 6;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 const PASSWORD_HASH_ITERATIONS = 120000;
 const PASSWORD_HASH_KEY_LENGTH = 64;
 const PASSWORD_HASH_DIGEST = "sha512";
+const PASSWORD_RESET_TOKEN_BYTES = 32;
 
 type GoogleOAuthInput = {
   idToken: string;
@@ -98,6 +102,15 @@ type SignInWithEmailInput = {
   onboardingCompleted?: boolean;
 };
 
+type RequestPasswordResetInput = {
+  email: string;
+};
+
+type ResetPasswordInput = {
+  token: string;
+  password: string;
+};
+
 type AuthTokens = {
   accessToken: string;
   refreshToken: string;
@@ -108,6 +121,13 @@ type EmailVerificationChallenge = {
   verificationRequired: true;
   expiresInSeconds: number;
   verificationCode?: string;
+};
+
+type PasswordResetChallenge = {
+  email: string;
+  expiresInSeconds: number;
+  resetToken?: string;
+  resetLink?: string;
 };
 
 type AuthFailure = {
@@ -189,8 +209,31 @@ const getEmailVerificationExpiryMs = () => {
   );
 };
 
+const getPasswordResetExpiryMs = () => {
+  return parseDurationToMs(
+    process.env.AUTH_PASSWORD_RESET_EXPIRES_IN || "30m",
+    30 * 60 * 1000
+  );
+};
+
 const normalizeEmail = (email: string) => {
   return email.trim().toLowerCase();
+};
+
+const maskEmailForLogs = (email: string) => {
+  const normalizedEmail = normalizeEmail(email);
+  const [localPart = "", domain = ""] = normalizedEmail.split("@");
+
+  if (!localPart || !domain) {
+    return normalizedEmail;
+  }
+
+  const visibleLocal =
+    localPart.length <= 2
+      ? `${localPart[0] || ""}*`
+      : `${localPart.slice(0, 2)}***`;
+
+  return `${visibleLocal}@${domain}`;
 };
 
 const normalizeOptionalString = (value?: string | null) => {
@@ -514,11 +557,49 @@ const generateRefreshToken = () => {
   return crypto.randomBytes(32).toString("hex");
 };
 
+const generatePasswordResetToken = () => {
+  return crypto.randomBytes(PASSWORD_RESET_TOKEN_BYTES).toString("hex");
+};
+
 const hashEmailVerificationCode = (email: string, code: string) => {
   return crypto
     .createHash("sha256")
     .update(`${normalizeEmail(email)}:${code}`)
     .digest("hex");
+};
+
+const hashPasswordResetToken = (token: string) => {
+  return crypto.createHash("sha256").update(token.trim()).digest("hex");
+};
+
+const buildProductionResetPageUrl = () => {
+  const heloHost = normalizeOptionalString(process.env.AUTH_EMAIL_HELO_HOST);
+
+  if (heloHost?.startsWith("http://") || heloHost?.startsWith("https://")) {
+    return `${heloHost.replace(/\/+$/, "")}/reset-password`;
+  }
+
+  return `https://${heloHost || "api.journalio.app"}/reset-password`;
+};
+
+const buildPasswordResetLink = (token: string) => {
+  const configuredBaseUrl = process.env.AUTH_PASSWORD_RESET_APP_URL?.trim();
+  const baseUrl =
+    configuredBaseUrl ||
+    (process.env.NODE_ENV === "production"
+      ? buildProductionResetPageUrl()
+      : `http://localhost:${process.env.PORT || "3000"}/reset-password`);
+
+  try {
+    const url = new URL(baseUrl);
+
+    url.searchParams.set("token", token);
+    return url.toString();
+  } catch {
+    const separator = baseUrl.includes("?") ? "&" : "?";
+
+    return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+  }
 };
 
 const isDuplicateKeyError = (error: unknown): error is { code: number } => {
@@ -565,6 +646,23 @@ const buildEmailVerificationChallenge = (
 
   if (process.env.NODE_ENV !== "production") {
     challenge.verificationCode = verificationCode;
+  }
+
+  return challenge;
+};
+
+const buildPasswordResetChallenge = (
+  email: string,
+  resetToken?: string | null
+): PasswordResetChallenge => {
+  const challenge: PasswordResetChallenge = {
+    email,
+    expiresInSeconds: Math.floor(getPasswordResetExpiryMs() / 1000),
+  };
+
+  if (process.env.NODE_ENV !== "production" && resetToken) {
+    challenge.resetToken = resetToken;
+    challenge.resetLink = buildPasswordResetLink(resetToken);
   }
 
   return challenge;
@@ -988,6 +1086,98 @@ const signInWithEmail = async ({
   };
 };
 
+const requestPasswordReset = async ({
+  email,
+}: RequestPasswordResetInput): Promise<
+  AuthSuccess<{ challenge: PasswordResetChallenge }>
+> => {
+  const normalizedEmail = normalizeEmail(email);
+  const user = await userModel.findOne({ email: normalizedEmail });
+  const hasStoredPassword = Boolean(user && getStoredPasswordHash(user));
+  const emailVerified = Boolean(user && isEmailVerified(user));
+
+  if (!user || !emailVerified) {
+    console.info("[Auth][password_reset] skipped", {
+      email: maskEmailForLogs(normalizedEmail),
+      hasUser: Boolean(user),
+      hasStoredPassword,
+      emailVerified,
+      reason: !user
+        ? "user_not_found"
+        : "email_not_verified",
+    });
+
+    return {
+      ok: true,
+      challenge: buildPasswordResetChallenge(normalizedEmail),
+    };
+  }
+
+  const resetToken = generatePasswordResetToken();
+  const resetLink = buildPasswordResetLink(resetToken);
+
+  user.passwordResetTokenHash = hashPasswordResetToken(resetToken);
+  user.passwordResetExpiresAt = new Date(Date.now() + getPasswordResetExpiryMs());
+  user.passwordResetRequestedAt = new Date();
+  await user.save();
+
+  console.info("[Auth][password_reset] delivery_attempt", {
+    email: maskEmailForLogs(normalizedEmail),
+    hasStoredPassword,
+    resetLinkExposedInDev: process.env.NODE_ENV !== "production",
+  });
+
+  await sendPasswordResetEmail({
+    email: normalizedEmail,
+    resetLink,
+  });
+
+  return {
+    ok: true,
+    challenge: buildPasswordResetChallenge(normalizedEmail, resetToken),
+  };
+};
+
+const resetPassword = async ({
+  token,
+  password,
+}: ResetPasswordInput): Promise<AuthSuccess<{}> | AuthFailure> => {
+  const passwordResetTokenHash = hashPasswordResetToken(token);
+  const user = await userModel.findOne({
+    passwordResetTokenHash,
+    passwordResetExpiresAt: { $gt: new Date() },
+  });
+
+  if (!user) {
+    return {
+      ok: false,
+      status: 400,
+      code: "PASSWORD_RESET_TOKEN_INVALID",
+      message: "That reset link is invalid or has expired.",
+    };
+  }
+
+  const passwordHash = generatePasswordHash(password);
+
+  user.passwordHash = passwordHash;
+  user.emailPasswordHash = passwordHash;
+  user.passwordResetTokenHash = null;
+  user.passwordResetExpiresAt = null;
+  user.passwordResetRequestedAt = null;
+  user.refreshTokenHash = null;
+  user.refreshTokenExpiresAt = null;
+
+  if (!user.authProviders.includes("email")) {
+    user.authProviders = [...user.authProviders, "email"];
+  }
+
+  await user.save();
+
+  return {
+    ok: true,
+  };
+};
+
 const signInWithGoogle = async (
   input: GoogleOAuthInput
 ): Promise<
@@ -1280,8 +1470,10 @@ const invalidateRefreshToken = async (userId: string) => {
 export {
   invalidateRefreshToken,
   refreshAccessToken,
+  requestPasswordReset,
   resetAppleIdentityTokenVerifierForTests,
   resetGoogleIdTokenVerifierForTests,
+  resetPassword,
   resendEmailVerification,
   setAppleIdentityTokenVerifierForTests,
   setGoogleIdTokenVerifierForTests,

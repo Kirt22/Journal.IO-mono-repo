@@ -15,6 +15,12 @@ const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters");
 
+const passwordResetTokenSchema = z
+  .string()
+  .trim()
+  .min(32, "Reset token is required")
+  .max(256, "Reset token is too long");
+
 const onboardingContextSchema = z
   .object({
     ageRange: z.string().min(1).max(32).optional(),
@@ -63,6 +69,23 @@ const signInWithEmailSchema = z.object({
     password: passwordSchema,
     onboardingContext: onboardingContextSchema,
     onboardingCompleted: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const requestPasswordResetSchema = z.object({
+  body: z.object({
+    email: emailSchema,
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+const resetPasswordSchema = z.object({
+  body: z.object({
+    token: passwordResetTokenSchema,
+    password: passwordSchema,
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
@@ -133,7 +156,9 @@ export {
   logoutSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
+  requestPasswordResetSchema,
   resendEmailVerificationSchema,
+  resetPasswordSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
   verifyEmailSchema,

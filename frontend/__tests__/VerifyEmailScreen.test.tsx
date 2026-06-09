@@ -56,6 +56,9 @@ describe("VerifyEmailScreen", () => {
       );
     });
 
+    expect(JSON.stringify(root!.toJSON())).toContain("Local testing");
+    expect(JSON.stringify(root!.toJSON())).toContain("alex@example.com");
+
     const codeInputs = root!.root.findAllByProps({ maxLength: 1 });
     await ReactTestRenderer.act(async () => {
       codeInputs[0].props.onChangeText("123456");

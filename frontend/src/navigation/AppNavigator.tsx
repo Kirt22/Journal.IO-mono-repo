@@ -1,8 +1,15 @@
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  useRoute,
+  type LinkingOptions,
+  type RouteProp,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StyleSheet, Text, View } from "react-native";
 import AuthChoiceScreen from "../screens/auth/AuthChoiceScreen";
 import SignInScreen from "../screens/auth/SignInScreen";
+import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/auth/ResetPasswordScreen";
 import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
 import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
 import { OnboardingScreen } from "../screens/onboarding/OnboardingScreen";
@@ -17,8 +24,21 @@ import InAppBrowserModal from "../components/InAppBrowserModal";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import { navigationRef, type RootStackParamList } from "./navigation";
+import {
+  requestPasswordReset,
+  resetPassword,
+} from "../services/authService";
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
+
+const rootLinkingConfig: LinkingOptions<RootStackParamList> = {
+  prefixes: ["journalio://"],
+  config: {
+    screens: {
+      ResetPassword: "reset-password",
+    },
+  },
+};
 
 function OnboardingRoute() {
   const isCompleting = useAppStore(state => state.isCompletingOnboarding);
@@ -49,12 +69,38 @@ function SignInRoute() {
   const signIn = useAppStore(state => state.signIn);
   const goBackToAuth = useAppStore(state => state.goBackToAuth);
   const goToCreateAccount = useAppStore(state => state.goToCreateAccount);
+  const goToForgotPassword = useAppStore(state => state.goToForgotPassword);
 
   return (
     <SignInScreen
       onSubmit={signIn}
       onBackToAuth={goBackToAuth}
       onGoToCreateAccount={goToCreateAccount}
+      onForgotPassword={goToForgotPassword}
+    />
+  );
+}
+
+function ForgotPasswordRoute() {
+  const goToSignIn = useAppStore(state => state.goToSignIn);
+
+  return (
+    <ForgotPasswordScreen
+      onSubmit={requestPasswordReset}
+      onBackToSignIn={goToSignIn}
+    />
+  );
+}
+
+function ResetPasswordRoute() {
+  const route = useRoute<RouteProp<RootStackParamList, "ResetPassword">>();
+  const goToSignIn = useAppStore(state => state.goToSignIn);
+
+  return (
+    <ResetPasswordScreen
+      token={route.params?.token || ""}
+      onSubmit={resetPassword}
+      onBackToSignIn={goToSignIn}
     />
   );
 }
@@ -198,6 +244,10 @@ export function getInitialRouteName(stage: string) {
       return "AuthChoice";
     case "sign-in":
       return "SignIn";
+    case "forgot-password":
+      return "ForgotPassword";
+    case "reset-password":
+      return "ResetPassword";
     case "create-account":
       return "CreateAccount";
     case "verify-email":
@@ -256,7 +306,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} linking={rootLinkingConfig}>
       <RootStack.Navigator
         initialRouteName={getInitialRouteName(stage)}
         screenOptions={{ headerShown: false }}
@@ -264,6 +314,8 @@ export default function AppNavigator() {
         <RootStack.Screen name="Onboarding" component={OnboardingRoute} />
         <RootStack.Screen name="AuthChoice" component={AuthChoiceRoute} />
         <RootStack.Screen name="SignIn" component={SignInRoute} />
+        <RootStack.Screen name="ForgotPassword" component={ForgotPasswordRoute} />
+        <RootStack.Screen name="ResetPassword" component={ResetPasswordRoute} />
         <RootStack.Screen name="CreateAccount" component={CreateAccountRoute} />
         <RootStack.Screen name="VerifyEmail" component={VerifyEmailRoute} />
         <RootStack.Screen name="SetupProfile" component={SetupProfileRoute} />

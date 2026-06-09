@@ -52,6 +52,7 @@ Current backend reality:
 - the current frontend auth flow uses the email-first endpoints below
 - the mobile Google sign-in flow now posts the Google ID token to `POST /auth/google/mobile`
 - the mobile Apple sign-in flow posts the Apple identity token and raw nonce to `POST /auth/apple/mobile`
+- the current frontend password-reset flow uses `POST /auth/request_password_reset` and `POST /auth/reset_password`
 
 ### `POST /auth/google/mobile`
 
@@ -1078,6 +1079,59 @@ Success `data`:
     "aiOptIn": true
   }
 }
+```
+
+### `POST /auth/request_password_reset`
+
+Request a password reset email for a verified account.
+
+Request:
+
+```json
+{
+  "email": "alex@example.com"
+}
+```
+
+Notes:
+
+- this endpoint always returns a generic success response so account existence is not exposed
+- if the email belongs to a verified account, the backend stores a hashed one-time reset token and sends a reset link so the user can set or replace an email password
+- reset links use the configured app URL, defaulting to the hosted browser page `https://api.journalio.app/reset-password?token={token}` in production and `http://localhost:3000/reset-password?token={token}` in local development
+- non-production responses may include `resetToken` and `resetLink` for local testing only
+
+Success `data`:
+
+```json
+{
+  "email": "alex@example.com",
+  "expiresInSeconds": 1800
+}
+```
+
+### `POST /auth/reset_password`
+
+Set a new password from a valid password-reset token.
+
+Request:
+
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "new-strong-password"
+}
+```
+
+Notes:
+
+- token validation is server-side and uses only the stored token hash
+- reset tokens are one-time use and expire based on `AUTH_PASSWORD_RESET_EXPIRES_IN`
+- a successful password reset clears the reset token and invalidates the stored refresh token so existing sessions must sign in again
+
+Success `data`:
+
+```json
+{}
 ```
 
 ### `POST /auth/register_from_googleOAuth`

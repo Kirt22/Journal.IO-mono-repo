@@ -6,6 +6,11 @@ type SendEmailVerificationInput = {
   code: string;
 };
 
+type SendPasswordResetInput = {
+  email: string;
+  resetLink: string;
+};
+
 type EmailDeliveryMode = "console" | "smtp";
 
 type SmtpMailInput = {
@@ -101,6 +106,45 @@ const getEmailDeliveryMode = (): EmailDeliveryMode => {
   return process.env.NODE_ENV === "production" ? "smtp" : "console";
 };
 
+const isSmtpConfigured = () => {
+  return Boolean(
+    getEnvValue("RESEND_SMTP_PASSWORD") && getEnvValue("AUTH_EMAIL_FROM_ADDRESS")
+  );
+};
+
+const getHelloHost = () => {
+  return getEnvValue("AUTH_EMAIL_HELO_HOST") || os.hostname() || "localhost";
+};
+
+const buildEmailDeliveryDebugContext = ({
+  email,
+  mode,
+}: {
+  email: string;
+  mode: EmailDeliveryMode;
+}) => {
+  return {
+    mode,
+    nodeEnv: process.env.NODE_ENV || "development",
+    to: maskEmailAddress(email),
+    fromAddress: maskEmailAddress(
+      getEnvValue("AUTH_EMAIL_FROM_ADDRESS") || "missing-from-address"
+    ),
+    helloHost: getHelloHost(),
+    smtpConfigured: isSmtpConfigured(),
+  };
+};
+
+const getConsoleDeliveryReason = () => {
+  const configuredMode = getEnvValue("AUTH_EMAIL_DELIVERY_MODE")?.toLowerCase();
+
+  if (configuredMode === "console") {
+    return "configured_console_mode";
+  }
+
+  return "local_default_console_mode";
+};
+
 const getSmtpPort = (): number => {
   const rawPort = getEnvValue("RESEND_SMTP_PORT");
   const parsedPort = rawPort ? Number(rawPort) : DEFAULT_RESEND_SMTP_PORT;
@@ -112,10 +156,15 @@ const getSmtpPort = (): number => {
   return parsedPort;
 };
 
-const buildSmtpMailInput = ({
+const buildSmtpMailInputFromMessage = ({
   email,
-  code,
-}: SendEmailVerificationInput): SmtpMailInput => {
+  subject,
+  text,
+}: {
+  email: string;
+  subject: string;
+  text: string;
+}): SmtpMailInput => {
   const password = getEnvValue("RESEND_SMTP_PASSWORD");
   const fromAddress = getEnvValue("AUTH_EMAIL_FROM_ADDRESS");
   const replyTo = getEnvValue("AUTH_EMAIL_REPLY_TO");
@@ -124,6 +173,25 @@ const buildSmtpMailInput = ({
     throw new Error("Email verification delivery is not configured.");
   }
 
+  return {
+    host: getEnvValue("RESEND_SMTP_HOST") || DEFAULT_RESEND_SMTP_HOST,
+    port: getSmtpPort(),
+    username: getEnvValue("RESEND_SMTP_USERNAME") || DEFAULT_RESEND_SMTP_USERNAME,
+    password,
+    fromAddress,
+    fromName: getEnvValue("AUTH_EMAIL_FROM_NAME") || DEFAULT_FROM_NAME,
+    ...(replyTo ? { replyTo } : {}),
+    to: email,
+    subject,
+    text,
+    helloHost: getHelloHost(),
+  };
+};
+
+const buildSmtpMailInput = ({
+  email,
+  code,
+}: SendEmailVerificationInput): SmtpMailInput => {
   const subject = "Your Journal.IO verification code";
   const expiryLabel = getDurationLabel(
     getEnvValue("AUTH_EMAIL_OTP_EXPIRES_IN") || "30m"
@@ -137,19 +205,35 @@ const buildSmtpMailInput = ({
     "If you did not request this email, you can ignore it.",
   ].join("\n");
 
-  return {
-    host: getEnvValue("RESEND_SMTP_HOST") || DEFAULT_RESEND_SMTP_HOST,
-    port: getSmtpPort(),
-    username: getEnvValue("RESEND_SMTP_USERNAME") || DEFAULT_RESEND_SMTP_USERNAME,
-    password,
-    fromAddress,
-    fromName: getEnvValue("AUTH_EMAIL_FROM_NAME") || DEFAULT_FROM_NAME,
-    ...(replyTo ? { replyTo } : {}),
-    to: email,
+  return buildSmtpMailInputFromMessage({
+    email,
     subject,
     text,
-    helloHost: getEnvValue("AUTH_EMAIL_HELO_HOST") || os.hostname() || "localhost",
-  };
+  });
+};
+
+const buildPasswordResetSmtpMailInput = ({
+  email,
+  resetLink,
+}: SendPasswordResetInput): SmtpMailInput => {
+  const expiryLabel = getDurationLabel(
+    getEnvValue("AUTH_PASSWORD_RESET_EXPIRES_IN") || "30m"
+  );
+  const subject = "Reset your Journal.IO password";
+  const text = [
+    "Use this link to reset your Journal.IO password:",
+    "",
+    resetLink,
+    "",
+    `This link expires in ${expiryLabel}.`,
+    "If you did not request a password reset, you can ignore this email.",
+  ].join("\n");
+
+  return buildSmtpMailInputFromMessage({
+    email,
+    subject,
+    text,
+  });
 };
 
 const sanitizeHeaderValue = (value: string) => {
@@ -407,38 +491,86 @@ const sendEmailVerificationCode = async ({
   code,
 }: SendEmailVerificationInput) => {
   const deliveryMode = getEmailDeliveryMode();
+  const debugContext = buildEmailDeliveryDebugContext({
+    email,
+    mode: deliveryMode,
+  });
 
   if (deliveryMode === "console") {
+    console.info("[Auth][email_verification] console_delivery", {
+      ...debugContext,
+      reason: getConsoleDeliveryReason(),
+    });
     console.info(`[Auth] Email verification code for ${email}: ${code}`);
     return;
   }
 
-  console.info("[Auth][email_verification] smtp_delivery", {
-    mode: deliveryMode,
-    to: maskEmailAddress(email),
-    fromAddress: maskEmailAddress(
-      getEnvValue("AUTH_EMAIL_FROM_ADDRESS") || "missing-from-address"
-    ),
-    helloHost: getEnvValue("AUTH_EMAIL_HELO_HOST") || os.hostname() || "localhost",
-  });
+  console.info("[Auth][email_verification] smtp_delivery_start", debugContext);
 
   try {
     await sendMailViaSmtpImpl(buildSmtpMailInput({ email, code }));
+    console.info("[Auth][email_verification] smtp_delivery_succeeded", debugContext);
   } catch (error) {
     if (process.env.NODE_ENV === "production") {
       throw error;
     }
 
     console.warn("[Auth][email_verification] smtp_delivery_failed_dev_fallback", {
-      to: maskEmailAddress(email),
+      ...debugContext,
       message: error instanceof Error ? error.message : "Unknown SMTP failure",
     });
+    console.info("[Auth][email_verification] console_delivery", {
+      ...debugContext,
+      reason: "smtp_failure_dev_fallback",
+    });
     console.info(`[Auth] Email verification code for ${email}: ${code}`);
+  }
+};
+
+const sendPasswordResetEmail = async ({
+  email,
+  resetLink,
+}: SendPasswordResetInput) => {
+  const deliveryMode = getEmailDeliveryMode();
+  const debugContext = buildEmailDeliveryDebugContext({
+    email,
+    mode: deliveryMode,
+  });
+
+  if (deliveryMode === "console") {
+    console.info("[Auth][password_reset] console_delivery", {
+      ...debugContext,
+      reason: getConsoleDeliveryReason(),
+    });
+    console.info(`[Auth] Password reset link for ${email}: ${resetLink}`);
+    return;
+  }
+
+  console.info("[Auth][password_reset] smtp_delivery_start", debugContext);
+
+  try {
+    await sendMailViaSmtpImpl(buildPasswordResetSmtpMailInput({ email, resetLink }));
+    console.info("[Auth][password_reset] smtp_delivery_succeeded", debugContext);
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") {
+      throw error;
+    }
+
+    console.warn("[Auth][password_reset] smtp_delivery_failed_dev_fallback", {
+      ...debugContext,
+      message: error instanceof Error ? error.message : "Unknown SMTP failure",
+    });
+    console.info("[Auth][password_reset] console_delivery", {
+      ...debugContext,
+      reason: "smtp_failure_dev_fallback",
+    });
+    console.info(`[Auth] Password reset link for ${email}: ${resetLink}`);
   }
 };
 
 export {
   resetSmtpTransportForTests,
   sendEmailVerificationCode,
+  sendPasswordResetEmail,
   setSmtpTransportForTests,
 };

@@ -64,11 +64,17 @@ test("sendEmailVerificationCode falls back to console delivery locally", async (
   delete process.env.AUTH_EMAIL_FROM_ADDRESS;
   delete process.env.RESEND_SMTP_PASSWORD;
 
-  let loggedMessage = "";
+  const loggedMessages: string[] = [];
   let smtpWasCalled = false;
 
   console.info = (message?: unknown, ...optionalParams: unknown[]) => {
-    loggedMessage = [message, ...optionalParams].join(" ");
+    loggedMessages.push(
+      [message, ...optionalParams]
+        .map(value =>
+          typeof value === "string" ? value : JSON.stringify(value)
+        )
+        .join(" ")
+    );
   };
   setSmtpTransportForTests(async () => {
     smtpWasCalled = true;
@@ -80,8 +86,12 @@ test("sendEmailVerificationCode falls back to console delivery locally", async (
   });
 
   assert.equal(smtpWasCalled, false);
-  assert.match(loggedMessage, /alex@example\.com/);
-  assert.match(loggedMessage, /123456/);
+  assert.ok(loggedMessages.some(message => /console_delivery/.test(message)));
+  assert.ok(
+    loggedMessages.some(message => /local_default_console_mode/.test(message))
+  );
+  assert.ok(loggedMessages.some(message => /alex@example\.com/.test(message)));
+  assert.ok(loggedMessages.some(message => /123456/.test(message)));
 });
 
 test("sendEmailVerificationCode uses Resend SMTP when configured", async () => {
@@ -146,14 +156,26 @@ test("sendEmailVerificationCode falls back to console when SMTP fails outside pr
   process.env.AUTH_EMAIL_FROM_ADDRESS = "no-reply@journal.io";
   process.env.RESEND_SMTP_PASSWORD = "re_test_key";
 
-  let loggedMessage = "";
-  let warnedMessage = "";
+  const loggedMessages: string[] = [];
+  const warnedMessages: string[] = [];
 
   console.info = (message?: unknown, ...optionalParams: unknown[]) => {
-    loggedMessage = [message, ...optionalParams].join(" ");
+    loggedMessages.push(
+      [message, ...optionalParams]
+        .map(value =>
+          typeof value === "string" ? value : JSON.stringify(value)
+        )
+        .join(" ")
+    );
   };
   console.warn = (message?: unknown, ...optionalParams: unknown[]) => {
-    warnedMessage = [message, ...optionalParams].join(" ");
+    warnedMessages.push(
+      [message, ...optionalParams]
+        .map(value =>
+          typeof value === "string" ? value : JSON.stringify(value)
+        )
+        .join(" ")
+    );
   };
   setSmtpTransportForTests(async () => {
     throw new Error("SMTP connection timed out.");
@@ -164,7 +186,12 @@ test("sendEmailVerificationCode falls back to console when SMTP fails outside pr
     code: "123456",
   });
 
-  assert.match(warnedMessage, /smtp_delivery_failed_dev_fallback/);
-  assert.match(loggedMessage, /alex@example\.com/);
-  assert.match(loggedMessage, /123456/);
+  assert.ok(
+    warnedMessages.some(message => /smtp_delivery_failed_dev_fallback/.test(message))
+  );
+  assert.ok(
+    loggedMessages.some(message => /smtp_failure_dev_fallback/.test(message))
+  );
+  assert.ok(loggedMessages.some(message => /alex@example\.com/.test(message)));
+  assert.ok(loggedMessages.some(message => /123456/.test(message)));
 });

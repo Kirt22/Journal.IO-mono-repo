@@ -6,7 +6,9 @@ import {
   googleMobileSignInController,
   logoutController,
   refreshController,
+  requestPasswordResetController,
   resendEmailVerificationController,
+  resetPasswordController,
   registerFromGoogleOAuthController,
   signInWithEmailController,
   signUpWithEmailController,
@@ -19,6 +21,8 @@ import {
   resendEmailVerificationSchema,
   refreshSchema,
   registerFromGoogleOAuthSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
   signInWithEmailSchema,
   signUpWithEmailSchema,
   verifyEmailSchema,
@@ -44,6 +48,16 @@ authRouter.post(
   "/sign_in_with_email",
   validateRequest(signInWithEmailSchema),
   signInWithEmailController
+);
+authRouter.post(
+  "/request_password_reset",
+  validateRequest(requestPasswordResetSchema),
+  requestPasswordResetController
+);
+authRouter.post(
+  "/reset_password",
+  validateRequest(resetPasswordSchema),
+  resetPasswordController
 );
 authRouter.post(
   "/google/mobile",

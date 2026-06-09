@@ -40,6 +40,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>journalio</string>
 				<string>com.googleusercontent.apps.155727596929-ns83dn5e76rr2ippac6olgegnjvh2tam</string>
 				<string>com.googleusercontent.apps.353671570191-s37oiapp4nltd74vrke7dt0asvr0fvkm</string>
 			</array>

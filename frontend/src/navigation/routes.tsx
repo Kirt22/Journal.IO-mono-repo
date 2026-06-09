@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import AuthChoiceScreen from "../screens/auth/AuthChoiceScreen";
 import SignInScreen from "../screens/auth/SignInScreen";
+import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/auth/ResetPasswordScreen";
 import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
 import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
 import NewEntryScreen from "../screens/NewEntryScreen";
@@ -17,7 +19,11 @@ import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallS
 import { useTheme } from "../theme/provider";
 import type { OnboardingCompletionData } from "../types/onboarding";
 import type { AuthEntrySource, FlowStage } from "./appFlow";
-import type { AuthSession } from "../services/authService";
+import {
+  requestPasswordReset,
+  resetPassword,
+  type AuthSession,
+} from "../services/authService";
 
 type AppFlowRoutesProps = {
   stage: FlowStage;
@@ -37,6 +43,7 @@ type AppFlowRoutesProps = {
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
   onGoToCreateAccount: () => void;
+  onForgotPassword: () => void;
   onSignIn: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccount: (payload: { email: string; password: string }) => Promise<void>;
   onCreateAccountSuccess: () => void;
@@ -69,6 +76,7 @@ export function AppFlowRoutes({
   onContinueWithGoogle,
   onGoToSignIn,
   onGoToCreateAccount,
+  onForgotPassword,
   onSignIn,
   onCreateAccount,
   onCreateAccountSuccess,
@@ -117,6 +125,22 @@ export function AppFlowRoutes({
           onSubmit={onSignIn}
           onBackToAuth={onBackToAuth}
           onGoToCreateAccount={onGoToCreateAccount}
+          onForgotPassword={onForgotPassword}
+        />
+      );
+    case "forgot-password":
+      return (
+        <ForgotPasswordScreen
+          onSubmit={requestPasswordReset}
+          onBackToSignIn={onGoToSignIn}
+        />
+      );
+    case "reset-password":
+      return (
+        <ResetPasswordScreen
+          token=""
+          onSubmit={resetPassword}
+          onBackToSignIn={onGoToSignIn}
         />
       );
     case "create-account":

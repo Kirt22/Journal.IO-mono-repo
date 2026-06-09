@@ -45,6 +45,7 @@ export default function VerifyEmailScreen({
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
   const [isResendSubmitting, setIsResendSubmitting] = useState(false);
   const inputRefs = useRef<Array<any>>([]);
@@ -100,6 +101,7 @@ export default function VerifyEmailScreen({
     }
 
     setError(null);
+    setResendNotice(null);
     lastSubmittedCodeRef.current = null;
     setIsVerified(false);
 
@@ -144,6 +146,7 @@ export default function VerifyEmailScreen({
     lastSubmittedCodeRef.current = verificationCode;
     setIsVerifying(true);
     setError(null);
+    setResendNotice(null);
 
     try {
       await onVerifyEmail(verificationCode);
@@ -180,12 +183,18 @@ export default function VerifyEmailScreen({
 
     setIsResendSubmitting(true);
     setError(null);
+    setResendNotice(null);
 
     try {
       await onResendCode();
       setCode(new Array(OTP_LENGTH).fill(""));
       setResendTimer(RESEND_COOLDOWN);
       setIsVerified(false);
+      setResendNotice(
+        __DEV__
+          ? "A fresh code was requested. If local SMTP is off, use the latest code from the backend or Metro logs."
+          : "A fresh code is on the way."
+      );
       lastSubmittedCodeRef.current = null;
       inputRefs.current[0]?.focus();
     } catch (submissionError) {
@@ -237,14 +246,32 @@ export default function VerifyEmailScreen({
 
               <AuthHero
                 title="Check your email"
-                subtitle={`We sent a 6-digit code to ${email}.`}
+                subtitle="We sent a 6-digit code to"
                 tone="default"
                 badge={null}
                 imageSize={heroImageSize}
                 shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
                 subtitleMaxWidth={heroSubtitleMaxWidth}
                 titleSize={heroTitleSize}
-              />
+              >
+                <View
+                  style={[
+                    styles.emailPill,
+                    {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                    style={[styles.emailPillText, { color: theme.colors.foreground }]}
+                  >
+                    {email}
+                  </Text>
+                </View>
+              </AuthHero>
 
               <View style={styles.form}>
                 <View style={[styles.instructionCard, { backgroundColor: theme.colors.accent }]}>
@@ -255,6 +282,28 @@ export default function VerifyEmailScreen({
                     Keep this screen open. The code will complete your account setup once entered.
                   </Text>
                 </View>
+
+                {__DEV__ ? (
+                  <View
+                    style={[
+                      styles.localTestingCard,
+                      {
+                        backgroundColor: theme.colors.card,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.localTestingTitle, { color: theme.colors.foreground }]}>
+                      Local testing
+                    </Text>
+                    <Text
+                      style={[styles.localTestingBody, { color: theme.colors.mutedForeground }]}
+                    >
+                      If SMTP is not configured, the latest verification code is printed in the
+                      backend console and app dev logs.
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={[styles.codeRow, { gap: otpGap }]}>
                   {code.map((digit, index) => (
@@ -293,6 +342,12 @@ export default function VerifyEmailScreen({
                 {error ? (
                   <Text style={[styles.error, { color: theme.colors.destructive }]}>
                     {error}
+                  </Text>
+                ) : null}
+
+                {resendNotice ? (
+                  <Text style={[styles.resendNotice, { color: theme.colors.success }]}>
+                    {resendNotice}
                   </Text>
                 ) : null}
 
@@ -396,6 +451,18 @@ const styles = StyleSheet.create({
     gap: 16,
     marginTop: 20,
   },
+  emailPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 14,
+    maxWidth: "100%",
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  emailPillText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
   instructionCard: {
     borderRadius: 14,
     paddingHorizontal: 14,
@@ -407,6 +474,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   instructionBody: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  localTestingCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 6,
+  },
+  localTestingTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  localTestingBody: {
     fontSize: 13,
     lineHeight: 19,
   },
@@ -423,6 +505,11 @@ const styles = StyleSheet.create({
   },
   error: {
     fontSize: 12,
+    textAlign: "center",
+  },
+  resendNotice: {
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: "center",
   },
   resendArea: {

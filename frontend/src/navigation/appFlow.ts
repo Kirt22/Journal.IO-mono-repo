@@ -7,6 +7,8 @@ export type FlowStage =
   | "lifetime-offer"
   | "auth"
   | "sign-in"
+  | "forgot-password"
+  | "reset-password"
   | "create-account"
   | "verify-email"
   | "profile"

@@ -36,6 +36,9 @@ export interface IUser extends Document {
   profilePic?: string | null;
   refreshTokenHash?: string | null;
   refreshTokenExpiresAt?: Date | null;
+  passwordResetTokenHash?: string | null;
+  passwordResetExpiresAt?: Date | null;
+  passwordResetRequestedAt?: Date | null;
   lastLoginAt?: Date | null;
   isPremium: boolean;
   premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
@@ -97,6 +100,9 @@ const userSchema = new mongoose.Schema<IUser>(
     profilePic: { type: String, default: null },
     refreshTokenHash: { type: String, default: null },
     refreshTokenExpiresAt: { type: Date, default: null },
+    passwordResetTokenHash: { type: String, default: null },
+    passwordResetExpiresAt: { type: Date, default: null },
+    passwordResetRequestedAt: { type: Date, default: null },
     lastLoginAt: { type: Date, default: null },
     isPremium: { type: Boolean, default: false, required: true },
     premiumPlanKey: {
@@ -146,6 +152,12 @@ userSchema.index(
   }
 );
 userSchema.index({ createdAt: -1 });
+userSchema.index(
+  { passwordResetTokenHash: 1 },
+  {
+    partialFilterExpression: { passwordResetTokenHash: { $type: "string" } },
+  }
+);
 
 export const userModel: Model<IUser> = connectMongoDB.model<IUser>(
   "users",

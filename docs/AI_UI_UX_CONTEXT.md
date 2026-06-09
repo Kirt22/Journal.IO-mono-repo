@@ -146,6 +146,11 @@ Auth should prioritize low-friction entry:
   - resend action with cooldown
   - clear success transition into profile setup
 - dedicated sign-in screen for returning email users
+- password reset flow for returning email users:
+  - sign-in `Forgot password?` opens a dedicated reset-request screen
+  - reset request asks for the account email and shows a generic confirmation state after submit
+  - password reset emails open the hosted reset page at `https://api.journalio.app/reset-password?token={token}` by default, with an env override available if the product later switches back to an app deep link
+  - the hosted reset page asks for a new password and confirmation, then the user returns to sign in from the app
 - Google sign-in path
 - Apple sign-in path should treat `@privaterelay.appleid.com` addresses as Apple private relay contact addresses and avoid presenting them as the user's real iCloud email
 - onboarding goals should remain available as hidden flow context during auth and setup steps

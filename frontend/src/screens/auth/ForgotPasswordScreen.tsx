@@ -36,6 +36,7 @@ export default function ForgotPasswordScreen({
   const [error, setError] = useState<string | null>(null);
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
   const [localResetLink, setLocalResetLink] = useState<string | null>(null);
+  const [localResetFailed, setLocalResetFailed] = useState(false);
   const successOpacity = useRef(new Animated.Value(0)).current;
   const successOffset = useRef(new Animated.Value(20)).current;
   const {
@@ -92,6 +93,7 @@ export default function ForgotPasswordScreen({
       const response = await onSubmit({ email: normalizedEmail });
       setSubmittedEmail(normalizedEmail);
       setLocalResetLink(__DEV__ ? response.resetLink || null : null);
+      setLocalResetFailed(__DEV__ ? response.resetIssued === false : false);
     } catch (submissionError) {
       setError(
         submissionError instanceof Error
@@ -116,7 +118,21 @@ export default function ForgotPasswordScreen({
   };
 
   const isLocalResetAvailable = Boolean(localResetLink);
-  const showDevEligibilityWarning = __DEV__ && submittedEmail && !isLocalResetAvailable;
+  const submittedTitle = localResetFailed
+    ? "Email not found"
+    : isLocalResetAvailable
+      ? "Reset link ready"
+      : "Check your email";
+  const submittedSubtitle = localResetFailed
+    ? "We could not find a registered account for this address."
+    : isLocalResetAvailable
+      ? "Open the reset page to choose a new password."
+      : "Open the reset link from your inbox to choose a new password.";
+  const submittedCardTitle = localResetFailed
+    ? "Request failed"
+    : isLocalResetAvailable
+      ? "Reset link ready"
+      : "Reset email sent";
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -144,18 +160,10 @@ export default function ForgotPasswordScreen({
             </Pressable>
 
             <AuthHero
-              title={
-                submittedEmail
-                  ? isLocalResetAvailable
-                    ? "Reset link ready"
-                    : "Check your email"
-                  : "Reset password"
-              }
+              title={submittedEmail ? submittedTitle : "Reset password"}
               subtitle={
                 submittedEmail
-                  ? isLocalResetAvailable
-                    ? "Open the reset page to choose a new password."
-                    : "We couldn't prepare a local reset link for this address."
+                  ? submittedSubtitle
                   : "Enter the email connected to your Journal.IO account."
               }
               imageSize={heroImageSize}
@@ -187,15 +195,13 @@ export default function ForgotPasswordScreen({
 
                 <View style={styles.successCopy}>
                   <Text style={[styles.successTitle, { color: theme.colors.foreground }]}>
-                    {isLocalResetAvailable
-                      ? "Reset link sent"
-                      : "No reset link was issued"}
+                    {submittedCardTitle}
                   </Text>
                   <Text style={[styles.successText, { color: theme.colors.mutedForeground }]}>
-                    {isLocalResetAvailable
-                      ? `We prepared a reset link for ${submittedEmail}. Open it to continue.`
-                      : showDevEligibilityWarning
-                        ? `No registered and verified account was eligible for password reset for ${submittedEmail}.`
+                    {localResetFailed
+                      ? `${submittedEmail} is not registered in this local backend. Check the email or create an account first.`
+                      : isLocalResetAvailable
+                        ? `We prepared a reset link for ${submittedEmail}. Open it to continue.`
                         : `If ${submittedEmail} is registered, a password reset email is on the way.`}
                   </Text>
                 </View>
@@ -232,9 +238,11 @@ export default function ForgotPasswordScreen({
                       Local testing
                     </Text>
                     <Text style={[styles.devNoteText, { color: theme.colors.mutedForeground }]}>
-                      {isLocalResetAvailable
+                      {localResetFailed
+                        ? "This local-only message is based on the backend debug response. Production still keeps password reset requests generic."
+                        : isLocalResetAvailable
                         ? "Use the local reset page below. Production keeps the generic confirmation state for privacy."
-                        : "Production should stay generic for privacy. This local warning only helps verify whether a reset link was actually issued."}
+                        : "This request is using the standard email flow, so no in-app local shortcut was exposed here."}
                     </Text>
                   </View>
                 ) : null}
@@ -252,6 +260,7 @@ export default function ForgotPasswordScreen({
                       onPress={() => {
                         setSubmittedEmail(null);
                         setLocalResetLink(null);
+                        setLocalResetFailed(false);
                       }}
                       tone="accent"
                     />

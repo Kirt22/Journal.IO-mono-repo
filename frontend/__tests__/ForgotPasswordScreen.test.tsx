@@ -67,12 +67,12 @@ describe("ForgotPasswordScreen", () => {
     const screenText = JSON.stringify(root!.toJSON());
 
     expect(onSubmit).toHaveBeenCalledWith({ email: "alex@example.com" });
-    expect(screenText).toContain("Reset link sent");
+    expect(screenText).toContain("Reset link ready");
     expect(screenText).toContain("Open Reset Page");
     expect(screenText).toContain("Local testing");
   });
 
-  test("shows a local not-issued message when no reset link is returned", async () => {
+  test("shows the generic email confirmation when no local reset link is returned", async () => {
     const onSubmit = jest.fn(async () => ({
       email: "missing@example.com",
       expiresInSeconds: 1800,
@@ -105,8 +105,50 @@ describe("ForgotPasswordScreen", () => {
 
     const screenText = JSON.stringify(root!.toJSON());
 
-    expect(screenText).toContain("No reset link was issued");
-    expect(screenText).toContain("No registered and verified account was eligible");
+    expect(screenText).toContain("Check your email");
+    expect(screenText).toContain("Reset email sent");
+    expect(screenText).toContain("password reset email is on the way");
+    expect(screenText).toContain("Try Another Email");
+  });
+
+  test("shows a local failure when the backend says no reset was issued", async () => {
+    const onSubmit = jest.fn(async () => ({
+      email: "missing@example.com",
+      expiresInSeconds: 1800,
+      resetIssued: false,
+      resetSkippedReason: "user_not_found" as const,
+    }));
+
+    await ReactTestRenderer.act(() => {
+      root = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <ForgotPasswordScreen
+            onSubmit={onSubmit}
+            onBackToSignIn={jest.fn()}
+          />
+        </SafeAreaProvider>
+      );
+    });
+
+    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
+
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText("missing@example.com");
+    });
+
+    const sendButton = root!.root.findByProps({ label: "Send Reset Link" });
+
+    await ReactTestRenderer.act(async () => {
+      sendButton.props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const screenText = JSON.stringify(root!.toJSON());
+
+    expect(screenText).toContain("Email not found");
+    expect(screenText).toContain("Request failed");
+    expect(screenText).toContain("not registered in this local backend");
     expect(screenText).toContain("Try Another Email");
   });
 });

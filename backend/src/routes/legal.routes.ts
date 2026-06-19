@@ -30,6 +30,7 @@ const API_HOSTNAME = "api.journalio.app";
 const WWW_HOSTNAME = "www.journalio.app";
 const SUPPORT_PAGE_URL = `${LEGAL_BASE_URL}/support`;
 const SUPPORT_FORM_URL = "https://forms.gle/Y2WSwrtQCmTXtHLUA";
+const APP_STORE_APP_URL = "https://apps.apple.com/app/id6770075245";
 const EFFECTIVE_DATE = "April 22, 2026";
 
 const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
@@ -853,11 +854,18 @@ export const getLandingPageHtml = (): string => `<!doctype html>
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: 10px;
         min-height: 52px;
         padding: 0 22px;
         border-radius: 999px;
         font-weight: 900;
         text-decoration: none;
+      }
+
+      .cta-icon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
       }
 
       .primary-cta {
@@ -1132,8 +1140,13 @@ export const getLandingPageHtml = (): string => `<!doctype html>
           Journal.IO helps you capture daily thoughts, track moods, build streaks, and notice recurring patterns with gentle AI insights.
         </p>
         <div class="hero-actions">
-          <a class="primary-cta" href="#showcase">See the app</a>
-          <a class="secondary-cta" href="/privacy">Read privacy policy</a>
+          <a class="primary-cta" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer">
+            <svg class="cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M15.47 12.91c.02 2.2 1.93 2.94 1.95 2.95-.02.05-.3 1.04-1 2.07-.6.89-1.24 1.77-2.22 1.79-.95.02-1.25-.56-2.34-.56-1.08 0-1.42.54-2.32.58-.95.04-1.68-.95-2.29-1.84-1.25-1.8-2.2-5.08-.92-7.3.64-1.1 1.78-1.79 3.01-1.81.94-.02 1.82.62 2.34.62.51 0 1.47-.76 2.47-.65.42.02 1.62.17 2.39 1.29-.06.04-1.43.83-1.41 2.86Zm-1.92-6.25c.5-.61.85-1.45.76-2.29-.73.03-1.6.49-2.12 1.1-.47.54-.88 1.39-.77 2.21.81.06 1.63-.42 2.13-1.02Z"/>
+            </svg>
+            Download on the App Store
+          </a>
+          <a class="secondary-cta" href="#showcase">See the app</a>
         </div>
         <div class="hero-pills" aria-label="Product highlights">
           <span class="pill">Mood tracking</span>
@@ -1219,10 +1232,10 @@ export const getLandingPageHtml = (): string => `<!doctype html>
         </div>
         <aside class="waitlist-card">
           <div>
-            <h3>Coming soon</h3>
-            <p>Journal.IO is preparing for App Store launch. Follow the build, review the public policies, or contact support for questions.</p>
+            <h3>Now on the App Store</h3>
+            <p>Download Journal.IO for calm daily reflection, mood tracking, and supportive AI insights, or review the public policies and support options first.</p>
           </div>
-          <a class="primary-cta" href="/support">Contact support</a>
+          <a class="primary-cta" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer">Download the app</a>
         </aside>
       </section>
 

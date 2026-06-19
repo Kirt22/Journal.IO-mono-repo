@@ -11,6 +11,8 @@ test("getLandingPageHtml renders the Journal.IO marketing landing page", () => {
   const html = getLandingPageHtml();
 
   assert.match(html, /Reflect\. Track\. Grow\./);
+  assert.match(html, /Download on the App Store/);
+  assert.match(html, /https:\/\/apps\.apple\.com\/app\/id6770075245/);
   assert.match(html, /href="\/privacy"/);
   assert.match(html, /href="\/support"/);
   assert.match(html, /href="\/assets\/landing\/favicon\.png"/);

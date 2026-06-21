@@ -1,13 +1,13 @@
-import { useEffect } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { AppState, Linking, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppNavigator from "./navigation/AppNavigator";
 import {
   addRevenueCatCustomerInfoUpdateListener,
-  hasPremiumAccess,
   refreshRevenueCatEntitlementState,
   syncRevenueCatIdentity,
 } from "./services/revenueCatService";
+import { syncPaywallEntitlement } from "./services/paywallService";
 import { ThemeProvider } from "./theme/provider";
 import { useAppStore } from "./store/appStore";
 
@@ -15,9 +15,8 @@ function AppBootstrapper() {
   const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
   const session = useAppStore(state => state.session);
   const openLegalBrowser = useAppStore(state => state.openLegalBrowser);
-  const setSessionPremiumStatus = useAppStore(
-    state => state.setSessionPremiumStatus
-  );
+  const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+  const entitlementSyncInFlightRef = useRef(false);
 
   useEffect(() => {
     bootstrapAuthGate().catch(() => undefined);
@@ -42,41 +41,48 @@ function AppBootstrapper() {
 
   useEffect(() => {
     const appUserId = session?.user.userId ?? null;
-    const sessionPremiumStatus = Boolean(session?.user.isPremium);
     let isMounted = true;
     let removeCustomerInfoListener: (() => void) | null = null;
+    let appStateSubscription: { remove: () => void } | null = null;
 
-    const syncPremiumFromCustomerInfo = async (
-      nextPremiumStatus: boolean | null
-    ) => {
-      if (!isMounted || !appUserId) {
+    const reconcilePremiumState = async (reason: string) => {
+      if (!isMounted || !appUserId || entitlementSyncInFlightRef.current) {
         return;
       }
 
-      if (nextPremiumStatus === null || nextPremiumStatus === sessionPremiumStatus) {
-        return;
-      }
+      entitlementSyncInFlightRef.current = true;
 
-      await setSessionPremiumStatus(nextPremiumStatus);
+      try {
+        const configured = await syncRevenueCatIdentity(appUserId);
+
+        if (configured) {
+          await refreshRevenueCatEntitlementState(appUserId);
+        }
+
+        const updatedProfile = await syncPaywallEntitlement({ reason });
+
+        if (isMounted) {
+          setSessionUserProfile(updatedProfile);
+        }
+      } catch {
+        // Keep the cached premium state until verification succeeds again.
+      } finally {
+        entitlementSyncInFlightRef.current = false;
+      }
     };
 
     const setupRevenueCat = async () => {
-      const configured = await syncRevenueCatIdentity(appUserId);
+      await reconcilePremiumState("launch");
 
-      if (!configured || !isMounted || !appUserId) {
-        return;
-      }
+      removeCustomerInfoListener = addRevenueCatCustomerInfoUpdateListener(() => {
+        reconcilePremiumState("listener").catch(() => undefined);
+      });
 
-      const entitlementState = await refreshRevenueCatEntitlementState(appUserId);
-      await syncPremiumFromCustomerInfo(entitlementState.hasPremiumAccess);
-
-      removeCustomerInfoListener = addRevenueCatCustomerInfoUpdateListener(
-        nextCustomerInfo => {
-          syncPremiumFromCustomerInfo(hasPremiumAccess(nextCustomerInfo)).catch(
-            () => undefined
-          );
+      appStateSubscription = AppState.addEventListener("change", nextState => {
+        if (nextState === "active") {
+          reconcilePremiumState("foreground").catch(() => undefined);
         }
-      );
+      });
     };
 
     setupRevenueCat().catch(() => undefined);
@@ -84,8 +90,9 @@ function AppBootstrapper() {
     return () => {
       isMounted = false;
       removeCustomerInfoListener?.();
+      appStateSubscription?.remove();
     };
-  }, [session?.user.userId, session?.user.isPremium, setSessionPremiumStatus]);
+  }, [session?.user.userId, setSessionUserProfile]);
 
   return null;
 }

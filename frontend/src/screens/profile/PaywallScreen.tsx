@@ -26,6 +26,7 @@ import {
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
+  type PurchasesOfferings,
 } from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
@@ -35,6 +36,7 @@ import {
   getRevenueCatConfigurationError,
   getRevenueCatOfferings,
   getRevenueCatPaywallPlans,
+  getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
   hasRevenueCatHostedPaywall,
   purchaseRevenueCatPackage,
@@ -47,6 +49,7 @@ import {
 } from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
+  isRetryableEntitlementSyncError,
   syncPaywallPurchase,
   trackPaywallEvent,
   type ResolvedPaywallConfig,
@@ -119,16 +122,22 @@ const isWeeklyPaywallPlan = (plan: PaywallPlan) =>
   plan.planKey === "weekly" || plan.offeringKey === "weekly";
 
 const syncTrialEndingReminderForActivation = (
-  premiumActivatedAt: string | null | undefined,
+  premiumExpiresAt: string | null | undefined,
+  premiumWillRenew: boolean | null | undefined,
   targetPlan: PaywallPlan,
   options: { wasRestore?: boolean } = {}
 ) => {
-  if (options.wasRestore || !isAnnualPaywallPlan(targetPlan)) {
+  if (
+    options.wasRestore ||
+    premiumWillRenew === false ||
+    !isAnnualPaywallPlan(targetPlan) ||
+    !targetPlan.introOffer?.isFreeTrial
+  ) {
     cancelFreeTrialEndingReminder().catch(() => undefined);
     return;
   }
 
-  scheduleFreeTrialEndingReminder(premiumActivatedAt ?? null, {
+  scheduleFreeTrialEndingReminder(premiumExpiresAt ?? null, {
     requestPermission: true,
   }).catch(() => undefined);
 };
@@ -172,11 +181,11 @@ const getPostAuthPlanDescription = (plan: PaywallPlan) => {
 };
 
 const getPostAuthTrialBadgeLabel = (plan: PaywallPlan | null) => {
-  if (!plan || !isAnnualPaywallPlan(plan)) {
+  if (!plan?.introOffer?.isFreeTrial) {
     return "Instantly unlock premium";
   }
 
-  return "7-DAY FREE TRIAL INCLUDED";
+  return `${plan.introOffer.durationLabel.toUpperCase()} FREE TRIAL INCLUDED`;
 };
 
 const getTimelineAccentColors = (
@@ -478,12 +487,13 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const postAuthPaywallStepOverride = useAppStore(
     state => state.postAuthPaywallStepOverride
   );
-  const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
   );
   const [plans, setPlans] = useState<PaywallPlan[]>([]);
+  const [revenueCatOfferings, setRevenueCatOfferings] =
+    useState<PurchasesOfferings | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [plansError, setPlansError] = useState<string | null>(
     getRevenueCatConfigurationError()
@@ -554,12 +564,14 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     visiblePlans.find(plan => plan.id === selectedPlanId) ?? visiblePlans[0] ?? null;
   const trialFootnote = getTrialFootnote(selectedPlan ?? undefined, selectedPlan?.introOffer);
   const isBusy = isProcessing || isRestoring;
-  const selectedPlanHasTrial = Boolean(
-    selectedPlan && isAnnualPaywallPlan(selectedPlan)
-  );
+  const selectedPlanHasTrial = Boolean(selectedPlan?.introOffer?.isFreeTrial);
   const yearlyTrialPlan =
-    visiblePlans.find(plan => isAnnualPaywallPlan(plan)) ?? null;
-  const introButtonLabel = "Start 7-day free trial";
+    visiblePlans.find(
+      plan => isAnnualPaywallPlan(plan) && plan.introOffer?.isFreeTrial
+    ) ?? null;
+  const introButtonLabel = yearlyTrialPlan
+    ? `Start ${yearlyTrialPlan.introOffer?.durationLabel} free trial`
+    : "Continue to premium";
 
   useEffect(() => {
     let isMounted = true;
@@ -604,6 +616,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
           return;
         }
 
+        setRevenueCatOfferings(offerings);
         setPlans(nextPlans);
         setPlansError(
           nextPlans.some(plan => plan.rcPackage)
@@ -927,35 +940,42 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   ) => {
     const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
     const premiumAccess = hasPremiumAccess(customerInfo);
+    const attribution = getRevenueCatPurchaseAttribution(
+      customerInfo,
+      revenueCatOfferings
+    );
 
     setLastPurchaseStore(activeEntitlement?.store ?? null);
 
-    if (!premiumAccess) {
+    if (!premiumAccess || !attribution) {
       return false;
     }
 
-    if (!targetPlan.offeringKey) {
-      await setSessionPremiumStatus(true);
-      syncTrialEndingReminderForActivation(null, targetPlan, options);
-      setIsPurchaseAccessUpdating(false);
-      setScreenState("success");
-      return true;
-    }
+    let updatedProfile;
 
-    const updatedProfile = await syncPaywallPurchase({
-      offeringKey: targetPlan.offeringKey,
-      revenueCatOfferingId:
-        targetPlan.revenueCatOfferingId || paywallPlacementKey,
-      revenueCatPackageId:
-        targetPlan.revenueCatPackageId || targetPlan.rcPackage?.identifier || "unknown",
-      store: activeEntitlement?.store || "unknown",
-      entitlementId: activeEntitlement?.identifier || "unknown",
-      wasRestore: Boolean(options.wasRestore),
-    });
+    try {
+      updatedProfile = await syncPaywallPurchase({
+        offeringKey: attribution.offeringKey,
+        revenueCatOfferingId: attribution.revenueCatOfferingId,
+        revenueCatPackageId: attribution.revenueCatPackageId,
+        store: attribution.activeEntitlement.store || "unknown",
+        entitlementId: attribution.activeEntitlement.identifier,
+        wasRestore: Boolean(options.wasRestore),
+      });
+    } catch (error) {
+      if (isRetryableEntitlementSyncError(error)) {
+        setIsPurchaseAccessUpdating(true);
+        setScreenState("success");
+        return "pending";
+      }
+
+      throw error;
+    }
 
     setSessionUserProfile(updatedProfile);
     syncTrialEndingReminderForActivation(
-      updatedProfile.premiumActivatedAt,
+      updatedProfile.premiumExpiresAt,
+      updatedProfile.premiumWillRenew,
       targetPlan,
       options
     );
@@ -971,7 +991,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   ) => {
     const activated = await completePremiumActivation(customerInfo, targetPlan, options);
 
-    if (activated || !sessionUserId) {
+    if (activated !== false || !sessionUserId) {
       return activated;
     }
 
@@ -1301,8 +1321,15 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
           <Animated.View style={[styles.postAuthFooter, footerAnimatedStyle]}>
             <StepActionButton
-              label={yearlyTrialPlan ? introButtonLabel : "Continue to premium"}
-              onPress={() => setPostAuthStep("reminder")}
+              label={introButtonLabel}
+              onPress={() => {
+                if (yearlyTrialPlan) {
+                  setPostAuthStep("reminder");
+                  return;
+                }
+
+                handleContinueFromReminder();
+              }}
               elevated={false}
             />
           </Animated.View>
@@ -1400,7 +1427,9 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                 { color: theme.colors.mutedForeground },
               ]}
             >
-              We'll send you a push notification before your trial ends. Cancel anytime.
+              {yearlyTrialPlan
+                ? "We'll send you a push notification before your trial ends. Cancel anytime."
+                : "The App Store will confirm the plan and localized price before purchase."}
             </Text>
 
             <View
@@ -1416,7 +1445,29 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                 ]}
               />
 
-              {POST_AUTH_TIMELINE.map((step, index) => {
+              {(yearlyTrialPlan
+                ? POST_AUTH_TIMELINE
+                : [
+                    {
+                      icon: Sparkles,
+                      title: "Choose",
+                      description: "Select your plan",
+                      color: "success" as const,
+                    },
+                    {
+                      icon: CreditCard,
+                      title: "Confirm",
+                      description: "Review App Store pricing",
+                      color: "warning" as const,
+                    },
+                    {
+                      icon: LockOpen,
+                      title: "Unlock",
+                      description: "Premium becomes active",
+                      color: "primary" as const,
+                    },
+                  ]
+              ).map((step, index) => {
                 const Icon = step.icon;
                 const colors = getTimelineAccentColors(step.color, theme.colors);
                 const timelineAnimatedStyle = {

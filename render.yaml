@@ -51,3 +51,11 @@ services:
         sync: false
       - key: OPENAI_RESPONSES_MODEL
         value: gpt-5.4-mini
+      - key: REVENUECAT_WEBHOOK_AUTH_TOKEN
+        sync: false
+      - key: REVENUECAT_SECRET_API_KEY
+        sync: false
+      - key: REVENUECAT_APP_ID
+        sync: false
+      - key: REVENUECAT_ALLOWED_WEBHOOK_ENVIRONMENTS
+        value: PRODUCTION,SANDBOX

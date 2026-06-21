@@ -21,7 +21,7 @@ import { useTheme } from "../../theme/provider";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatOfferings,
-  getRevenueCatPackageMetadataForPlanKey,
+  getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
@@ -40,6 +40,24 @@ type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null |
 type SubscriptionScreenProps = {
   onBack: () => void;
   currentPlanKey?: SubscriptionPlanKey;
+};
+
+const formatMembershipDate = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed);
 };
 
 function hexToRgba(hex: string, alpha: number) {
@@ -71,8 +89,22 @@ const getPlanLabel = (planKey?: SubscriptionPlanKey) => {
   }
 };
 
-const getRenewalLabel = (planKey?: SubscriptionPlanKey) => {
-  switch (planKey) {
+const getRenewalLabel = (options: {
+  planKey?: SubscriptionPlanKey;
+  premiumExpiresAt?: string | null;
+  premiumWillRenew?: boolean | null;
+}) => {
+  const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
+
+  if (
+    options.planKey !== "lifetime" &&
+    options.premiumWillRenew === false &&
+    formattedEndDate
+  ) {
+    return `Auto-renewal is off. Your membership stays active through ${formattedEndDate}.`;
+  }
+
+  switch (options.planKey) {
     case "weekly":
       return "Your membership renews every week unless you cancel it from your subscription settings.";
     case "monthly":
@@ -102,23 +134,22 @@ const getManageSubscriptionUrl = (planKey?: SubscriptionPlanKey) => {
   return null;
 };
 
-const getRevenueCatPlanKey = (planKey?: SubscriptionPlanKey) => {
-  switch (planKey) {
-    case "weekly":
-      return "weekly" as const;
-    case "monthly":
-      return "monthly" as const;
-    case "yearly":
-      return "annual" as const;
-    case "lifetime":
-      return "lifetime" as const;
-    default:
-      return null;
-  }
-};
+const getHeroText = (options: {
+  planKey?: SubscriptionPlanKey;
+  premiumExpiresAt?: string | null;
+  premiumWillRenew?: boolean | null;
+}) => {
+  const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
 
-const getHeroText = (planKey?: SubscriptionPlanKey) => {
-  switch (planKey) {
+  if (
+    options.planKey !== "lifetime" &&
+    options.premiumWillRenew === false &&
+    formattedEndDate
+  ) {
+    return `Your membership is still active, and auto-renewal is off. You keep premium access until ${formattedEndDate}.`;
+  }
+
+  switch (options.planKey) {
     case "weekly":
       return "Your weekly membership is active. You have full access to premium journaling and insight tools while this plan stays active.";
     case "monthly":
@@ -132,7 +163,12 @@ const getHeroText = (planKey?: SubscriptionPlanKey) => {
   }
 };
 
-const getMembershipHighlights = (planKey?: SubscriptionPlanKey) => {
+const getMembershipHighlights = (options: {
+  planKey?: SubscriptionPlanKey;
+  premiumExpiresAt?: string | null;
+  premiumWillRenew?: boolean | null;
+}) => {
+  const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
   const renewalByPlan: Record<Exclude<SubscriptionPlanKey, null | undefined>, string> =
     {
       weekly:
@@ -146,9 +182,17 @@ const getMembershipHighlights = (planKey?: SubscriptionPlanKey) => {
     };
 
   const planBody =
-    planKey && renewalByPlan[planKey]
-      ? renewalByPlan[planKey]
+    options.planKey && renewalByPlan[options.planKey]
+      ? renewalByPlan[options.planKey]
       : "This membership keeps your premium access available on this account.";
+  const renewalBody =
+    options.planKey !== "lifetime" &&
+    options.premiumWillRenew === false &&
+    formattedEndDate
+      ? `Auto-renewal is off. Premium access remains available through ${formattedEndDate}.`
+      : options.planKey === "lifetime"
+        ? "There is nothing to renew for this plan, so you can simply keep using Journal.IO."
+        : "If you ever need to change or cancel this plan, use the subscription settings linked below.";
 
   return [
     {
@@ -163,11 +207,11 @@ const getMembershipHighlights = (planKey?: SubscriptionPlanKey) => {
     },
     {
       icon: RefreshCcw,
-      title: "Billing help lives in settings",
-      body:
-        planKey === "lifetime"
-          ? "There is nothing to renew for this plan, so you can simply keep using Journal.IO."
-          : "If you ever need to change or cancel this plan, use the subscription settings linked below.",
+      title:
+        options.premiumWillRenew === false
+          ? "Auto-renewal is off"
+          : "Billing help lives in settings",
+      body: renewalBody,
     },
   ];
 };
@@ -177,12 +221,25 @@ export default function SubscriptionScreen({
   currentPlanKey,
 }: SubscriptionScreenProps) {
   const theme = useTheme();
+  const sessionUser = useAppStore(state => state.session?.user ?? null);
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const activePlanLabel = getPlanLabel(currentPlanKey);
-  const renewalLabel = getRenewalLabel(currentPlanKey);
-  const heroText = getHeroText(currentPlanKey);
-  const membershipHighlights = getMembershipHighlights(currentPlanKey);
+  const renewalLabel = getRenewalLabel({
+    planKey: currentPlanKey,
+    premiumExpiresAt: sessionUser?.premiumExpiresAt,
+    premiumWillRenew: sessionUser?.premiumWillRenew,
+  });
+  const heroText = getHeroText({
+    planKey: currentPlanKey,
+    premiumExpiresAt: sessionUser?.premiumExpiresAt,
+    premiumWillRenew: sessionUser?.premiumWillRenew,
+  });
+  const membershipHighlights = getMembershipHighlights({
+    planKey: currentPlanKey,
+    premiumExpiresAt: sessionUser?.premiumExpiresAt,
+    premiumWillRenew: sessionUser?.premiumWillRenew,
+  });
   const [isCheckingMembership, setIsCheckingMembership] = useState(true);
   const [isRestoring, setIsRestoring] = useState(false);
   const [hasActiveEntitlement, setHasActiveEntitlement] = useState<boolean | null>(
@@ -259,21 +316,6 @@ export default function SubscriptionScreen({
       return;
     }
 
-    const revenueCatPlanKey = getRevenueCatPlanKey(currentPlanKey);
-
-    if (!revenueCatPlanKey) {
-      Alert.alert(
-        "Restore unavailable",
-        "We could not restore this membership right now. Please try again."
-      );
-      return;
-    }
-
-    const offeringKey = currentPlanKey as Exclude<
-      SubscriptionPlanKey,
-      null | undefined
-    >;
-
     setIsRestoring(true);
 
     try {
@@ -290,12 +332,12 @@ export default function SubscriptionScreen({
       }
 
       const offerings = await getRevenueCatOfferings(sessionUserId);
-      const packageMetadata = getRevenueCatPackageMetadataForPlanKey(
+      const attribution = getRevenueCatPurchaseAttribution(
+        customerInfo,
         offerings,
-        revenueCatPlanKey
       );
 
-      if (!packageMetadata.revenueCatOfferingId || !packageMetadata.revenueCatPackageId) {
+      if (!attribution) {
         Alert.alert(
           "Restore unavailable",
           "We could not match this membership to your purchase details right now. Please try again."
@@ -304,11 +346,11 @@ export default function SubscriptionScreen({
       }
 
       const updatedProfile = await syncPaywallPurchase({
-        offeringKey,
-        revenueCatOfferingId: packageMetadata.revenueCatOfferingId,
-        revenueCatPackageId: packageMetadata.revenueCatPackageId,
-        store: activeEntitlement.store || "unknown",
-        entitlementId: activeEntitlement.identifier || "unknown",
+        offeringKey: attribution.offeringKey,
+        revenueCatOfferingId: attribution.revenueCatOfferingId,
+        revenueCatPackageId: attribution.revenueCatPackageId,
+        store: attribution.activeEntitlement.store || "unknown",
+        entitlementId: attribution.activeEntitlement.identifier,
         wasRestore: true,
       });
 
@@ -380,7 +422,12 @@ export default function SubscriptionScreen({
         <Text style={[styles.planMeta, { color: theme.colors.mutedForeground }]}>
           {currentPlanKey === "lifetime"
             ? "Your membership is already fully unlocked for this account."
-            : "Your membership remains available as long as this plan stays active."}
+            : sessionUser?.premiumWillRenew === false &&
+                sessionUser?.premiumExpiresAt
+              ? `Premium access remains active until ${formatMembershipDate(
+                  sessionUser.premiumExpiresAt
+                )}.`
+              : "Your membership remains available as long as this plan stays active."}
         </Text>
       </SectionCard>
 

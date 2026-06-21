@@ -19,6 +19,24 @@ jest.mock("../src/services/revenueCatService", () => ({
     customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null
   ),
   getRevenueCatConfigurationError: jest.fn(() => null),
+  getRevenueCatOfferings: jest.fn(async () => ({ current: null, all: {} })),
+  getRevenueCatPurchaseAttribution: jest.fn(customerInfo => {
+    const activeEntitlement =
+      customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null;
+
+    if (!activeEntitlement?.productIdentifier) {
+      return null;
+    }
+
+    return {
+      activeEntitlement,
+      offeringKey: "weekly",
+      productIdentifier: activeEntitlement.productIdentifier,
+      revenueCatOfferingId: "journalio_offering_other_screens_standard",
+      revenueCatPackageId: activeEntitlement.productIdentifier,
+      rcPackage: null,
+    };
+  }),
   refreshRevenueCatEntitlementState: jest.fn(async () => ({
     hasPremiumAccess: true,
     customerInfo: {

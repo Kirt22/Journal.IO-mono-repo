@@ -47,12 +47,12 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test("schedules the free-trial ending reminder five days after activation", async () => {
-  const activatedAt = "2026-04-16T09:30:00.000Z";
+test("schedules the free-trial ending reminder two days before expiration", async () => {
+  const expiresAt = "2026-04-23T09:30:00.000Z";
   const expectedTimestamp =
-    new Date(activatedAt).getTime() + 5 * 24 * 60 * 60 * 1000;
+    new Date(expiresAt).getTime() - 2 * 24 * 60 * 60 * 1000;
 
-  const scheduled = await scheduleFreeTrialEndingReminder(activatedAt, {
+  const scheduled = await scheduleFreeTrialEndingReminder(expiresAt, {
     requestPermission: true,
   });
 
@@ -79,7 +79,7 @@ test("does not schedule the free-trial reminder when permission is denied", asyn
   });
 
   const scheduled = await scheduleFreeTrialEndingReminder(
-    "2026-04-16T09:30:00.000Z",
+    "2026-04-23T09:30:00.000Z",
     {
       requestPermission: true,
     }

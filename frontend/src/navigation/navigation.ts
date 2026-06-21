@@ -32,8 +32,6 @@ export type RootStackParamList = {
   SetupProfile: undefined;
   Paywall: undefined;
   HostedPaywall: undefined;
-  SpinWheel: undefined;
-  DiscountOffer: undefined;
   LifetimeOffer: undefined;
   Complete: undefined;
   MainApp: NavigatorScreenParams<MainAppStackParamList> | undefined;

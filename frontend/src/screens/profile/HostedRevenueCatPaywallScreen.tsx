@@ -16,16 +16,24 @@ import {
   type PurchasesOffering,
   type PurchasesPackage,
 } from "react-native-purchases";
-import RevenueCatUI from "react-native-purchases-ui";
+import RevenueCatUI, {
+  CustomVariableValue,
+  type CustomVariables,
+} from "react-native-purchases-ui";
 import { ShieldCheck, Sparkles } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import {
-  findRevenueCatPackageByProductIdentifier,
-  getRevenueCatActiveEntitlement,
+  REVENUECAT_OFFERINGS,
+  REVENUECAT_PRODUCTS,
+  REVENUECAT_SUMMER_PAYWALL_VARIABLES,
+} from "../../config/revenueCat";
+import {
   getRevenueCatHostedOffering,
+  getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
   hasRevenueCatHostedPaywall,
+  getPackageByProductId,
   refreshRevenueCatEntitlementState,
   type RevenueCatHostedPaywallTarget,
 } from "../../services/revenueCatService";
@@ -35,6 +43,7 @@ import {
 } from "../../services/reminderNotificationsService";
 import {
   getPaywallConfig,
+  isRetryableEntitlementSyncError,
   syncPaywallPurchase,
   trackPaywallEvent,
   type PaywallOffering,
@@ -55,6 +64,7 @@ type ScreenState = "launching" | "success";
 type HostedPaywallLoadState = {
   offering: PurchasesOffering | null;
   offerings: PurchasesOfferings | null;
+  customVariables: CustomVariables | undefined;
   isReady: boolean;
 };
 
@@ -64,38 +74,59 @@ const getDefaultPlacementKey = (target: RevenueCatHostedPaywallTarget) =>
 const getSurfaceLabel = (target: RevenueCatHostedPaywallTarget) =>
   target === "exit" ? "hosted_exit" : "hosted_main";
 
-const getPaywallOfferingKey = (
-  target: RevenueCatHostedPaywallTarget,
-  matchedPackage: PurchasesPackage | null,
-  paywallConfig: ResolvedPaywallConfig | null
-): PaywallOffering["key"] => {
-  if (target === "exit") {
-    return "yearly_exit_offer";
+const logSummerPaywallPricing = ({
+  discountPackage,
+  normalYearlyPackage,
+  canCompareYearlyPrices,
+  normalYearlyPriceVariable,
+}: {
+  discountPackage: PurchasesPackage | null;
+  normalYearlyPackage: PurchasesPackage | null;
+  canCompareYearlyPrices: boolean;
+  normalYearlyPriceVariable: string;
+}) => {
+  if (!__DEV__) {
+    return;
   }
 
-  switch (matchedPackage?.packageType) {
-    case PACKAGE_TYPE.WEEKLY:
-      return "weekly";
-    case PACKAGE_TYPE.MONTHLY:
-      return "monthly";
-    case PACKAGE_TYPE.LIFETIME:
-      return "lifetime";
-    case PACKAGE_TYPE.ANNUAL:
-      return "yearly";
-    default:
-      return paywallConfig?.offerings[0]?.key ?? "yearly";
-  }
+  console.info("[RevenueCatDebug] summer paywall pricing variables", {
+    discountProduct: discountPackage
+      ? {
+          productIdentifier: discountPackage.product.identifier,
+          packageIdentifier: discountPackage.identifier,
+          price: discountPackage.product.price,
+          priceString: discountPackage.product.priceString,
+          currencyCode: discountPackage.product.currencyCode,
+        }
+      : null,
+    normalYearlyProduct: normalYearlyPackage
+      ? {
+          productIdentifier: normalYearlyPackage.product.identifier,
+          packageIdentifier: normalYearlyPackage.identifier,
+          price: normalYearlyPackage.product.price,
+          priceString: normalYearlyPackage.product.priceString,
+          currencyCode: normalYearlyPackage.product.currencyCode,
+        }
+      : null,
+    canCompareYearlyPrices,
+    customVariables: {
+      [REVENUECAT_SUMMER_PAYWALL_VARIABLES.NORMAL_YEARLY_PRICE]:
+        normalYearlyPriceVariable,
+    },
+  });
 };
 
 const syncHostedTrialReminder = (
   target: RevenueCatHostedPaywallTarget,
-  premiumActivatedAt: string | null | undefined,
+  premiumExpiresAt: string | null | undefined,
+  premiumWillRenew: boolean | null | undefined,
   matchedPackage: PurchasesPackage | null,
   options: { wasRestore?: boolean } = {}
 ) => {
   const hasFreeTrial =
     target === "main" &&
     !options.wasRestore &&
+    premiumWillRenew !== false &&
     matchedPackage?.packageType === PACKAGE_TYPE.ANNUAL &&
     matchedPackage.product.introPrice?.price === 0;
 
@@ -104,7 +135,7 @@ const syncHostedTrialReminder = (
     return;
   }
 
-  scheduleFreeTrialEndingReminder(premiumActivatedAt).catch(() => undefined);
+  scheduleFreeTrialEndingReminder(premiumExpiresAt).catch(() => undefined);
 };
 
 export default function HostedRevenueCatPaywallScreen() {
@@ -128,7 +159,6 @@ export default function HostedRevenueCatPaywallScreen() {
   const fallbackFromHostedPaywall = useAppStore(
     state => state.fallbackFromHostedPaywall
   );
-  const setSessionPremiumStatus = useAppStore(state => state.setSessionPremiumStatus);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [screenState, setScreenState] = useState<ScreenState>("launching");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
@@ -137,6 +167,7 @@ export default function HostedRevenueCatPaywallScreen() {
     useState<HostedPaywallLoadState>({
       offering: null,
       offerings: null,
+      customVariables: undefined,
       isReady: false,
     });
   const [processingLabel, setProcessingLabel] = useState<string | null>(null);
@@ -163,10 +194,10 @@ export default function HostedRevenueCatPaywallScreen() {
   const horizontalPadding = width >= 430 ? 30 : width < 360 ? 20 : 24;
   const maxWidth = width >= 430 ? 430 : 400;
   const launchTitle = isExitOffer
-    ? "Opening your special offer"
+    ? "Opening your special yearly offer"
     : "Opening secure checkout";
   const launchBody = isExitOffer
-    ? "We are preparing the follow-up offer now."
+    ? "We are preparing the localized App Store pricing now."
     : "We are loading the RevenueCat paywall for this step.";
 
   const trackEvent = useCallback((
@@ -251,65 +282,52 @@ export default function HostedRevenueCatPaywallScreen() {
     offerings: PurchasesOfferings | null,
     options: { wasRestore?: boolean } = {}
   ) => {
-    const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
     const premiumAccess = hasPremiumAccess(customerInfo);
+    const attribution = getRevenueCatPurchaseAttribution(
+      customerInfo,
+      offerings
+    );
 
-    setLastPurchaseStore(activeEntitlement?.store ?? null);
-
-    if (!premiumAccess) {
+    if (!premiumAccess || !attribution) {
       return false;
     }
 
-    const matchedPackage = findRevenueCatPackageByProductIdentifier(
-      offerings,
-      activeEntitlement?.productIdentifier
-    );
-    const activePaywallConfig = paywallConfigRef.current;
-    const offeringKey = getPaywallOfferingKey(
-      hostedTarget,
-      matchedPackage,
-      activePaywallConfig
-    );
+    setLastPurchaseStore(attribution.activeEntitlement.store ?? null);
 
-    if (!activeEntitlement) {
-      await setSessionPremiumStatus(true);
-      syncHostedTrialReminder(hostedTarget, null, matchedPackage, options);
-      setIsPurchaseAccessUpdating(false);
-      setScreenState("success");
-      return true;
+    let updatedProfile;
+
+    try {
+      updatedProfile = await syncPaywallPurchase({
+        offeringKey: attribution.offeringKey,
+        revenueCatOfferingId: attribution.revenueCatOfferingId,
+        revenueCatPackageId: attribution.revenueCatPackageId,
+        store: attribution.activeEntitlement.store || "unknown",
+        entitlementId: attribution.activeEntitlement.identifier,
+        wasRestore: Boolean(options.wasRestore),
+      });
+    } catch (error) {
+      if (isRetryableEntitlementSyncError(error)) {
+        setIsPurchaseAccessUpdating(true);
+        setScreenState("success");
+        return "pending";
+      }
+
+      throw error;
     }
-
-    const updatedProfile = await syncPaywallPurchase({
-      offeringKey,
-      revenueCatOfferingId:
-        matchedPackage?.presentedOfferingContext?.offeringIdentifier ||
-        matchedPackage?.product.presentedOfferingContext?.offeringIdentifier ||
-        activePaywallConfig?.offerings.find(offering => offering.key === offeringKey)
-          ?.revenueCatOfferingId ||
-        hostedPlacementKey,
-      revenueCatPackageId:
-        matchedPackage?.identifier ||
-        activeEntitlement.productIdentifier ||
-        "unknown",
-      store: activeEntitlement.store || "unknown",
-      entitlementId: activeEntitlement.identifier || "unknown",
-      wasRestore: Boolean(options.wasRestore),
-    });
 
     setSessionUserProfile(updatedProfile);
     syncHostedTrialReminder(
       hostedTarget,
-      updatedProfile.premiumActivatedAt,
-      matchedPackage,
+      updatedProfile.premiumExpiresAt,
+      updatedProfile.premiumWillRenew,
+      attribution.rcPackage,
       options
     );
     setIsPurchaseAccessUpdating(false);
     setScreenState("success");
     return true;
   }, [
-    hostedPlacementKey,
     hostedTarget,
-    setSessionPremiumStatus,
     setSessionUserProfile,
   ]);
 
@@ -372,9 +390,52 @@ export default function HostedRevenueCatPaywallScreen() {
         return;
       }
 
+      const discountPackage =
+        hostedTarget === "exit"
+          ? getPackageByProductId(
+              hostedResult.offerings,
+              REVENUECAT_OFFERINGS.SUMMER_OFFER,
+              REVENUECAT_PRODUCTS.YEARLY_DISCOUNT
+            )
+          : null;
+      const normalYearlyPackage =
+        hostedTarget === "exit"
+          ? getPackageByProductId(
+              hostedResult.offerings,
+              REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD,
+              REVENUECAT_PRODUCTS.YEARLY
+            )
+          : null;
+      const canCompareYearlyPrices = Boolean(
+        discountPackage?.product.currencyCode &&
+          normalYearlyPackage?.product.currencyCode &&
+          discountPackage.product.currencyCode ===
+            normalYearlyPackage.product.currencyCode
+      );
+      const normalYearlyPriceVariable = canCompareYearlyPrices
+        ? normalYearlyPackage?.product.priceString || ""
+        : "";
+      const customVariables =
+        hostedTarget === "exit"
+          ? {
+              [REVENUECAT_SUMMER_PAYWALL_VARIABLES.NORMAL_YEARLY_PRICE]:
+                CustomVariableValue.string(normalYearlyPriceVariable),
+            }
+          : undefined;
+
+      if (hostedTarget === "exit") {
+        logSummerPaywallPricing({
+          discountPackage,
+          normalYearlyPackage,
+          canCompareYearlyPrices,
+          normalYearlyPriceVariable,
+        });
+      }
+
       setHostedPaywallState({
         offering: hostedResult.offering,
         offerings: hostedResult.offerings,
+        customVariables,
         isReady: true,
       });
     };
@@ -484,11 +545,11 @@ export default function HostedRevenueCatPaywallScreen() {
           action: "purchase",
           packageId: packageBeingPurchased.identifier,
         },
-        getPaywallOfferingKey(
-          hostedTarget,
-          packageBeingPurchased,
-          paywallConfigRef.current
-        )
+        hostedTarget === "exit"
+          ? "yearly_exit_offer"
+          : packageBeingPurchased.packageType === PACKAGE_TYPE.WEEKLY
+            ? "weekly"
+            : "yearly"
       );
     },
     [hostedTarget, trackEvent]
@@ -723,6 +784,7 @@ export default function HostedRevenueCatPaywallScreen() {
             options={{
               offering: hostedPaywallState.offering,
               displayCloseButton: true,
+              customVariables: hostedPaywallState.customVariables,
             }}
             onPurchaseStarted={handleHostedPurchaseStarted}
             onPurchaseCompleted={handleHostedPurchaseCompleted}

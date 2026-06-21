@@ -241,12 +241,16 @@ Current paywall architecture:
 
 - MongoDB stores paywall offerings, templates, placement mappings, raw paywall events, and the singleton interruptive/cooldown configuration
 - the mobile client asks `GET /paywall/config` for a placement-specific paywall decision before opening the paywall screen
-- Home merchandising can surface a non-interruptive summer offer card when the admin singleton allows it; that card logs an upgrade intent and opens the existing `subscription_screen` placement instead of introducing a separate purchase path
+- Home merchandising can surface a non-interruptive summer offer card when the admin singleton allows it; that card is the only entry to the hosted summer offering and uses `post_auth_exit_offer` tracking
 - the backend resolves lifetime-launch eligibility, template fallback, and interruptive eligibility from stored config plus recent user event history
-- the mobile app still asks the backend for placement/template resolution, but the post-auth purchase step hands off into a RevenueCat-hosted main paywall; dismissing that hosted paywall returns directly to the normal post-auth destination without a second purchase prompt, spin wheel, or exit offer
-- after a successful checkout or restore, the client calls `POST /paywall/purchase-sync` so backend user premium state, purchased plan attribution, and lifetime sold counts stay authoritative
+- RevenueCat routing is centralized and explicit: post-auth and contextual premium gates both use `journalio_offering_other_screens_standard`, Home summer uses `journalio_offering_post_onboarding_exit`, and lifetime uses `journalio_offering_lifetime`; the legacy post-onboarding standard offering is not referenced because its attached exit behavior must remain unreachable
+- package lookup uses exact App Store product identifiers, and every displayed purchasable price comes from the same package's StoreKit-localized `priceString`; backend prices are not purchase fallbacks
+- the post-auth purchase step hands off into its explicit RevenueCat-hosted standard paywall; dismissing it returns directly to the normal post-auth destination without a second purchase prompt, spin wheel, or exit offer
+- after a successful checkout or restore, the client requires the exact `Journal.IO Pro` entitlement, derives plan attribution from its active product, and then asks the backend to verify the authenticated App User ID before the profile is updated
+- the authenticated app shell also performs a RevenueCat bootstrap/foreground refresh and then calls `POST /paywall/entitlement-sync`; failed refreshes leave the cached membership state unchanged until verification succeeds again
+- the backend receives `POST /webhooks/revenuecat`, authenticates the configured bearer token, validates `app_id` plus environment allowlists, records an idempotent event ledger, and then re-fetches the current subscriber state from RevenueCat instead of trusting webhook event-type translations
 - premium-intent and paywall lifecycle events are written through `POST /paywall/events` and used for cooldown gating and future paywall tuning
-- the user schema stores premium attribution fields such as `premiumPlanKey`, `premiumActivatedAt`, `premiumSource`, and `lifetimePurchaseRecordedAt` so premium gating and campaign limits are not inferred only from local client state
+- the user schema stores verified premium attribution fields such as `premiumPlanKey`, `premiumActivatedAt`, `premiumProductId`, `premiumExpiresAt`, `premiumWillRenew`, `premiumVerifiedAt`, `premiumRevenueCatRequestDate`, `revenueCatAppUserId`, `premiumSource`, and `lifetimePurchaseRecordedAt` so premium gating and lifecycle UX are not inferred only from local client state
 
 Current streaks architecture:
 

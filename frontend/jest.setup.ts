@@ -23,11 +23,6 @@ jest.mock(
     GOOGLE_IOS_CLIENT_ID: "",
     REVENUECAT_IOS_API_KEY: "",
     REVENUECAT_ANDROID_API_KEY: "",
-    REVENUECAT_ENTITLEMENT_ID: "premium",
-    REVENUECAT_MAIN_PAYWALL_OFFERING_ID: "",
-    REVENUECAT_EXIT_PAYWALL_OFFERING_ID: "",
-    REVENUECAT_OTHER_SCREENS_OFFERING_ID: "",
-    REVENUECAT_LIFETIME_OFFERING_ID: "",
     IOS_APP_STORE_ID: "",
     ANDROID_PLAY_STORE_PACKAGE_NAME: "",
   }),
@@ -48,6 +43,11 @@ jest.mock(
     return {
       __esModule: true,
       PAYWALL_RESULT,
+      CustomVariableValue: {
+        string: (value: string) => ({ type: "string", value }),
+        number: (value: number) => ({ type: "number", value }),
+        boolean: (value: boolean) => ({ type: "boolean", value }),
+      },
       default: {
         Paywall: jest.fn(() => null),
         presentPaywall: jest.fn(async () => PAYWALL_RESULT.CANCELLED),

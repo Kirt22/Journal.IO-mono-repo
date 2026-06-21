@@ -43,7 +43,13 @@ export interface IUser extends Document {
   isPremium: boolean;
   premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
   premiumActivatedAt?: Date | null;
-  premiumSource?: "revenuecat_client_sync" | null;
+  premiumProductId?: string | null;
+  premiumExpiresAt?: Date | null;
+  premiumWillRenew?: boolean | null;
+  premiumVerifiedAt?: Date | null;
+  premiumRevenueCatRequestDate?: Date | null;
+  revenueCatAppUserId?: string | null;
+  premiumSource?: "revenuecat_client_sync" | "revenuecat_verified" | null;
   lifetimePurchaseRecordedAt?: Date | null;
   lastPaywallEventAt?: Date | null;
   lastInterruptivePaywallAt?: Date | null;
@@ -111,9 +117,15 @@ const userSchema = new mongoose.Schema<IUser>(
       default: null,
     },
     premiumActivatedAt: { type: Date, default: null },
+    premiumProductId: { type: String, default: null, trim: true },
+    premiumExpiresAt: { type: Date, default: null },
+    premiumWillRenew: { type: Boolean, default: null },
+    premiumVerifiedAt: { type: Date, default: null },
+    premiumRevenueCatRequestDate: { type: Date, default: null },
+    revenueCatAppUserId: { type: String, default: null, trim: true },
     premiumSource: {
       type: String,
-      enum: ["revenuecat_client_sync"],
+      enum: ["revenuecat_client_sync", "revenuecat_verified"],
       default: null,
     },
     lifetimePurchaseRecordedAt: { type: Date, default: null },

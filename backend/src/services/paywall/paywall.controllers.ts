@@ -8,6 +8,10 @@ import {
   syncPaywallPurchase,
   trackPaywallEvent,
 } from "./paywall.service";
+import {
+  isRevenueCatServiceError,
+  syncAuthenticatedRevenueCatEntitlement,
+} from "../revenuecat/revenuecat.service";
 
 const getPaywallConfigController = async (
   req: Request & { user?: { _id?: string } },
@@ -97,7 +101,43 @@ const syncPaywallPurchaseController = async (
       .status(200)
       .json(apiResponse(true, "Your membership has been updated.", profile));
   } catch (error) {
+    if (isRevenueCatServiceError(error)) {
+      return res
+        .status(error.statusCode)
+        .json(apiResponse(false, error.message, {}, { error: { code: error.safeErrorCode } }));
+    }
+
     console.error("Error in syncPaywallPurchaseController:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
+  }
+};
+
+const syncPaywallEntitlementController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
+    }
+
+    const profile = await syncAuthenticatedRevenueCatEntitlement(userId);
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Your membership has been refreshed.", profile));
+  } catch (error) {
+    if (isRevenueCatServiceError(error)) {
+      return res
+        .status(error.statusCode)
+        .json(apiResponse(false, error.message, {}, { error: { code: error.safeErrorCode } }));
+    }
+
+    console.error("Error in syncPaywallEntitlementController:", error);
     return res
       .status(500)
       .json(apiResponse(false, API_MESSAGES.internalError, {}));
@@ -106,6 +146,7 @@ const syncPaywallPurchaseController = async (
 
 export {
   getPaywallConfigController,
+  syncPaywallEntitlementController,
   syncPaywallPurchaseController,
   trackPaywallEventController,
 };

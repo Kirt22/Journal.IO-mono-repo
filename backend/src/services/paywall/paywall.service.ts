@@ -21,6 +21,7 @@ import {
   type PaywallTemplateKey,
 } from "../../schema/paywallTemplate.schema";
 import { userModel } from "../../schema/user.schema";
+import { syncAuthenticatedRevenueCatPurchase } from "../revenuecat/revenuecat.service";
 
 type PaywallConfigInput = {
   placementKey: string;
@@ -51,7 +52,7 @@ type SyncPaywallPurchaseInput = {
 type ResolvedOffering = {
   key: PaywallOfferingKey;
   title: string;
-  price: string;
+  price: string | null;
   priceSuffix: string | null;
   subtitle: string | null;
   badge: string | null;
@@ -111,71 +112,71 @@ const DEFAULT_OFFERINGS: Array<
   {
     key: "weekly",
     title: "WEEKLY",
-    price: "$4.99",
+    price: null,
     priceSuffix: "/week",
     subtitle: "Flexible access",
     badge: null,
     highlight: null,
     enabled: true,
     sortOrder: 1,
-    revenueCatOfferingId: "journalio_offering_dev",
-    revenueCatPackageId: "$rc_weekly",
+    revenueCatOfferingId: "journalio_offering_other_screens_standard",
+    revenueCatPackageId: null,
     purchaseLimit: null,
   },
   {
     key: "monthly",
     title: "MONTHLY",
-    price: "$9.99",
+    price: null,
     priceSuffix: "/month",
     subtitle: "Simple monthly billing",
     badge: null,
     highlight: null,
-    enabled: true,
+    enabled: false,
     sortOrder: 2,
-    revenueCatOfferingId: "journalio_offering_dev",
-    revenueCatPackageId: "$rc_monthly",
+    revenueCatOfferingId: null,
+    revenueCatPackageId: null,
     purchaseLimit: null,
   },
   {
     key: "yearly",
     title: "YEARLY",
-    price: "$59.99",
+    price: null,
     priceSuffix: "/year",
     subtitle: "Best for steady journaling",
     badge: "Most Value",
-    highlight: "$5.00/month",
+    highlight: null,
     enabled: true,
     sortOrder: 3,
-    revenueCatOfferingId: "journalio_offering_dev",
-    revenueCatPackageId: "$rc_annual",
+    revenueCatOfferingId: "journalio_offering_other_screens_standard",
+    revenueCatPackageId: null,
     purchaseLimit: null,
   },
   {
     key: "yearly_exit_offer",
     title: "YEARLY",
-    price: "$29.99",
+    price: null,
     priceSuffix: "/year",
     subtitle: "Discounted yearly access",
     badge: "Limited Time",
-    highlight: "$2.50/month",
+    highlight: null,
     enabled: true,
     sortOrder: 4,
-    revenueCatOfferingId: null,
-    revenueCatPackageId: "$rc_annual",
+    revenueCatOfferingId: "journalio_offering_post_onboarding_exit",
+    revenueCatPackageId: null,
     purchaseLimit: null,
   },
   {
     key: "lifetime",
     title: "LIFETIME",
-    price: "$149.99",
+    price: null,
     priceSuffix: " one-time",
     subtitle: "One-time unlock",
     badge: "One time offer",
     highlight: "First 100 users",
     enabled: true,
     sortOrder: 5,
-    revenueCatOfferingId: "journalio_offering_dev",
-    revenueCatPackageId: "$rc_lifetime",
+    revenueCatOfferingId: "journalio_offering_lifetime",
+    revenueCatPackageId: null,
     purchaseLimit: 100,
   },
 ];
@@ -650,43 +651,14 @@ const ensureDefaultPaywallSetup = async () => {
         { upsert: true }
       );
 
-      const legacyOfferingIdsByKey: Record<PaywallOfferingKey, string[]> = {
-        weekly: ["weekly_standard"],
-        monthly: ["monthly_standard"],
-        yearly: ["yearly_commitment"],
-        yearly_exit_offer: [],
-        lifetime: ["lifetime_launch"],
-      };
-      const legacyPricesByKey: Record<PaywallOfferingKey, string[]> = {
-        weekly: ["$7.99"],
-        monthly: ["$14.99"],
-        yearly: ["$59.99"],
-        yearly_exit_offer: [],
-        lifetime: ["$99.99", "$250"],
-      };
-
       await paywallOfferingModel.updateOne(
-        {
-          key: offering.key,
-          $or: [
-            { revenueCatOfferingId: { $in: legacyOfferingIdsByKey[offering.key] } },
-            { revenueCatOfferingId: { $exists: false } },
-            { revenueCatOfferingId: null },
-            { revenueCatPackageId: { $exists: false } },
-            { revenueCatPackageId: null },
-            { price: { $in: legacyPricesByKey[offering.key] } },
-          ],
-        },
+        { key: offering.key },
         {
           $set: {
-            price: offering.price,
-            priceSuffix: offering.priceSuffix,
-            subtitle: offering.subtitle,
-            badge: offering.badge,
-            highlight: offering.highlight,
+            price: null,
             revenueCatOfferingId: offering.revenueCatOfferingId,
-            revenueCatPackageId: offering.revenueCatPackageId,
-            purchaseLimit: offering.purchaseLimit,
+            revenueCatPackageId: null,
+            ...(offering.key === "monthly" ? { enabled: false } : {}),
           },
         }
       );
@@ -982,7 +954,7 @@ const normalizeResolvedOffering = (
 ): ResolvedOffering => ({
   key: offering.key,
   title: offering.title,
-  price: offering.price,
+  price: offering.price || null,
   priceSuffix: offering.priceSuffix || null,
   subtitle: offering.subtitle || null,
   badge: offering.badge || null,
@@ -1415,82 +1387,10 @@ const trackPaywallEvent = async (
 
 const syncPaywallPurchase = async (
   userId: string,
-  input: SyncPaywallPurchaseInput
+  _input: SyncPaywallPurchaseInput
 ) => {
   await ensureDefaultPaywallSetup();
-
-  const offering = await paywallOfferingModel.findOne({
-    key: input.offeringKey,
-  });
-
-  if (!offering) {
-    return null;
-  }
-
-  const now = new Date();
-  const premiumUpdate = {
-    isPremium: true,
-    premiumPlanKey: getMembershipPlanKeyFromOfferingKey(input.offeringKey),
-    premiumActivatedAt: now,
-    premiumSource: "revenuecat_client_sync",
-  };
-
-  let user = null;
-
-  if (input.offeringKey === "lifetime") {
-    user = await userModel.findOneAndUpdate(
-      { _id: userId, lifetimePurchaseRecordedAt: null },
-      {
-        $set: {
-          ...premiumUpdate,
-          lifetimePurchaseRecordedAt: now,
-        },
-      },
-      { new: true }
-    );
-
-    if (user) {
-      await paywallOfferingModel.updateOne(
-        { key: "lifetime" },
-        { $inc: { purchasedUsersCount: 1 } }
-      );
-    } else {
-      user = await userModel.findByIdAndUpdate(
-        userId,
-        { $set: premiumUpdate },
-        { new: true }
-      );
-    }
-  } else {
-    user = await userModel.findByIdAndUpdate(
-      userId,
-      { $set: premiumUpdate },
-      { new: true }
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
-
-  await paywallEventModel.create({
-    userId,
-    placementKey: "purchase_sync",
-    screenKey: null,
-    eventType: input.wasRestore ? "restore_success" : "purchase_success",
-    templateKey: null,
-    offeringKey: input.offeringKey,
-    wasInterruptive: false,
-    metadata: {
-      revenueCatOfferingId: input.revenueCatOfferingId,
-      revenueCatPackageId: input.revenueCatPackageId,
-      store: input.store,
-      entitlementId: input.entitlementId,
-      wasRestore: Boolean(input.wasRestore),
-    },
-  });
-
-  return buildUserProfilePayload(user);
+  return syncAuthenticatedRevenueCatPurchase(userId);
 };
 
 export {

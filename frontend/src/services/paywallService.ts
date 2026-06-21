@@ -1,4 +1,4 @@
-import { request } from "../utils/apiClient";
+import { ApiError, request } from "../utils/apiClient";
 import type { AuthUser } from "./authService";
 
 type PaywallOfferingKey =
@@ -25,7 +25,7 @@ type PaywallFeatureCard = {
 type PaywallOffering = {
   key: PaywallOfferingKey;
   title: string;
-  price: string;
+  price: string | null;
   priceSuffix: string | null;
   subtitle: string | null;
   badge: string | null;
@@ -98,6 +98,10 @@ type PaywallPurchaseSyncPayload = {
   store: string;
   entitlementId: string;
   wasRestore?: boolean;
+};
+
+type PaywallEntitlementSyncPayload = {
+  reason?: string;
 };
 
 const PAYWALL_DEBUG_PREFIX = "[PaywallDebug]";
@@ -242,9 +246,41 @@ const syncPaywallPurchase = async (payload: PaywallPurchaseSyncPayload) => {
   return response.data;
 };
 
-export { getPaywallConfig, syncPaywallPurchase, trackPaywallEvent };
+const syncPaywallEntitlement = async (
+  payload: PaywallEntitlementSyncPayload = {}
+) => {
+  logPaywallDebug("entitlement sync requested", payload);
+
+  const response = await request<AuthUser>("/paywall/entitlement-sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+  logPaywallDebug("entitlement sync succeeded", {
+    userId: response.data.userId,
+    isPremium: response.data.isPremium,
+    premiumPlanKey: response.data.premiumPlanKey,
+    premiumExpiresAt: response.data.premiumExpiresAt,
+    premiumWillRenew: response.data.premiumWillRenew,
+  });
+
+  return response.data;
+};
+
+const isRetryableEntitlementSyncError = (error: unknown) =>
+  error instanceof ApiError &&
+  (error.isNetworkError || error.status === 502 || error.status === 503);
+
+export {
+  getPaywallConfig,
+  isRetryableEntitlementSyncError,
+  syncPaywallEntitlement,
+  syncPaywallPurchase,
+  trackPaywallEvent,
+};
 export type {
   GetPaywallConfigParams,
+  PaywallEntitlementSyncPayload,
   PaywallEventPayload,
   PaywallFeatureCard,
   PaywallOffering,

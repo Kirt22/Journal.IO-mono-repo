@@ -11,6 +11,11 @@ import Purchases, {
 } from "react-native-purchases";
 import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 import { env } from "../config/env";
+import {
+  REVENUECAT_ENTITLEMENT_ID,
+  REVENUECAT_OFFERINGS,
+  REVENUECAT_PRODUCTS,
+} from "../config/revenueCat";
 import type { PaywallOffering } from "./paywallService";
 
 type RevenueCatPlanKey =
@@ -65,19 +70,20 @@ type RevenueCatPackageMetadata = {
   revenueCatPackageId: string | null;
 };
 
+type RevenueCatPurchaseAttribution = {
+  activeEntitlement: PurchasesEntitlementInfo;
+  offeringKey: PaywallOffering["key"];
+  productIdentifier: string;
+  revenueCatOfferingId: string;
+  revenueCatPackageId: string;
+  rcPackage: PurchasesPackage | null;
+};
+
 type RevenueCatHostedPaywallTarget = "main" | "exit";
 
 type RevenueCatPlanSelectionContext = {
   placementKey?: string | null;
 };
-
-const DEFAULT_MAIN_PAYWALL_OFFERING_ID =
-  "journalio_offering_post_onboarding_standard";
-const DEFAULT_EXIT_PAYWALL_OFFERING_ID =
-  "journalio_offering_post_onboarding_exit";
-const DEFAULT_OTHER_SCREENS_OFFERING_ID =
-  "journalio_offering_other_screens_standard";
-const DEFAULT_LIFETIME_OFFERING_ID = "journalio_offering_lifetime";
 
 type RevenueCatHostedPaywallResult = {
   status: "purchased" | "restored" | "cancelled" | "notPresented" | "error";
@@ -135,24 +141,6 @@ const logRevenueCatWarn = (event: string, data?: Record<string, unknown>) => {
   console.warn(`${REVENUECAT_DEBUG_PREFIX} ${event}`, data ?? {});
 };
 
-const getSummerOfferPaywallOfferingId = () =>
-  env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID;
-
-const getExitOfferPaywallOfferingId = () => {
-  const configuredExitOfferingId = env.revenueCatExitPaywallOfferingId;
-  const summerOfferPaywallOfferingId = getSummerOfferPaywallOfferingId();
-
-  if (
-    configuredExitOfferingId &&
-    configuredExitOfferingId !== summerOfferPaywallOfferingId &&
-    configuredExitOfferingId !== DEFAULT_OTHER_SCREENS_OFFERING_ID
-  ) {
-    return configuredExitOfferingId;
-  }
-
-  return DEFAULT_EXIT_PAYWALL_OFFERING_ID;
-};
-
 const summarizeError = (error: unknown) => {
   if (error instanceof Error) {
     return {
@@ -185,14 +173,10 @@ const summarizeEnv = () => ({
   iosApiKeyPrefix: redactValue(env.revenueCatIosApiKey),
   hasAndroidApiKey: Boolean(env.revenueCatAndroidApiKey),
   androidApiKeyPrefix: redactValue(env.revenueCatAndroidApiKey),
-  entitlementId: env.revenueCatEntitlementId,
-  standardOfferingId:
-    env.revenueCatMainPaywallOfferingId || DEFAULT_MAIN_PAYWALL_OFFERING_ID,
-  mainOfferingId: getSummerOfferPaywallOfferingId(),
-  exitOfferingId: getExitOfferPaywallOfferingId(),
-  otherScreensOfferingId:
-    env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID,
-  lifetimeOfferingId: env.revenueCatLifetimeOfferingId || DEFAULT_LIFETIME_OFFERING_ID,
+  entitlementId: REVENUECAT_ENTITLEMENT_ID,
+  standardOfferingId: REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD,
+  summerOfferingId: REVENUECAT_OFFERINGS.SUMMER_OFFER,
+  lifetimeOfferingId: REVENUECAT_OFFERINGS.LIFETIME,
 });
 
 const summarizeProduct = (rcPackage: PurchasesPackage) => ({
@@ -291,28 +275,31 @@ const getRevenueCatApiKey = () => {
 const getRevenueCatHostedOfferingId = (
   target: RevenueCatHostedPaywallTarget,
   _placementKey?: string | null
-) =>
-  target === "main"
-    ? getSummerOfferPaywallOfferingId()
-    : getExitOfferPaywallOfferingId();
+) => {
+  if (target === "exit") {
+    return REVENUECAT_OFFERINGS.SUMMER_OFFER;
+  }
+
+  return REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD;
+};
 
 const getDedicatedRevenueCatOfferingId = (
   configuredOffering: PaywallOffering,
   context?: RevenueCatPlanSelectionContext
 ) => {
   if (configuredOffering.key === "lifetime") {
-    return env.revenueCatLifetimeOfferingId || DEFAULT_LIFETIME_OFFERING_ID;
+    return REVENUECAT_OFFERINGS.LIFETIME;
   }
 
   if (
     configuredOffering.key === "yearly_exit_offer" ||
     context?.placementKey === "post_auth_exit_offer"
   ) {
-    return getExitOfferPaywallOfferingId();
+    return REVENUECAT_OFFERINGS.SUMMER_OFFER;
   }
 
   if (context?.placementKey === "post_auth") {
-    return getSummerOfferPaywallOfferingId();
+    return REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD;
   }
 
   if (
@@ -320,9 +307,7 @@ const getDedicatedRevenueCatOfferingId = (
     configuredOffering.key === "monthly" ||
     configuredOffering.key === "yearly"
   ) {
-    return (
-      env.revenueCatOtherScreensOfferingId || DEFAULT_OTHER_SCREENS_OFFERING_ID
-    );
+    return REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD;
   }
 
   return configuredOffering.revenueCatOfferingId || null;
@@ -386,26 +371,6 @@ const formatPriceWithSuffix = (price: string, suffix?: string | null) => {
   }
 
   return trimmedSuffix.startsWith("/") ? `${price}${trimmedSuffix}` : `${price} ${trimmedSuffix}`;
-};
-
-const parsePriceValue = (priceLabel?: string | null) => {
-  if (!priceLabel) {
-    return null;
-  }
-
-  const normalized = priceLabel.replace(/[^0-9.,]/g, "");
-
-  if (!normalized) {
-    return null;
-  }
-
-  const parsed = Number.parseFloat(
-    normalized.includes(".")
-      ? normalized.replace(/,/g, "")
-      : normalized.replace(",", ".")
-  );
-
-  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const getConfiguredOfferingHighlight = (
@@ -500,6 +465,36 @@ const getPlanKeyFromOfferingKey = (
   }
 };
 
+const getProductIdentifierForOfferingKey = (
+  offeringKey?: PaywallOffering["key"]
+) => {
+  switch (offeringKey) {
+    case "weekly":
+      return REVENUECAT_PRODUCTS.WEEKLY;
+    case "yearly":
+      return REVENUECAT_PRODUCTS.YEARLY;
+    case "yearly_exit_offer":
+      return REVENUECAT_PRODUCTS.YEARLY_DISCOUNT;
+    case "lifetime":
+      return REVENUECAT_PRODUCTS.LIFETIME;
+    default:
+      return null;
+  }
+};
+
+const getProductIdentifierForPlanKey = (planKey: RevenueCatPlanKey) => {
+  switch (planKey) {
+    case "weekly":
+      return REVENUECAT_PRODUCTS.WEEKLY;
+    case "annual":
+      return REVENUECAT_PRODUCTS.YEARLY;
+    case "lifetime":
+      return REVENUECAT_PRODUCTS.LIFETIME;
+    default:
+      return null;
+  }
+};
+
 const getRevenueCatOfferingIdFromPackage = (
   rcPackage: PurchasesPackage | null
 ) =>
@@ -570,60 +565,100 @@ const getPackagesAcrossAllOfferings = (offerings: PurchasesOfferings | null) => 
   );
 };
 
-const sortPackagesByAscendingPrice = (packages: PurchasesPackage[]) =>
-  [...packages].sort((left, right) => {
-    const leftPrice = parsePriceValue(left.product.priceString);
-    const rightPrice = parsePriceValue(right.product.priceString);
+const getOfferingById = (
+  offerings: PurchasesOfferings | null,
+  offeringId: string
+) => offerings?.all[offeringId] ?? null;
 
-    if (leftPrice === null && rightPrice === null) {
-      return 0;
-    }
+const getPackagesForOffering = (
+  offerings: PurchasesOfferings | null,
+  offeringId: string
+) => {
+  const offering = getOfferingById(offerings, offeringId);
 
-    if (leftPrice === null) {
-      return 1;
-    }
+  if (!offering) {
+    logRevenueCatWarn("expected offering missing", {
+      expectedOfferingId: offeringId,
+      availableOfferingIds: offerings ? Object.keys(offerings.all) : [],
+    });
+    return [];
+  }
 
-    if (rightPrice === null) {
-      return -1;
-    }
+  return getPreferredPackages(offering);
+};
 
-    return leftPrice - rightPrice;
-  });
+const getPackageByProductId = (
+  offerings: PurchasesOfferings | null,
+  offeringId: string,
+  productIdentifier: string
+) => {
+  const packages = getPackagesForOffering(offerings, offeringId);
+  const matchedPackage =
+    packages.find(
+      rcPackage => rcPackage.product.identifier === productIdentifier
+    ) ?? null;
 
-const sortPackagesByPriceDistance = (
-  packages: PurchasesPackage[],
-  targetPrice: number
-) =>
-  [...packages].sort((left, right) => {
-    const leftPrice = parsePriceValue(left.product.priceString);
-    const rightPrice = parsePriceValue(right.product.priceString);
+  if (!matchedPackage) {
+    logRevenueCatWarn("expected product missing from offering", {
+      expectedOfferingId: offeringId,
+      expectedProductId: productIdentifier,
+      actualProductIds: packages.map(
+        rcPackage => rcPackage.product.identifier
+      ),
+    });
+  }
 
-    if (leftPrice === null && rightPrice === null) {
-      return 0;
-    }
+  return matchedPackage;
+};
 
-    if (leftPrice === null) {
-      return 1;
-    }
+const getRevenueCatOfferingKeyForProductIdentifier = (
+  productIdentifier?: string | null
+): PaywallOffering["key"] | null => {
+  switch (productIdentifier) {
+    case REVENUECAT_PRODUCTS.WEEKLY:
+      return "weekly";
+    case REVENUECAT_PRODUCTS.YEARLY:
+      return "yearly";
+    case REVENUECAT_PRODUCTS.YEARLY_DISCOUNT:
+      return "yearly_exit_offer";
+    case REVENUECAT_PRODUCTS.LIFETIME:
+      return "lifetime";
+    default:
+      return null;
+  }
+};
 
-    if (rightPrice === null) {
-      return -1;
-    }
-
-    return Math.abs(leftPrice - targetPrice) - Math.abs(rightPrice - targetPrice);
-  });
+const getDefaultOfferingIdForOfferingKey = (
+  offeringKey: PaywallOffering["key"]
+) => {
+  switch (offeringKey) {
+    case "yearly_exit_offer":
+      return REVENUECAT_OFFERINGS.SUMMER_OFFER;
+    case "lifetime":
+      return REVENUECAT_OFFERINGS.LIFETIME;
+    case "weekly":
+    case "yearly":
+    case "monthly":
+    default:
+      return REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD;
+  }
+};
 
 const findRevenueCatPackageByPlanKey = (
   offerings: PurchasesOfferings | null,
   planKey: RevenueCatPlanKey
 ) => {
+  const productIdentifier = getProductIdentifierForPlanKey(planKey);
   const matchedPackage =
-    getPackagesAcrossAllOfferings(offerings).find(
-      rcPackage => getPlanKey(rcPackage) === planKey
-    ) || null;
+    (productIdentifier
+      ? getPackagesAcrossAllOfferings(offerings).find(
+          rcPackage => rcPackage.product.identifier === productIdentifier
+        )
+      : null) || null;
 
   logRevenueCatDebug("find package by plan key", {
     planKey,
+    expectedProductIdentifier: productIdentifier,
     matchedPackage: matchedPackage ? summarizeProduct(matchedPackage) : null,
   });
 
@@ -652,63 +687,6 @@ const findRevenueCatPackageByProductIdentifier = (
   return matchedPackage;
 };
 
-const selectPreferredConfiguredPackage = (
-  packages: PurchasesPackage[],
-  configuredOffering: PaywallOffering
-) => {
-  if (!packages.length) {
-    logRevenueCatWarn("package selection failed: no candidate packages", {
-      configuredOfferingKey: configuredOffering.key,
-      configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
-      configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
-      configuredPrice: configuredOffering.price,
-    });
-    return null;
-  }
-
-  if (configuredOffering.key === "yearly_exit_offer") {
-    const configuredPriceValue = parsePriceValue(configuredOffering.price);
-
-    if (configuredPriceValue !== null) {
-      const selectedPackage =
-        sortPackagesByPriceDistance(packages, configuredPriceValue)[0] || null;
-
-      logRevenueCatDebug("selected yearly exit package by price distance", {
-        configuredPrice: configuredOffering.price,
-        configuredPriceValue,
-        selectedPackage: selectedPackage
-          ? summarizeProduct(selectedPackage)
-          : null,
-        candidatePackages: packages.map(summarizeProduct),
-      });
-
-      return selectedPackage;
-    }
-
-    const selectedPackage = sortPackagesByAscendingPrice(packages)[0] || null;
-
-    logRevenueCatDebug("selected yearly exit package by ascending price", {
-      configuredPrice: configuredOffering.price,
-      selectedPackage: selectedPackage ? summarizeProduct(selectedPackage) : null,
-      candidatePackages: packages.map(summarizeProduct),
-    });
-
-    return selectedPackage;
-  }
-
-  const selectedPackage = packages[0] || null;
-
-  logRevenueCatDebug("selected configured package", {
-    configuredOfferingKey: configuredOffering.key,
-    configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
-    configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
-    selectedPackage: selectedPackage ? summarizeProduct(selectedPackage) : null,
-    candidatePackages: packages.map(summarizeProduct),
-  });
-
-  return selectedPackage;
-};
-
 const findRevenueCatPackage = (
   offerings: PurchasesOfferings | null,
   configuredOffering: PaywallOffering,
@@ -726,82 +704,62 @@ const findRevenueCatPackage = (
     configuredOffering,
     context
   );
-  const candidateOfferings = targetOfferingId
-    ? [offerings.all[targetOfferingId]].filter(
-        Boolean
-      ) as PurchasesOffering[]
-    : Object.values(offerings.all);
-
-  const preferredPackages = candidateOfferings.flatMap(offering =>
-    getPreferredPackages(offering)
+  const productIdentifier = getProductIdentifierForOfferingKey(
+    configuredOffering.key
   );
-  const fallbackPlanKey = getPlanKeyFromOfferingKey(configuredOffering.key);
 
-  logRevenueCatDebug("find configured package candidates", {
+  logRevenueCatDebug("find exact configured package", {
     configuredOfferingKey: configuredOffering.key,
-    configuredRevenueCatOfferingId: configuredOffering.revenueCatOfferingId,
-    configuredRevenueCatPackageId: configuredOffering.revenueCatPackageId,
-    configuredPrice: configuredOffering.price,
     contextPlacementKey: context?.placementKey,
     targetOfferingId,
-    foundTargetOffering: targetOfferingId
-      ? Boolean(offerings.all[targetOfferingId])
-      : null,
-    candidateOfferingIds: candidateOfferings.map(offering => offering.identifier),
-    fallbackPlanKey,
-    preferredPackages: preferredPackages.map(summarizeProduct),
+    productIdentifier,
   });
 
-  if (
-    configuredOffering.key === "yearly_exit_offer" &&
-    !configuredOffering.revenueCatOfferingId
-  ) {
-    return selectPreferredConfiguredPackage(
-      preferredPackages.filter(
-        rcPackage => getPlanKey(rcPackage) === fallbackPlanKey
-      ),
-      configuredOffering
-    );
+  if (!targetOfferingId || !productIdentifier) {
+    logRevenueCatWarn("exact package lookup is not configured", {
+      configuredOfferingKey: configuredOffering.key,
+      targetOfferingId,
+      productIdentifier,
+    });
+    return null;
   }
 
-  if (configuredOffering.revenueCatPackageId) {
-    const exactMatches = preferredPackages.filter(
-      rcPackage => rcPackage.identifier === configuredOffering.revenueCatPackageId
-    );
-
-    const exactMatch = selectPreferredConfiguredPackage(
-      exactMatches,
-      configuredOffering
-    );
-
-    if (exactMatch) {
-      return exactMatch;
-    }
-  }
-
-  return selectPreferredConfiguredPackage(
-    preferredPackages.filter(
-      rcPackage => getPlanKey(rcPackage) === fallbackPlanKey
-    ),
-    configuredOffering
+  return getPackageByProductId(
+    offerings,
+    targetOfferingId,
+    productIdentifier
   );
 };
 
 const getMatchingEntitlement = (
   customerInfo: CustomerInfo
 ): PurchasesEntitlementInfo | null => {
-  const entitlementId = env.revenueCatEntitlementId;
-  const activeEntitlements = Object.values(customerInfo.entitlements.active);
+  const exactMatch =
+    customerInfo.entitlements.active[REVENUECAT_ENTITLEMENT_ID] ?? null;
 
-  if (entitlementId) {
-    const exactMatch = customerInfo.entitlements.active[entitlementId] ?? null;
-
-    if (exactMatch) {
-      return exactMatch;
-    }
+  if (!exactMatch) {
+    logRevenueCatWarn("expected entitlement is not active", {
+      expectedEntitlementId: REVENUECAT_ENTITLEMENT_ID,
+      activeEntitlementIds: Object.keys(customerInfo.entitlements.active),
+    });
   }
 
-  return activeEntitlements[0] ?? null;
+  if (
+    exactMatch?.productIdentifier &&
+    !Object.values(REVENUECAT_PRODUCTS).includes(
+      exactMatch.productIdentifier as
+        (typeof REVENUECAT_PRODUCTS)[keyof typeof REVENUECAT_PRODUCTS]
+    )
+  ) {
+    logRevenueCatWarn("expected entitlement product is not recognized", {
+      expectedEntitlementId: REVENUECAT_ENTITLEMENT_ID,
+      productIdentifier: exactMatch.productIdentifier,
+      knownProductIdentifiers: Object.values(REVENUECAT_PRODUCTS),
+    });
+    return null;
+  }
+
+  return exactMatch;
 };
 
 async function configureRevenueCat(appUserID?: string | null) {
@@ -932,8 +890,10 @@ async function getRevenueCatOfferings(appUserID?: string | null) {
 
   try {
     const offerings = await Purchases.getOfferings();
+    const currentAppUserId = await Purchases.getAppUserID().catch(() => null);
 
     logRevenueCatDebug("offerings fetch succeeded", {
+      appUserId: redactValue(currentAppUserId),
       summary: summarizeOfferings(offerings),
     });
 
@@ -981,8 +941,34 @@ async function getRevenueCatOfferings(appUserID?: string | null) {
       ],
     });
 
-    throw error;
+    return null;
   }
+}
+
+async function getOtherScreensStandardOffering(appUserID?: string | null) {
+  const offerings = await getRevenueCatOfferings(appUserID);
+  return getOfferingById(
+    offerings,
+    REVENUECAT_OFFERINGS.OTHER_SCREENS_STANDARD
+  );
+}
+
+async function getSummerOfferPackage(appUserID?: string | null) {
+  const offerings = await getRevenueCatOfferings(appUserID);
+  return getPackageByProductId(
+    offerings,
+    REVENUECAT_OFFERINGS.SUMMER_OFFER,
+    REVENUECAT_PRODUCTS.YEARLY_DISCOUNT
+  );
+}
+
+async function getLifetimePackage(appUserID?: string | null) {
+  const offerings = await getRevenueCatOfferings(appUserID);
+  return getPackageByProductId(
+    offerings,
+    REVENUECAT_OFFERINGS.LIFETIME,
+    REVENUECAT_PRODUCTS.LIFETIME
+  );
 }
 
 async function getRevenueCatHostedOffering(
@@ -1000,17 +986,41 @@ async function getRevenueCatHostedOffering(
   });
 
   const offerings = await getRevenueCatOfferings(appUserID);
-  const offering =
+  const resolvedOffering =
     offeringId && offerings ? offerings.all[offeringId] ?? null : null;
+  const expectedProductIds: string[] =
+    target === "exit"
+      ? [REVENUECAT_PRODUCTS.YEARLY_DISCOUNT]
+      : [
+          REVENUECAT_PRODUCTS.YEARLY,
+          REVENUECAT_PRODUCTS.WEEKLY,
+        ];
+  const hasExpectedProduct = Boolean(
+    resolvedOffering?.availablePackages.some(rcPackage =>
+      expectedProductIds.includes(rcPackage.product.identifier)
+    )
+  );
+  const offering = hasExpectedProduct ? resolvedOffering : null;
 
   logRevenueCatDebug("hosted offering resolved", {
     target,
     placementKey,
     resolvedOfferingId: offeringId,
     foundOffering: Boolean(offering),
-    offering: summarizeOffering(offering),
+    expectedProductIds,
+    offering: summarizeOffering(resolvedOffering),
     allOfferings: summarizeOfferings(offerings),
   });
+
+  if (resolvedOffering && !hasExpectedProduct) {
+    logRevenueCatWarn("hosted offering has no expected products", {
+      resolvedOfferingId: offeringId,
+      expectedProductIds,
+      actualProductIds: resolvedOffering.availablePackages.map(
+        rcPackage => rcPackage.product.identifier
+      ),
+    });
+  }
 
   return {
     offeringId,
@@ -1272,7 +1282,7 @@ async function presentRevenueCatHostedPaywall(
 async function refreshRevenueCatEntitlementState(appUserID?: string | null) {
   logRevenueCatDebug("entitlement refresh requested", {
     appUserId: redactValue(appUserID),
-    expectedEntitlementId: env.revenueCatEntitlementId,
+    expectedEntitlementId: REVENUECAT_ENTITLEMENT_ID,
   });
 
   const customerInfo = await getRevenueCatCustomerInfo(appUserID);
@@ -1335,14 +1345,16 @@ function getRevenueCatPackagesForPlanKey(
   offerings: PurchasesOfferings | null,
   planKey: RevenueCatPlanKey
 ) {
-  const packages = sortPackagesByAscendingPrice(
-    getPackagesAcrossAllOfferings(offerings).filter(
-      rcPackage => getPlanKey(rcPackage) === planKey
-    )
-  );
+  const productIdentifier = getProductIdentifierForPlanKey(planKey);
+  const packages = productIdentifier
+    ? getPackagesAcrossAllOfferings(offerings).filter(
+        rcPackage => rcPackage.product.identifier === productIdentifier
+      )
+    : [];
 
   logRevenueCatDebug("packages resolved for plan key", {
     planKey,
+    productIdentifier,
     packageCount: packages.length,
     packages: packages.map(summarizeProduct),
   });
@@ -1364,44 +1376,44 @@ function getRevenueCatPaywallPlans(
   if (configuredOfferings?.length) {
     const plans = [...configuredOfferings]
       .sort((left, right) => left.sortOrder - right.sortOrder)
-      .map<RevenueCatPaywallPlan>(configuredOffering => {
+      .flatMap<RevenueCatPaywallPlan>(configuredOffering => {
         const rcPackage = findRevenueCatPackage(
           offerings,
           configuredOffering,
           context
         );
+
+        if (!rcPackage) {
+          return [];
+        }
+
         const planKey = getPlanKeyFromOfferingKey(configuredOffering.key);
         const resolvedOfferingId = getDedicatedRevenueCatOfferingId(
           configuredOffering,
           context
         );
 
-        return {
+        return [{
           id: configuredOffering.key,
           title: configuredOffering.title,
-          durationLabel: rcPackage?.product.priceString || configuredOffering.price,
-          price: rcPackage
-            ? formatPriceWithSuffix(
-                rcPackage.product.priceString,
-                getBillingSuffix(planKey)
-              )
-            : formatPriceWithSuffix(
-                configuredOffering.price,
-                configuredOffering.priceSuffix
-              ),
+          durationLabel: rcPackage.product.priceString,
+          price: formatPriceWithSuffix(
+            rcPackage.product.priceString,
+            getBillingSuffix(planKey)
+          ),
           subtitle:
             configuredOffering.subtitle ||
-            (rcPackage ? getPlanSubtitle(planKey, rcPackage) : "Premium access"),
+            getPlanSubtitle(planKey, rcPackage),
           badge: configuredOffering.badge || undefined,
           highlight: getConfiguredOfferingHighlight(configuredOffering),
           planKey,
           revenueCatOfferingId:
             getRevenueCatOfferingIdFromPackage(rcPackage) ||
             resolvedOfferingId,
-          revenueCatPackageId: rcPackage?.identifier || null,
+          revenueCatPackageId: rcPackage.identifier,
           rcPackage,
           introOffer: getIntroOffer(rcPackage),
-        };
+        }];
       });
 
     logRevenueCatDebug("configured paywall plans resolved", {
@@ -1496,6 +1508,47 @@ function getRevenueCatActiveEntitlement(customerInfo: CustomerInfo | null) {
   return getMatchingEntitlement(customerInfo);
 }
 
+function getRevenueCatPurchaseAttribution(
+  customerInfo: CustomerInfo | null,
+  offerings: PurchasesOfferings | null
+): RevenueCatPurchaseAttribution | null {
+  const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
+  const productIdentifier = activeEntitlement?.productIdentifier ?? null;
+  const offeringKey = getRevenueCatOfferingKeyForProductIdentifier(
+    productIdentifier
+  );
+
+  if (!activeEntitlement || !productIdentifier || !offeringKey) {
+    logRevenueCatWarn("purchase attribution unavailable", {
+      expectedEntitlementId: REVENUECAT_ENTITLEMENT_ID,
+      activeProductIdentifier: productIdentifier,
+      knownProductIdentifiers: Object.values(REVENUECAT_PRODUCTS),
+    });
+    return null;
+  }
+
+  const rcPackage = findRevenueCatPackageByProductIdentifier(
+    offerings,
+    productIdentifier
+  );
+
+  return {
+    activeEntitlement,
+    offeringKey,
+    productIdentifier,
+    revenueCatOfferingId:
+      getRevenueCatOfferingIdFromPackage(rcPackage) ||
+      getDefaultOfferingIdForOfferingKey(offeringKey),
+    revenueCatPackageId: rcPackage?.identifier || productIdentifier,
+    rcPackage,
+  };
+}
+
+const getOfferingsSafe = getRevenueCatOfferings;
+const purchasePackageSafe = purchaseRevenueCatPackage;
+const restorePurchasesSafe = restoreRevenueCatPurchases;
+const hasProEntitlement = hasRevenueCatPremiumAccess;
+
 function getRevenueCatConfigurationError() {
   const apiKey = getRevenueCatApiKey();
 
@@ -1515,19 +1568,31 @@ export {
   getRevenueCatCustomerInfo,
   getRevenueCatHostedOffering,
   getRevenueCatHostedOfferingId,
+  getLifetimePackage,
+  getOfferingsSafe,
+  getOfferingById,
   getRevenueCatOfferingDetails,
   getRevenueCatOfferings,
+  getOtherScreensStandardOffering,
+  getPackageByProductId,
+  getPackagesForOffering,
+  getRevenueCatPurchaseAttribution,
+  getRevenueCatOfferingKeyForProductIdentifier,
+  getSummerOfferPackage,
   findRevenueCatPackageByProductIdentifier,
   getRevenueCatPackageMetadataForPlanKey,
   getRevenueCatPackagesForPlanKey,
   getRevenueCatPaywallPlans,
   hasPremiumAccess,
+  hasProEntitlement,
   hasRevenueCatHostedPaywall,
   hasRevenueCatPremiumAccess,
   presentRevenueCatHostedPaywall,
+  purchasePackageSafe,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
+  restorePurchasesSafe,
   syncRevenueCatIdentity,
 };
 export type {
@@ -1539,4 +1604,5 @@ export type {
   RevenueCatPackageMetadata,
   RevenueCatPaywallPlan,
   RevenueCatPlanKey,
+  RevenueCatPurchaseAttribution,
 };

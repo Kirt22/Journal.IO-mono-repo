@@ -18,7 +18,6 @@ const DEFAULT_REMINDER_BODY =
 const FREE_TRIAL_ENDING_TITLE = "Your free trial ends in 2 days";
 const FREE_TRIAL_ENDING_BODY =
   "Journal.IO Premium will renew soon if you keep the yearly plan. Cancel anytime from your subscription settings.";
-const FREE_TRIAL_REMINDER_DELAY_MS = 5 * 24 * 60 * 60 * 1000;
 const ONBOARDING_REMINDER_TIMES: Record<string, string> = {
   morning: "08:00",
   afternoon: "14:00",
@@ -397,7 +396,7 @@ const requestAndSyncOnboardingReminderPreference = async (
 };
 
 const scheduleFreeTrialEndingReminder = async (
-  activatedAt?: string | number | Date | null,
+  expirationAt?: string | number | Date | null,
   options?: { requestPermission?: boolean }
 ) => {
   await ensureReminderChannel();
@@ -412,8 +411,13 @@ const scheduleFreeTrialEndingReminder = async (
     return false;
   }
 
-  const activationTimestamp = parseTimestampInput(activatedAt) ?? Date.now();
-  const reminderTimestamp = activationTimestamp + FREE_TRIAL_REMINDER_DELAY_MS;
+  const expirationTimestamp = parseTimestampInput(expirationAt);
+
+  if (!expirationTimestamp) {
+    return false;
+  }
+
+  const reminderTimestamp = expirationTimestamp - 2 * 24 * 60 * 60 * 1000;
 
   if (reminderTimestamp <= Date.now()) {
     return false;

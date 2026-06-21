@@ -624,6 +624,17 @@ const buildUserPayload = (user: IUser) => {
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
     isPremium: Boolean(user.isPremium),
+    premiumPlanKey: user.premiumPlanKey || null,
+    premiumActivatedAt: user.premiumActivatedAt?.toISOString() || null,
+    premiumProductId: user.premiumProductId || null,
+    premiumExpiresAt: user.premiumExpiresAt?.toISOString() || null,
+    premiumWillRenew:
+      typeof user.premiumWillRenew === "boolean" ? user.premiumWillRenew : null,
+    premiumVerifiedAt: user.premiumVerifiedAt?.toISOString() || null,
+    premiumRevenueCatRequestDate:
+      user.premiumRevenueCatRequestDate?.toISOString() || null,
+    revenueCatAppUserId: user.revenueCatAppUserId || null,
+    premiumSource: user.premiumSource || null,
     journalingGoals: user.journalingGoals || [],
     avatarColor: user.avatarColor || null,
     profileSetupCompleted: Boolean(user.profileSetupCompleted),

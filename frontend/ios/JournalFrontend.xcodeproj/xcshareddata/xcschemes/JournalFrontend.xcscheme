@@ -63,12 +63,12 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "APP_ENV"
-            value = "production"
+            value = "local"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "BABEL_ENV"
-            value = "production"
+            value = "development"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

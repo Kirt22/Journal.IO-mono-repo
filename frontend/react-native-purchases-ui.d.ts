@@ -6,6 +6,19 @@ declare module "react-native-purchases-ui" {
     PurchasesPackage,
   } from "react-native-purchases";
 
+  export type CustomVariable =
+    | { type: "string"; value: string }
+    | { type: "number"; value: number }
+    | { type: "boolean"; value: boolean };
+
+  export type CustomVariables = Record<string, CustomVariable>;
+
+  export const CustomVariableValue: {
+    string: (value: string) => CustomVariable;
+    number: (value: number) => CustomVariable;
+    boolean: (value: boolean) => CustomVariable;
+  };
+
   export const PAYWALL_RESULT: {
     readonly NOT_PRESENTED: "NOT_PRESENTED";
     readonly ERROR: "ERROR";
@@ -18,8 +31,9 @@ declare module "react-native-purchases-ui" {
     Paywall: ComponentType<{
       style?: unknown;
       options?: {
-        offering?: PurchasesOffering;
+        offering?: PurchasesOffering | null;
         displayCloseButton?: boolean;
+        customVariables?: CustomVariables;
       };
       onPurchaseStarted?: (payload: {
         packageBeingPurchased: PurchasesPackage;
@@ -37,6 +51,7 @@ declare module "react-native-purchases-ui" {
     }>;
     presentPaywall: (options?: {
       offering?: PurchasesOffering;
+      customVariables?: CustomVariables;
     }) => Promise<
       | typeof PAYWALL_RESULT.NOT_PRESENTED
       | typeof PAYWALL_RESULT.ERROR

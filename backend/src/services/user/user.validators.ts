@@ -20,7 +20,7 @@ const updateProfileSchema = z.object({
 
 const updatePremiumStatusSchema = z.object({
   body: z.object({
-    isPremium: z.boolean(),
+    isPremium: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),

@@ -15,7 +15,7 @@ export interface IPaywallOffering extends Document {
   _id: mongoose.Types.ObjectId;
   key: PaywallOfferingKey;
   title: string;
-  price: string;
+  price?: string | null;
   priceSuffix?: string | null;
   subtitle?: string | null;
   badge?: string | null;
@@ -40,7 +40,7 @@ const paywallOfferingSchema = new mongoose.Schema<IPaywallOffering>(
       trim: true,
     },
     title: { type: String, required: true, trim: true },
-    price: { type: String, required: true, trim: true },
+    price: { type: String, default: null, trim: true },
     priceSuffix: { type: String, default: null, trim: true },
     subtitle: { type: String, default: null, trim: true },
     badge: { type: String, default: null, trim: true },

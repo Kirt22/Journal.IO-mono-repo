@@ -28,6 +28,23 @@ jest.mock("../src/services/revenueCatService", () => ({
   })),
   getRevenueCatConfigurationError: jest.fn(() => null),
   getRevenueCatOfferings: jest.fn(async () => ({ current: null, all: {} })),
+  getRevenueCatPurchaseAttribution: jest.fn(customerInfo => {
+    const activeEntitlement =
+      customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null;
+
+    if (!activeEntitlement) {
+      return null;
+    }
+
+    return {
+      activeEntitlement,
+      offeringKey: "lifetime",
+      productIdentifier: "app.journalio.premium.lifetime",
+      revenueCatOfferingId: "journalio_offering_lifetime",
+      revenueCatPackageId: "$rc_lifetime",
+      rcPackage: null,
+    };
+  }),
   getRevenueCatPaywallPlans: jest.fn(() => [
     {
       id: "lifetime",
@@ -44,7 +61,7 @@ jest.mock("../src/services/revenueCatService", () => ({
         identifier: "$rc_lifetime",
         packageType: "LIFETIME",
         product: {
-          identifier: "journalio.lifetime",
+          identifier: "app.journalio.premium.lifetime",
           priceString: "$149.99",
           pricePerMonthString: null,
           title: "Lifetime Premium",
@@ -62,7 +79,7 @@ jest.mock("../src/services/revenueCatService", () => ({
             identifier: "Journal.IO Pro",
             isActive: true,
             store: "TEST_STORE",
-            productIdentifier: "journalio.lifetime",
+            productIdentifier: "app.journalio.premium.lifetime",
           },
         },
       },
@@ -115,7 +132,7 @@ jest.mock("../src/services/paywallService", () => ({
       {
         key: "lifetime",
         title: "LIFETIME",
-        price: "$149.99",
+        price: null,
         priceSuffix: "one-time",
         subtitle: "One-time unlock",
         badge: "One time offer",
@@ -252,7 +269,7 @@ describe("LifetimeOfferPaywallScreen", () => {
     expect(text).toContain("$149.99");
     expect(text).toContain("87/100 claimed");
     expect(text).toContain("Unlock Lifetime Premium");
-    expect(text).toContain("30-day money back guarantee");
+    expect(text).toContain("One-time App Store purchase");
     expect(text).toContain("Restore");
   });
 

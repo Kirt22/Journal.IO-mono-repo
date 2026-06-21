@@ -2,8 +2,6 @@ export type FlowStage =
   | "onboarding"
   | "paywall"
   | "hosted-paywall"
-  | "spin-wheel"
-  | "discount-offer"
   | "lifetime-offer"
   | "auth"
   | "sign-in"

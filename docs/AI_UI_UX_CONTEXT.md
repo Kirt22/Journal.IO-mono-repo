@@ -192,14 +192,15 @@ Paywall expectations:
 - let each backend template control exactly which pricing cards are visible so some templates can show one offer while others show two
 - treat the backend `subheadline` as stored merchandising copy, but do not require the mobile paywall UI to render it
 - render the premium preview area from structured backend feature cards with `title`, `body`, and optional `footer` fields instead of treating the feature list as plain strings
-- render pricing, badges, subtitles, and other merchandising copy from backend-configured offering metadata
-- for the dedicated lifetime-offer surface, follow the fixed Figma Make lifetime screen copy and layout exactly, while still resolving the separate lifetime RevenueCat offering id for the manual purchase path
-- use RevenueCat purchase and restore flows for checkout, then call the dedicated backend purchase-sync route so the authenticated premium state and purchased plan attribution update immediately
+- render badges, subtitles, and non-price merchandising copy from backend configuration, but render every purchasable price from the exact RevenueCat package's StoreKit-localized `product.priceString`
+- for the dedicated lifetime-offer surface, preserve the fixed Figma Make layout while loading `app.journalio.premium.lifetime` only from `journalio_offering_lifetime`; disable checkout and show a calm unavailable state if that exact package is missing
+- use RevenueCat purchase and restore flows for checkout, then call the dedicated backend verification route so the authenticated premium state and purchased plan attribution update from server-verified subscriber data rather than client-authored booleans
 - log paywall lifecycle and premium-intent events through the backend paywall events route so placements and cooldowns can be tuned without a client release
 - in development builds, support RevenueCat Test Store verification so billing can be checked before App Store / Play Store release
 - keep purchase and restore failure copy app-owned and calm; RevenueCat Test Store simulated failures should be described as a declined test purchase with no charge, not shown as raw SDK/store error text
 - after any completed purchase from a hosted or in-app paywall, show the shared payment success screen; if RevenueCat purchase completion succeeds before premium entitlement sync catches up, use the success screen with access-updating copy instead of an alert or immediate route continuation
-- restore purchases must inspect the restored RevenueCat `CustomerInfo` for active premium access before advancing; if no active entitlement is present, keep the user on the current paywall surface and show the shared `No purchases found` dialog
+- purchase and restore completion must require the exact `Journal.IO Pro` entitlement and derive backend plan attribution from its active product identifier; if it is absent, keep the user on the current paywall surface and show the shared `No purchases found` dialog
+- on authenticated launch and whenever the app returns to the foreground, force-refresh RevenueCat `CustomerInfo` and then call the backend entitlement-sync endpoint; if either request fails, keep the cached membership state rather than treating the failure as proof that the user is free
 - use the mascot subtly in the hero area or brand moments
 - preserve the existing app aesthetic rather than introducing a separate monetization style
 - after every successful post-auth entry for a non-premium user, show a dedicated 3-step post-auth paywall first:
@@ -208,12 +209,14 @@ Paywall expectations:
   - purchase step opened as the hosted RevenueCat main paywall as a full-screen embedded surface
 - if the hosted RevenueCat main paywall cannot be opened, fall back to the current in-app purchase step instead of trapping the user
 - when the hosted RevenueCat main paywall is used, keep backend placement resolution, paywall-event logging, purchase-sync, and an explicit purchase-progress loading overlay unchanged around that hosted surface
-- the Home summer offer card opens the hosted exit-offer target with `post_auth_exit_offer` placement tracking, and that exit target resolves to `journalio_offering_post_onboarding_exit`; the post-auth main hosted paywall and contextual premium gates resolve to the standard `journalio_offering_other_screens_standard` surface
+- the Home summer offer card opens the hosted summer target with `post_auth_exit_offer` placement tracking and `journalio_offering_post_onboarding_exit`; both post-auth main and contextual premium gates use `journalio_offering_other_screens_standard`, and the legacy post-onboarding standard offering must not be used because its attached exit behavior is not App Review-safe
+- the summer hosted paywall purchases only `app.journalio.premium.yearly.exit`; its comparison value may use the exact normal yearly package only when both packages report the same currency, otherwise the comparison must be hidden
+- the app passes the `normal_yearly_price` custom variable to the RevenueCat summer paywall only as a same-currency localized comparison value; when a safe comparison is unavailable, it passes an empty string, and dashboard copy must not contain a hardcoded currency, fixed percentage, or `first year` claim
 - while a hosted RevenueCat purchase or restore is in progress, ignore native dismiss callbacks so checkout completion can render the shared payment success screen instead of accidentally advancing the flow early
 - if the in-app fallback purchase step is used, free-trial messaging must appear only for the yearly plan and only when RevenueCat reports a real introductory offer for that package
-- when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder on day 5 that 2 trial days remain; this v1 reminder does not require push infrastructure
+- when a user successfully starts the yearly 7-day free trial from the paywall, the app may request local notification permission and schedule a device-local reminder 2 days before the verified RevenueCat expiration timestamp; this v1 reminder does not require push infrastructure
 - if the user dismisses the hosted post-auth main paywall, continue directly into the normal post-auth destination; do not show a spin wheel, exit offer, second paywall, or any other follow-up purchase prompt after the close action
-- legacy gift-wheel and yearly-only discount-offer screens must not be part of the active post-auth dismiss chain; keep any retained fallback code unreachable from paywall dismissal unless App Review-safe purchase guidance explicitly changes
+- legacy gift-wheel and custom yearly-discount routes are removed; the summer offer exists only as the manually opened hosted Home offer
 - keep the profile upgrade banner and profile-driven upgrade entry points on the separate lifetime-offer surface; the lifetime offer is no longer part of the post-auth dismiss chain and it should stay on the manual purchase flow rather than the hosted RevenueCat presenter
 - the free-user profile upgrade banner should explicitly mention `Lifetime Premium`, open the dedicated lifetime-offer surface, show a subtle shimmer loader while fetching lifetime claim data, and then show the backend lifetime purchase count in a compact `claimed` progress bar when available so App Review and users can identify the one-time lifetime IAP from the banner itself
 - keep additional contextual placements on locked premium surfaces in Home, Insights, New Entry, Entry Detail, Profile, Subscription, and Settings
@@ -221,7 +224,7 @@ Paywall expectations:
 - keep contextual locked-feature paywalls simpler than the post-auth flow; they should open the hosted RevenueCat standard `other screens` purchase surface directly instead of replaying the full 3-step sequence
 - if the hosted contextual purchase surface cannot be opened, fall back to the current in-app purchase screen instead of trapping the user
 - allow interruptive paywalls only on eligible Home or Insights entries after repeated premium-intent signals; never interrupt while the user is actively writing or editing
-- for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to the hosted standard `other screens` paywall, while premium users can see a lightweight membership-management view
+- for MVP, keep the paywall as the only real purchase surface; free users entering `Subscription` from Profile should go straight to the hosted standard `other screens` paywall, while premium users can see a lightweight membership-management view that reflects verified expiration and auto-renewal state
 
 ---
 

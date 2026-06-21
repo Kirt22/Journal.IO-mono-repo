@@ -277,7 +277,6 @@ describe("appStore", () => {
         activePaywallPlacementKey: "post_auth",
         activePaywallScreenKey: "auth",
         paywallReturnStage: "profile",
-        pendingPostAuthDiscountOffer: true,
       });
 
       store.getState().continueFromHostedPaywall("dismiss");
@@ -285,7 +284,6 @@ describe("appStore", () => {
 
     expect(store.getState().stage).toBe("profile");
     expect(store.getState().activeHostedPaywallTarget).toBeNull();
-    expect(store.getState().pendingPostAuthDiscountOffer).toBe(false);
   });
 
   it("opens the hosted exit paywall directly with exit placement context", () => {

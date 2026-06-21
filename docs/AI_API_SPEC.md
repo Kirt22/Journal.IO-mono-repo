@@ -296,7 +296,9 @@ Both routes require authentication.
 
 ### `PATCH /users/premium-status`
 
-Persist the authenticated user's premium access state after purchase completion or restore.
+Compatibility entitlement refresh route. The backend ignores the client `isPremium`
+flag as an authority signal and re-verifies the authenticated user's RevenueCat App
+User ID on the server before returning the profile.
 
 Request:
 
@@ -305,6 +307,14 @@ Request:
   "isPremium": true
 }
 ```
+
+Notes:
+
+- the request body is legacy/optional compatibility input for older mobile builds
+- the server verifies the current RevenueCat subscriber state using the authenticated
+  MongoDB `_id` as the App User ID
+- transient RevenueCat verification failures return `503` so clients can keep cached
+  premium access instead of self-downgrading on uncertainty
 
 Success `data`:
 
@@ -316,6 +326,14 @@ Success `data`:
   "email": null,
   "isPremium": true,
   "premiumPlanKey": "yearly",
+  "premiumActivatedAt": "2026-06-01T09:30:00.000Z",
+  "premiumProductId": "app.journalio.premium.yearly",
+  "premiumExpiresAt": "2026-06-28T09:30:00.000Z",
+  "premiumWillRenew": false,
+  "premiumVerifiedAt": "2026-06-21T09:30:00.000Z",
+  "premiumRevenueCatRequestDate": "2026-06-21T09:30:00.000Z",
+  "revenueCatAppUserId": "6654fd0b84ab9d62d19cb123",
+  "premiumSource": "revenuecat_verified",
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
@@ -411,28 +429,28 @@ Success `data`:
     {
       "key": "weekly",
       "title": "WEEKLY",
-      "price": "$4.99",
+      "price": null,
       "priceSuffix": "/week",
       "subtitle": "Flexible access",
       "badge": null,
       "highlight": null,
       "sortOrder": 1,
-      "revenueCatOfferingId": "journalio_offering_dev",
-      "revenueCatPackageId": "$rc_weekly",
+      "revenueCatOfferingId": "journalio_offering_other_screens_standard",
+      "revenueCatPackageId": null,
       "purchasedUsersCount": 0,
       "purchaseLimit": null
     },
     {
       "key": "yearly",
       "title": "YEARLY",
-      "price": "$59.99",
+      "price": null,
       "priceSuffix": "/year",
       "subtitle": "Best for steady journaling",
       "badge": "Most Value",
-      "highlight": "$5.00/month",
+      "highlight": null,
       "sortOrder": 3,
-      "revenueCatOfferingId": "journalio_offering_dev",
-      "revenueCatPackageId": "$rc_annual",
+      "revenueCatOfferingId": "journalio_offering_other_screens_standard",
+      "revenueCatPackageId": null,
       "purchasedUsersCount": 0,
       "purchaseLimit": null
     }
@@ -443,11 +461,12 @@ Success `data`:
 Behavior notes:
 
 - returns `shouldShow: false` for premium users
-- `post_auth` resolves to the standard `weekly-standard` template; the dedicated lifetime offer is a separate frontend surface that is shown only after the user dismisses that first post-auth paywall
+- `post_auth` resolves to the standard weekly/yearly template; dismissing it continues to the saved destination and never opens a second offer
 - may return `shouldShow: false` for interruptive placements when thresholds, cooldowns, caps, or randomization do not pass
 - when the lifetime offering reaches its purchase limit, the backend falls back from `lifetime-launch` to its configured fallback template automatically
 - `featureList` is an ordered array of feature-card objects with `title`, `body`, and optional `footer`
 - `visibleOfferingKeys` controls which offering cards the frontend renders for the active template; a template may show one card or multiple cards
+- backend offering prices and package identifiers are nullable merchandising metadata; purchasable prices and package identifiers must come from the exact RevenueCat package selected by the client
 - `subheadline` remains in the contract for merchandising control, but the mobile UI may choose not to render it
 - `heroBadgeLabel`, `purchaseChipTitle`, `purchaseChipBody`, `featureCarouselTitle`, `socialProofLine`, and `footerLegal` are optional merchandising fields currently used by the dedicated lifetime-offer screen so its hero/footer copy stays Mongo-backed instead of hardcoded in the app
 
@@ -489,14 +508,17 @@ Success `data`:
 
 ### `POST /paywall/purchase-sync`
 
-Persist the purchased premium plan after a successful RevenueCat purchase or restore.
+Compatibility purchase/restore sync route. The backend accepts the existing purchase
+payload shape, but it does not trust the client payload for premium access. Instead,
+it re-fetches the authenticated RevenueCat subscriber state and returns the verified
+profile.
 
 Request:
 
 ```json
 {
   "offeringKey": "lifetime",
-  "revenueCatOfferingId": "journalio_offering_dev",
+  "revenueCatOfferingId": "journalio_offering_lifetime",
   "revenueCatPackageId": "$rc_lifetime",
   "store": "APP_STORE",
   "entitlementId": "Journal.IO Pro",
@@ -514,6 +536,14 @@ Success `data`:
   "email": null,
   "isPremium": true,
   "premiumPlanKey": "lifetime",
+  "premiumActivatedAt": "2026-06-01T09:30:00.000Z",
+  "premiumProductId": "app.journalio.premium.lifetime",
+  "premiumExpiresAt": null,
+  "premiumWillRenew": false,
+  "premiumVerifiedAt": "2026-06-21T09:30:00.000Z",
+  "premiumRevenueCatRequestDate": "2026-06-21T09:30:00.000Z",
+  "revenueCatAppUserId": "6654fd0b84ab9d62d19cb123",
+  "premiumSource": "revenuecat_verified",
   "avatarColor": "#8E4636",
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
@@ -525,10 +555,52 @@ Success `data`:
 
 Behavior notes:
 
-- sets the authenticated user premium state and plan attribution
-- increments the lifetime offering purchase counter only once per user
-- should be the primary backend sync path after RevenueCat purchase or restore
-- `PATCH /users/premium-status` remains available as a compatibility fallback for boolean-only entitlement reconciliation
+- the client derives `offeringKey` and RevenueCat identifiers from the active `Journal.IO Pro` entitlement product after purchase or restore, not from the currently selected pricing card
+- the server verifies the current RevenueCat subscriber state and ignores client-side attempts to self-grant premium access
+- the server retries briefly when RevenueCat's SDK has completed a purchase but the server subscriber record has not propagated yet
+- if the entitlement is still absent after those retries, the route returns `503` with `error.code = "revenuecat_purchase_pending"` instead of returning a successful free profile
+- if RevenueCat confirms the purchase but backend verification is temporarily unavailable, the client should stay on the shared success state with access-updating copy instead of downgrading the user
+
+### `POST /paywall/entitlement-sync`
+
+Primary authenticated entitlement refresh route for current mobile clients.
+
+Request:
+
+```json
+{
+  "reason": "foreground"
+}
+```
+
+Success `data` uses the same verified profile payload shape shown above.
+
+Behavior notes:
+
+- intended for launch, foreground, and listener-driven reconciliation
+- returns the backend-verified RevenueCat premium state for the authenticated user
+- should replace client-authored premium toggles in new mobile builds
+- `PATCH /users/premium-status` remains available only as a compatibility alias
+
+### `POST /webhooks/revenuecat`
+
+RevenueCat server-to-server webhook endpoint.
+
+Request requirements:
+
+- `Authorization: Bearer <REVENUECAT_WEBHOOK_AUTH_TOKEN>`
+- RevenueCat `event.app_id` must match `REVENUECAT_APP_ID`
+- RevenueCat `event.environment` must be in `REVENUECAT_ALLOWED_WEBHOOK_ENVIRONMENTS`
+
+Behavior notes:
+
+- returns `200` for processed events and already-processed duplicates
+- returns `400` for malformed payloads or disallowed app/environment deliveries
+- returns `401` for invalid authorization headers
+- returns `503` when RevenueCat subscriber verification fails in a retryable way
+- stores a minimal idempotency ledger keyed by RevenueCat `event.id` or a derived legacy hash; full payloads are not persisted
+- webhook processing re-fetches the current subscriber state from RevenueCat instead of translating event types directly
+- transfer events reconcile both the `transferred_from` and `transferred_to` App User ID lists when they map cleanly to Journal.IO MongoDB `_id` values
 
 ---
 

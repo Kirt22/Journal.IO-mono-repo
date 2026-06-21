@@ -1336,7 +1336,7 @@ export default function HomeScreen({
       wasInterruptive: false,
       metadata: {
         source: "home_summer_offer_card",
-        offerLabel: "50_percent_summer_offer",
+        offerLabel: "special_yearly_offer",
       },
     }).catch(() => undefined);
 
@@ -1584,7 +1584,7 @@ export default function HomeScreen({
         {shouldShowHomeSummerOffer ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Claim 50 percent summer offer"
+            accessibilityLabel="View special yearly offer"
             onPress={handleClaimHomeSummerOffer}
             style={({ pressed }) => [
               styles.summerOfferCard,
@@ -1617,7 +1617,7 @@ export default function HomeScreen({
                   { color: theme.colors.primary },
                 ]}
               >
-                Summer Offer
+                Special Yearly Offer
               </Text>
             </View>
             <View style={styles.summerOfferBottomRow}>
@@ -1627,7 +1627,7 @@ export default function HomeScreen({
                   { color: theme.colors.foreground },
                 ]}
               >
-                Unlock 50%{"\n"}Off Premium
+                Unlock Yearly{"\n"}Premium
               </Text>
               <View
                 style={[

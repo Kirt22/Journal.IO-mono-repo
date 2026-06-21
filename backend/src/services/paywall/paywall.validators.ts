@@ -31,19 +31,30 @@ const trackPaywallEventSchema = z.object({
 
 const syncPaywallPurchaseSchema = z.object({
   body: z.object({
-    offeringKey: z.enum(PAYWALL_OFFERING_KEYS),
-    revenueCatOfferingId: z.string().min(1, "revenueCatOfferingId is required"),
-    revenueCatPackageId: z.string().min(1, "revenueCatPackageId is required"),
-    store: z.string().min(1, "store is required"),
-    entitlementId: z.string().min(1, "entitlementId is required"),
+    offeringKey: z.enum(PAYWALL_OFFERING_KEYS).optional(),
+    revenueCatOfferingId: z.string().min(1).optional(),
+    revenueCatPackageId: z.string().min(1).optional(),
+    store: z.string().min(1).optional(),
+    entitlementId: z.string().min(1).optional(),
     wasRestore: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 });
 
+const syncPaywallEntitlementSchema = z.object({
+  body: z
+    .object({
+      reason: z.string().min(1).optional(),
+    })
+    .optional(),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
   getPaywallConfigSchema,
+  syncPaywallEntitlementSchema,
   syncPaywallPurchaseSchema,
   trackPaywallEventSchema,
 };

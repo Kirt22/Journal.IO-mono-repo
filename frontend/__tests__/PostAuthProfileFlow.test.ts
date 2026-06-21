@@ -63,7 +63,6 @@ describe("post-auth profile flow", () => {
         activePaywallScreenKey: "verify-email",
         activePaywallTriggerMode: "contextual",
         activeHostedPaywallTarget: "main",
-        pendingPostAuthDiscountOffer: true,
         session: {
           accessToken: "access-token",
           refreshToken: "refresh-token",
@@ -91,6 +90,5 @@ describe("post-auth profile flow", () => {
     expect(useAppStore.getState().stage).toBe("profile");
     expect(useAppStore.getState().activePaywallPlacementKey).toBeNull();
     expect(useAppStore.getState().activeHostedPaywallTarget).toBeNull();
-    expect(useAppStore.getState().pendingPostAuthDiscountOffer).toBe(false);
   });
 });

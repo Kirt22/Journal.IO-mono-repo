@@ -1,157 +1,83 @@
+const createPackage = ({
+  identifier,
+  productIdentifier,
+  packageType,
+  priceString,
+  currencyCode,
+  offeringIdentifier,
+}: {
+  identifier: string;
+  productIdentifier: string;
+  packageType: string;
+  priceString: string;
+  currencyCode: string;
+  offeringIdentifier: string;
+}) =>
+  ({
+    identifier,
+    packageType,
+    presentedOfferingContext: {
+      offeringIdentifier,
+      placementIdentifier: null,
+      targetingContext: null,
+    },
+    product: {
+      identifier: productIdentifier,
+      title: productIdentifier,
+      description: "",
+      price: 0,
+      priceString,
+      currencyCode,
+      pricePerMonthString: null,
+      introPrice: null,
+      presentedOfferingIdentifier: offeringIdentifier,
+    },
+  }) as any;
+
+const createOffering = (identifier: string, packages: any[]) =>
+  ({
+    identifier,
+    serverDescription: identifier,
+    metadata: {},
+    availablePackages: packages,
+    annual:
+      packages.find(rcPackage => rcPackage.packageType === "ANNUAL") ?? null,
+    weekly:
+      packages.find(rcPackage => rcPackage.packageType === "WEEKLY") ?? null,
+    monthly: null,
+    twoMonth: null,
+    threeMonth: null,
+    sixMonth: null,
+    lifetime:
+      packages.find(rcPackage => rcPackage.packageType === "LIFETIME") ?? null,
+    webCheckoutUrl: null,
+  }) as any;
+
+const createConfiguredOffering = (
+  key: "weekly" | "yearly" | "yearly_exit_offer" | "lifetime",
+  sortOrder: number
+) =>
+  ({
+    key,
+    title: key.toUpperCase(),
+    price: null,
+    priceSuffix: null,
+    subtitle: null,
+    badge: null,
+    highlight: null,
+    sortOrder,
+    revenueCatOfferingId: null,
+    revenueCatPackageId: null,
+    purchasedUsersCount: 0,
+    purchaseLimit: null,
+  }) as any;
+
 describe("revenueCatService", () => {
   beforeEach(() => {
     jest.resetModules();
   });
 
-  it("maps the current offering into sorted paywall plans", async () => {
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans({
-      current: {
-        identifier: "default",
-        serverDescription: "Default offering",
-        metadata: {},
-        availablePackages: [
-          {
-            identifier: "weekly_plan",
-            packageType: "WEEKLY",
-            product: {
-              priceString: "$7.99",
-              pricePerMonthString: null,
-              title: "Weekly Premium",
-            },
-          },
-          {
-            identifier: "annual_plan",
-            packageType: "ANNUAL",
-            product: {
-              priceString: "$59.99",
-              pricePerMonthString: "$5.00",
-              title: "Yearly Premium",
-            },
-          },
-        ],
-        annual: {
-          identifier: "annual_plan",
-          packageType: "ANNUAL",
-          product: {
-            priceString: "$59.99",
-            pricePerMonthString: "$5.00",
-            title: "Yearly Premium",
-          },
-        },
-        weekly: {
-          identifier: "weekly_plan",
-          packageType: "WEEKLY",
-          product: {
-            priceString: "$7.99",
-            pricePerMonthString: null,
-            title: "Weekly Premium",
-          },
-        },
-        monthly: null,
-        twoMonth: null,
-        threeMonth: null,
-        sixMonth: null,
-        lifetime: null,
-        webCheckoutUrl: null,
-      },
-      all: {},
-    } as any);
-
-    expect(plans).toHaveLength(2);
-    expect(plans.map((plan: { title: string }) => plan.title)).toEqual([
-      "YEARLY",
-      "WEEKLY",
-    ]);
-    expect(plans[0]?.badge).toBe("Most Value");
-    expect(plans[0]?.subtitle).toBe("$5.00/month equivalent");
-    expect(plans[1]?.price).toBe("$7.99/week");
-  });
-
-  it("uses the configured entitlement id to resolve premium access", async () => {
-    const {
-      getRevenueCatActiveEntitlement,
-      hasRevenueCatPremiumAccess,
-    } = require("../src/services/revenueCatService");
-
-    const customerInfo = {
-      entitlements: {
-        active: {
-          "Journal.IO Pro": {
-            identifier: "Journal.IO Pro",
-            isActive: true,
-            store: "TEST_STORE",
-          },
-        },
-      },
-    };
-
-    expect(hasRevenueCatPremiumAccess(customerInfo as any)).toBe(true);
-    expect(getRevenueCatActiveEntitlement(customerInfo as any)?.store).toBe(
-      "TEST_STORE"
-    );
-  });
-
-  it("falls back to the first active entitlement when the configured id is not present", async () => {
-    const {
-      getRevenueCatActiveEntitlement,
-      hasRevenueCatPremiumAccess,
-    } = require("../src/services/revenueCatService");
-
-    const customerInfo = {
-      entitlements: {
-        active: {
-          premium_access: {
-            identifier: "premium_access",
-            isActive: true,
-            store: "TEST_STORE",
-          },
-        },
-      },
-    };
-
-    expect(hasRevenueCatPremiumAccess(customerInfo as any)).toBe(true);
-    expect(getRevenueCatActiveEntitlement(customerInfo as any)?.identifier).toBe(
-      "premium_access"
-    );
-  });
-
-  it("returns a setup error when no RevenueCat public key is configured", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatIosApiKey = null;
-    env.revenueCatAndroidApiKey = null;
-
-    const { getRevenueCatConfigurationError } = require(
-      "../src/services/revenueCatService"
-    );
-
-    expect(getRevenueCatConfigurationError()).toEqual(expect.any(String));
-  });
-
-  it("uses the other-screens offering for hosted main paywalls", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatMainPaywallOfferingId = "main_paywall";
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard_dev";
-
-    const {
-      getRevenueCatHostedOfferingId,
-      hasRevenueCatHostedPaywall,
-    } = require("../src/services/revenueCatService");
-
-    expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe(
-      "journalio_offering_other_screens_standard_dev"
-    );
-    expect(hasRevenueCatHostedPaywall("main")).toBe(true);
-  });
-
-  it("falls back to the known production hosted main and exit identifiers when env overrides are absent", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatMainPaywallOfferingId = null;
-    env.revenueCatExitPaywallOfferingId = null;
-    env.revenueCatOtherScreensOfferingId = null;
-
+  it("routes each hosted surface to its explicit offering", () => {
     const { getRevenueCatHostedOfferingId } = require(
       "../src/services/revenueCatService"
     );
@@ -159,843 +85,271 @@ describe("revenueCatService", () => {
     expect(getRevenueCatHostedOfferingId("main", "post_auth")).toBe(
       "journalio_offering_other_screens_standard"
     );
-    expect(getRevenueCatHostedOfferingId("exit")).toBe(
-      "journalio_offering_post_onboarding_exit"
-    );
-  });
-
-  it("uses separate hosted offering ids for contextual main and home summer exit surfaces", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatMainPaywallOfferingId = null;
-    env.revenueCatExitPaywallOfferingId =
-      "journalio_offering_post_onboarding_exit_dev";
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard_dev";
-
-    const { getRevenueCatHostedOfferingId } = require(
-      "../src/services/revenueCatService"
-    );
-
-    expect(getRevenueCatHostedOfferingId("main", "home_ai_card_locked")).toBe(
-      "journalio_offering_other_screens_standard_dev"
-    );
     expect(getRevenueCatHostedOfferingId("main", "subscription_screen")).toBe(
-      "journalio_offering_other_screens_standard_dev"
+      "journalio_offering_other_screens_standard"
     );
-    expect(getRevenueCatHostedOfferingId("exit")).toBe(
-      "journalio_offering_post_onboarding_exit_dev"
-    );
-  });
-
-  it("does not let a stale other-screens env value override the hosted exit offering", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatExitPaywallOfferingId =
-      "journalio_offering_other_screens_standard";
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard";
-
-    const { getRevenueCatHostedOfferingId } = require(
-      "../src/services/revenueCatService"
-    );
-
     expect(getRevenueCatHostedOfferingId("exit", "post_auth_exit_offer")).toBe(
       "journalio_offering_post_onboarding_exit"
     );
   });
 
-  it("finds a RevenueCat package from an entitlement product identifier", async () => {
-    const {
-      findRevenueCatPackageByProductIdentifier,
-    } = require("../src/services/revenueCatService");
-
-    const matchedPackage = findRevenueCatPackageByProductIdentifier(
-      {
-        current: {
-          identifier: "default",
-          serverDescription: "Default offering",
-          metadata: {},
-          availablePackages: [
-            {
-              identifier: "$rc_weekly",
-              packageType: "WEEKLY",
-              product: {
-                identifier: "journal.weekly",
-                priceString: "$7.99",
-                pricePerMonthString: null,
-                title: "Weekly Premium",
-              },
-            },
-          ],
-          annual: null,
-          weekly: {
-            identifier: "$rc_weekly",
-            packageType: "WEEKLY",
-            product: {
-              identifier: "journal.weekly",
-              priceString: "$7.99",
-              pricePerMonthString: null,
-              title: "Weekly Premium",
-            },
-          },
-          monthly: null,
-          twoMonth: null,
-          threeMonth: null,
-          sixMonth: null,
-          lifetime: null,
-          webCheckoutUrl: null,
-        },
-        all: {},
-      } as any,
-      "journal.weekly"
+  it("finds packages by exact offering and product identifiers", () => {
+    const { getPackageByProductId } = require(
+      "../src/services/revenueCatService"
     );
+    const normalYearly = createPackage({
+      identifier: "$rc_annual",
+      productIdentifier: "app.journalio.premium.yearly",
+      packageType: "ANNUAL",
+      priceString: "₹2,999",
+      currencyCode: "INR",
+      offeringIdentifier: "journalio_offering_other_screens_standard",
+    });
+    const discountYearly = createPackage({
+      identifier: "discount_annual",
+      productIdentifier: "app.journalio.premium.yearly.exit",
+      packageType: "ANNUAL",
+      priceString: "₹1,499",
+      currencyCode: "INR",
+      offeringIdentifier: "journalio_offering_post_onboarding_exit",
+    });
+    const offerings = {
+      current: createOffering(
+        "journalio_offering_post_onboarding_exit",
+        [discountYearly]
+      ),
+      all: {
+        journalio_offering_other_screens_standard: createOffering(
+          "journalio_offering_other_screens_standard",
+          [normalYearly]
+        ),
+        journalio_offering_post_onboarding_exit: createOffering(
+          "journalio_offering_post_onboarding_exit",
+          [discountYearly]
+        ),
+      },
+    } as any;
 
-    expect(matchedPackage?.identifier).toBe("$rc_weekly");
+    expect(
+      getPackageByProductId(
+        offerings,
+        "journalio_offering_other_screens_standard",
+        "app.journalio.premium.yearly"
+      )
+    ).toBe(normalYearly);
+    expect(
+      getPackageByProductId(
+        offerings,
+        "journalio_offering_other_screens_standard",
+        "app.journalio.premium.yearly.exit"
+      )
+    ).toBeNull();
   });
 
-  it("maps Mongo-driven offerings to matching RevenueCat packages", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard_dev";
-
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
+  it("keeps a partial standard offering purchasable and preserves INR pricing", () => {
+    const { getRevenueCatPaywallPlans } = require(
+      "../src/services/revenueCatService"
+    );
+    const weekly = createPackage({
+      identifier: "$rc_weekly",
+      productIdentifier: "app.journalio.premium.weekly",
+      packageType: "WEEKLY",
+      priceString: "₹199",
+      currencyCode: "INR",
+      offeringIdentifier: "journalio_offering_other_screens_standard",
+    });
+    const offerings = {
+      current: null,
+      all: {
+        journalio_offering_other_screens_standard: createOffering(
+          "journalio_offering_other_screens_standard",
+          [weekly]
+        ),
+      },
+    } as any;
 
     const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {
-          journalio_offering_other_screens_standard_dev: {
-            identifier: "journalio_offering_other_screens_standard_dev",
-            serverDescription: "Journal.IO Offering Dev",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "$rc_annual",
-                packageType: "ANNUAL",
-                product: {
-                  priceString: "$99.99",
-                  pricePerMonthString: "$8.33",
-                  title: "Yearly Premium",
-                },
-              },
-            ],
-            annual: {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$99.99",
-                pricePerMonthString: "$8.33",
-                title: "Yearly Premium",
-              },
-            },
-            weekly: null,
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: null,
-            webCheckoutUrl: null,
-          },
-        },
-      } as any,
+      offerings,
       [
-        {
-          key: "yearly",
-          title: "YEARLY",
-          price: "$99.99",
-          priceSuffix: "/year",
-          subtitle: "Best value",
-          badge: "Most Value",
-          highlight: "$8.33/month",
-          sortOrder: 1,
-          revenueCatOfferingId: "journalio_offering_other_screens_standard_dev",
-          revenueCatPackageId: "$rc_annual",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
+        createConfiguredOffering("yearly", 1),
+        createConfiguredOffering("weekly", 2),
       ],
-      {
-        placementKey: "post_auth",
-      }
+      { placementKey: "post_auth" }
     );
 
     expect(plans).toHaveLength(1);
-    expect(plans[0]?.title).toBe("YEARLY");
-    expect(plans[0]?.rcPackage.identifier).toBe("$rc_annual");
-  });
-
-  it("maps weekly and yearly configured offerings by their RevenueCat offering ids", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard_dev";
-
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {
-          journalio_offering_other_screens_standard_dev: {
-            identifier: "journalio_offering_other_screens_standard_dev",
-            serverDescription: "Journal.IO Offering Dev",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "$rc_weekly",
-                packageType: "WEEKLY",
-                product: {
-                  priceString: "$4.99",
-                  pricePerMonthString: null,
-                  introPrice: {
-                    price: 0,
-                    priceString: "$0.00",
-                    cycles: 1,
-                    period: "P7D",
-                    periodUnit: "DAY",
-                    periodNumberOfUnits: 7,
-                  },
-                  title: "Weekly Premium",
-                },
-              },
-              {
-                identifier: "$rc_annual",
-                packageType: "ANNUAL",
-                product: {
-                  priceString: "$99.99",
-                  pricePerMonthString: "$8.33",
-                  title: "Yearly Premium",
-                },
-              },
-            ],
-            annual: {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$99.99",
-                pricePerMonthString: "$8.33",
-                title: "Yearly Premium",
-              },
-            },
-            weekly: {
-              identifier: "$rc_weekly",
-              packageType: "WEEKLY",
-              product: {
-                priceString: "$4.99",
-                pricePerMonthString: null,
-                introPrice: {
-                  price: 0,
-                  priceString: "$0.00",
-                  cycles: 1,
-                  period: "P7D",
-                  periodUnit: "DAY",
-                  periodNumberOfUnits: 7,
-                },
-                title: "Weekly Premium",
-              },
-            },
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: null,
-            webCheckoutUrl: null,
-          },
-        },
-      } as any,
-      [
-        {
-          key: "weekly",
-          title: "WEEKLY",
-          price: "$7.99",
-          priceSuffix: "/week",
-          subtitle: "Flexible access",
-          badge: null,
-          highlight: null,
-          sortOrder: 1,
-          revenueCatOfferingId: "journalio_offering_other_screens_standard_dev",
-          revenueCatPackageId: "$rc_weekly",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
-        {
-          key: "yearly",
-          title: "YEARLY",
-          price: "$99.99",
-          priceSuffix: "/year",
-          subtitle: "Best value",
-          badge: "Most Value",
-          highlight: "$8.33/month",
-          sortOrder: 2,
-          revenueCatOfferingId: "journalio_offering_other_screens_standard_dev",
-          revenueCatPackageId: "$rc_annual",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
-      ],
-      {
-        placementKey: "home_ai_card_locked",
-      }
-    );
-
-    expect(plans).toHaveLength(2);
-    expect(plans.map((plan: any) => plan.id)).toEqual(["weekly", "yearly"]);
-    expect(plans[0]?.rcPackage?.identifier).toBe("$rc_weekly");
-    expect(plans[0]?.price).toBe("$4.99/week");
-    expect(plans[0]?.introOffer).toMatchObject({
-      isFreeTrial: true,
-      durationLabel: "7 days",
+    expect(plans[0]).toMatchObject({
+      id: "weekly",
+      durationLabel: "₹199",
+      price: "₹199/week",
+      rcPackage: weekly,
     });
-    expect(plans[1]?.rcPackage?.identifier).toBe("$rc_annual");
   });
 
-  it("picks the cheapest annual package for the exit-offer yearly plan across offerings", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatExitPaywallOfferingId =
-      "journalio_offering_post_onboarding_exit_dev";
-
-    const { getRevenueCatPaywallPlans, getRevenueCatPackagesForPlanKey } = require(
+  it("does not use offerings.current for other-screen configured plans", () => {
+    const { getRevenueCatPaywallPlans } = require(
       "../src/services/revenueCatService"
     );
-
+    const normalYearly = createPackage({
+      identifier: "$rc_annual",
+      productIdentifier: "app.journalio.premium.yearly",
+      packageType: "ANNUAL",
+      priceString: "$59.99",
+      currencyCode: "USD",
+      offeringIdentifier: "journalio_offering_other_screens_standard",
+    });
+    const discountYearly = createPackage({
+      identifier: "discount_annual",
+      productIdentifier: "app.journalio.premium.yearly.exit",
+      packageType: "ANNUAL",
+      priceString: "$29.99",
+      currencyCode: "USD",
+      offeringIdentifier: "journalio_offering_post_onboarding_exit",
+    });
+    const discountOffering = createOffering(
+      "journalio_offering_post_onboarding_exit",
+      [discountYearly]
+    );
     const offerings = {
-      current: {
-        identifier: "journalio_offering_dev",
-        serverDescription: "Default offering",
-        metadata: {},
-        availablePackages: [
-          {
-            identifier: "$rc_annual",
-            packageType: "ANNUAL",
-            product: {
-              priceString: "$59.99",
-              pricePerMonthString: "$5.00",
-              title: "Yearly Premium",
-            },
-          },
-        ],
-        annual: {
-          identifier: "$rc_annual",
-          packageType: "ANNUAL",
-          product: {
-            priceString: "$59.99",
-            pricePerMonthString: "$5.00",
-            title: "Yearly Premium",
-          },
-        },
-        weekly: null,
-        monthly: null,
-        twoMonth: null,
-        threeMonth: null,
-        sixMonth: null,
-        lifetime: null,
-        webCheckoutUrl: null,
-      },
+      current: discountOffering,
       all: {
-        journalio_offering_dev: {
-          identifier: "journalio_offering_dev",
-          serverDescription: "Default offering",
-          metadata: {},
-          availablePackages: [
-            {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$59.99",
-                pricePerMonthString: "$5.00",
-                title: "Yearly Premium",
-              },
-            },
-          ],
-          annual: {
-            identifier: "$rc_annual",
-            packageType: "ANNUAL",
-            product: {
-              priceString: "$59.99",
-              pricePerMonthString: "$5.00",
-              title: "Yearly Premium",
-            },
+        journalio_offering_other_screens_standard: createOffering(
+          "journalio_offering_other_screens_standard",
+          [normalYearly]
+        ),
+        journalio_offering_post_onboarding_exit: discountOffering,
+      },
+    } as any;
+
+    const plans = getRevenueCatPaywallPlans(
+      offerings,
+      [createConfiguredOffering("yearly", 1)],
+      { placementKey: "subscription_screen" }
+    );
+
+    expect(plans).toHaveLength(1);
+    expect(plans[0].rcPackage).toBe(normalYearly);
+    expect(plans[0].durationLabel).toBe("$59.99");
+  });
+
+  it("resolves summer and lifetime packages from their dedicated offerings", () => {
+    const {
+      getPackageByProductId,
+      getRevenueCatOfferingKeyForProductIdentifier,
+    } = require("../src/services/revenueCatService");
+    const summer = createPackage({
+      identifier: "summer",
+      productIdentifier: "app.journalio.premium.yearly.exit",
+      packageType: "ANNUAL",
+      priceString: "₹1,499",
+      currencyCode: "INR",
+      offeringIdentifier: "journalio_offering_post_onboarding_exit",
+    });
+    const lifetime = createPackage({
+      identifier: "$rc_lifetime",
+      productIdentifier: "app.journalio.premium.lifetime",
+      packageType: "LIFETIME",
+      priceString: "₹9,999",
+      currencyCode: "INR",
+      offeringIdentifier: "journalio_offering_lifetime",
+    });
+    const offerings = {
+      current: null,
+      all: {
+        journalio_offering_post_onboarding_exit: createOffering(
+          "journalio_offering_post_onboarding_exit",
+          [summer]
+        ),
+        journalio_offering_lifetime: createOffering(
+          "journalio_offering_lifetime",
+          [lifetime]
+        ),
+      },
+    } as any;
+
+    expect(
+      getPackageByProductId(
+        offerings,
+        "journalio_offering_post_onboarding_exit",
+        "app.journalio.premium.yearly.exit"
+      )
+    ).toBe(summer);
+    expect(
+      getPackageByProductId(
+        offerings,
+        "journalio_offering_lifetime",
+        "app.journalio.premium.lifetime"
+      )
+    ).toBe(lifetime);
+    expect(
+      getRevenueCatOfferingKeyForProductIdentifier(
+        "app.journalio.premium.yearly.exit"
+      )
+    ).toBe("yearly_exit_offer");
+  });
+
+  it("requires the exact Journal.IO Pro entitlement", () => {
+    const {
+      getRevenueCatActiveEntitlement,
+      hasRevenueCatPremiumAccess,
+    } = require("../src/services/revenueCatService");
+    const unrelatedCustomerInfo = {
+      entitlements: {
+        active: {
+          premium_access: {
+            identifier: "premium_access",
+            isActive: true,
           },
-          weekly: null,
-          monthly: null,
-          twoMonth: null,
-          threeMonth: null,
-          sixMonth: null,
-          lifetime: null,
-          webCheckoutUrl: null,
-        },
-        journalio_offering_post_onboarding_exit_dev: {
-          identifier: "journalio_offering_post_onboarding_exit_dev",
-          serverDescription: "Exit offer",
-          metadata: {},
-          availablePackages: [
-            {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$29.99",
-                pricePerMonthString: "$2.50",
-                title: "Yearly Premium",
-              },
-            },
-          ],
-          annual: {
-            identifier: "$rc_annual",
-            packageType: "ANNUAL",
-            product: {
-              priceString: "$29.99",
-              pricePerMonthString: "$2.50",
-              title: "Yearly Premium",
-            },
-          },
-          weekly: null,
-          monthly: null,
-          twoMonth: null,
-          threeMonth: null,
-          sixMonth: null,
-          lifetime: null,
-          webCheckoutUrl: null,
         },
       },
     } as any;
 
-    const plans = getRevenueCatPaywallPlans(offerings, [
-      {
-        key: "yearly_exit_offer",
-        title: "YEARLY",
-        price: "$29.99",
-        priceSuffix: "/year",
-        subtitle: "Discounted yearly access",
-        badge: "Limited Time",
-        highlight: "$2.50/month",
-        sortOrder: 1,
-        revenueCatOfferingId: null,
-        revenueCatPackageId: "$rc_annual",
-        purchasedUsersCount: 0,
-        purchaseLimit: null,
-      },
-    ]);
-
-    const annualPackages = getRevenueCatPackagesForPlanKey(offerings, "annual");
-
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.planKey).toBe("annual");
-    expect(plans[0]?.durationLabel).toBe("$29.99");
-    expect(plans[0]?.revenueCatOfferingId).toBe(
-      "journalio_offering_post_onboarding_exit_dev"
-    );
-    expect(plans[0]?.rcPackage?.product.priceString).toBe("$29.99");
-    expect(annualPackages.map((pkg: any) => pkg.product.priceString)).toEqual([
-      "$29.99",
-      "$59.99",
-    ]);
+    expect(getRevenueCatActiveEntitlement(unrelatedCustomerInfo)).toBeNull();
+    expect(hasRevenueCatPremiumAccess(unrelatedCustomerInfo)).toBe(false);
   });
 
-  it("uses the dedicated other-screens offering for standard locked-screen plans", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatOtherScreensOfferingId =
-      "journalio_offering_other_screens_standard_dev";
-
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {
-          journalio_offering_other_screens_standard_dev: {
-            identifier: "journalio_offering_other_screens_standard_dev",
-            serverDescription: "Other screens standard offering",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "$rc_weekly",
-                packageType: "WEEKLY",
-                product: {
-                  identifier: "weekly_subscription_journalio_dev",
-                  priceString: "$4.99",
-                  pricePerMonthString: null,
-                  title: "Weekly Premium",
-                },
-              },
-              {
-                identifier: "$rc_annual",
-                packageType: "ANNUAL",
-                product: {
-                  identifier: "yearly_subscription_journalio_dev_new",
-                  priceString: "$59.99",
-                  pricePerMonthString: "$5.00",
-                  title: "Yearly Premium",
-                },
-              },
-            ],
-            annual: {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                identifier: "yearly_subscription_journalio_dev_new",
-                priceString: "$59.99",
-                pricePerMonthString: "$5.00",
-                title: "Yearly Premium",
-              },
-            },
-            weekly: {
-              identifier: "$rc_weekly",
-              packageType: "WEEKLY",
-              product: {
-                identifier: "weekly_subscription_journalio_dev",
-                priceString: "$4.99",
-                pricePerMonthString: null,
-                title: "Weekly Premium",
-              },
-            },
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: null,
-            webCheckoutUrl: null,
-          },
-        },
-      } as any,
-      [
-        {
-          key: "weekly",
-          title: "WEEKLY",
-          price: "$4.99",
-          priceSuffix: "/week",
-          subtitle: "Flexible access",
-          badge: null,
-          highlight: null,
-          sortOrder: 1,
-          revenueCatOfferingId: "legacy_offering",
-          revenueCatPackageId: "$rc_weekly",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
-        {
-          key: "yearly",
-          title: "YEARLY",
-          price: "$59.99",
-          priceSuffix: "/year",
-          subtitle: "Best value",
-          badge: "Most Value",
-          highlight: "$5.00/month",
-          sortOrder: 2,
-          revenueCatOfferingId: "legacy_offering",
-          revenueCatPackageId: "$rc_annual",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
-      ],
-      {
-        placementKey: "home_ai_card_locked",
-      }
-    );
-
-    expect(plans[0]?.revenueCatOfferingId).toBe(
-      "journalio_offering_other_screens_standard_dev"
-    );
-    expect(plans[1]?.revenueCatOfferingId).toBe(
-      "journalio_offering_other_screens_standard_dev"
-    );
-  });
-
-  it("uses the dedicated lifetime offering for lifetime plans", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatLifetimeOfferingId = "journalio_offering_lifetime_dev";
-
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {
-          journalio_offering_lifetime_dev: {
-            identifier: "journalio_offering_lifetime_dev",
-            serverDescription: "Lifetime offering",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "$rc_lifetime",
-                packageType: "LIFETIME",
-                product: {
-                  identifier: "lifetime_journalio_dev_new",
-                  priceString: "$149.99",
-                  pricePerMonthString: null,
-                  title: "Lifetime Premium",
-                },
-              },
-            ],
-            annual: null,
-            weekly: null,
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: {
-              identifier: "$rc_lifetime",
-              packageType: "LIFETIME",
-              product: {
-                identifier: "lifetime_journalio_dev_new",
-                priceString: "$149.99",
-                pricePerMonthString: null,
-                title: "Lifetime Premium",
-              },
-            },
-            webCheckoutUrl: null,
-          },
-        },
-      } as any,
-      [
-        {
-          key: "lifetime",
-          title: "LIFETIME",
-          price: "$149.99",
-          priceSuffix: "one-time",
-          subtitle: "One-time unlock",
-          badge: "One time offer",
-          highlight: "Founding member",
-          sortOrder: 1,
-          revenueCatOfferingId: "legacy_lifetime_offering",
-          revenueCatPackageId: "$rc_lifetime",
-          purchasedUsersCount: 0,
-          purchaseLimit: 100,
-        },
-      ],
-      {
-        placementKey: "profile_upgrade_banner",
-      }
-    );
-
-    expect(plans[0]?.revenueCatOfferingId).toBe(
-      "journalio_offering_lifetime_dev"
-    );
-    expect(plans[0]?.rcPackage?.identifier).toBe("$rc_lifetime");
-  });
-
-  it("prefers the annual package whose live price matches the configured exit-offer price", async () => {
-    const { env } = require("../src/config/env");
-    env.revenueCatExitPaywallOfferingId =
-      "journalio_offering_post_onboarding_exit_dev";
-
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {
-          journalio_offering_dev: {
-            identifier: "journalio_offering_dev",
-            serverDescription: "Default offering",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "$rc_annual",
-                packageType: "ANNUAL",
-                product: {
-                  priceString: "$59.99",
-                  pricePerMonthString: "$5.00",
-                  title: "Yearly Premium",
-                },
-              },
-            ],
-            annual: {
-              identifier: "$rc_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$59.99",
-                pricePerMonthString: "$5.00",
-                title: "Yearly Premium",
-              },
-            },
-            weekly: null,
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: null,
-            webCheckoutUrl: null,
-          },
-          journalio_offering_post_onboarding_exit_dev: {
-            identifier: "journalio_offering_post_onboarding_exit_dev",
-            serverDescription: "Exit offer",
-            metadata: {},
-            availablePackages: [
-              {
-                identifier: "discounted_annual",
-                packageType: "ANNUAL",
-                product: {
-                  priceString: "$29.99",
-                  pricePerMonthString: "$2.50",
-                  title: "Yearly Premium",
-                },
-              },
-            ],
-            annual: {
-              identifier: "discounted_annual",
-              packageType: "ANNUAL",
-              product: {
-                priceString: "$29.99",
-                pricePerMonthString: "$2.50",
-                title: "Yearly Premium",
-              },
-            },
-            weekly: null,
-            monthly: null,
-            twoMonth: null,
-            threeMonth: null,
-            sixMonth: null,
-            lifetime: null,
-            webCheckoutUrl: null,
-          },
-        },
-      } as any,
-      [
-        {
-          key: "yearly_exit_offer",
-          title: "YEARLY",
-          price: "$29.99",
-          priceSuffix: "/year",
-          subtitle: "Discounted yearly access",
-          badge: "Limited Time",
-          highlight: "$2.50/month",
-          sortOrder: 1,
-          revenueCatOfferingId: null,
-          revenueCatPackageId: "$rc_annual",
-          purchasedUsersCount: 0,
-          purchaseLimit: null,
-        },
-      ]
-    );
-
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.durationLabel).toBe("$29.99");
-    expect(plans[0]?.rcPackage?.identifier).toBe("discounted_annual");
-  });
-
-  it("resolves package metadata for a plan key from the current offering", async () => {
-    const { getRevenueCatPackageMetadataForPlanKey } = require(
+  it("attributes purchase and restore sync from the active product, not UI selection", () => {
+    const { getRevenueCatPurchaseAttribution } = require(
       "../src/services/revenueCatService"
     );
-
-    const metadata = getRevenueCatPackageMetadataForPlanKey(
-      {
-        current: {
-          identifier: "journalio_offering_dev",
-          serverDescription: "Journal.IO Offering Dev",
-          metadata: {},
-          availablePackages: [
-            {
-              identifier: "$rc_weekly",
-              packageType: "WEEKLY",
-              product: {
-                identifier: "journal.weekly",
-                priceString: "$4.99",
-                pricePerMonthString: null,
-                presentedOfferingContext: {
-                  offeringIdentifier: "journalio_offering_dev",
-                },
-                title: "Weekly Premium",
-              },
-              presentedOfferingContext: {
-                offeringIdentifier: "journalio_offering_dev",
-              },
-            },
-          ],
-          annual: null,
-          weekly: {
-            identifier: "$rc_weekly",
-            packageType: "WEEKLY",
-            product: {
-              identifier: "journal.weekly",
-              priceString: "$4.99",
-              pricePerMonthString: null,
-              presentedOfferingContext: {
-                offeringIdentifier: "journalio_offering_dev",
-              },
-              title: "Weekly Premium",
-            },
-            presentedOfferingContext: {
-              offeringIdentifier: "journalio_offering_dev",
-            },
-          },
-          monthly: null,
-          twoMonth: null,
-          threeMonth: null,
-          sixMonth: null,
-          lifetime: null,
-          webCheckoutUrl: null,
-        },
-        all: {},
-      } as any,
-      "weekly"
-    );
-
-    expect(metadata).toMatchObject({
-      planKey: "weekly",
-      revenueCatOfferingId: "journalio_offering_dev",
-      revenueCatPackageId: "$rc_weekly",
+    const lifetime = createPackage({
+      identifier: "$rc_lifetime",
+      productIdentifier: "app.journalio.premium.lifetime",
+      packageType: "LIFETIME",
+      priceString: "$149.99",
+      currencyCode: "USD",
+      offeringIdentifier: "journalio_offering_lifetime",
     });
-  });
-
-  it("keeps Mongo-driven pricing cards visible when RevenueCat package matching is missing", async () => {
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {},
-      } as any,
-      [
-        {
-          key: "lifetime",
-          title: "LIFETIME",
-          price: "$200",
-          priceSuffix: " one-time",
-          subtitle: "One-time unlock",
-          badge: "Founding Offer",
-          highlight: "First 500 users",
-          sortOrder: 1,
-          revenueCatOfferingId: "journalio_offering_dev",
-          revenueCatPackageId: "$rc_lifetime",
-          purchasedUsersCount: 0,
-          purchaseLimit: 500,
+    const offerings = {
+      current: null,
+      all: {
+        journalio_offering_lifetime: createOffering(
+          "journalio_offering_lifetime",
+          [lifetime]
+        ),
+      },
+    } as any;
+    const customerInfo = {
+      entitlements: {
+        active: {
+          "Journal.IO Pro": {
+            identifier: "Journal.IO Pro",
+            isActive: true,
+            store: "APP_STORE",
+            productIdentifier: "app.journalio.premium.lifetime",
+          },
         },
-      ]
-    );
+      },
+    } as any;
 
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.title).toBe("LIFETIME");
-    expect(plans[0]?.price).toBe("$200 one-time");
-    expect(plans[0]?.rcPackage).toBeNull();
-    expect(plans[0]?.highlight).toBe("Be one of the first founding members");
-  });
-
-  it("shows claimed lifetime slots when purchasers already exist", async () => {
-    const { getRevenueCatPaywallPlans } = require("../src/services/revenueCatService");
-
-    const plans = getRevenueCatPaywallPlans(
-      {
-        current: null,
-        all: {},
-      } as any,
-      [
-        {
-          key: "lifetime",
-          title: "LIFETIME",
-          price: "$200",
-          priceSuffix: "one-time",
-          subtitle: "One-time unlock",
-          badge: "Founding Offer",
-          highlight: "First 500 users",
-          sortOrder: 1,
-          revenueCatOfferingId: "journalio_offering_dev",
-          revenueCatPackageId: "$rc_lifetime",
-          purchasedUsersCount: 42,
-          purchaseLimit: 500,
-        },
-      ]
-    );
-
-    expect(plans).toHaveLength(1);
-    expect(plans[0]?.highlight).toBe("42 of 500 claimed");
+    expect(
+      getRevenueCatPurchaseAttribution(customerInfo, offerings)
+    ).toMatchObject({
+      offeringKey: "lifetime",
+      productIdentifier: "app.journalio.premium.lifetime",
+      revenueCatOfferingId: "journalio_offering_lifetime",
+      revenueCatPackageId: "$rc_lifetime",
+      rcPackage: lifetime,
+    });
   });
 });

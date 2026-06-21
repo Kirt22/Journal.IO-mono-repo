@@ -1008,11 +1008,11 @@ test("opens the hosted exit paywall from the home summer offer card", async () =
     await flushAsyncWork();
   });
 
-  await waitForTreeText(root!, "Summer Offer");
+  await waitForTreeText(root!, "Special Yearly Offer");
 
   ReactTestRenderer.act(() => {
     root!
-      .root.findByProps({ accessibilityLabel: "Claim 50 percent summer offer" })
+      .root.findByProps({ accessibilityLabel: "View special yearly offer" })
       .props.onPress();
   });
 

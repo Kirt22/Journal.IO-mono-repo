@@ -40,6 +40,7 @@ Minimum requirements:
 - non-production password reset responses may expose local-only diagnostics for testing, but production responses must stay generic
 - password reset tokens must be random, hashed before storage, time-limited, one-time use, and cleared after a successful reset
 - successful password reset must invalidate the stored refresh token so existing sessions cannot continue silently with an old password
+- RevenueCat webhooks must require a configured authorization header and must not trust unauthenticated purchase lifecycle requests
 
 ---
 
@@ -91,6 +92,7 @@ Never log:
 - access tokens
 - refresh tokens
 - passwords or OAuth secrets
+- RevenueCat secret API keys or webhook authorization tokens
 - raw sensitive journal text (except explicitly approved local debug workflow)
 
 Log operational failures safely:

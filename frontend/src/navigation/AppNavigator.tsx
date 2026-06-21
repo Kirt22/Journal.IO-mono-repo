@@ -17,8 +17,6 @@ import MainAppShell from "../screens/main/MainAppShell";
 import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
 import PaywallScreen from "../screens/profile/PaywallScreen";
 import HostedRevenueCatPaywallScreen from "../screens/profile/HostedRevenueCatPaywallScreen";
-import SpinWheelScreen from "../screens/profile/SpinWheelScreen";
-import DiscountOfferPaywallScreen from "../screens/profile/DiscountOfferPaywallScreen";
 import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
 import InAppBrowserModal from "../components/InAppBrowserModal";
 import { useAppStore } from "../store/appStore";
@@ -176,18 +174,6 @@ function HostedPaywallRoute() {
   return <HostedRevenueCatPaywallScreen />;
 }
 
-function SpinWheelRoute() {
-  return <SpinWheelScreen />;
-}
-
-function DiscountOfferRoute() {
-  const continueFromDiscountOffer = useAppStore(
-    state => state.continueFromDiscountOffer
-  );
-
-  return <DiscountOfferPaywallScreen onBack={continueFromDiscountOffer} />;
-}
-
 function LifetimeOfferRoute() {
   const continueFromLifetimeOffer = useAppStore(
     state => state.continueFromLifetimeOffer
@@ -258,10 +244,6 @@ export function getInitialRouteName(stage: string) {
       return "Paywall";
     case "hosted-paywall":
       return "HostedPaywall";
-    case "spin-wheel":
-      return "SpinWheel";
-    case "discount-offer":
-      return "DiscountOffer";
     case "lifetime-offer":
       return "LifetimeOffer";
     case "complete":
@@ -321,8 +303,6 @@ export default function AppNavigator() {
         <RootStack.Screen name="SetupProfile" component={SetupProfileRoute} />
         <RootStack.Screen name="Paywall" component={PaywallRoute} />
         <RootStack.Screen name="HostedPaywall" component={HostedPaywallRoute} />
-        <RootStack.Screen name="SpinWheel" component={SpinWheelRoute} />
-        <RootStack.Screen name="DiscountOffer" component={DiscountOfferRoute} />
         <RootStack.Screen name="LifetimeOffer" component={LifetimeOfferRoute} />
         <RootStack.Screen name="Complete" component={CompleteRoute} />
         <RootStack.Screen

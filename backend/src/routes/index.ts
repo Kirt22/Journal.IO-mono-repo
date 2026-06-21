@@ -12,6 +12,7 @@ import remindersRouter from "../services/reminders/reminders.routes";
 import streaksRouter from "../services/streaks/streaks.routes";
 import userRouter from "../services/user/user.routes";
 import paywallRouter from "../services/paywall/paywall.routes";
+import revenueCatRouter from "../services/revenuecat/revenuecat.routes";
 import { registerLegalRoutes } from "./legal.routes";
 
 console.log("Initializing routes...");
@@ -50,6 +51,7 @@ export const initializeRoutes = (app: Express): void => {
   apiRouter.use("/streaks", streaksRouter);
   apiRouter.use("/insights", insightsRouter);
   apiRouter.use("/paywall", paywallRouter);
+  apiRouter.use("/webhooks", revenueCatRouter);
 
   // Attach the global prefix
   app.use("/api/v1", apiRouter);

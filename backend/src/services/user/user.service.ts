@@ -8,6 +8,13 @@ type UserProfilePayload = {
   isPremium: boolean;
   premiumPlanKey: "weekly" | "monthly" | "yearly" | "lifetime" | null;
   premiumActivatedAt: string | null;
+  premiumProductId: string | null;
+  premiumExpiresAt: string | null;
+  premiumWillRenew: boolean | null;
+  premiumVerifiedAt: string | null;
+  premiumRevenueCatRequestDate: string | null;
+  revenueCatAppUserId: string | null;
+  premiumSource: "revenuecat_client_sync" | "revenuecat_verified" | null;
   avatarColor: string | null;
   journalingGoals: string[];
   profileSetupCompleted: boolean;
@@ -35,6 +42,15 @@ const buildUserProfilePayload = (user: IUser): UserProfilePayload => {
     isPremium: Boolean(user.isPremium),
     premiumPlanKey: user.premiumPlanKey || null,
     premiumActivatedAt: user.premiumActivatedAt?.toISOString() || null,
+    premiumProductId: user.premiumProductId || null,
+    premiumExpiresAt: user.premiumExpiresAt?.toISOString() || null,
+    premiumWillRenew:
+      typeof user.premiumWillRenew === "boolean" ? user.premiumWillRenew : null,
+    premiumVerifiedAt: user.premiumVerifiedAt?.toISOString() || null,
+    premiumRevenueCatRequestDate:
+      user.premiumRevenueCatRequestDate?.toISOString() || null,
+    revenueCatAppUserId: user.revenueCatAppUserId || null,
+    premiumSource: user.premiumSource || null,
     avatarColor: user.avatarColor || null,
     journalingGoals: user.journalingGoals || [],
     profileSetupCompleted: Boolean(user.profileSetupCompleted),
@@ -95,6 +111,17 @@ const updatePremiumStatus = async (
   user.isPremium = input.isPremium;
   user.premiumPlanKey = input.isPremium ? user.premiumPlanKey || null : null;
   user.premiumActivatedAt = input.isPremium ? user.premiumActivatedAt || new Date() : null;
+  user.premiumProductId = input.isPremium ? user.premiumProductId || null : null;
+  user.premiumExpiresAt = input.isPremium ? user.premiumExpiresAt || null : null;
+  user.premiumWillRenew =
+    input.isPremium && typeof user.premiumWillRenew === "boolean"
+      ? user.premiumWillRenew
+      : null;
+  user.premiumVerifiedAt = input.isPremium ? user.premiumVerifiedAt || null : null;
+  user.premiumRevenueCatRequestDate = input.isPremium
+    ? user.premiumRevenueCatRequestDate || null
+    : null;
+  user.revenueCatAppUserId = input.isPremium ? user.revenueCatAppUserId || null : null;
   user.premiumSource = input.isPremium ? user.premiumSource || null : null;
   await user.save();
 

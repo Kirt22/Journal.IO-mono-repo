@@ -17,6 +17,7 @@ import {
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
+  type PurchasesOfferings,
 } from "react-native-purchases";
 import {
   BarChart3,
@@ -35,6 +36,7 @@ import {
   getRevenueCatConfigurationError,
   getRevenueCatOfferings,
   getRevenueCatPaywallPlans,
+  getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
@@ -43,6 +45,7 @@ import {
 } from "../../services/revenueCatService";
 import {
   getPaywallConfig,
+  isRetryableEntitlementSyncError,
   syncPaywallPurchase,
   trackPaywallEvent,
   type PaywallOffering,
@@ -81,14 +84,14 @@ type Testimonial = {
 const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
   key: "lifetime",
   title: "LIFETIME",
-  price: "$149.99",
+  price: null,
   priceSuffix: "one-time",
   subtitle: "One-time unlock",
   badge: "One time offer",
   highlight: "First 100 users",
   sortOrder: 0,
   revenueCatOfferingId: "journalio_offering_lifetime",
-  revenueCatPackageId: "$rc_lifetime",
+  revenueCatPackageId: null,
   purchasedUsersCount: 0,
   purchaseLimit: 100,
 };
@@ -146,8 +149,8 @@ function buildFallbackPlan(
   return {
     id: "lifetime",
     title: configuredOffering.title,
-    durationLabel: configuredOffering.price,
-    price: configuredOffering.price,
+    durationLabel: "",
+    price: "",
     subtitle: configuredOffering.subtitle ?? "One-time unlock",
     highlight: configuredOffering.highlight ?? undefined,
     badge: configuredOffering.badge ?? undefined,
@@ -195,6 +198,8 @@ export default function LifetimeOfferPaywallScreen({
   const sessionUserName = useAppStore(state => state.session?.user.name || "you");
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const [plan, setPlan] = useState<LifetimeScreenPlan>(buildFallbackPlan);
+  const [revenueCatOfferings, setRevenueCatOfferings] =
+    useState<PurchasesOfferings | null>(null);
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
   );
@@ -223,7 +228,8 @@ export default function LifetimeOfferPaywallScreen({
   const lifetimeOffering =
     paywallConfig?.offerings.find(offering => offering.key === "lifetime") ??
     DEFAULT_LIFETIME_OFFERING;
-  const displayedPrice = lifetimeOffering.price || plan.durationLabel || DEFAULT_LIFETIME_OFFERING.price;
+  const displayedPrice =
+    plan.rcPackage?.product.priceString || "Price unavailable";
   const claimLimit = lifetimeOffering.purchaseLimit ?? null;
   const claimCount = lifetimeOffering.purchasedUsersCount ?? 0;
   const claimProgress =
@@ -325,6 +331,8 @@ export default function LifetimeOfferPaywallScreen({
         if (offeringsResult.status !== "fulfilled") {
           throw offeringsResult.reason;
         }
+
+        setRevenueCatOfferings(offeringsResult.value);
 
         const resolvedPlan =
           getRevenueCatPaywallPlans(
@@ -599,42 +607,50 @@ export default function LifetimeOfferPaywallScreen({
 
   const completePremiumActivation = useCallback(
     async (customerInfo: CustomerInfo, options: { wasRestore?: boolean } = {}) => {
-      const activeEntitlement = getRevenueCatActiveEntitlement(customerInfo);
       const premiumAccess = hasPremiumAccess(customerInfo);
+      const attribution = getRevenueCatPurchaseAttribution(
+        customerInfo,
+        revenueCatOfferings
+      );
 
-      if (!premiumAccess) {
+      if (!premiumAccess || !attribution) {
         return false;
       }
 
-      const updatedProfile = await syncPaywallPurchase({
-        offeringKey: "lifetime",
-        revenueCatOfferingId:
-          plan.revenueCatOfferingId ||
-          DEFAULT_LIFETIME_OFFERING.revenueCatOfferingId ||
-          "unknown",
-        revenueCatPackageId:
-          plan.revenueCatPackageId ||
-          plan.rcPackage?.identifier ||
-          DEFAULT_LIFETIME_OFFERING.revenueCatPackageId ||
-          "unknown",
-        store: activeEntitlement?.store || "unknown",
-        entitlementId: activeEntitlement?.identifier || "unknown",
-        wasRestore: Boolean(options.wasRestore),
-      });
+      let updatedProfile;
+
+      try {
+        updatedProfile = await syncPaywallPurchase({
+          offeringKey: attribution.offeringKey,
+          revenueCatOfferingId: attribution.revenueCatOfferingId,
+          revenueCatPackageId: attribution.revenueCatPackageId,
+          store: attribution.activeEntitlement.store || "unknown",
+          entitlementId: attribution.activeEntitlement.identifier,
+          wasRestore: Boolean(options.wasRestore),
+        });
+      } catch (error) {
+        if (isRetryableEntitlementSyncError(error)) {
+          setIsPurchaseAccessUpdating(true);
+          setScreenState("success");
+          return "pending";
+        }
+
+        throw error;
+      }
 
       setSessionUserProfile(updatedProfile);
       setIsPurchaseAccessUpdating(false);
       setScreenState("success");
       return true;
     },
-    [plan.rcPackage?.identifier, plan.revenueCatOfferingId, plan.revenueCatPackageId, setSessionUserProfile]
+    [revenueCatOfferings, setSessionUserProfile]
   );
 
   const finalizePremiumActivation = useCallback(
     async (customerInfo: CustomerInfo, options: { wasRestore?: boolean } = {}) => {
       const activated = await completePremiumActivation(customerInfo, options);
 
-      if (activated || !sessionUserId) {
+      if (activated !== false || !sessionUserId) {
         return activated;
       }
 
@@ -1250,7 +1266,7 @@ export default function LifetimeOfferPaywallScreen({
               <View style={styles.guaranteeRow}>
                 <Check size={10} color={palette.success} />
                 <Text style={[styles.guaranteeText, { color: palette.mutedForeground }]}>
-                  30-day money back guarantee
+                  One-time App Store purchase
                 </Text>
                 <Text style={[styles.guaranteeDot, { color: palette.border }]}>·</Text>
                 <Pressable

@@ -107,6 +107,10 @@ JWT_ACCESS_EXPIRES_IN=14d
 JWT_REFRESH_EXPIRES_IN=7d
 AUTH_EMAIL_DELIVERY_MODE=console
 OPENAI_API_KEY=replace_me
+REVENUECAT_WEBHOOK_AUTH_TOKEN=replace_me
+REVENUECAT_SECRET_API_KEY=replace_me
+REVENUECAT_APP_ID=replace_me
+REVENUECAT_ALLOWED_WEBHOOK_ENVIRONMENTS=PRODUCTION,SANDBOX
 ```
 
 Minimum frontend local env:
@@ -117,19 +121,35 @@ GOOGLE_WEB_CLIENT_ID=
 GOOGLE_IOS_CLIENT_ID=
 REVENUECAT_IOS_API_KEY=
 REVENUECAT_ANDROID_API_KEY=
-REVENUECAT_ENTITLEMENT_ID=Journal.IO Pro
 ```
+
+For a physical iPhone on the same Wi-Fi network, the phone cannot use the
+Mac's `localhost`. Start the backend with `HOST=0.0.0.0` and set
+`API_BASE_URL=http://<mac-wifi-ip>:3000/api/v1` in the ignored
+`frontend/.env.local`. Keep production builds on the hosted HTTPS API.
 
 Production mobile builds should use:
 
 ```env
 API_BASE_URL=https://api.journalio.app/api/v1
-REVENUECAT_ENTITLEMENT_ID=Journal.IO Pro
-REVENUECAT_MAIN_PAYWALL_OFFERING_ID=journalio_offering_post_onboarding_standard
-REVENUECAT_EXIT_PAYWALL_OFFERING_ID=journalio_offering_post_onboarding_exit
-REVENUECAT_OTHER_SCREENS_OFFERING_ID=journalio_offering_other_screens_standard
-REVENUECAT_LIFETIME_OFFERING_ID=journalio_offering_lifetime
+REVENUECAT_IOS_API_KEY=
+REVENUECAT_ANDROID_API_KEY=
 ```
+
+RevenueCat product, offering, and entitlement identifiers are centralized in
+`frontend/src/config/revenueCat.ts`; only platform public SDK keys belong in
+environment configuration. Server-side verification and webhooks use:
+
+- `POST https://api.journalio.app/api/v1/webhooks/revenuecat`
+- `Authorization: Bearer <REVENUECAT_WEBHOOK_AUTH_TOKEN>`
+- RevenueCat secret API access via `REVENUECAT_SECRET_API_KEY`
+- `REVENUECAT_APP_ID` plus `REVENUECAT_ALLOWED_WEBHOOK_ENVIRONMENTS=PRODUCTION,SANDBOX`
+
+RevenueCat dashboard setup notes:
+
+- configure the webhook above for both production and sandbox events
+- use RevenueCat's dashboard authorization header so the backend can authenticate deliveries
+- keep Apple Server Notification V2 configured in both the App Store Connect production and sandbox fields so RevenueCat can emit prompt expiration and billing lifecycle events
 
 ## Install
 
@@ -355,8 +375,11 @@ Before submitting an iOS production build, confirm RevenueCat has:
 - App Store app configured with bundle ID `app.journalio`
 - valid App Store in-app purchase key credentials
 - iOS public SDK key copied into `frontend/.env.production`
-- entitlement ID matching `REVENUECAT_ENTITLEMENT_ID`
+- entitlement identifier exactly matching `Journal.IO Pro`
 - production offerings, not dev offerings
+- each paywall attached to its matching explicit offering
+- the summer paywall comparison uses custom variables instead of a hardcoded currency
+- no automatic exit offer is configured after standard-paywall dismissal
 
 Expected entitlement:
 
@@ -373,14 +396,18 @@ app.journalio.premium.yearly.exit
 app.journalio.premium.lifetime
 ```
 
-Expected production offering IDs:
+Active production offering IDs:
 
 ```text
-journalio_offering_post_onboarding_standard
-journalio_offering_post_onboarding_exit
 journalio_offering_other_screens_standard
+journalio_offering_post_onboarding_exit
 journalio_offering_lifetime
 ```
+
+Both post-auth and contextual standard paywalls use
+`journalio_offering_other_screens_standard`. The legacy post-onboarding
+standard offering is intentionally not used because its attached exit behavior
+must not be reachable from the app.
 
 Do not include monthly packages unless the product decision changes.
 

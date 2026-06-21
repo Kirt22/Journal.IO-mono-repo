@@ -17,6 +17,11 @@ import {
 
 jest.mock("react-native-purchases-ui", () => ({
   __esModule: true,
+  CustomVariableValue: {
+    string: (value: string) => ({ type: "string", value }),
+    number: (value: number) => ({ type: "number", value }),
+    boolean: (value: boolean) => ({ type: "boolean", value }),
+  },
   PAYWALL_RESULT: {
     NOT_PRESENTED: "NOT_PRESENTED",
     ERROR: "ERROR",
@@ -32,11 +37,16 @@ jest.mock("react-native-purchases-ui", () => ({
 
 jest.mock("../src/services/revenueCatService", () => ({
   findRevenueCatPackageByProductIdentifier: jest.fn(() => null),
+  getPackageByProductId: jest.fn((offerings, offeringId, productId) =>
+    offerings?.all?.[offeringId]?.availablePackages?.find(
+      (rcPackage: any) => rcPackage.product.identifier === productId
+    ) ?? null
+  ),
   getRevenueCatActiveEntitlement: jest.fn(() => null),
   getRevenueCatHostedOffering: jest.fn(async () => ({
     offering: {
-      identifier: "journalio_offering_post_onboarding_standard_dev",
-      serverDescription: "Post onboarding main offering",
+      identifier: "journalio_offering_other_screens_standard",
+      serverDescription: "Standard offering",
       metadata: {},
       availablePackages: [
         {
@@ -71,6 +81,46 @@ jest.mock("../src/services/revenueCatService", () => ({
       all: {},
     },
   })),
+  getRevenueCatPurchaseAttribution: jest.fn((customerInfo, offerings) => {
+    const activeEntitlement =
+      customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null;
+    const productIdentifier = activeEntitlement?.productIdentifier ?? null;
+
+    if (!activeEntitlement || !productIdentifier) {
+      return null;
+    }
+
+    const offeringKeyByProduct: Record<string, string> = {
+      "app.journalio.premium.weekly": "weekly",
+      "app.journalio.premium.yearly": "yearly",
+      "app.journalio.premium.yearly.exit": "yearly_exit_offer",
+      "app.journalio.premium.lifetime": "lifetime",
+    };
+    const offeringKey = offeringKeyByProduct[productIdentifier];
+
+    if (!offeringKey) {
+      return null;
+    }
+
+    const rcPackage =
+      Object.values(offerings?.all ?? {})
+        .flatMap((offering: any) => offering.availablePackages ?? [])
+        .find(
+          (candidate: any) =>
+            candidate.product.identifier === productIdentifier
+        ) ?? null;
+
+    return {
+      activeEntitlement,
+      offeringKey,
+      productIdentifier,
+      revenueCatOfferingId:
+        rcPackage?.presentedOfferingContext?.offeringIdentifier ??
+        "journalio_offering_other_screens_standard",
+      revenueCatPackageId: rcPackage?.identifier ?? productIdentifier,
+      rcPackage,
+    };
+  }),
   hasPremiumAccess: jest.fn(() => false),
   hasRevenueCatHostedPaywall: jest.fn(() => true),
   refreshRevenueCatEntitlementState: jest.fn(async () => ({
@@ -114,7 +164,7 @@ jest.mock("../src/services/paywallService", () => ({
         badge: null,
         highlight: null,
         sortOrder: 1,
-        revenueCatOfferingId: "journalio_offering_post_onboarding_standard_dev",
+        revenueCatOfferingId: "journalio_offering_other_screens_standard",
         revenueCatPackageId: "$rc_annual",
         purchasedUsersCount: 0,
         purchaseLimit: null,
@@ -185,7 +235,6 @@ describe("HostedRevenueCatPaywallScreen", () => {
         activePaywallPlacementKey: "post_auth",
         activePaywallScreenKey: "verify-email",
         activePaywallTriggerMode: "contextual",
-        pendingPostAuthDiscountOffer: true,
         paywallReturnStage: "profile",
         session: {
           accessToken: "test-access",
@@ -260,6 +309,166 @@ describe("HostedRevenueCatPaywallScreen", () => {
       })
     );
     expect(extractText(renderer?.toJSON())).toContain("Processing your purchase...");
+  });
+
+  it("passes the same-currency localized normal yearly price", async () => {
+    const consoleInfoSpy = jest
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    const {
+      getRevenueCatHostedOffering,
+    } = require("../src/services/revenueCatService");
+    const discountPackage = {
+      identifier: "summer",
+      packageType: "ANNUAL",
+      product: {
+        identifier: "app.journalio.premium.yearly.exit",
+        priceString: "₹1,499",
+        currencyCode: "INR",
+      },
+    };
+    const normalYearlyPackage = {
+      identifier: "$rc_annual",
+      packageType: "ANNUAL",
+      product: {
+        identifier: "app.journalio.premium.yearly",
+        priceString: "₹2,999",
+        currencyCode: "INR",
+      },
+    };
+    const summerOffering = {
+      identifier: "journalio_offering_post_onboarding_exit",
+      availablePackages: [discountPackage],
+    };
+
+    getRevenueCatHostedOffering.mockResolvedValueOnce({
+      offering: summerOffering,
+      offerings: {
+        current: null,
+        all: {
+          journalio_offering_post_onboarding_exit: summerOffering,
+          journalio_offering_other_screens_standard: {
+            identifier: "journalio_offering_other_screens_standard",
+            availablePackages: [normalYearlyPackage],
+          },
+        },
+      },
+    });
+
+    ReactTestRenderer.act(() => {
+      useAppStore.setState({
+        activeHostedPaywallTarget: "exit",
+        activePaywallPlacementKey: "post_auth_exit_offer",
+        activePaywallScreenKey: "home",
+      });
+    });
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+            <HostedRevenueCatPaywallScreen />
+          </SafeAreaProvider>
+        );
+        await flushPromises();
+      });
+
+      const { default: RevenueCatUI } = require("react-native-purchases-ui");
+      const options = RevenueCatUI.Paywall.mock.calls[0][0].options;
+
+      expect(options.offering).toBe(summerOffering);
+      expect(options.customVariables).toEqual({
+        normal_yearly_price: { type: "string", value: "₹2,999" },
+      });
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        "[RevenueCatDebug] summer paywall pricing variables",
+        expect.objectContaining({
+          discountProduct: expect.objectContaining({
+            productIdentifier: "app.journalio.premium.yearly.exit",
+            priceString: "₹1,499",
+            currencyCode: "INR",
+          }),
+          normalYearlyProduct: expect.objectContaining({
+            productIdentifier: "app.journalio.premium.yearly",
+            priceString: "₹2,999",
+            currencyCode: "INR",
+          }),
+          canCompareYearlyPrices: true,
+          customVariables: {
+            normal_yearly_price: "₹2,999",
+          },
+        })
+      );
+    } finally {
+      consoleInfoSpy.mockRestore();
+    }
+  });
+
+  it("clears the normal yearly price when storefront currencies do not match", async () => {
+    const {
+      getRevenueCatHostedOffering,
+    } = require("../src/services/revenueCatService");
+    const discountPackage = {
+      identifier: "summer",
+      packageType: "ANNUAL",
+      product: {
+        identifier: "app.journalio.premium.yearly.exit",
+        priceString: "₹1,499",
+        currencyCode: "INR",
+      },
+    };
+    const summerOffering = {
+      identifier: "journalio_offering_post_onboarding_exit",
+      availablePackages: [discountPackage],
+    };
+
+    getRevenueCatHostedOffering.mockResolvedValueOnce({
+      offering: summerOffering,
+      offerings: {
+        current: null,
+        all: {
+          journalio_offering_post_onboarding_exit: summerOffering,
+          journalio_offering_other_screens_standard: {
+            identifier: "journalio_offering_other_screens_standard",
+            availablePackages: [
+              {
+                identifier: "$rc_annual",
+                packageType: "ANNUAL",
+                product: {
+                  identifier: "app.journalio.premium.yearly",
+                  priceString: "$59.99",
+                  currencyCode: "USD",
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    ReactTestRenderer.act(() => {
+      useAppStore.setState({
+        activeHostedPaywallTarget: "exit",
+        activePaywallPlacementKey: "post_auth_exit_offer",
+        activePaywallScreenKey: "home",
+      });
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <HostedRevenueCatPaywallScreen />
+        </SafeAreaProvider>
+      );
+      await flushPromises();
+    });
+
+    const { default: RevenueCatUI } = require("react-native-purchases-ui");
+    const options = RevenueCatUI.Paywall.mock.calls[0][0].options;
+
+    expect(options.customVariables).toEqual({
+      normal_yearly_price: { type: "string", value: "" },
+    });
   });
 
   it("shows sanitized copy for hosted Test Store purchase failures", async () => {

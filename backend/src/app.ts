@@ -9,6 +9,7 @@ import {
 import cors from "cors";
 import "dotenv/config";
 import { passwordResetPageController } from "./services/auth/auth.controllers";
+import { assertRevenueCatProductionConfiguration } from "./config/revenueCat.config";
 
 const DEFAULT_PORT = 3000;
 
@@ -57,10 +58,13 @@ export const createApp = (): Express => {
 };
 
 export const startServer = async (): Promise<void> => {
+  assertRevenueCatProductionConfiguration();
   await init_mongoDB();
   const app = createApp();
   const port = Number(process.env.PORT) || DEFAULT_PORT;
-  const host = process.env.HOST || "0.0.0.0";
+  const host =
+    process.env.HOST ||
+    (process.env.NODE_ENV === "production" ? "0.0.0.0" : "localhost");
 
   await new Promise<void>((resolve, reject) => {
     const server = app.listen(port, host, () => {

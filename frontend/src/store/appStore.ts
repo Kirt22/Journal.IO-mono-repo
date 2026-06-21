@@ -71,8 +71,6 @@ const isFlowStage = (value: string): value is FlowStage =>
   value === "onboarding" ||
   value === "paywall" ||
   value === "hosted-paywall" ||
-  value === "spin-wheel" ||
-  value === "discount-offer" ||
   value === "lifetime-offer" ||
   value === "auth" ||
   value === "sign-in" ||
@@ -225,7 +223,6 @@ type AppStoreState = {
   activePaywallTriggerMode: PaywallTriggerMode;
   activeHostedPaywallTarget: HostedPaywallTarget | null;
   postAuthPaywallStepOverride: PostAuthPaywallStep | null;
-  pendingPostAuthDiscountOffer: boolean;
   activeTab: BottomNavKey;
   preferredInsightsTab: "overview" | "analysis" | null;
   isCompletingOnboarding: boolean;
@@ -249,9 +246,6 @@ type AppStoreState = {
   openHostedPaywall: (target: HostedPaywallTarget) => void;
   continueFromHostedPaywall: (reason?: "dismiss" | "continue") => void;
   fallbackFromHostedPaywall: () => void;
-  continueFromSpinWheel: () => void;
-  fallbackFromSpinWheel: () => void;
-  continueFromDiscountOffer: () => void;
   continueFromLifetimeOffer: () => void;
   openLifetimeOffer: (options?: {
     returnStage?: FlowStage;
@@ -264,7 +258,6 @@ type AppStoreState = {
     returnStage?: FlowStage;
     screenKey?: string | null;
     triggerMode?: PaywallTriggerMode;
-    enablePostAuthDiscountOffer?: boolean;
   }) => void;
   setPaywallContext: (context: {
     placementKey: string | null;
@@ -326,7 +319,6 @@ type AppStoreSnapshot = Pick<
   | "activePaywallTriggerMode"
   | "activeHostedPaywallTarget"
   | "postAuthPaywallStepOverride"
-  | "pendingPostAuthDiscountOffer"
   | "activeTab"
   | "preferredInsightsTab"
   | "isCompletingOnboarding"
@@ -354,7 +346,6 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   activePaywallTriggerMode: "contextual",
   activeHostedPaywallTarget: null,
   postAuthPaywallStepOverride: null,
-  pendingPostAuthDiscountOffer: false,
   activeTab: getInitialTab(),
   preferredInsightsTab: null,
   isCompletingOnboarding: false,
@@ -505,7 +496,7 @@ const navigateToResolvedStage = (
 
 type PaywallExitStage = Exclude<
   FlowStage,
-  "paywall" | "hosted-paywall" | "spin-wheel" | "discount-offer" | "lifetime-offer"
+  "paywall" | "hosted-paywall" | "lifetime-offer"
 >;
 
 type HostedPaywallTarget = "main" | "exit";
@@ -619,7 +610,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           activePaywallTriggerMode: "contextual",
           activeHostedPaywallTarget: null,
           postAuthPaywallStepOverride: null,
-          pendingPostAuthDiscountOffer: false,
           preferredInsightsTab: null,
           pendingPremiumActivation: false,
           activeTab: "home",
@@ -649,7 +639,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           activePaywallTriggerMode: "contextual",
           activeHostedPaywallTarget: null,
           postAuthPaywallStepOverride: null,
-          pendingPostAuthDiscountOffer: false,
           preferredInsightsTab: null,
           activeTab: "home",
           stage: onboardingCompleted ? "auth" : "onboarding",
@@ -676,7 +665,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       preferredInsightsTab: null,
       activeTab: "home",
       stage: onboardingCompleted ? "auth" : "onboarding",
@@ -709,7 +697,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: "auth",
     });
 
@@ -725,7 +712,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: resolvePaywallExitStage(currentState),
     }));
 
@@ -762,7 +748,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: resolvePaywallExitStage(currentState),
     }));
 
@@ -782,7 +767,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         activePaywallTriggerMode: "contextual",
         activeHostedPaywallTarget: null,
         postAuthPaywallStepOverride: null,
-        pendingPostAuthDiscountOffer: false,
         stage: resolvePaywallExitStage(currentState),
       }));
 
@@ -796,68 +780,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: "purchase" as PostAuthPaywallStep,
-      pendingPostAuthDiscountOffer: false,
       stage: "paywall" as FlowStage,
     });
 
     resetRoot("Paywall");
-  },
-  continueFromSpinWheel: () => {
-    const state = get();
-
-    set(currentState => ({
-      paywallReturnStage: null,
-      activePaywallPlacementKey: null,
-      activePaywallScreenKey: null,
-      activePaywallTriggerMode: "contextual",
-      activeHostedPaywallTarget: null,
-      postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
-      stage: resolvePaywallExitStage(currentState),
-    }));
-
-    navigateToResolvedStage({
-      ...state,
-      setActiveTabState: get().setActiveTabState,
-    });
-  },
-  fallbackFromSpinWheel: () => {
-    const state = get();
-
-    set(currentState => ({
-      paywallReturnStage: null,
-      activePaywallPlacementKey: null,
-      activePaywallScreenKey: null,
-      activePaywallTriggerMode: "contextual",
-      activeHostedPaywallTarget: null,
-      postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
-      stage: resolvePaywallExitStage(currentState),
-    }));
-
-    navigateToResolvedStage({
-      ...state,
-      setActiveTabState: get().setActiveTabState,
-    });
-  },
-  continueFromDiscountOffer: () => {
-    const state = get();
-
-    set(currentState => ({
-      paywallReturnStage: null,
-      activePaywallPlacementKey: null,
-      activePaywallScreenKey: null,
-      activePaywallTriggerMode: "contextual",
-      activeHostedPaywallTarget: null,
-      postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
-      stage: resolvePaywallExitStage(currentState),
-    }));
-
-    navigateToResolvedStage({
-      ...state,
-      setActiveTabState: get().setActiveTabState,
-    });
   },
   continueFromLifetimeOffer: () => {
     const state = get();
@@ -869,7 +795,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: resolvePaywallExitStage(currentState),
     }));
 
@@ -887,8 +812,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const fallbackStage: PaywallExitStage =
       currentStage === "paywall" ||
       currentStage === "hosted-paywall" ||
-      currentStage === "spin-wheel" ||
-      currentStage === "discount-offer" ||
       currentStage === "lifetime-offer"
         ? getPostAuthDestinationStage(get().session)
         : (currentStage as PaywallExitStage);
@@ -896,8 +819,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       returnStage &&
       returnStage !== "paywall" &&
       returnStage !== "hosted-paywall" &&
-      returnStage !== "spin-wheel" &&
-      returnStage !== "discount-offer" &&
       returnStage !== "lifetime-offer"
         ? (returnStage as PaywallExitStage)
         : fallbackStage;
@@ -909,7 +830,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: triggerMode,
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: "lifetime-offer",
     });
 
@@ -920,8 +840,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const fallbackStage: PaywallExitStage =
       currentStage === "paywall" ||
       currentStage === "hosted-paywall" ||
-      currentStage === "spin-wheel" ||
-      currentStage === "discount-offer" ||
       currentStage === "lifetime-offer"
         ? getPostAuthDestinationStage(get().session)
         : (currentStage as PaywallExitStage);
@@ -929,8 +847,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       returnStage &&
       returnStage !== "paywall" &&
       returnStage !== "hosted-paywall" &&
-      returnStage !== "spin-wheel" &&
-      returnStage !== "discount-offer" &&
       returnStage !== "lifetime-offer"
         ? (returnStage as PaywallExitStage)
         : fallbackStage;
@@ -942,7 +858,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: "paywall",
     });
 
@@ -959,8 +874,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const fallbackStage: PaywallExitStage =
       currentStage === "paywall" ||
       currentStage === "hosted-paywall" ||
-      currentStage === "spin-wheel" ||
-      currentStage === "discount-offer" ||
       currentStage === "lifetime-offer"
         ? getPostAuthDestinationStage(get().session)
         : (currentStage as PaywallExitStage);
@@ -968,8 +881,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       returnStage &&
       returnStage !== "paywall" &&
       returnStage !== "hosted-paywall" &&
-      returnStage !== "spin-wheel" &&
-      returnStage !== "discount-offer" &&
       returnStage !== "lifetime-offer"
         ? (returnStage as PaywallExitStage)
         : fallbackStage;
@@ -981,7 +892,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: triggerMode,
       activeHostedPaywallTarget: shouldUseHostedPaywall ? "main" : null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: shouldUseHostedPaywall ? "hosted-paywall" : "paywall",
     });
 
@@ -1001,7 +911,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
     });
   },
   continueWithEmail: async () => {
@@ -1059,7 +968,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       session: syncedSession,
       initialProfileName: syncedSession.user.name || "Journal User",
       pendingPremiumActivation: false,
@@ -1126,7 +1034,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       session: syncedSession,
       initialProfileName: syncedSession.user.name || "Journal User",
       pendingPremiumActivation: false,
@@ -1267,7 +1174,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       stage: showPaywall ? "paywall" : nextStage,
     });
 
@@ -1360,7 +1266,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       pendingPremiumActivation: false,
       preferredInsightsTab: null,
       activeTab: "home",
@@ -1413,7 +1318,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: "contextual",
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      pendingPostAuthDiscountOffer: false,
       preferredInsightsTab: null,
       isCompletingOnboarding: false,
       onboardingData: null,

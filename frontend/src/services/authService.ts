@@ -8,6 +8,13 @@ type AuthUser = {
   isPremium?: boolean;
   premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
   premiumActivatedAt?: string | null;
+  premiumProductId?: string | null;
+  premiumExpiresAt?: string | null;
+  premiumWillRenew?: boolean | null;
+  premiumVerifiedAt?: string | null;
+  premiumRevenueCatRequestDate?: string | null;
+  revenueCatAppUserId?: string | null;
+  premiumSource?: "revenuecat_client_sync" | "revenuecat_verified" | null;
   journalingGoals: string[];
   avatarColor: string | null;
   profileSetupCompleted: boolean;
@@ -184,6 +191,13 @@ const createMockSession = (payload: {
       isPremium: false,
       premiumPlanKey: null,
       premiumActivatedAt: null,
+      premiumProductId: null,
+      premiumExpiresAt: null,
+      premiumWillRenew: null,
+      premiumVerifiedAt: null,
+      premiumRevenueCatRequestDate: null,
+      revenueCatAppUserId: null,
+      premiumSource: null,
       journalingGoals: payload.goals || [],
       avatarColor:
         payload.avatarColor === undefined ? null : payload.avatarColor,

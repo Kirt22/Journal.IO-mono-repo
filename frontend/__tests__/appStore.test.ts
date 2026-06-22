@@ -796,6 +796,79 @@ describe("appStore", () => {
     expect(freshStore.getState().session?.user.email).toBe("alex@example.com");
   });
 
+  it("boots into home from the cached verified profile when offline", async () => {
+    jest.resetModules();
+
+    const cachedUser = {
+      userId: "user-123",
+      name: "Alex",
+      phoneNumber: null,
+      email: "alex@example.com",
+      isPremium: true,
+      premiumPlanKey: "yearly",
+      premiumActivatedAt: "2026-06-20T10:00:00.000Z",
+      premiumProductId: "app.journalio.premium.yearly",
+      premiumExpiresAt: "2026-06-27T10:00:00.000Z",
+      premiumWillRenew: true,
+      premiumVerifiedAt: "2026-06-22T10:00:00.000Z",
+      premiumRevenueCatRequestDate: "2026-06-22T10:00:00.000Z",
+      revenueCatAppUserId: "user-123",
+      premiumSource: "revenuecat_verified",
+      journalingGoals: ["growth"],
+      avatarColor: "#8E4636",
+      profileSetupCompleted: true,
+      onboardingCompleted: true,
+      profilePic: null,
+      aiOptIn: true,
+    };
+    const storage = require("@react-native-async-storage/async-storage").default;
+
+    storage.getItem.mockImplementation(async (key: string) =>
+      key === "journalio.auth.user" ? JSON.stringify(cachedUser) : null
+    );
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { ApiError } = require("../src/utils/apiClient");
+
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => {
+        throw new ApiError("Network unavailable", { isNetworkError: true });
+      }),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("main-app");
+    expect(freshStore.getState().session).toEqual({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      user: cachedUser,
+    });
+  });
+
   it("marks existing installs as already having seen the post-auth paywall", async () => {
     jest.resetModules();
 
@@ -886,6 +959,7 @@ describe("appStore", () => {
     jest.resetModules();
 
     const clearTokens = jest.fn(async () => undefined);
+    const storage = require("@react-native-async-storage/async-storage").default;
 
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
@@ -921,6 +995,7 @@ describe("appStore", () => {
     });
 
     expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
     expect(freshStore.getState().session).toBeNull();
     expect(freshStore.getState().stage).toBe("auth");
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);

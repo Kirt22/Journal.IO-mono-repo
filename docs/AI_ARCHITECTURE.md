@@ -104,6 +104,7 @@ API calls must remain in `frontend/src/services`.
 Low-level shared helpers like API clients and secure token storage belong in `frontend/src/utils`.
 Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
 Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
+The last server-verified user profile is cached separately in AsyncStorage so a signed-in user can enter the app during a temporary network outage. Tokens remain in Keychain, unauthorized profile responses clear both token and profile caches, and reconnect-driven API calls refresh the cached profile.
 For Google mobile sign-in, the device only forwards the Google `idToken`; the backend verifies it with Google and then issues the normal Journal.IO access and refresh tokens.
 For Apple mobile sign-in, the device forwards the Apple `identityToken` plus the raw nonce; the backend verifies the Apple signature, issuer, audience, expiry, and nonce before issuing the normal Journal.IO access and refresh tokens.
 

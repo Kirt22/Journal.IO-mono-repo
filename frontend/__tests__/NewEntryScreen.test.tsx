@@ -161,6 +161,13 @@ test("renders the new entry screen and validates empty content", async () => {
   expect(tree).toContain("Show Writing Prompts");
   expect(tree).toContain("Auto-tag with AI");
   expect(tree).toContain("Tags");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Entry content" }).props
+      .inputAccessoryViewID
+  ).toBe("new-entry-keyboard-actions");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Dismiss keyboard" })
+  ).toBeTruthy();
 
   await ReactTestRenderer.act(() => {
     const saveButton = root!.root.findByProps({

@@ -4,6 +4,8 @@ import {
   Alert,
   Animated,
   Easing,
+  KeyboardAvoidingView,
+  Platform,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
@@ -41,6 +43,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
+import KeyboardDismissAccessory from "../../components/KeyboardDismissAccessory";
 import { requestAppRating } from "../../services/appRatingService";
 import {
   generateOnboardingDemoAnalysis,
@@ -62,6 +65,7 @@ const RATING_STEP = 12;
 const REFLECTION_WAIT_SECONDS = 3;
 const BREATHING_WAIT_SECONDS = 5;
 const isTestEnvironment = typeof jest !== "undefined";
+const ONBOARDING_KEYBOARD_ACCESSORY_ID = "onboarding-keyboard-actions";
 
 const valueCards = [
   {
@@ -336,6 +340,7 @@ export function OnboardingScreen({
   const [isApplyingReminderPreference, setIsApplyingReminderPreference] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const testimonialScrollRef = useRef<ScrollView | null>(null);
+  const onboardingScrollRef = useRef<ScrollView | null>(null);
   const stepOpacity = useRef(new Animated.Value(1)).current;
   const stepTranslateX = useRef(new Animated.Value(0)).current;
   const mascotFloatY = useRef(new Animated.Value(0)).current;
@@ -863,6 +868,12 @@ export function OnboardingScreen({
     styles.starScale,
     { transform: [{ scale: starScales[star - 1] }] },
   ];
+
+  const revealJournalThoughts = () => {
+    setTimeout(() => {
+      onboardingScrollRef.current?.scrollToEnd({ animated: true });
+    }, 120);
+  };
 
   const renderStepContent = () => {
     if (step === 1) {
@@ -1760,6 +1771,7 @@ export function OnboardingScreen({
                   accessibilityLabel="One word feeling"
                   autoCapitalize="none"
                   maxLength={24}
+                  inputAccessoryViewID={ONBOARDING_KEYBOARD_ACCESSORY_ID}
                   onChangeText={value => {
                     setJournalFeeling(value);
                     setDemoAnalysis(null);
@@ -1786,6 +1798,7 @@ export function OnboardingScreen({
                 <TextInput
                   accessibilityLabel="Gentle hurdle"
                   maxLength={40}
+                  inputAccessoryViewID={ONBOARDING_KEYBOARD_ACCESSORY_ID}
                   onChangeText={value => {
                     setJournalChallenge(value);
                     setDemoAnalysis(null);
@@ -1819,6 +1832,8 @@ export function OnboardingScreen({
                 accessibilityLabel="Journal thoughts"
                 maxLength={240}
                 multiline
+                inputAccessoryViewID={ONBOARDING_KEYBOARD_ACCESSORY_ID}
+                onFocus={revealJournalThoughts}
                 onChangeText={value => {
                   setJournalThoughts(value);
                   setDemoAnalysis(null);
@@ -2077,13 +2092,19 @@ export function OnboardingScreen({
         edges={["top", "left", "right", "bottom"]}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={styles.screenContent}>
+        <KeyboardAvoidingView
+          style={styles.screenContent}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
           <ScrollView
+            ref={onboardingScrollRef}
             bounces={false}
             contentContainerStyle={[
               styles.contentContainer,
               { paddingHorizontal: horizontalPadding },
             ]}
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.sheet, { maxWidth: layoutMaxWidth }]}>
@@ -2192,7 +2213,13 @@ export function OnboardingScreen({
               Step {step} of {TOTAL_STEPS}
             </Text>
           </View>
-        </View>
+        </KeyboardAvoidingView>
+        <KeyboardDismissAccessory
+          nativeID={ONBOARDING_KEYBOARD_ACCESSORY_ID}
+          backgroundColor={theme.colors.card}
+          borderColor={theme.colors.border}
+          actionColor={theme.colors.primary}
+        />
       </SafeAreaView>
 
     </>

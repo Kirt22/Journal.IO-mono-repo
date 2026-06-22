@@ -29,6 +29,7 @@ import {
   Meh,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import KeyboardDismissAccessory from "../components/KeyboardDismissAccessory";
 import {
   createJournalEntry,
   suggestJournalTags as fetchSuggestedJournalTags,
@@ -132,6 +133,7 @@ const moods: MoodOption[] = [
   { value: "terrible", icon: Frown, label: "Terrible" },
 ];
 const UNTITLED_ENTRY_TITLE = "Untitled";
+const NEW_ENTRY_KEYBOARD_ACCESSORY_ID = "new-entry-keyboard-actions";
 
 function toRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -266,6 +268,7 @@ export default function NewEntryScreen({
   const [error, setError] = useState<string | null>(null);
   const promptListProgress = useRef(new Animated.Value(0)).current;
   const suggestionCardProgress = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -589,6 +592,12 @@ export default function NewEntryScreen({
     ],
   } as const;
 
+  const revealWritingArea = () => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 310, animated: true });
+    }, 120);
+  };
+
   return (
     <SafeAreaView
       edges={["top", "left", "right"]}
@@ -661,6 +670,7 @@ export default function NewEntryScreen({
           </View>
 
           <ScrollView
+            ref={scrollViewRef}
             contentContainerStyle={[
               styles.content,
               styles.contentInset,
@@ -669,6 +679,7 @@ export default function NewEntryScreen({
                 backgroundColor: theme.colors.background,
               },
             ]}
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
@@ -722,6 +733,7 @@ export default function NewEntryScreen({
                   placeholder="Give your entry a title (optional)"
                   placeholderTextColor={theme.colors.mutedForeground}
                   autoCapitalize="sentences"
+                  inputAccessoryViewID={NEW_ENTRY_KEYBOARD_ACCESSORY_ID}
                   style={[
                     styles.titleInput,
                     {
@@ -838,6 +850,8 @@ export default function NewEntryScreen({
                   placeholderTextColor={theme.colors.mutedForeground}
                   multiline
                   autoFocus
+                  inputAccessoryViewID={NEW_ENTRY_KEYBOARD_ACCESSORY_ID}
+                  onFocus={revealWritingArea}
                   textAlignVertical="top"
                   style={[
                     styles.contentInput,
@@ -938,6 +952,7 @@ export default function NewEntryScreen({
                     placeholderTextColor={theme.colors.mutedForeground}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    inputAccessoryViewID={NEW_ENTRY_KEYBOARD_ACCESSORY_ID}
                     returnKeyType="done"
                     onSubmitEditing={handleAddTag}
                     style={[
@@ -1099,6 +1114,12 @@ export default function NewEntryScreen({
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      <KeyboardDismissAccessory
+        nativeID={NEW_ENTRY_KEYBOARD_ACCESSORY_ID}
+        backgroundColor={theme.colors.card}
+        borderColor={theme.colors.border}
+        actionColor={theme.colors.primary}
+      />
     </SafeAreaView>
   );
 }

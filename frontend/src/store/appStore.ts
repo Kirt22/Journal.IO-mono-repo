@@ -46,6 +46,11 @@ import {
   saveStoredOnboardingData,
 } from "../utils/appStorage";
 import type { OnboardingCompletionData } from "../types/onboarding";
+import {
+  clearCachedAuthUser,
+  getCachedAuthUser,
+  saveCachedAuthUser,
+} from "../utils/authSessionCache";
 import devLaunchConfig from "../utils/devLaunchConfig.json";
 import {
   goBackOrFallback,
@@ -375,6 +380,8 @@ const enterHomeWithProfile = (
 ) => {
   const currentSession = get().session;
 
+  saveCachedAuthUser(updatedProfile).catch(() => undefined);
+
   set({
     session: currentSession
       ? {
@@ -572,6 +579,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     if (!installSeen) {
       await markInstallSeen();
       await clearTokens();
+      await clearCachedAuthUser();
       await saveOnboardingCompleted(false);
       await clearStoredOnboardingData();
       await savePostAuthPaywallSeen(false);
@@ -595,6 +603,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
         await saveOnboardingCompleted(Boolean(profile.onboardingCompleted));
         await savePostAuthPaywallSeen(true);
+        await saveCachedAuthUser(profile);
         await syncReminderStateAfterAuth(null);
 
         set({
@@ -619,6 +628,37 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       } catch (error) {
         if (isUnauthorizedProfileError(error)) {
           await clearTokens();
+          await clearCachedAuthUser();
+        } else if (error instanceof ApiError && error.isNetworkError) {
+          const cachedUser = await getCachedAuthUser();
+
+          if (cachedUser) {
+            const hydratedSession: AuthSession = {
+              accessToken: tokens.accessToken,
+              refreshToken: tokens.refreshToken,
+              user: cachedUser,
+            };
+
+            set({
+              hasBootstrappedAuthGate: true,
+              session: hydratedSession,
+              onboardingData: null,
+              initialProfileName: cachedUser.name,
+              authSource: cachedUser.email ? "email" : null,
+              pendingEmail: cachedUser.email || "",
+              paywallReturnStage: null,
+              activePaywallPlacementKey: null,
+              activePaywallScreenKey: null,
+              activePaywallTriggerMode: "contextual",
+              activeHostedPaywallTarget: null,
+              postAuthPaywallStepOverride: null,
+              preferredInsightsTab: null,
+              pendingPremiumActivation: false,
+              activeTab: "home",
+              stage: cachedUser.profileSetupCompleted ? "main-app" : "profile",
+            });
+            return;
+          }
         }
 
         const onboardingCompleted = await getOnboardingCompleted();
@@ -950,6 +990,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       get().pendingPremiumActivation
     );
 
+    await saveCachedAuthUser(syncedSession.user);
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
     await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
@@ -1016,6 +1057,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       get().pendingPremiumActivation
     );
 
+    await saveCachedAuthUser(syncedSession.user);
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
     await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
@@ -1150,6 +1192,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     };
 
     await saveOnboardingCompleted(true);
+    await saveCachedAuthUser(updatedSession.user);
     await syncReminderStateAfterAuth(onboardingData);
 
     set({
@@ -1246,6 +1289,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       get().pendingPremiumActivation
     );
 
+    await saveCachedAuthUser(syncedSession.user);
     await saveOnboardingCompleted(Boolean(syncedSession.user.onboardingCompleted));
     await syncReminderStateAfterAuth(onboardingData);
     const nextStage = getPostAuthDestinationStage(syncedSession);
@@ -1306,6 +1350,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     await cancelFreeTrialEndingReminder().catch(() => undefined);
     await clearTokens();
+    await clearCachedAuthUser();
     await clearStoredOnboardingData();
 
     set({
@@ -1502,13 +1547,17 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
+    const nextProfile = {
+      ...currentSession.user,
+      aiOptIn: nextValue,
+    };
+
+    saveCachedAuthUser(nextProfile).catch(() => undefined);
+
     set({
       session: {
         ...currentSession,
-        user: {
-          ...currentSession.user,
-          aiOptIn: nextValue,
-        },
+        user: nextProfile,
       },
     });
   },
@@ -1531,6 +1580,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       cancelFreeTrialEndingReminder().catch(() => undefined);
     }
 
+    await saveCachedAuthUser(updatedProfile);
+
     set({
       pendingPremiumActivation: false,
       session: {
@@ -1548,6 +1599,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     if (!currentSession) {
       return;
     }
+
+    saveCachedAuthUser(nextProfile).catch(() => undefined);
 
     set({
       session: {

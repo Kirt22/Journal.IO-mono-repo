@@ -252,7 +252,7 @@ test("renders the onboarding flow and advances to the next step", async () => {
   expect(tree).toContain("Continue");
 
   await ReactTestRenderer.act(() => {
-    root!.root.findByProps({ accessibilityRole: "button" }).props.onPress();
+    findPressableByLabel(root!, "Continue").props.onPress();
   });
 
   const nextTree = extractText(root!.toJSON());
@@ -409,6 +409,13 @@ test("shows the onboarding journal demo and generated AI reflection", async () =
 
   expect(extractText(root!.toJSON())).toContain("Your first entry");
   expect(extractText(root!.toJSON())).toContain("Step 9 of 12");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Journal thoughts" }).props
+      .inputAccessoryViewID
+  ).toBe("onboarding-keyboard-actions");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Dismiss keyboard" })
+  ).toBeTruthy();
 
   await fillJournalDemoAndOpenReflection(root!);
 

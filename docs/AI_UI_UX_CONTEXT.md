@@ -155,6 +155,8 @@ Auth should prioritize low-friction entry:
 - Apple sign-in path should treat `@privaterelay.appleid.com` addresses as Apple private relay contact addresses and avoid presenting them as the user's real iCloud email
 - onboarding goals should remain available as hidden flow context during auth and setup steps
 - on app launch, a valid stored session should go directly to home before any onboarding/auth screens render
+- when valid stored tokens and a previously verified profile exist, temporary offline launch should open the authenticated app with the cached profile instead of showing auth; unavailable server content may still show its normal offline/error state
+- long-form journal inputs should remain visible above the keyboard, support drag-to-dismiss, and expose an explicit keyboard `Done` action where the platform supports an input accessory
 - once onboarding has been completed, future app launches should begin at auth unless the user is already signed in, and they should not enter the authenticated app with fallback/dummy profile data
 - the auth screen is a one-way entry point from onboarding and does not show a back affordance
 - signed-in session state should be install-scoped so deleting and reinstalling the app returns to onboarding or auth instead of home

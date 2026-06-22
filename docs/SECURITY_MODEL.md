@@ -61,6 +61,8 @@ Related APIs:
 
 Implemented privacy/session actions must invalidate server-side refresh tokens where applicable and keep user-owned data isolated by account.
 
+Mobile auth tokens remain in Keychain. A profile-only cache may be stored in AsyncStorage for offline launch, but it must not contain access or refresh tokens, must be cleared on sign-out or unauthorized profile responses, and must never replace backend authorization for protected API data.
+
 AI opt-out must be enforced at runtime, not stored as cosmetic onboarding state only:
 
 - `aiOptIn === false` must block `GET /insights/ai-analysis`

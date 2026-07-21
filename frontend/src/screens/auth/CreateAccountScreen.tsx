@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -8,23 +8,32 @@ import {
   Text,
   TextInput,
   View,
-} from "../../infrastructure/reactNative";
+} from '../../infrastructure/reactNative';
 import {
   ArrowLeft,
   CheckCircle2,
   CircleQuestionMark,
   Eye,
   EyeOff,
-  Loader2,
-  Mail,
-} from "lucide-react-native";
-import { Animated, Easing } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useWindowDimensions } from "react-native";
-import PrimaryButton from "../../components/PrimaryButton";
-import AuthHero from "../../components/AuthHero";
-import { useTheme } from "../../theme/provider";
-import { getAuthLayoutMetrics } from "./authLayout";
+} from 'lucide-react-native';
+import { Animated, Easing } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useWindowDimensions } from 'react-native';
+import PrimaryButton from '../../components/PrimaryButton';
+import AuthActionIcon from '../../components/AuthActionIcon';
+import {
+  AuthErrorDialog,
+  AuthErrorNotice,
+} from '../../components/AuthErrorFeedback';
+import AuthHero from '../../components/AuthHero';
+import AuthInkBackdrop from '../../components/AuthInkBackdrop';
+import { useTheme } from '../../theme/provider';
+import { getAuthLayoutMetrics } from './authLayout';
+import {
+  AUTH_VALIDATION_MESSAGES,
+  getAuthErrorPresentation,
+  type AuthErrorPresentation,
+} from './authErrorPresentation';
 
 type CreateAccountScreenProps = {
   onSubmit: (payload: { email: string; password: string }) => Promise<void>;
@@ -33,10 +42,8 @@ type CreateAccountScreenProps = {
   onGoToSignIn: () => void;
 };
 
-const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-const getErrorMessage = (error: unknown, fallbackMessage: string) =>
-  error instanceof Error ? error.message : fallbackMessage;
+const validateEmail = (email: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 export default function CreateAccountScreen({
   onSubmit,
@@ -46,9 +53,9 @@ export default function CreateAccountScreen({
 }: CreateAccountScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,17 +67,18 @@ export default function CreateAccountScreen({
     confirmPassword?: string;
     form?: string;
   }>({});
+  const [dialogError, setDialogError] = useState<AuthErrorPresentation | null>(
+    null,
+  );
   const successBannerOpacity = useRef(new Animated.Value(0)).current;
   const successBannerOffset = useRef(new Animated.Value(-24)).current;
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     contentPaddingBottom,
     contentPaddingTop,
-    heroImageSize,
     heroSubtitleMaxWidth,
     heroTitleSize,
     horizontalPadding,
-    isVeryCompact,
     sheetMaxWidth,
   } = getAuthLayoutMetrics(width);
   const successExitDelayMs = 1400;
@@ -79,21 +87,22 @@ export default function CreateAccountScreen({
     const nextErrors: typeof errors = {};
 
     if (!email.trim()) {
-      nextErrors.email = "Email is required.";
+      nextErrors.email = AUTH_VALIDATION_MESSAGES.emailRequired;
     } else if (!validateEmail(email)) {
-      nextErrors.email = "Enter a valid email address.";
+      nextErrors.email = AUTH_VALIDATION_MESSAGES.emailInvalid;
     }
 
     if (!password) {
-      nextErrors.password = "Password is required.";
+      nextErrors.password = AUTH_VALIDATION_MESSAGES.passwordRequired;
     } else if (!isPasswordRuleMet) {
-      nextErrors.password = "Use at least 8 characters.";
+      nextErrors.password = AUTH_VALIDATION_MESSAGES.passwordTooShort;
     }
 
     if (!confirmPassword) {
-      nextErrors.confirmPassword = "Confirm your password.";
+      nextErrors.confirmPassword =
+        AUTH_VALIDATION_MESSAGES.confirmPasswordRequired;
     } else if (confirmPassword !== password) {
-      nextErrors.confirmPassword = "Passwords do not match.";
+      nextErrors.confirmPassword = AUTH_VALIDATION_MESSAGES.passwordMismatch;
     }
 
     setErrors(nextErrors);
@@ -128,6 +137,7 @@ export default function CreateAccountScreen({
     }
 
     setIsSubmitting(true);
+    setDialogError(null);
 
     try {
       await onSubmit({
@@ -136,15 +146,22 @@ export default function CreateAccountScreen({
       });
       showVerificationBanner();
     } catch (submissionError) {
-      const formError = getErrorMessage(
+      const presentation = getAuthErrorPresentation(
         submissionError,
-        "Unable to create your account right now."
+        'create-account',
       );
 
-      setErrors(previous => ({
-        ...previous,
-        form: formError,
-      }));
+      if (!presentation) {
+        return;
+      } else if (presentation.surface === 'dialog') {
+        setDialogError(presentation);
+      } else if (presentation.field === 'email') {
+        setErrors({ email: presentation.message });
+      } else if (presentation.field === 'password') {
+        setErrors({ password: presentation.message });
+      } else {
+        setErrors({ form: presentation.message });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -160,19 +177,22 @@ export default function CreateAccountScreen({
 
   const isLockedAfterSuccess = isSubmitting || isSuccessBannerVisible;
   const passwordRuleState = !password
-    ? "idle"
+    ? 'idle'
     : isPasswordRuleMet
-      ? "met"
-      : "unmet";
+    ? 'met'
+    : 'unmet';
   const passwordRuleIconColor =
-    passwordRuleState === "met"
+    passwordRuleState === 'met'
       ? theme.colors.success
-      : passwordRuleState === "unmet"
-        ? theme.colors.destructive
-        : theme.colors.mutedForeground;
+      : passwordRuleState === 'unmet'
+      ? theme.colors.destructive
+      : theme.colors.mutedForeground;
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
+      <AuthInkBackdrop />
       <View style={styles.screen}>
         {isSuccessBannerVisible ? (
           <Animated.View
@@ -187,28 +207,63 @@ export default function CreateAccountScreen({
                 left: horizontalPadding,
                 right: horizontalPadding,
               },
-              Platform.OS === "ios"
+              Platform.OS === 'ios'
                 ? styles.successBannerIos
                 : styles.successBannerAndroid,
             ]}
           >
             <CheckCircle2 color={theme.colors.primary} size={18} />
             <View style={styles.successBannerCopy}>
-              <Text style={[styles.successBannerTitle, { color: theme.colors.foreground }]}>
+              <Text
+                style={[
+                  styles.successBannerTitle,
+                  { color: theme.colors.foreground },
+                ]}
+              >
                 Verification code has been sent.
               </Text>
-              <Text style={[styles.successBannerText, { color: theme.colors.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.successBannerText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
                 Check your inbox to continue.
               </Text>
             </View>
           </Animated.View>
         ) : null}
 
+        <View
+          testID="create-account-back-row"
+          style={[styles.header, { paddingHorizontal: horizontalPadding }]}
+        >
+          <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
+            <Pressable
+              accessibilityLabel="Back to authentication options"
+              accessibilityRole="button"
+              onPress={onBackToAuth}
+              style={styles.backLink}
+            >
+              <ArrowLeft color={theme.colors.mutedForeground} size={18} />
+              <Text
+                style={[
+                  styles.backText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                Back
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
         <KeyboardAvoidingView
-          style={[styles.container, { backgroundColor: theme.colors.background }]}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
+            testID="create-account-centered-scroll"
             contentContainerStyle={[
               styles.content,
               {
@@ -220,25 +275,27 @@ export default function CreateAccountScreen({
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              <Pressable onPress={onBackToAuth} style={styles.backLink}>
-                <ArrowLeft color={theme.colors.mutedForeground} size={18} />
-                <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>
-                  Back
-                </Text>
-              </Pressable>
-
               <AuthHero
                 title="Create your account"
                 subtitle="A gentle place to start your journaling journey."
-                imageSize={heroImageSize}
-                shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
                 subtitleMaxWidth={heroSubtitleMaxWidth}
                 titleSize={heroTitleSize}
               />
 
               <View style={styles.form}>
+                <AuthErrorNotice
+                  message={
+                    errors.email ||
+                    errors.password ||
+                    errors.confirmPassword ||
+                    errors.form
+                  }
+                  testID="create-account-error-notice"
+                />
                 <View style={styles.field}>
-                  <Text style={[styles.label, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[styles.label, { color: theme.colors.foreground }]}
+                  >
                     Email address
                   </Text>
                   <TextInput
@@ -263,17 +320,14 @@ export default function CreateAccountScreen({
                     style={[
                       styles.input,
                       {
-                        borderColor: errors.email ? theme.colors.destructive : theme.colors.border,
+                        borderColor: errors.email
+                          ? theme.colors.destructive
+                          : theme.colors.border,
                         backgroundColor: theme.colors.inputBackground,
                         color: theme.colors.foreground,
                       },
                     ]}
                   />
-                  {errors.email ? (
-                    <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                      {errors.email}
-                    </Text>
-                  ) : null}
                 </View>
 
                 <View style={styles.field}>
@@ -282,14 +336,24 @@ export default function CreateAccountScreen({
                       accessibilityRole="button"
                       accessibilityLabel="Password rule toggle"
                       testID="password-rule-toggle"
-                      onPress={() => setIsPasswordRuleOpen(previous => !previous)}
+                      onPress={() =>
+                        setIsPasswordRuleOpen(previous => !previous)
+                      }
                       style={styles.passwordTitleRow}
                     >
-                      <Text style={[styles.label, { color: theme.colors.foreground }]}>
+                      <Text
+                        style={[
+                          styles.label,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
                         Password
                       </Text>
                       <View style={styles.passwordRuleIcon}>
-                        <CircleQuestionMark color={passwordRuleIconColor} size={16} />
+                        <CircleQuestionMark
+                          color={passwordRuleIconColor}
+                          size={16}
+                        />
                       </View>
                     </Pressable>
                     {isPasswordRuleOpen ? (
@@ -308,16 +372,19 @@ export default function CreateAccountScreen({
                             styles.passwordBubbleAccent,
                             {
                               backgroundColor:
-                                passwordRuleState === "met"
+                                passwordRuleState === 'met'
                                   ? theme.colors.success
-                                  : passwordRuleState === "unmet"
-                                    ? theme.colors.destructive
-                                    : theme.colors.mutedForeground,
+                                  : passwordRuleState === 'unmet'
+                                  ? theme.colors.destructive
+                                  : theme.colors.mutedForeground,
                             },
                           ]}
                         />
                         <View style={styles.passwordBubbleHeader}>
-                          <CircleQuestionMark color={passwordRuleIconColor} size={16} />
+                          <CircleQuestionMark
+                            color={passwordRuleIconColor}
+                            size={16}
+                          />
                           <Text
                             style={[
                               styles.passwordBubbleTitle,
@@ -339,22 +406,27 @@ export default function CreateAccountScreen({
                     ) : null}
 
                     <View style={styles.passwordRow}>
-                    <TextInput
-                      value={password}
-                      onChangeText={(value: string) => {
-                        setPassword(value);
-                        if (errors.password || errors.confirmPassword || errors.form) {
-                          setErrors(previous => ({
-                            ...previous,
-                            password: undefined,
-                            form: undefined,
-                            confirmPassword:
-                              previous.confirmPassword && value !== confirmPassword
-                                ? previous.confirmPassword
-                                : undefined,
-                          }));
-                        }
-                      }}
+                      <TextInput
+                        value={password}
+                        onChangeText={(value: string) => {
+                          setPassword(value);
+                          if (
+                            errors.password ||
+                            errors.confirmPassword ||
+                            errors.form
+                          ) {
+                            setErrors(previous => ({
+                              ...previous,
+                              password: undefined,
+                              form: undefined,
+                              confirmPassword:
+                                previous.confirmPassword &&
+                                value !== confirmPassword
+                                  ? previous.confirmPassword
+                                  : undefined,
+                            }));
+                          }
+                        }}
                         placeholder="Create a password"
                         placeholderTextColor={theme.colors.mutedForeground}
                         secureTextEntry={!showPassword}
@@ -379,23 +451,22 @@ export default function CreateAccountScreen({
                         style={styles.visibilityButton}
                       >
                         {showPassword ? (
-                          <EyeOff color={theme.colors.mutedForeground} size={18} />
+                          <EyeOff
+                            color={theme.colors.mutedForeground}
+                            size={18}
+                          />
                         ) : (
                           <Eye color={theme.colors.mutedForeground} size={18} />
                         )}
                       </Pressable>
                     </View>
-
-                    {errors.password ? (
-                      <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                        {errors.password}
-                      </Text>
-                    ) : null}
                   </View>
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={[styles.label, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[styles.label, { color: theme.colors.foreground }]}
+                  >
                     Confirm password
                   </Text>
                   <View style={styles.passwordRow}>
@@ -408,7 +479,9 @@ export default function CreateAccountScreen({
                             ...previous,
                             form: undefined,
                             confirmPassword:
-                              value !== password ? previous.confirmPassword : undefined,
+                              value !== password
+                                ? previous.confirmPassword
+                                : undefined,
                           }));
                         }
                       }}
@@ -432,56 +505,46 @@ export default function CreateAccountScreen({
                     />
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => setShowConfirmPassword(previous => !previous)}
+                      onPress={() =>
+                        setShowConfirmPassword(previous => !previous)
+                      }
                       style={styles.visibilityButton}
                     >
                       {showConfirmPassword ? (
-                        <EyeOff color={theme.colors.mutedForeground} size={18} />
+                        <EyeOff
+                          color={theme.colors.mutedForeground}
+                          size={18}
+                        />
                       ) : (
                         <Eye color={theme.colors.mutedForeground} size={18} />
                       )}
                     </Pressable>
                   </View>
-                  {errors.confirmPassword ? (
-                    <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                      {errors.confirmPassword}
-                    </Text>
-                  ) : null}
                 </View>
 
                 <PrimaryButton
-                  label={isSubmitting ? "Creating account..." : "Create Account"}
+                  label="Create Account"
                   onPress={handleSubmit}
                   loading={isSubmitting}
                   disabled={isLockedAfterSuccess}
-                  icon={
-                    isSubmitting ? (
-                      <Loader2 color="#FFFFFF" size={16} />
-                    ) : (
-                      <Mail color="#FFFFFF" size={16} strokeWidth={2} />
-                    )
-                  }
+                  icon={<AuthActionIcon kind="create-account" />}
                   tone="accent"
                 />
-                {errors.form ? (
-                  <Text
-                    style={[
-                      styles.error,
-                      styles.formError,
-                      { color: theme.colors.destructive },
-                    ]}
-                  >
-                    {errors.form}
-                  </Text>
-                ) : null}
               </View>
 
               <View style={styles.footerRow}>
-                <Text style={[styles.footerText, { color: theme.colors.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.footerText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
                   Already have an account?
                 </Text>
                 <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
-                  <Text style={[styles.linkText, { color: theme.colors.primary }]}>
+                  <Text
+                    style={[styles.linkText, { color: theme.colors.primary }]}
+                  >
                     Sign in
                   </Text>
                 </Pressable>
@@ -490,6 +553,12 @@ export default function CreateAccountScreen({
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
+      <AuthErrorDialog
+        message={dialogError?.message || ''}
+        onDismiss={() => setDialogError(null)}
+        title={dialogError?.title || 'Something went wrong'}
+        visible={Boolean(dialogError)}
+      />
     </SafeAreaView>
   );
 }
@@ -500,7 +569,15 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    position: "relative",
+    position: 'relative',
+  },
+  header: {
+    width: '100%',
+    paddingTop: 4,
+  },
+  headerInner: {
+    width: '100%',
+    alignSelf: 'center',
   },
   container: {
     flex: 1,
@@ -509,36 +586,35 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 22,
     flexGrow: 1,
-    justifyContent: "flex-start",
+    justifyContent: 'center',
   },
   sheet: {
-    width: "100%",
-    alignSelf: "center",
+    width: '100%',
+    alignSelf: 'center',
   },
   backLink: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    alignSelf: "flex-start",
-    marginBottom: 20,
+    alignSelf: 'flex-start',
     paddingVertical: 8,
   },
   backText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   successBanner: {
-    position: "absolute",
+    position: 'absolute',
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "flex-start",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
     zIndex: 20,
     elevation: 20,
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 8 },
@@ -556,14 +632,14 @@ const styles = StyleSheet.create({
   successBannerTitle: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "700",
+    fontWeight: '700',
   },
   successBannerText: {
     fontSize: 12,
     lineHeight: 18,
   },
   form: {
-    width: "100%",
+    width: '100%',
     gap: 18,
     marginTop: 28,
   },
@@ -572,24 +648,24 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   passwordSection: {
-    position: "relative",
+    position: 'relative',
     gap: 8,
     zIndex: 40,
   },
   passwordTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
     zIndex: 30,
   },
   passwordRuleIcon: {
     minWidth: 24,
-    alignItems: "flex-end",
-    justifyContent: "center",
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   input: {
     minHeight: 52,
@@ -599,28 +675,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   passwordRow: {
-    position: "relative",
-    justifyContent: "center",
+    position: 'relative',
+    justifyContent: 'center',
   },
   passwordInput: {
     paddingRight: 48,
   },
   visibilityButton: {
-    position: "absolute",
+    position: 'absolute',
     right: 14,
     height: 52,
-    justifyContent: "center",
-  },
-  error: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  formError: {
-    textAlign: "center",
-    marginTop: -4,
+    justifyContent: 'center',
   },
   passwordBubble: {
-    position: "absolute",
+    position: 'absolute',
     top: 28,
     left: 0,
     right: 0,
@@ -632,37 +700,37 @@ const styles = StyleSheet.create({
     gap: 4,
     zIndex: 40,
     elevation: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
+    overflow: 'hidden',
+    shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 6 },
   },
   passwordBubbleAccent: {
-    position: "absolute",
+    position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
     width: 4,
   },
   passwordBubbleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
   },
   passwordBubbleTitle: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: '700',
   },
   passwordBubbleText: {
     fontSize: 11,
     lineHeight: 16,
   },
   footerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 6,
     marginTop: 18,
   },
@@ -674,6 +742,6 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
 });

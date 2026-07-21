@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -7,40 +7,90 @@ import {
   StyleSheet,
   Text,
   View,
-} from "../../infrastructure/reactNative";
-import { Loader2, Mail } from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useWindowDimensions } from "react-native";
-import appleAuth, { AppleButton } from "@invertase/react-native-apple-authentication";
-import PrimaryButton from "../../components/PrimaryButton";
-import AuthHero from "../../components/AuthHero";
-import { useTheme } from "../../theme/provider";
-import { Path, Svg } from "react-native-svg";
-import { getAuthLayoutMetrics } from "./authLayout";
+} from '../../infrastructure/reactNative';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  useWindowDimensions,
+} from 'react-native';
+import appleAuth, {
+  AppleButton,
+} from '@invertase/react-native-apple-authentication';
+import PrimaryButton from '../../components/PrimaryButton';
+import AuthActionIcon from '../../components/AuthActionIcon';
+import { AuthErrorDialog } from '../../components/AuthErrorFeedback';
+import AuthHero from '../../components/AuthHero';
+import AuthInkBackdrop from '../../components/AuthInkBackdrop';
+import type { JournalWordmarkIntroResult } from '../../components/JournalWordmark';
+import { useTheme } from '../../theme/provider';
+import { Path, Svg } from 'react-native-svg';
+import { triggerHaptic, type HapticEvent } from '../../services/hapticsService';
+import { getAuthLayoutMetrics } from './authLayout';
+import {
+  getAuthErrorPresentation,
+  type AuthErrorContext,
+} from './authErrorPresentation';
 
 type AuthChoiceScreenProps = {
   onContinueWithEmail: () => Promise<void>;
   onContinueWithApple: () => Promise<void>;
   onContinueWithGoogle: () => Promise<void>;
   onGoToSignIn: () => void;
+  animateEntrance?: boolean;
 };
+
+type AuthDialogState = {
+  message: string;
+  retry?: () => void;
+  title: string;
+};
+
+const ACTION_LAYER_COUNT = 2;
+const PRIMARY_LAYER_DURATION = 360;
+const SECONDARY_LAYER_DELAY = 80;
+const SECONDARY_LAYER_DURATION = 420;
+const ACTION_REVEAL_SAFETY_DELAY = 3600;
+const TRAVEL_HAPTIC_DELAY = 480;
 
 export default function AuthChoiceScreen({
   onContinueWithEmail,
   onContinueWithApple,
   onContinueWithGoogle,
   onGoToSignIn,
+  animateEntrance = typeof jest === 'undefined',
 }: AuthChoiceScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [isAppleLoading, setIsAppleLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<AuthDialogState | null>(null);
+  const shouldAnimateEntrance = animateEntrance;
+  const actionEntrances = useRef(
+    Array.from(
+      { length: ACTION_LAYER_COUNT },
+      () => new Animated.Value(shouldAnimateEntrance ? 0 : 1),
+    ),
+  ).current;
+  const backdropProgress = useRef(
+    new Animated.Value(shouldAnimateEntrance ? 0 : 1),
+  ).current;
+  const revealAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const backdropAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const entranceHapticTimeoutsRef = useRef<
+    Array<ReturnType<typeof setTimeout>>
+  >([]);
+  const hasHandledMergeResultRef = useRef(false);
+  const hasStartedActionRevealRef = useRef(!shouldAnimateEntrance);
+  const actionRevealCancelledRef = useRef(false);
+  const [areActionsInteractive, setAreActionsInteractive] = useState(
+    !shouldAnimateEntrance,
+  );
   const {
     contentPaddingBottom,
     contentPaddingTop,
-    heroImageSize,
     heroSubtitleMaxWidth,
     heroTitleSize,
     horizontalPadding,
@@ -50,21 +100,194 @@ export default function AuthChoiceScreen({
   const contentJustificationStyle = isVeryCompact
     ? styles.contentTopAligned
     : styles.contentCentered;
-  const showAppleSignIn = Platform.OS === "ios" && appleAuth.isSupported;
+  const showAppleSignIn = Platform.OS === 'ios' && appleAuth.isSupported;
   const isAnyAuthLoading = isEmailLoading || isAppleLoading || isGoogleLoading;
+  const actionEntranceStyles = actionEntrances.map((progress, index) => ({
+    opacity: progress,
+    transform: [
+      {
+        translateY: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [index === 0 ? 12 : 16, 0],
+        }),
+      },
+    ],
+  }));
+
+  const clearEntranceHapticTimers = useCallback(() => {
+    entranceHapticTimeoutsRef.current.forEach(clearTimeout);
+    entranceHapticTimeoutsRef.current = [];
+  }, []);
+
+  const scheduleEntranceHaptic = useCallback(
+    (event: HapticEvent, delay: number) => {
+      const timeout = setTimeout(() => {
+        entranceHapticTimeoutsRef.current =
+          entranceHapticTimeoutsRef.current.filter(
+            activeTimeout => activeTimeout !== timeout,
+          );
+        triggerHaptic(event).catch(() => undefined);
+      }, delay);
+
+      entranceHapticTimeoutsRef.current.push(timeout);
+    },
+    [],
+  );
+
+  const forceRevealActions = useCallback(() => {
+    hasStartedActionRevealRef.current = true;
+    actionRevealCancelledRef.current = true;
+    clearEntranceHapticTimers();
+    backdropAnimationRef.current?.stop();
+    revealAnimationRef.current?.stop();
+    backdropProgress.setValue(1);
+    actionEntrances.forEach(progress => progress.setValue(1));
+    setAreActionsInteractive(true);
+  }, [actionEntrances, backdropProgress, clearEntranceHapticTimers]);
+
+  const handleWordmarkIntroStart = useCallback(() => {
+    clearEntranceHapticTimers();
+    backdropAnimationRef.current?.stop();
+    backdropProgress.setValue(0);
+    backdropAnimationRef.current = Animated.timing(backdropProgress, {
+      toValue: 1,
+      duration: 720,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    backdropAnimationRef.current.start();
+    scheduleEntranceHaptic('authIntroProgress', TRAVEL_HAPTIC_DELAY);
+  }, [backdropProgress, clearEntranceHapticTimers, scheduleEntranceHaptic]);
+
+  const handleWordmarkMergeComplete = useCallback(
+    (result: JournalWordmarkIntroResult) => {
+      if (hasHandledMergeResultRef.current) {
+        return;
+      }
+
+      hasHandledMergeResultRef.current = true;
+      clearEntranceHapticTimers();
+      backdropAnimationRef.current?.stop();
+      backdropProgress.setValue(1);
+
+      if (result.outcome === 'completed') {
+        triggerHaptic('authIntroMerge').catch(() => undefined);
+      } else if (result.outcome === 'reduced-motion') {
+        triggerHaptic('authIntroWelcome').catch(() => undefined);
+      }
+    },
+    [backdropProgress, clearEntranceHapticTimers],
+  );
+
+  const revealActions = useCallback(
+    (result: JournalWordmarkIntroResult) => {
+      if (!shouldAnimateEntrance || !result.animated) {
+        forceRevealActions();
+        return;
+      }
+
+      if (hasStartedActionRevealRef.current) {
+        return;
+      }
+
+      hasStartedActionRevealRef.current = true;
+      actionRevealCancelledRef.current = false;
+
+      const animation = Animated.parallel([
+        Animated.timing(actionEntrances[0], {
+          toValue: 1,
+          duration: PRIMARY_LAYER_DURATION,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.delay(SECONDARY_LAYER_DELAY),
+          Animated.timing(actionEntrances[1], {
+            toValue: 1,
+            duration: SECONDARY_LAYER_DURATION,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]);
+      revealAnimationRef.current = animation;
+      animation.start(({ finished }) => {
+        if (finished && !actionRevealCancelledRef.current) {
+          clearEntranceHapticTimers();
+          setAreActionsInteractive(true);
+          triggerHaptic('authIntroReveal').catch(() => undefined);
+        }
+      });
+    },
+    [
+      actionEntrances,
+      clearEntranceHapticTimers,
+      forceRevealActions,
+      shouldAnimateEntrance,
+    ],
+  );
+
+  useEffect(() => {
+    if (!shouldAnimateEntrance) {
+      return;
+    }
+
+    const safetyTimeout = setTimeout(
+      forceRevealActions,
+      ACTION_REVEAL_SAFETY_DELAY,
+    );
+
+    return () => {
+      clearTimeout(safetyTimeout);
+      clearEntranceHapticTimers();
+      backdropAnimationRef.current?.stop();
+      revealAnimationRef.current?.stop();
+    };
+  }, [clearEntranceHapticTimers, forceRevealActions, shouldAnimateEntrance]);
+
+  useEffect(() => {
+    if (!shouldAnimateEntrance) {
+      return;
+    }
+
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      enabled => {
+        if (enabled) {
+          forceRevealActions();
+        }
+      },
+    );
+
+    return () => subscription.remove();
+  }, [forceRevealActions, shouldAnimateEntrance]);
+
+  const presentDialogError = (
+    error: unknown,
+    context: AuthErrorContext,
+    retry?: () => void,
+  ) => {
+    const presentation = getAuthErrorPresentation(error, context);
+
+    if (!presentation) {
+      return;
+    }
+
+    setDialogError({
+      message: presentation.message,
+      retry,
+      title: presentation.title || 'Something went wrong',
+    });
+  };
 
   const handleEmailPress = async () => {
     setIsEmailLoading(true);
-    setError(null);
+    setDialogError(null);
 
     try {
       await onContinueWithEmail();
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to continue with email right now."
-      );
+      presentDialogError(submissionError, 'email-choice');
     } finally {
       setIsEmailLoading(false);
     }
@@ -72,16 +295,14 @@ export default function AuthChoiceScreen({
 
   const handleGooglePress = async () => {
     setIsGoogleLoading(true);
-    setError(null);
+    setDialogError(null);
 
     try {
       await onContinueWithGoogle();
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to continue with Google right now."
-      );
+      presentDialogError(submissionError, 'google', () => {
+        handleGooglePress().catch(() => undefined);
+      });
     } finally {
       setIsGoogleLoading(false);
     }
@@ -93,26 +314,27 @@ export default function AuthChoiceScreen({
     }
 
     setIsAppleLoading(true);
-    setError(null);
+    setDialogError(null);
 
     try {
       await onContinueWithApple();
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to continue with Apple right now."
-      );
+      presentDialogError(submissionError, 'apple', () => {
+        handleApplePress().catch(() => undefined);
+      });
     } finally {
       setIsAppleLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
+      <AuthInkBackdrop progress={backdropProgress} />
       <KeyboardAvoidingView
-        style={[styles.container, { backgroundColor: theme.colors.background }]}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={[
@@ -127,87 +349,160 @@ export default function AuthChoiceScreen({
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-            <AuthHero
-              title="Journal.IO"
-              subtitle="Your personal journaling companion."
-              imageSize={heroImageSize}
-              shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
-              subtitleMaxWidth={heroSubtitleMaxWidth}
-              titleSize={heroTitleSize}
-            />
-
-            <View style={styles.form}>
-              <PrimaryButton
-                label={isEmailLoading ? "Loading..." : "Continue with Email"}
-                onPress={handleEmailPress}
-                loading={isEmailLoading}
-                disabled={isAnyAuthLoading}
-                icon={
-                  isEmailLoading ? (
-                    <Loader2 color="#FFFFFF" size={16} />
-                  ) : (
-                    <Mail color="#FFFFFF" size={16} strokeWidth={2} />
-                  )
-                }
-                tone="accent"
+            <View testID="auth-brand" style={styles.brandRaised}>
+              <AuthHero
+                title="Journal.IO"
+                subtitle="Your personal journaling companion."
+                subtitleMaxWidth={heroSubtitleMaxWidth}
+                titleSize={heroTitleSize}
+                playWordmarkIntro={shouldAnimateEntrance}
+                onWordmarkIntroStart={handleWordmarkIntroStart}
+                onWordmarkMergeComplete={handleWordmarkMergeComplete}
+                onWordmarkIntroComplete={revealActions}
               />
+            </View>
 
-              <View style={styles.linkRow}>
-                <Text style={[styles.linkText, { color: theme.colors.mutedForeground }]}>
-                  Already have an account?
-                </Text>
-                <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
-                  <Text style={[styles.linkText, { color: theme.colors.primary }]}>
-                    Sign in
+            <View
+              testID="auth-actions"
+              pointerEvents={areActionsInteractive ? 'auto' : 'none'}
+              accessibilityElementsHidden={!areActionsInteractive}
+              importantForAccessibility={
+                areActionsInteractive ? 'auto' : 'no-hide-descendants'
+              }
+              style={styles.form}
+            >
+              <Animated.View
+                testID="auth-primary-layer"
+                style={[styles.actionLayer, actionEntranceStyles[0]]}
+              >
+                <View testID="auth-email-action" style={styles.actionGroup}>
+                  <PrimaryButton
+                    label="Continue with Email"
+                    onPress={handleEmailPress}
+                    loading={isEmailLoading}
+                    disabled={isAnyAuthLoading}
+                    icon={<AuthActionIcon kind="email" />}
+                    tone="accent"
+                  />
+                </View>
+
+                <View
+                  testID="auth-sign-in-action"
+                  style={[styles.actionGroup, styles.linkRow]}
+                >
+                  <Text
+                    style={[
+                      styles.linkText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Already have an account?
                   </Text>
-                </Pressable>
-              </View>
+                  <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
+                    <Text
+                      style={[styles.linkText, { color: theme.colors.primary }]}
+                    >
+                      Sign in
+                    </Text>
+                  </Pressable>
+                </View>
+              </Animated.View>
 
-              <View style={styles.divider}>
-                <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
-                <Text style={[styles.dividerText, { color: theme.colors.mutedForeground }]}>
-                  or
-                </Text>
-                <View style={[styles.rule, { backgroundColor: theme.colors.border }]} />
-              </View>
+              <Animated.View
+                testID="auth-secondary-layer"
+                style={[styles.actionLayer, actionEntranceStyles[1]]}
+              >
+                <View
+                  testID="auth-divider"
+                  style={[styles.actionGroup, styles.divider]}
+                >
+                  <View
+                    style={[
+                      styles.rule,
+                      { backgroundColor: theme.colors.border },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.dividerText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    or
+                  </Text>
+                  <View
+                    style={[
+                      styles.rule,
+                      { backgroundColor: theme.colors.border },
+                    ]}
+                  />
+                </View>
 
-              <PrimaryButton
-                label={isGoogleLoading ? "Connecting..." : "Continue with Google"}
-                onPress={handleGooglePress}
-                loading={isGoogleLoading}
-                disabled={isAnyAuthLoading}
-                variant="outline"
-                icon={<GoogleMark />}
-              />
+                <View
+                  testID="auth-social-actions"
+                  style={[styles.actionGroup, styles.socialActions]}
+                >
+                  <PrimaryButton
+                    label="Continue with Google"
+                    onPress={handleGooglePress}
+                    loading={isGoogleLoading}
+                    disabled={isAnyAuthLoading}
+                    variant="outline"
+                    icon={<GoogleMark />}
+                  />
 
-              {showAppleSignIn ? (
-                <AppleButton
-                  buttonStyle={AppleButton.Style.BLACK}
-                  buttonType={AppleButton.Type.CONTINUE}
-                  cornerRadius={12}
-                  onPress={handleApplePress}
+                  {showAppleSignIn ? (
+                    <AppleButton
+                      buttonStyle={AppleButton.Style.BLACK}
+                      buttonType={AppleButton.Type.CONTINUE}
+                      cornerRadius={12}
+                      onPress={handleApplePress}
+                      style={[
+                        styles.appleButton,
+                        isAnyAuthLoading && styles.disabledButton,
+                      ]}
+                    />
+                  ) : null}
+                </View>
+
+                <View
+                  testID="auth-privacy-note"
                   style={[
-                    styles.appleButton,
-                    isAnyAuthLoading && styles.disabledButton,
+                    styles.actionGroup,
+                    styles.infoCard,
+                    { backgroundColor: theme.colors.accent },
                   ]}
-                />
-              ) : null}
-
-              {error ? (
-                <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                  {error}
-                </Text>
-              ) : null}
-
-              <View style={[styles.infoCard, { backgroundColor: theme.colors.accent }]}>
-                <Text style={[styles.infoText, { color: theme.colors.mutedForeground }]}>
-                  Private, calm, and designed to stay out of your way.
-                </Text>
-              </View>
+                >
+                  <Text
+                    style={[
+                      styles.infoText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Private, calm, and designed to stay out of your way.
+                  </Text>
+                </View>
+              </Animated.View>
             </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <AuthErrorDialog
+        dismissLabel={dialogError?.retry ? 'Not now' : 'Okay'}
+        message={dialogError?.message || ''}
+        onDismiss={() => setDialogError(null)}
+        onRetry={
+          dialogError?.retry
+            ? () => {
+                const retry = dialogError.retry;
+                setDialogError(null);
+                retry?.();
+              }
+            : undefined
+        }
+        title={dialogError?.title || 'Something went wrong'}
+        visible={Boolean(dialogError)}
+      />
     </SafeAreaView>
   );
 }
@@ -247,23 +542,38 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   contentCentered: {
-    justifyContent: "center",
+    justifyContent: 'center',
   },
   contentTopAligned: {
-    justifyContent: "flex-start",
+    justifyContent: 'flex-start',
   },
   sheet: {
-    width: "100%",
-    alignSelf: "center",
+    width: '100%',
+    alignSelf: 'center',
+  },
+  brandRaised: {
+    transform: [{ translateY: -28 }],
+    zIndex: 2,
   },
   form: {
-    width: "100%",
-    marginTop: 20,
+    width: '100%',
+    marginTop: 4,
+    gap: 16,
+    zIndex: 1,
+  },
+  actionGroup: {
+    width: '100%',
+  },
+  actionLayer: {
+    gap: 16,
+    width: '100%',
+  },
+  socialActions: {
     gap: 16,
   },
   divider: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
   rule: {
@@ -272,13 +582,13 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   linkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   linkButton: {
@@ -287,13 +597,8 @@ const styles = StyleSheet.create({
   linkText: {
     fontSize: 14,
   },
-  error: {
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-  },
   appleButton: {
-    width: "100%",
+    width: '100%',
     height: 48,
   },
   disabledButton: {
@@ -307,6 +612,6 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
+    textAlign: 'center',
   },
 });

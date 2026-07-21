@@ -13,7 +13,7 @@ const createJournalSchema = z.object({
   body: z.object({
     title: z.string().min(1, "Title is required"),
     content: z.string().min(1, "Content is required"),
-    type: z.string().min(1).optional(),
+    type: z.enum(["open_ended", "guided"]).optional(),
     aiPrompt: z.string().min(1).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
@@ -37,7 +37,7 @@ const editJournalSchema = z.object({
     journalId: z.string().min(1, "Journal ID is required"),
     title: z.string().min(1, "Title is required"),
     content: z.string().min(1, "Content is required"),
-    type: z.string().min(1).optional(),
+    type: z.enum(["open_ended", "guided"]).optional(),
     aiPrompt: z.string().min(1).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),

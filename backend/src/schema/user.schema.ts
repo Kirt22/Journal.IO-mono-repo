@@ -11,6 +11,28 @@ export interface IOnboardingContext {
   privacyConsentAccepted?: boolean | null;
 }
 
+export interface IOnboardingPayload {
+  version?: number;
+  whatBringsYouHere?: string[];
+  supportFocusAreas?: string[];
+  primaryContext?: string;
+  ageRange?: string;
+  reflectionTone?: string[];
+  preferredTheme?: string;
+  reminderPreference?: string;
+  aiComfort?: boolean;
+  privacyConsent?: boolean;
+  firstReflectionId?: string;
+  firstReflectionSummary?: {
+    title?: string;
+    theme?: string;
+    tags?: string[];
+    mindMapNode?: string;
+  };
+  personalGoals?: string[];
+  migratedFromLegacy?: boolean;
+}
+
 export interface IUser extends Document {
   toObject(): Record<string, unknown>;
   _id: mongoose.Types.ObjectId;
@@ -26,6 +48,9 @@ export interface IUser extends Document {
   authProviders: string[];
   journalingGoals: string[];
   onboardingContext?: IOnboardingContext | null;
+  onboardingVersion?: number | null;
+  onboardingCompletedAt?: Date | null;
+  onboardingPayload?: IOnboardingPayload | null;
   avatarColor?: string | null;
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
@@ -70,6 +95,41 @@ const onboardingContextSchema = new mongoose.Schema<IOnboardingContext>(
   { _id: false }
 );
 
+const onboardingFirstReflectionSummarySchema = new mongoose.Schema<
+  NonNullable<IOnboardingPayload["firstReflectionSummary"]>
+>(
+  {
+    title: { type: String, trim: true },
+    theme: { type: String, trim: true },
+    tags: { type: [String], default: undefined },
+    mindMapNode: { type: String, trim: true },
+  },
+  { _id: false }
+);
+
+const onboardingPayloadSchema = new mongoose.Schema<IOnboardingPayload>(
+  {
+    version: { type: Number },
+    whatBringsYouHere: { type: [String], default: undefined },
+    supportFocusAreas: { type: [String], default: undefined },
+    primaryContext: { type: String, trim: true },
+    ageRange: { type: String, trim: true },
+    reflectionTone: { type: [String], default: undefined },
+    preferredTheme: { type: String, trim: true },
+    reminderPreference: { type: String, trim: true },
+    aiComfort: { type: Boolean },
+    privacyConsent: { type: Boolean },
+    firstReflectionId: { type: String, trim: true },
+    firstReflectionSummary: {
+      type: onboardingFirstReflectionSummarySchema,
+      default: undefined,
+    },
+    personalGoals: { type: [String], default: undefined },
+    migratedFromLegacy: { type: Boolean },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
@@ -94,6 +154,12 @@ const userSchema = new mongoose.Schema<IUser>(
     },
     onboardingContext: {
       type: onboardingContextSchema,
+      default: null,
+    },
+    onboardingVersion: { type: Number, default: null },
+    onboardingCompletedAt: { type: Date, default: null },
+    onboardingPayload: {
+      type: onboardingPayloadSchema,
       default: null,
     },
     avatarColor: { type: String, default: null },

@@ -1,10 +1,12 @@
 import type { InsightTone } from "./insights.types";
 
+export type JournalEntryMode = "open_ended" | "guided";
+
 export type JournalEntryResponse = {
   _id: string;
   title: string;
   content: string;
-  type: string;
+  type: JournalEntryMode;
   aiPrompt: string | null;
   tags: string[];
   images: string[];
@@ -17,7 +19,7 @@ export type CreateJournalInput = {
   userId: string;
   title: string;
   content: string;
-  type?: string;
+  type?: JournalEntryMode;
   aiPrompt?: string;
   tags?: string[];
   images?: string[];
@@ -28,7 +30,7 @@ export type UpdateJournalInput = {
   journalId: string;
   title: string;
   content: string;
-  type?: string;
+  type?: JournalEntryMode;
   aiPrompt?: string;
   tags?: string[];
   images?: string[];

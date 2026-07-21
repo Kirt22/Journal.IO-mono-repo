@@ -23,6 +23,7 @@ import type {
   JournalQuickAnalysisResponse,
   JournalEntryResponse,
   JournalLookupInput,
+  JournalEntryMode,
   SuggestJournalTagsInput,
   ToggleJournalFavoriteInput,
   UpdateJournalInput,
@@ -308,6 +309,9 @@ const quickAnalysisToneByTag: Record<string, InsightTone> = {
   evening: "slate",
   anger: "slate",
 };
+
+const normalizeJournalEntryMode = (value?: string | null): JournalEntryMode =>
+  value === "guided" ? "guided" : "open_ended";
 
 const scoreKeywordMatches = (content: string, keyword: string) => {
   const expression = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "gi");
@@ -1000,7 +1004,7 @@ const generateOpenAiJournalQuickAnalysis = async ({
         role: "user",
         content: JSON.stringify({
           title: journal.title,
-          type: journal.type,
+          type: normalizeJournalEntryMode(journal.type),
           moodTag: getMoodTag(journal.tags || []),
           tags: getVisibleJournalTags(journal.tags || []),
           entry: textQuality.analysisText.trim().slice(0, 1200),
@@ -1018,7 +1022,7 @@ const serializeJournal = (journal: IJournal): JournalEntryResponse => {
     _id: journalObject._id.toString(),
     title: journalObject.title,
     content: journalObject.content,
-    type: journalObject.type,
+    type: normalizeJournalEntryMode(journalObject.type),
     aiPrompt: typeof journalObject.aiPrompt === "string" ? journalObject.aiPrompt : null,
     tags: Array.isArray(journalObject.tags) ? journalObject.tags : [],
     images: Array.isArray(journalObject.images) ? journalObject.images : [],
@@ -1044,7 +1048,7 @@ const createJournal = async (
     userId: input.userId,
     title: input.title.trim(),
     content: input.content.trim(),
-    type: input.type?.trim() || "journal",
+    type: normalizeJournalEntryMode(input.type),
     aiPrompt: input.aiPrompt?.trim() || null,
     tags: input.tags || [],
     images: input.images || [],
@@ -1100,7 +1104,7 @@ const updateJournal = async (
 
   journal.title = input.title.trim();
   journal.content = input.content.trim();
-  journal.type = input.type?.trim() || "journal";
+  journal.type = normalizeJournalEntryMode(input.type);
 
   if (typeof input.aiPrompt === "string") {
     journal.aiPrompt = input.aiPrompt.trim() || null;

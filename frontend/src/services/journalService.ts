@@ -12,7 +12,7 @@ const createJournalEntry = async (payload: CreateJournalPayload) => {
   const requestBody = {
     title: payload.title.trim(),
     content: payload.content.trim(),
-    type: payload.type?.trim() || "journal",
+    type: payload.type || "open_ended",
     aiPrompt: payload.aiPrompt?.trim() || undefined,
     images: payload.images || [],
     tags: payload.tags || [],
@@ -53,7 +53,7 @@ const updateJournalEntry = async (payload: UpdateJournalPayload) => {
     journalId: payload.journalId,
     title: payload.title.trim(),
     content: payload.content.trim(),
-    type: payload.type?.trim() || "journal",
+    type: payload.type || "open_ended",
     aiPrompt: payload.aiPrompt?.trim() || undefined,
     images: payload.images || [],
     tags: payload.tags || [],

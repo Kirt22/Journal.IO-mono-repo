@@ -9,6 +9,11 @@ import EntryDetailScreen from "../src/screens/journal/EntryDetailScreen";
 import EditEntryScreen from "../src/screens/journal/EditEntryScreen";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import { updateJournalEntry } from "../src/services/journalService";
+import {
+  reportBackendReachable,
+  reportBackendUnavailable,
+  resetConnectivityForTests,
+} from "../src/services/connectivityService";
 
 jest.mock("../src/services/journalService", () => ({
   deleteJournalEntry: jest.fn().mockResolvedValue({}),
@@ -107,6 +112,10 @@ const safeAreaMetrics = {
     right: 0,
   },
 };
+
+beforeEach(() => {
+  resetConnectivityForTests("online");
+});
 
 test("entry detail opens the journal editor", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
@@ -222,6 +231,49 @@ test("edit entry saves changes and returns home", async () => {
   );
 });
 
+test("edit entry keeps unsaved text through an offline interruption", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    useAppStore.getState().openJournalEditor("mar-15");
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <EditEntryScreen />
+      </SafeAreaProvider>
+    );
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Entry content" })
+      .props.onChangeText("A draft that should survive reconnecting.");
+    reportBackendUnavailable();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Entry content" }).props.value
+  ).toBe("A draft that should survive reconnecting.");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.disabled
+  ).toBe(true);
+
+  await ReactTestRenderer.act(() => {
+    reportBackendReachable();
+  });
+
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Entry content" }).props.value
+  ).toBe("A draft that should survive reconnecting.");
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Save entry" }).props.disabled
+  ).toBe(false);
+});
+
 test("edit entry shows a spinning save loader while update is in flight", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   let resolveSave: ((value: any) => void) | null = null;
@@ -258,9 +310,10 @@ test("edit entry shows a spinning save loader while update is in flight", async 
   });
 
   expect(
-    root!.root.findByProps({ accessibilityLabel: "Saving entry" })
-  ).toBeTruthy();
-  expect(JSON.stringify(root!.toJSON())).toContain("Saving...");
+    root!.root.findByProps({ accessibilityLabel: "Save entry" }).props
+      .accessibilityState
+  ).toEqual({ busy: true, disabled: true });
+  expect(JSON.stringify(root!.toJSON())).toContain("Save");
 
   await ReactTestRenderer.act(async () => {
     resolveSave?.({

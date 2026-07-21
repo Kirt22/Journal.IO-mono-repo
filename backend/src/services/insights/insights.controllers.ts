@@ -6,6 +6,7 @@ import {
 import {
   AiAnalysisDisabledError,
   getInsightsAiAnalysis,
+  getInsightsMindMap,
   getInsightsOverview,
   PremiumFeatureRequiredError,
 } from "./insights.service";
@@ -81,4 +82,57 @@ const getInsightsAiAnalysisController = async (
   }
 };
 
-export { getInsightsOverviewController, getInsightsAiAnalysisController };
+const getInsightsMindMapController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
+    }
+
+    const timezoneHeader =
+      typeof req.headers["x-client-timezone"] === "string"
+        ? req.headers["x-client-timezone"]
+        : undefined;
+    const range =
+      req.query.range === "all_time" ? "all_time" : "latest_week";
+    const mindMap = await getInsightsMindMap(userId, {
+      range,
+      ...(timezoneHeader ? { timeZone: timezoneHeader } : {}),
+    });
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Your Mind Map is ready.", mindMap));
+  } catch (error) {
+    if (error instanceof PremiumFeatureRequiredError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "PREMIUM_REQUIRED" },
+        })
+      );
+    }
+
+    if (error instanceof AiAnalysisDisabledError) {
+      return res.status(403).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "AI_ANALYSIS_DISABLED" },
+        })
+      );
+    }
+
+    console.error("Error in getInsightsMindMapController:", error);
+    return res
+      .status(500)
+      .json(apiResponse(false, API_MESSAGES.internalError, {}));
+  }
+};
+
+export {
+  getInsightsOverviewController,
+  getInsightsAiAnalysisController,
+  getInsightsMindMapController,
+};

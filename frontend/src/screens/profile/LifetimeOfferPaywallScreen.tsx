@@ -31,6 +31,7 @@ import {
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
+import ButtonLoadingContent from "../../components/ButtonLoadingContent";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
@@ -222,9 +223,7 @@ export default function LifetimeOfferPaywallScreen({
     Boolean(plan.rcPackage) && currentPlanKey !== "lifetime" && !isBusy;
   const buttonLabel = currentPlanKey === "lifetime"
     ? "Lifetime already active"
-    : isProcessing
-      ? "Processing..."
-      : "Unlock Lifetime Premium";
+    : "Unlock Lifetime Premium";
   const lifetimeOffering =
     paywallConfig?.offerings.find(offering => offering.key === "lifetime") ??
     DEFAULT_LIFETIME_OFFERING;
@@ -1208,6 +1207,7 @@ export default function LifetimeOfferPaywallScreen({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Unlock Lifetime Premium"
+                accessibilityState={{ busy: isProcessing, disabled: !canPurchase || isLoadingPlan }}
                 onPress={handlePurchase}
                 disabled={!canPurchase || isLoadingPlan}
                 style={({ pressed }) => [
@@ -1229,8 +1229,10 @@ export default function LifetimeOfferPaywallScreen({
                     },
                   ]}
                 />
-                {isProcessing ? (
-                  <View style={styles.processingContent}>
+                <ButtonLoadingContent
+                  contentStyle={styles.ctaContent}
+                  loader={
+                    <View style={styles.processingContent}>
                     <Animated.View
                       style={{
                         transform: [
@@ -1250,17 +1252,18 @@ export default function LifetimeOfferPaywallScreen({
                       />
                     </Animated.View>
                     <Text style={[styles.ctaText, { color: palette.primaryForeground }]}>
-                      {buttonLabel}
+                      Processing...
                     </Text>
-                  </View>
-                ) : (
-                  <View style={styles.ctaContent}>
-                    <Crown size={18} color={palette.primaryForeground} strokeWidth={2.2} />
-                    <Text style={[styles.ctaText, { color: palette.primaryForeground }]}>
-                      {buttonLabel}
-                    </Text>
-                  </View>
-                )}
+                    </View>
+                  }
+                  loaderColor={palette.primaryForeground}
+                  loading={isProcessing}
+                >
+                  <Crown size={18} color={palette.primaryForeground} strokeWidth={2.2} />
+                  <Text style={[styles.ctaText, { color: palette.primaryForeground }]}>
+                    {buttonLabel}
+                  </Text>
+                </ButtonLoadingContent>
               </Pressable>
 
               <View style={styles.guaranteeRow}>
@@ -1272,17 +1275,19 @@ export default function LifetimeOfferPaywallScreen({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Restore"
+                  accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlan }}
                   onPress={handleRestore}
                   disabled={isBusy || isLoadingPlan}
                   style={({ pressed }) => [styles.restoreButton, pressed && styles.pressed]}
                 >
-                  {isRestoring ? (
-                    <ActivityIndicator size="small" color={palette.primary} />
-                  ) : (
+                  <ButtonLoadingContent
+                    loaderColor={palette.primary}
+                    loading={isRestoring}
+                  >
                     <Text style={[styles.restoreText, { color: hexToRgba(palette.primary, 0.6) }]}>
                       Restore
                     </Text>
-                  )}
+                  </ButtonLoadingContent>
                 </Pressable>
               </View>
             </View>

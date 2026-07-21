@@ -10,14 +10,9 @@ import {
   getOnboardingResponsiveMetrics,
   OnboardingScreen,
 } from "../src/screens/onboarding/OnboardingScreen";
-import { requestAppRating } from "../src/services/appRatingService";
 import { generateOnboardingDemoAnalysis } from "../src/services/onboardingService";
 import { requestAndSyncOnboardingReminderPreference } from "../src/services/reminderNotificationsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
-
-jest.mock("../src/services/appRatingService", () => ({
-  requestAppRating: jest.fn(async () => ({ status: "requested" })),
-}));
 
 jest.mock("../src/services/onboardingService", () => ({
   generateOnboardingDemoAnalysis: jest.fn(async () => ({
@@ -365,26 +360,12 @@ test("renders the Figma rating step after the breathing demo", async () => {
   expect(extractText(root!.toJSON())).toContain("100% committed and ready");
   expect(extractText(root!.toJSON())).toContain("Maya R.");
   expect(extractText(root!.toJSON())).toContain("Jordan P.");
-  expect(Alert.alert).toHaveBeenCalledWith(
+  expect(Alert.alert).not.toHaveBeenCalledWith(
     "Rate Journal.IO",
-    "Your feedback helps us keep Journal.IO calm, useful, and focused on reflection.",
+    expect.any(String),
     expect.any(Array)
   );
-  expect(requestAppRating).not.toHaveBeenCalled();
-
-  const alertButtons = (Alert.alert as jest.Mock).mock.calls[0][2] as Array<{
-    onPress?: () => void;
-    text: string;
-  }>;
-  const rateNowButton = alertButtons.find(button => button.text === "Rate now");
-
-  await ReactTestRenderer.act(async () => {
-    rateNowButton?.onPress?.();
-    await Promise.resolve();
-  });
-
-  expect(requestAppRating).toHaveBeenCalledTimes(1);
-  expect(extractText(root!.toJSON())).toContain("Thanks for supporting Journal.IO.");
+  expect(extractText(root!.toJSON())).toContain("Thanks for the feedback.");
 
   expect(extractText(root!.toJSON())).toContain("Get Started");
 });

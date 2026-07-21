@@ -53,6 +53,7 @@ Current backend reality:
 - the mobile Google sign-in flow now posts the Google ID token to `POST /auth/google/mobile`
 - the mobile Apple sign-in flow posts the Apple identity token and raw nonce to `POST /auth/apple/mobile`
 - the current frontend password-reset flow uses `POST /auth/request_password_reset` and `POST /auth/reset_password`
+- successful auth responses return `user` using the same safe profile payload fields as `GET /users/profile`, including onboarding v2 metadata and journal existence metadata
 
 ### `POST /auth/google/mobile`
 
@@ -193,6 +194,8 @@ Invalidate active refresh token for current authenticated user.
 
 Requires `Authorization` header.
 
+Available to every authenticated user; export is not a Premium-gated action.
+
 Returns:
 
 ```json
@@ -207,9 +210,40 @@ Returns:
 
 ## 3.1.1 Onboarding Module (`/onboarding`)
 
+### `POST /onboarding/complete`
+
+Mark onboarding v2 complete for the authenticated user.
+
+Requires `Authorization` header.
+
+Request:
+
+```json
+{
+  "version": 2,
+  "ageRange": "25-34",
+  "journalingExperience": "occasional journaler",
+  "goals": ["Daily Reflection"],
+  "supportFocusAreas": ["Stress", "Sleep"],
+  "reminderPreference": "Evening",
+  "aiComfort": true,
+  "privacyConsent": true
+}
+```
+
+Behavior notes:
+
+- updates only the authenticated user onboarding fields
+- sets `onboardingCompleted: true`, `onboardingVersion: 2`, and `onboardingCompletedAt`
+- stores a sanitized `onboardingPayload` and preserves legacy `onboardingContext` compatibility
+- does not create, delete, or update journals, subscriptions, RevenueCat fields, or reminder records
+- reminder preference may be stored in `onboardingPayload`; reminder record sync remains handled by the existing reminders flow
+
+Success `data` uses the same safe profile payload shape as `GET /users/profile`.
+
 ### `POST /onboarding/demo-analysis`
 
-Generate the onboarding first-entry demo reflection before auth. This endpoint is intentionally public, does not persist the submitted text, and does not run the stored journal AI pipeline.
+Generate the onboarding first-entry demo reflection. This endpoint is intentionally public, does not persist the submitted text, and does not run the stored journal AI pipeline.
 
 Request:
 
@@ -258,6 +292,53 @@ Notes:
 ### `GET /users/profile`
 
 Get the authenticated user's profile.
+
+Success `data`:
+
+```json
+{
+  "userId": "string",
+  "name": "Alex",
+  "phoneNumber": "+15551234567",
+  "email": null,
+  "createdAt": "2026-06-01T09:30:00.000Z",
+  "isPremium": false,
+  "premiumPlanKey": null,
+  "premiumActivatedAt": null,
+  "premiumProductId": null,
+  "premiumExpiresAt": null,
+  "premiumWillRenew": null,
+  "premiumVerifiedAt": null,
+  "premiumRevenueCatRequestDate": null,
+  "revenueCatAppUserId": null,
+  "premiumSource": null,
+  "avatarColor": "#8E4636",
+  "journalingGoals": ["Daily Reflection"],
+  "profileSetupCompleted": true,
+  "onboardingCompleted": true,
+  "onboardingVersion": 2,
+  "onboardingCompletedAt": "2026-06-01T09:35:00.000Z",
+  "hasJournalEntries": true,
+  "journalCount": 12,
+  "profilePic": null,
+  "aiOptIn": true,
+  "onboardingPreferences": {
+    "ageRange": "25-34",
+    "journalingExperience": "New to journaling",
+    "whatBringsYouHere": ["Build a reflection habit"],
+    "supportFocusAreas": ["Stress"],
+    "reflectionTone": ["Gentle"],
+    "reminderPreference": "evening"
+  }
+}
+```
+
+Behavior notes:
+
+- computes journal existence/count from metadata only and never returns journal text
+- returns the authenticated user's safe onboarding-selection summary for profile personalisation; it excludes journal content and safety data
+- lazily marks clearly existing users as onboarding v2 complete so app updates do not force legacy users through new onboarding
+- existing-user signals include legacy onboarding completion/context, journal entries, premium state, reminder records, and users created before the onboarding v2 release cutoff
 
 ### `PATCH /users/profile`
 
@@ -660,7 +741,59 @@ If a check-in already exists for the current day, the backend returns the existi
 
 Both routes require authentication.
 
-## 3.4 Journal Module (`/journal`)
+## 3.4 Goals Module (`/goals`)
+
+All Goals routes require authentication. Goals are active, user-owned titles stored separately from journal metadata; no endpoint automatically creates a goal.
+
+### `GET /goals`
+
+Returns the authenticated user's normalized active goals.
+
+```json
+{
+  "success": true,
+  "message": "Your goals are ready.",
+  "data": {
+    "goals": [
+      { "id": "write-one-honest-line", "title": "Write one honest line" }
+    ]
+  }
+}
+```
+
+### `POST /goals`
+
+Request: `{ "title": "Write one honest line" }`. The title is required, trimmed, capped at 120 characters, and deduplicated for the account. The response returns the saved `{ id, title }` record.
+
+### `DELETE /goals/{goalId}`
+
+Removes the authenticated user's goal by its stable title-derived id. Returns `404` when that account does not own the goal.
+
+### `POST /goals/suggestions`
+
+Request: `{ "journalId": "string" }`.
+
+- requires active Premium and AI opt-in
+- confirms journal ownership before using it as context
+- returns 2-4 supportive suggestions only; it never creates a goal
+- returns `403` with `PREMIUM_REQUIRED` or `AI_DISABLED` when unavailable
+- does not log raw journal text
+
+Response `data`:
+
+```json
+{
+  "journalId": "string",
+  "suggestions": [
+    {
+      "title": "Write tomorrow's first step",
+      "description": "Name one small action tonight so tomorrow starts with less friction."
+    }
+  ]
+}
+```
+
+## 3.5 Journal Module (`/journal`)
 
 ### `GET /journal/get_journals`
 
@@ -674,7 +807,7 @@ Response `data`:
     "_id": "string",
     "title": "string",
     "content": "string",
-    "type": "journal",
+    "type": "open_ended",
     "aiPrompt": "string",
     "tags": ["string"],
     "images": ["string"],
@@ -689,13 +822,15 @@ Response `data`:
 
 Create journal entry.
 
+`type` must be `open_ended` or `guided`. Legacy stored entry types serialize as `open_ended`.
+
 Request:
 
 ```json
 {
   "title": "Morning note",
   "content": "Today felt steady and clear.",
-  "type": "journal",
+  "type": "open_ended",
   "aiPrompt": "What are you grateful for today?",
   "images": [],
   "tags": ["reflection"],
@@ -710,7 +845,7 @@ Success `data`:
   "_id": "string",
   "title": "Morning note",
   "content": "Today felt steady and clear.",
-  "type": "journal",
+  "type": "open_ended",
   "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection"],
   "images": [],
@@ -854,6 +989,678 @@ Notes:
 - when OpenAI is available for an eligible user, the backend refines the single-entry reflection with OpenAI
 - if OpenAI is unavailable, the backend falls back to a deterministic, non-clinical quick reflection
 
+### `POST /guided-reflection/first-summary`
+
+Generate the first short Journal.IO reflection used inside onboarding v2 after the user answers the three required daily prompts. This route is authenticated but intentionally not premium-gated so the first onboarding value moment does not open paywall.
+
+Request:
+
+```json
+{
+  "promptAnswers": [
+    {
+      "questionId": "good_exciting",
+      "question": "What was one good or exciting thing that happened today?",
+      "answer": "I woke up early"
+    },
+    {
+      "questionId": "hurdle",
+      "question": "What was one hurdle or stressful moment you faced today?",
+      "answer": "I felt pulled into an old habit"
+    },
+    {
+      "questionId": "carry_tomorrow",
+      "question": "What would you like to carry into tomorrow?",
+      "answer": "One small action that feels aligned"
+    }
+  ],
+  "onboardingContext": {
+    "ageRange": "25-34",
+    "primaryContext": "working_professional",
+    "reflectionTone": ["gentle"],
+    "primarySupportFocus": "stress",
+    "supportFocusAreas": ["stress", "overthinking"],
+    "preferredTheme": "sunset"
+  }
+}
+```
+
+Success `data`:
+
+```json
+{
+  "reflection": "Today seems to hold both a small win and something that felt difficult. The useful part is that you noticed both instead of letting one cancel out the other. For tomorrow, keep the focus simple: carry one small action or mindset forward.",
+  "takeaway": "Hold the full picture, then choose one small next step."
+}
+```
+
+Notes:
+
+- protected route
+- not premium-gated and must not trigger paywall
+- uses OpenAI when the backend is configured and the user has not opted out of AI
+- if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy
+- does not save journal content; the mobile app still saves exactly one entry later through `POST /journal/create_journal`
+- safety-sensitive text returns support-first copy and skips normal reflective interpretation
+
+### `POST /guided-reflection/go-deeper`
+
+Generate a short follow-up reflection for optional text added after the first onboarding reflection summary.
+The same endpoint also powers the optional suggestion thread after the three required first-reflection prompts.
+
+Request:
+
+```json
+{
+  "promptAnswers": [
+    {
+      "questionId": "good_exciting",
+      "question": "What was one good or exciting thing that happened today?",
+      "answer": "A good walk"
+    },
+    {
+      "questionId": "hurdle",
+      "question": "What was one hurdle or stressful moment you faced today?",
+      "answer": "I felt behind on work"
+    },
+    {
+      "questionId": "carry_tomorrow",
+      "question": "What would you like to carry into tomorrow?",
+      "answer": "One focused hour"
+    }
+  ],
+  "aiSummary": "Today held a good walk and some pressure around work. Keep tomorrow simple.",
+  "previousDeeperReflections": [],
+  "threadMessages": [
+    {
+      "role": "user",
+      "kind": "suggestion_request",
+      "text": "Offer another perspective.",
+      "actionType": "another_perspective"
+    },
+    {
+      "role": "assistant",
+      "kind": "assistant_reflection",
+      "text": "Another way to see this is that the pressure did not erase the steadiness you practiced."
+    }
+  ],
+  "currentText": "I think I need to protect my morning better.",
+  "suggestionAction": "go_deeper",
+  "onboardingContext": {
+    "reflectionTone": ["practical"]
+  }
+}
+```
+
+Success `data`:
+
+```json
+{
+  "reflection": "This added note gives the reflection more shape: protecting your morning seems connected to the focused hour you want tomorrow. Keep the next step gentle and specific.",
+  "followUpPrompt": "What would make that first focused hour easier to protect?"
+}
+```
+
+Notes:
+
+- protected route
+- not premium-gated and must not trigger paywall
+- accepts the original onboarding prompt answers, the first summary, previous deeper reflections, optional thread messages, the current optional text, and an optional suggestion action
+- `suggestionAction` may be `gentle_prompt`, `go_deeper`, `another_perspective`, `small_next_step`, or `summarize`
+- the client caps repeated deeper calls in the onboarding UI to avoid runaway cost and UI bloat
+
+### `POST /guided-reflection/session-analysis`
+
+Generate the session-level analysis shown after the first onboarding journal entry has been saved. This is not a diagnosis, therapy, or medical interpretation; it is a fuller behavioral reflection over the whole first-guided-reflection session.
+
+Every successful response includes a required `brainSessionMap`. The map classifies the completed reflection into exactly one dominant brain-inspired reflection center, 1-3 secondary centers, and a complete score breakdown for all 8 centers sorted by score descending. Evidence snippets must come from the user's own prompt answers or user-authored thread messages only.
+
+Request:
+
+```json
+{
+  "promptAnswers": [
+    {
+      "questionId": "good_exciting",
+      "question": "What was one good or exciting thing that happened today?",
+      "answer": "I stayed disciplined with my morning routine"
+    },
+    {
+      "questionId": "hurdle",
+      "question": "What was one hurdle or stressful moment you faced today?",
+      "answer": "I felt pressure from my dad and worried I was being judged"
+    },
+    {
+      "questionId": "carry_tomorrow",
+      "question": "What would you like to carry into tomorrow?",
+      "answer": "I want to carry discipline without turning it into pressure"
+    }
+  ],
+  "aiSummary": "Today shows discipline alongside the discomfort of feeling judged.",
+  "threadMessages": [
+    {
+      "role": "user",
+      "kind": "suggestion_request",
+      "text": "Offer another perspective.",
+      "actionType": "another_perspective"
+    },
+    {
+      "role": "assistant",
+      "kind": "assistant_reflection",
+      "text": "Another perspective is that this was also about proving steadiness to yourself."
+    }
+  ],
+  "onboardingContext": {
+    "reflectionTone": ["deep"]
+  }
+}
+```
+
+Success `data`:
+
+```json
+{
+  "analysis": "This session suggests a useful contrast between discipline and the discomfort of feeling judged. The strongest signal is that the user is trying to keep discipline connected to steadiness rather than pressure. The entry also shows a tomorrow-oriented anchor, which can make the reflection practical instead of only emotional. A broader pattern may be emerging around noticing outside judgment, returning to personal alignment, and choosing one grounded action.",
+  "majorInsight": "Major insight: the clearest signal is the move from external pressure toward one self-directed choice.",
+  "observedTrends": ["Discipline", "Pressure", "Family", "Tomorrow"],
+  "topicsObserved": ["Discipline", "Pressure", "Family", "Tomorrow"],
+  "brainSessionMap": {
+    "dominantCenterId": "planning_self_control",
+    "dominantCenter": {
+      "id": "planning_self_control",
+      "productName": "Planning & Self-Control",
+      "brainRegion": "Prefrontal Cortex",
+      "score": 0.82,
+      "confidence": 0.78,
+      "rank": 1,
+      "intensity": "high",
+      "evidence": ["stayed disciplined", "carry discipline"],
+      "shortInsight": "This center stood out through discipline, direction, and what the user wants to carry into tomorrow.",
+      "nuancedDetails": {
+        "emotionalTone": "Steady but pressured.",
+        "cognitivePattern": "The reflection organizes around restraint, choice, and next action.",
+        "timeOrientation": "future",
+        "selfOtherFocus": "mixed",
+        "actionOrientation": "planning",
+        "repeatedSignal": "discipline"
+      }
+    },
+    "secondaryCenterIds": [
+      "relationships_perspective",
+      "self_reflection_identity",
+      "emotional_intensity"
+    ],
+    "secondaryCenters": [
+      {
+        "id": "relationships_perspective",
+        "productName": "Relationships & Perspective",
+        "brainRegion": "Social Brain / Temporoparietal Junction",
+        "score": 0.68,
+        "confidence": 0.72,
+        "rank": 2,
+        "intensity": "high",
+        "evidence": ["pressure from my dad", "being judged"],
+        "shortInsight": "This center stood out through social perception and another person's role in the reflection.",
+        "nuancedDetails": {
+          "emotionalTone": "Socially alert.",
+          "cognitivePattern": "The writing considers judgment and perspective.",
+          "timeOrientation": "present",
+          "selfOtherFocus": "mixed",
+          "actionOrientation": "reflecting",
+          "repeatedSignal": "being judged"
+        }
+      },
+      {
+        "id": "self_reflection_identity",
+        "productName": "Self-Reflection & Identity",
+        "brainRegion": "Default Mode Network",
+        "score": 0.61,
+        "confidence": 0.66,
+        "rank": 3,
+        "intensity": "moderate",
+        "evidence": ["proving steadiness"],
+        "shortInsight": "This center reflected self-image and the user's inner narrative around steadiness.",
+        "nuancedDetails": {
+          "emotionalTone": "Self-aware.",
+          "cognitivePattern": "The writing turns inward toward identity and personal alignment.",
+          "timeOrientation": "present",
+          "selfOtherFocus": "self",
+          "actionOrientation": "reflecting",
+          "repeatedSignal": "steadiness"
+        }
+      },
+      {
+        "id": "emotional_intensity",
+        "productName": "Emotional Intensity",
+        "brainRegion": "Amygdala",
+        "score": 0.52,
+        "confidence": 0.64,
+        "rank": 4,
+        "intensity": "moderate",
+        "evidence": ["felt pressure"],
+        "shortInsight": "This center picked up the emotional charge around pressure and judgment.",
+        "nuancedDetails": {
+          "emotionalTone": "Pressured.",
+          "cognitivePattern": "The writing tracks emotional charge without turning it into certainty.",
+          "timeOrientation": "present",
+          "selfOtherFocus": "mixed",
+          "actionOrientation": "processing",
+          "repeatedSignal": "pressure"
+        }
+      }
+    ],
+    "centers": [
+      {
+        "id": "planning_self_control",
+        "productName": "Planning & Self-Control",
+        "brainRegion": "Prefrontal Cortex",
+        "score": 0.82,
+        "confidence": 0.78,
+        "rank": 1,
+        "intensity": "high",
+        "evidence": ["stayed disciplined", "carry discipline"],
+        "shortInsight": "This center stood out through discipline, direction, and what the user wants to carry into tomorrow.",
+        "nuancedDetails": {
+          "emotionalTone": "Steady but pressured.",
+          "cognitivePattern": "The reflection organizes around restraint, choice, and next action.",
+          "timeOrientation": "future",
+          "selfOtherFocus": "mixed",
+          "actionOrientation": "planning",
+          "repeatedSignal": "discipline"
+        }
+      },
+      {
+        "id": "relationships_perspective",
+        "productName": "Relationships & Perspective",
+        "brainRegion": "Social Brain / Temporoparietal Junction",
+        "score": 0.68,
+        "confidence": 0.72,
+        "rank": 2,
+        "intensity": "high",
+        "evidence": ["pressure from my dad", "being judged"],
+        "shortInsight": "This center stood out through social perception and another person's role in the reflection.",
+        "nuancedDetails": {
+          "timeOrientation": "present",
+          "selfOtherFocus": "mixed",
+          "actionOrientation": "reflecting"
+        }
+      }
+    ],
+    "neuroscienceSummary": "Your reflection leaned most strongly toward Planning & Self-Control. Discipline and tomorrow's choices were the clearest signals, while your dad's perception added a social and self-image layer to the session.",
+    "mostNoticedText": "The strongest center in this session was Planning & Self-Control, because your writing kept returning to discipline, direction, and what you want to carry into tomorrow.",
+    "mindMapSeedText": "Your first reflection has added its first signal to your Mind Map."
+  },
+  "hasEnoughSignal": true
+}
+```
+
+`brainSessionMap.centers` always contains all 8 center ids exactly once:
+
+- `emotional_intensity` / Emotional Intensity / Amygdala
+- `planning_self_control` / Planning & Self-Control / Prefrontal Cortex
+- `memory_meaning` / Memory & Meaning / Hippocampus
+- `body_inner_signals` / Body & Inner Signals / Insula
+- `conflict_attention` / Conflict & Attention / Anterior Cingulate Cortex
+- `motivation_reward` / Motivation & Reward / Reward Circuit / Ventral Striatum
+- `relationships_perspective` / Relationships & Perspective / Social Brain / Temporoparietal Junction
+- `self_reflection_identity` / Self-Reflection & Identity / Default Mode Network
+
+For readability, the sample `centers` array above is shortened; production responses must include all 8 center objects with the same object shape.
+
+Low-signal success `data`:
+
+```json
+{
+  "analysis": "There is not enough clear information in this session to form a useful insight yet. Journal.IO can notice patterns best when the entry includes a few specific details about what happened, what felt difficult, and what you want to carry forward.",
+  "majorInsight": "Major insight: there is not enough clear detail yet to identify a reliable pattern.",
+  "observedTrends": ["More detail needed", "Reflection started", "Tomorrow"],
+  "topicsObserved": ["More detail needed", "Reflection started", "Tomorrow"],
+  "brainSessionMap": {
+    "dominantCenterId": "self_reflection_identity",
+    "dominantCenter": {
+      "id": "self_reflection_identity",
+      "productName": "Self-Reflection & Identity",
+      "brainRegion": "Default Mode Network",
+      "score": 0.55,
+      "confidence": 0.58,
+      "rank": 1,
+      "intensity": "moderate",
+      "evidence": [],
+      "shortInsight": "This first signal is mostly about noticing the user's inner narrative and what they want to carry forward.",
+      "nuancedDetails": {
+        "actionOrientation": "reflecting",
+        "selfOtherFocus": "self",
+        "timeOrientation": "mixed"
+      }
+    },
+    "secondaryCenterIds": [
+      "planning_self_control",
+      "memory_meaning",
+      "relationships_perspective"
+    ],
+    "secondaryCenters": [
+      {
+        "id": "planning_self_control",
+        "productName": "Planning & Self-Control",
+        "brainRegion": "Prefrontal Cortex",
+        "score": 0.45,
+        "confidence": 0.44,
+        "rank": 2,
+        "intensity": "moderate",
+        "evidence": [],
+        "shortInsight": "Planning & Self-Control is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "planning",
+          "selfOtherFocus": "self",
+          "timeOrientation": "future"
+        }
+      },
+      {
+        "id": "memory_meaning",
+        "productName": "Memory & Meaning",
+        "brainRegion": "Hippocampus",
+        "score": 0.35,
+        "confidence": 0.44,
+        "rank": 3,
+        "intensity": "moderate",
+        "evidence": [],
+        "shortInsight": "Memory & Meaning is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "relationships_perspective",
+        "productName": "Relationships & Perspective",
+        "brainRegion": "Social Brain / Temporoparietal Junction",
+        "score": 0.26,
+        "confidence": 0.44,
+        "rank": 4,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Relationships & Perspective is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "others",
+          "timeOrientation": "mixed"
+        }
+      }
+    ],
+    "centers": [
+      {
+        "id": "self_reflection_identity",
+        "productName": "Self-Reflection & Identity",
+        "brainRegion": "Default Mode Network",
+        "score": 0.55,
+        "confidence": 0.58,
+        "rank": 1,
+        "intensity": "moderate",
+        "evidence": [],
+        "shortInsight": "This first signal is mostly about noticing the user's inner narrative and what they want to carry forward.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "planning_self_control",
+        "productName": "Planning & Self-Control",
+        "brainRegion": "Prefrontal Cortex",
+        "score": 0.45,
+        "confidence": 0.44,
+        "rank": 2,
+        "intensity": "moderate",
+        "evidence": [],
+        "shortInsight": "Planning & Self-Control is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "planning",
+          "selfOtherFocus": "self",
+          "timeOrientation": "future"
+        }
+      },
+      {
+        "id": "memory_meaning",
+        "productName": "Memory & Meaning",
+        "brainRegion": "Hippocampus",
+        "score": 0.35,
+        "confidence": 0.44,
+        "rank": 3,
+        "intensity": "moderate",
+        "evidence": [],
+        "shortInsight": "Memory & Meaning is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "relationships_perspective",
+        "productName": "Relationships & Perspective",
+        "brainRegion": "Social Brain / Temporoparietal Junction",
+        "score": 0.26,
+        "confidence": 0.44,
+        "rank": 4,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Relationships & Perspective is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "others",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "conflict_attention",
+        "productName": "Conflict & Attention",
+        "brainRegion": "Anterior Cingulate Cortex",
+        "score": 0.24,
+        "confidence": 0.44,
+        "rank": 5,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Conflict & Attention is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "processing",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "emotional_intensity",
+        "productName": "Emotional Intensity",
+        "brainRegion": "Amygdala",
+        "score": 0.22,
+        "confidence": 0.44,
+        "rank": 6,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Emotional Intensity is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "processing",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "motivation_reward",
+        "productName": "Motivation & Reward",
+        "brainRegion": "Reward Circuit / Ventral Striatum",
+        "score": 0.2,
+        "confidence": 0.44,
+        "rank": 7,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Motivation & Reward is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "acting",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      },
+      {
+        "id": "body_inner_signals",
+        "productName": "Body & Inner Signals",
+        "brainRegion": "Insula",
+        "score": 0.18,
+        "confidence": 0.44,
+        "rank": 8,
+        "intensity": "low",
+        "evidence": [],
+        "shortInsight": "Body & Inner Signals is present only lightly in this fallback reflection map.",
+        "nuancedDetails": {
+          "actionOrientation": "reflecting",
+          "selfOtherFocus": "self",
+          "timeOrientation": "mixed"
+        }
+      }
+    ],
+    "neuroscienceSummary": "This reflection has started building your personal Mind Map by capturing what you noticed, what challenged you, and what you want to carry forward.",
+    "mostNoticedText": "The strongest center in this session was Self-Reflection & Identity, because this first entry begins with noticing the user's inner narrative.",
+    "mindMapSeedText": "Your first reflection has added its first signal to your Mind Map."
+  },
+  "hasEnoughSignal": false
+}
+```
+
+Notes:
+
+- protected route
+- not premium-gated and must not trigger paywall
+- used only after the mobile app has saved the first real onboarding journal entry
+- reads the full in-session context sent by the client: prompt answers, first AI summary, optional user requests, and assistant deeper responses
+- detects sparse/noisy/gibberish sessions before calling AI and returns an explicit low-signal analysis instead of inventing insight
+- output must remain non-clinical, behavior-focused, uncertainty-aware, and must not claim diagnosis or therapy
+- `brainSessionMap` is required even when OpenAI is unavailable, malformed, disabled by opt-out, or the session is low-signal
+- clear non-AI fallback sessions may use deterministic local center scoring from the user's writing; low-signal or no-reliable-map fallback responses use Self-Reflection & Identity as dominant with non-flat low/neutral scores across the remaining centers
+- if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy
+- safety-sensitive text returns support-first copy and skips normal reflective interpretation
+
+### `POST /guided-reflection/goal-suggestions`
+
+Generate one to four local onboarding goal suggestions after the first entry has been saved and the session analysis has been shown. Each suggestion must be a concrete, low-effort action tied to the user's writing, with a clear trigger, time limit, quantity, or first step. This endpoint returns suggestions only; it does not create goals, persist selected goals, schedule reminders, update streaks, or complete onboarding.
+
+Request:
+
+```json
+{
+  "promptAnswers": [
+    {
+      "questionId": "good_exciting",
+      "question": "What was one good or exciting thing that happened today?",
+      "answer": "I stayed disciplined with my morning routine"
+    },
+    {
+      "questionId": "hurdle",
+      "question": "What was one hurdle or stressful moment you faced today?",
+      "answer": "I felt pressure from my dad and worried I was being judged"
+    },
+    {
+      "questionId": "carry_tomorrow",
+      "question": "What would you like to carry into tomorrow?",
+      "answer": "I want to carry discipline without turning it into pressure"
+    }
+  ],
+  "aiSummary": "Today shows discipline alongside the discomfort of feeling judged.",
+  "threadMessages": [
+    {
+      "role": "user",
+      "kind": "suggestion_request",
+      "text": "Suggest a small next step.",
+      "actionType": "small_next_step"
+    },
+    {
+      "role": "assistant",
+      "kind": "assistant_reflection",
+      "text": "A small next step could be choosing one steady action before reacting to outside pressure."
+    }
+  ],
+  "sessionAnalysis": {
+    "analysis": "This session suggests a useful contrast between discipline and the discomfort of feeling judged.",
+    "majorInsight": "Major insight: the clearest signal is the move from external pressure toward one self-directed choice.",
+    "observedTrends": ["Discipline", "Pressure", "Family", "Tomorrow"],
+    "hasEnoughSignal": true
+  },
+  "onboardingContext": {
+    "reflectionTone": ["gentle"],
+    "primaryContext": "working_professional",
+    "supportFocusAreas": ["stress"]
+  }
+}
+```
+
+Success `data`:
+
+```json
+{
+  "goals": [
+    {
+      "title": "Carry one steady choice",
+      "description": "Choose one small action tomorrow that reflects the discipline you want to keep.",
+      "frequency": "daily",
+      "category": "journaling_habit"
+    },
+    {
+      "title": "Name the pressure",
+      "description": "When stress appears, write one sentence about what is causing it before reacting.",
+      "frequency": "as_needed",
+      "category": "stress"
+    },
+    {
+      "title": "Notice one pattern",
+      "description": "At the end of the day, name one thought, mood, or habit that repeated.",
+      "frequency": "daily",
+      "category": "self_awareness"
+    }
+  ],
+  "hasEnoughSignal": true
+}
+```
+
+Low-signal success `data`:
+
+```json
+{
+  "goals": [
+    {
+      "title": "Write for 5 minutes",
+      "description": "Take five quiet minutes to write what felt most noticeable today.",
+      "frequency": "daily",
+      "category": "journaling_habit"
+    },
+    {
+      "title": "Notice one pattern",
+      "description": "At the end of the day, name one thought, mood, or habit that repeated.",
+      "frequency": "daily",
+      "category": "self_awareness"
+    },
+    {
+      "title": "Carry one small step",
+      "description": "Choose one small action you want to bring into tomorrow.",
+      "frequency": "as_needed",
+      "category": "general"
+    }
+  ],
+  "hasEnoughSignal": false
+}
+```
+
+Notes:
+
+- protected route
+- not premium-gated and must not trigger paywall
+- generation-only for the Phase 3C onboarding value chain
+- does not save a selected suggestion, schedule reminders, or update streak state; separate authenticated manual Goals CRUD is available through `/goals`
+- returns 1-4 compact goals with `daily`, `weekly`, or `as_needed` frequency; the response must not pad to a fixed count. Titles are capped at 30 characters and descriptions at 96 characters.
+- categories are limited to `journaling_habit`, `stress`, `mood`, `relationships`, `self_awareness`, `sleep`, `focus`, `confidence`, and `general`
+- output must stay small, direct, specific, actionable, non-clinical, and tied to a concrete detail in the user's written session when enough signal exists; generic prompts such as `reflect more` or `notice a pattern` require a concrete cue and action before they are valid
+- sparse/noisy/gibberish sessions return safe starter goals and `hasEnoughSignal: false`
+- if OpenAI is unavailable or disabled, returns deterministic fallback goals
+- selected goals remain local-only in the mobile onboarding sequence; the separate `/goals` model stores only goals a signed-in user explicitly creates or accepts
+
 ### `GET /journal/get_journal_details`
 
 Get details for one journal entry.
@@ -873,7 +1680,7 @@ Success `data`:
   "_id": "string",
   "title": "string",
   "content": "string",
-  "type": "journal",
+  "type": "guided",
   "aiPrompt": "string",
   "tags": ["string"],
   "images": ["string"],
@@ -894,7 +1701,7 @@ Request:
   "journalId": "string",
   "title": "Updated title",
   "content": "Updated content",
-  "type": "journal",
+  "type": "guided",
   "aiPrompt": "What are you grateful for today?",
   "images": [],
   "tags": ["reflection", "growth"],
@@ -909,7 +1716,7 @@ Success `data`:
   "_id": "string",
   "title": "Updated title",
   "content": "Updated content",
-  "type": "journal",
+  "type": "guided",
   "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection", "growth"],
   "images": [],
@@ -939,7 +1746,7 @@ Success `data`:
   "_id": "string",
   "title": "Updated title",
   "content": "Updated content",
-  "type": "journal",
+  "type": "guided",
   "tags": ["reflection", "growth"],
   "images": [],
   "isFavorite": true,
@@ -1234,6 +2041,7 @@ The mobile client obtains an Apple `identityToken`, posts it with the raw nonce 
 
 - `GET /insights/overview`
 - `GET /insights/ai-analysis`
+- `GET /insights/mind-map`
 - `GET /insights/trends`
 - `GET /insights/patterns`
 - `GET /insights/traits`
@@ -1550,6 +2358,179 @@ Ready response:
 }
 ```
 
+### `GET /insights/mind-map`
+
+Returns the premium Mind Map payload used by the iOS-only `Mind Map` screen reached from the `AI Analysis` tab.
+
+Request:
+
+- required query param: `range=latest_week|all_time`
+- optional header: `X-Client-Timezone`
+
+Behavior:
+
+- protected route
+- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
+- returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
+- `latest_week` uses the latest closed premium-week window in the user's local timezone; if no eligible closed window exists yet, the route returns `building`
+- `all_time` aggregates the user's full safe writing history, including pre-premium entries
+- `all_time` requires at least 4 active writing days plus enough clear writing before it returns `ready`
+- the payload always uses the same 8 reflection regions and stable ids:
+  - `planning_self_control`
+  - `emotional_intensity`
+  - `memory_meaning`
+  - `body_inner_signals`
+  - `conflict_attention`
+  - `motivation_reward`
+  - `relationships_perspective`
+  - `self_reflection_identity`
+- the scorer is deterministic and reuses stored journal content only; this route does not make a new OpenAI request
+- before scoring, the backend strips prompt carryover, down-weights low-signal writing, and filters safety-sensitive text out of normal region ranking
+- latest-week safety-sensitive windows return `support_first` without ranked regions
+- all-history aggregation excludes safety-sensitive entries; it returns `support_first` only when no safe writing remains to map
+- cache keys are scoped separately for latest-week and all-time reads and include timezone plus scorer version
+
+Ready response:
+
+```json
+{
+  "success": true,
+  "message": "Your Mind Map is ready.",
+  "data": {
+    "status": "ready",
+    "period": {
+      "range": "latest_week",
+      "label": "Jul 3 - Jul 9",
+      "startDate": "2026-07-03",
+      "endDate": "2026-07-09",
+      "entryCount": 5,
+      "activeDays": 4,
+      "clearEntryCount": 4,
+      "totalWords": 612,
+      "minimumActiveDays": 4,
+      "generatedAt": "2026-07-10T08:00:00.000Z"
+    },
+    "summary": {
+      "headline": "Planning & Self-Control carried the strongest reflection signal",
+      "narrative": "Across Jul 3 - Jul 9, your writing most often returned to planning and self-control patterns.",
+      "note": "Brightness and pulse reflect recurring patterns in your writing, not literal brain activity."
+    },
+    "strongestRegionId": "planning_self_control",
+    "regions": [
+      {
+        "id": "planning_self_control",
+        "productLabel": "Planning & Self-Control",
+        "brainRegionSubtitle": "Prefrontal Cortex",
+        "signalScore": 0.84,
+        "confidence": 0.79,
+        "rank": 1,
+        "intensity": "high",
+        "shortInsight": "Your writing kept returning to structure, next steps, and follow-through.",
+        "evidenceSnippets": [
+          "I stuck to the plan",
+          "I want to keep this routine tomorrow"
+        ]
+      },
+      {
+        "id": "relationships_perspective",
+        "productLabel": "Relationships & Perspective",
+        "brainRegionSubtitle": "Social Brain / Temporoparietal Junction",
+        "signalScore": 0.61,
+        "confidence": 0.7,
+        "rank": 2,
+        "intensity": "moderate",
+        "shortInsight": "Other people and social interpretation still showed up often in the week.",
+        "evidenceSnippets": ["I kept replaying that conversation"]
+      }
+    ],
+    "disclaimer": {
+      "title": "Reflection signal only",
+      "body": "This map reflects patterns in your writing, not a medical or brain-activity measurement."
+    }
+  }
+}
+```
+
+Production responses include all 8 regions sorted by `rank`; the sample above is shortened for readability.
+
+Building response:
+
+```json
+{
+  "success": true,
+  "message": "Your Mind Map is ready.",
+  "data": {
+    "status": "building",
+    "period": {
+      "range": "all_time",
+      "label": "All reflections",
+      "startDate": "2026-06-01",
+      "endDate": "2026-07-13",
+      "entryCount": 3,
+      "activeDays": 3,
+      "clearEntryCount": 2,
+      "totalWords": 38,
+      "minimumActiveDays": 4,
+      "generatedAt": "2026-07-13T09:30:00.000Z"
+    },
+    "summary": {
+      "headline": "Your Mind Map is still building",
+      "narrative": "Journal.IO needs at least 4 active writing days and a little more clear writing before it can rank reflection regions across all reflections.",
+      "note": "Keep adding honest entries in your own words and the map will fill in without inventing activity."
+    },
+    "progress": {
+      "activeDays": 3,
+      "minimumActiveDays": 4,
+      "clearEntryCount": 2,
+      "entriesNeeded": 1,
+      "daysRemaining": null
+    },
+    "disclaimer": {
+      "title": "Reflection signal only",
+      "body": "This map reflects patterns in your writing, not a medical or brain-activity measurement."
+    }
+  }
+}
+```
+
+Support-first response:
+
+```json
+{
+  "success": true,
+  "message": "Your Mind Map is ready.",
+  "data": {
+    "status": "support_first",
+    "period": {
+      "range": "latest_week",
+      "label": "Jul 3 - Jul 9",
+      "startDate": "2026-07-03",
+      "endDate": "2026-07-09",
+      "entryCount": 2,
+      "activeDays": 2,
+      "clearEntryCount": 2,
+      "totalWords": 121,
+      "minimumActiveDays": 4,
+      "generatedAt": "2026-07-10T08:00:00.000Z"
+    },
+    "summary": {
+      "headline": "This week needs a support-first read",
+      "narrative": "Journal.IO noticed elevated-risk language in the latest closed premium week, so the Mind Map is paused instead of ranking reflection regions.",
+      "note": "Support-first handling takes priority over pattern scoring in this view."
+    },
+    "support": {
+      "headline": "A calmer next step matters more than a ranked map right now.",
+      "body": "If this writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+      "note": "Journal.IO hides normal region scoring for safety-sensitive weekly writing."
+    },
+    "disclaimer": {
+      "title": "Reflection signal only",
+      "body": "This map reflects patterns in your writing, not a medical or brain-activity measurement."
+    }
+  }
+}
+```
+
 Behavior:
 
 - protected route
@@ -1810,6 +2791,11 @@ Returns:
 }
 ```
 
+Behavior:
+
+- the exported `insights` object may include cached weekly AI-analysis data plus cached Mind Map payloads under `mindMapLatestWeek` and `mindMapAllTime`
+- Mind Map export fields also include each cache's stale flag, computed timestamp, and cache key
+
 ### `POST /privacy/delete-request`
 
 Delete the authenticated user's account and all owned profile data.
@@ -1862,7 +2848,7 @@ Behavior:
 
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
 - sets `onboardingContext.aiOptIn` for the authenticated user
-- when opt-out is enabled, clears any cached weekly AI analysis from the `insights` document
+- when opt-out is enabled, clears any cached weekly AI analysis and cached Mind Map payloads from the `insights` document
 
 ---
 

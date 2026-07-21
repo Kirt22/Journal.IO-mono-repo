@@ -1,12 +1,13 @@
-import { ApiError, request } from "../utils/apiClient";
+import { request } from '../utils/apiClient';
 
 type AuthUser = {
   userId: string;
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  createdAt?: string | null;
   isPremium?: boolean;
-  premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
+  premiumPlanKey?: 'weekly' | 'monthly' | 'yearly' | 'lifetime' | null;
   premiumActivatedAt?: string | null;
   premiumProductId?: string | null;
   premiumExpiresAt?: string | null;
@@ -14,13 +15,25 @@ type AuthUser = {
   premiumVerifiedAt?: string | null;
   premiumRevenueCatRequestDate?: string | null;
   revenueCatAppUserId?: string | null;
-  premiumSource?: "revenuecat_client_sync" | "revenuecat_verified" | null;
+  premiumSource?: 'revenuecat_client_sync' | 'revenuecat_verified' | null;
   journalingGoals: string[];
   avatarColor: string | null;
   profileSetupCompleted: boolean;
-  onboardingCompleted: boolean;
+  onboardingCompleted?: boolean;
+  onboardingVersion?: number | null;
+  onboardingCompletedAt?: string | null;
+  hasJournalEntries?: boolean;
+  journalCount?: number;
   profilePic: string | null;
   aiOptIn: boolean | null;
+  onboardingPreferences?: {
+    ageRange: string | null;
+    journalingExperience: string | null;
+    whatBringsYouHere: string[];
+    supportFocusAreas: string[];
+    reflectionTone: string[];
+    reminderPreference: string | null;
+  };
 };
 
 type AuthSession = {
@@ -63,7 +76,7 @@ type PasswordResetChallenge = {
   resetToken?: string;
   resetLink?: string;
   resetIssued?: boolean;
-  resetSkippedReason?: "user_not_found" | "email_not_verified";
+  resetSkippedReason?: 'user_not_found' | 'email_not_verified';
 };
 
 type RequestPasswordResetPayload = {
@@ -114,45 +127,14 @@ type AppleSignInPayload = {
   onboardingCompleted?: boolean;
 };
 
-const normalizeEmail = (email: string) => email.trim().toLowerCase();
-
-const deriveDisplayNameFromEmail = (email: string) => {
-  const localPart = normalizeEmail(email).split("@")[0] || "Journal User";
-  const cleaned = localPart.replace(/[._-]+/g, " ").trim();
-
-  if (!cleaned) {
-    return "Journal User";
-  }
-
-  return cleaned
-    .split(/\s+/)
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
-};
-
-const buildUserId = (email: string) => {
-  const slug = normalizeEmail(email)
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug ? `user-${slug}` : "user-journal";
-};
-
-const buildMockTokens = (email: string) => {
-  const tokenSeed = normalizeEmail(email).replace(/[^a-z0-9]/g, "");
-
-  return {
-    accessToken: `mock-access-${tokenSeed || "journal"}`,
-    refreshToken: `mock-refresh-${tokenSeed || "journal"}`,
-  };
-};
-
-const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T => {
+const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(
+  value: T,
+): T => {
   if (!__DEV__) {
     return value;
   }
 
-  if ("user" in value) {
+  if ('user' in value) {
     return {
       ...value,
       user: {
@@ -168,62 +150,19 @@ const applyDevPremiumDefault = <T extends AuthUser | AuthSession>(value: T): T =
   };
 };
 
-const createMockSession = (payload: {
-  email: string;
-  name?: string;
-  goals?: string[];
-  avatarColor?: string | null;
-  profileSetupCompleted?: boolean;
-  onboardingCompleted?: boolean;
-  profilePic?: string | null;
-  aiOptIn?: boolean | null;
-}): AuthSession => {
-  const email = normalizeEmail(payload.email);
-  const tokens = buildMockTokens(email);
-
-  return {
-    ...tokens,
-    user: {
-      userId: buildUserId(email),
-      name: payload.name?.trim() || deriveDisplayNameFromEmail(email),
-      phoneNumber: null,
-      email,
-      isPremium: false,
-      premiumPlanKey: null,
-      premiumActivatedAt: null,
-      premiumProductId: null,
-      premiumExpiresAt: null,
-      premiumWillRenew: null,
-      premiumVerifiedAt: null,
-      premiumRevenueCatRequestDate: null,
-      revenueCatAppUserId: null,
-      premiumSource: null,
-      journalingGoals: payload.goals || [],
-      avatarColor:
-        payload.avatarColor === undefined ? null : payload.avatarColor,
-      profileSetupCompleted: payload.profileSetupCompleted ?? false,
-      onboardingCompleted: payload.onboardingCompleted ?? false,
-      profilePic: payload.profilePic ?? null,
-      aiOptIn: payload.aiOptIn ?? true,
-    },
-  };
-};
-
-const shouldUseDevNetworkFallback = (error: unknown) =>
-  __DEV__ && error instanceof ApiError && error.isNetworkError;
-
 const signUpWithEmail = async (payload: SignUpWithEmailPayload) => {
   const response = await request<EmailVerificationChallenge>(
-    "/auth/sign_up_with_email",
+    '/auth/sign_up_with_email',
     {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify(payload),
-    }
+    },
+    { showNetworkAlert: false },
   );
 
   if (__DEV__ && response.data.verificationCode) {
     console.info(
-      `[Auth] Email verification code for ${response.data.email}: ${response.data.verificationCode}`
+      `[Auth] Email verification code for ${response.data.email}: ${response.data.verificationCode}`,
     );
   }
 
@@ -231,19 +170,20 @@ const signUpWithEmail = async (payload: SignUpWithEmailPayload) => {
 };
 
 const resendEmailVerification = async (
-  payload: ResendEmailVerificationPayload
+  payload: ResendEmailVerificationPayload,
 ) => {
   const response = await request<EmailVerificationChallenge>(
-    "/auth/resend_email_verification",
+    '/auth/resend_email_verification',
     {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify(payload),
-    }
+    },
+    { showNetworkAlert: false },
   );
 
   if (__DEV__ && response.data.verificationCode) {
     console.info(
-      `[Auth] Resent verification code for ${response.data.email}: ${response.data.verificationCode}`
+      `[Auth] Resent verification code for ${response.data.email}: ${response.data.verificationCode}`,
     );
   }
 
@@ -252,11 +192,12 @@ const resendEmailVerification = async (
 
 const requestPasswordReset = async (payload: RequestPasswordResetPayload) => {
   const response = await request<PasswordResetChallenge>(
-    "/auth/request_password_reset",
+    '/auth/request_password_reset',
     {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify(payload),
-    }
+    },
+    { showNetworkAlert: false },
   );
 
   if (__DEV__ && response.data.resetLink) {
@@ -267,90 +208,77 @@ const requestPasswordReset = async (payload: RequestPasswordResetPayload) => {
 };
 
 const resetPassword = async (payload: ResetPasswordPayload) => {
-  await request<{}>("/auth/reset_password", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  await request<{}>(
+    '/auth/reset_password',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    { showNetworkAlert: false },
+  );
 };
 
 const verifyEmail = async (
   payload: VerifyEmailPayload,
-  options: VerifyEmailOptions = {}
+  options: VerifyEmailOptions = {},
 ) => {
-  try {
-    const response = await request<AuthSession>("/auth/verify_email", {
-      method: "POST",
+  const response = await request<AuthSession>(
+    '/auth/verify_email',
+    {
+      method: 'POST',
       body: JSON.stringify({
         ...payload,
         onboardingCompleted: options.onboardingCompleted ?? false,
       }),
-    });
+    },
+    { showNetworkAlert: false },
+  );
 
-    return applyDevPremiumDefault(response.data);
-  } catch (error) {
-    if (!shouldUseDevNetworkFallback(error)) {
-      throw error;
-    }
-
-    return createMockSession({
-      email: payload.email,
-      name: deriveDisplayNameFromEmail(payload.email),
-      goals: options.onboardingGoals || [],
-      aiOptIn:
-        typeof options.onboardingAiOptIn === "boolean"
-          ? options.onboardingAiOptIn
-          : true,
-      profileSetupCompleted: false,
-      onboardingCompleted: options.onboardingCompleted ?? true,
-    });
-  }
+  return applyDevPremiumDefault(response.data);
 };
 
 const signInWithEmail = async (payload: SignInWithEmailPayload) => {
-  try {
-    const response = await request<AuthSession>("/auth/sign_in_with_email", {
-      method: "POST",
+  const response = await request<AuthSession>(
+    '/auth/sign_in_with_email',
+    {
+      method: 'POST',
       body: JSON.stringify(payload),
-    });
+    },
+    { showNetworkAlert: false },
+  );
 
-    return applyDevPremiumDefault(response.data);
-  } catch (error) {
-    if (!shouldUseDevNetworkFallback(error)) {
-      throw error;
-    }
-
-    return createMockSession({
-      email: payload.email,
-      name: deriveDisplayNameFromEmail(payload.email),
-      goals: [],
-      avatarColor: "#8E4636",
-      profileSetupCompleted: true,
-      onboardingCompleted: true,
-    });
-  }
+  return applyDevPremiumDefault(response.data);
 };
 
 const signInWithGoogle = async (payload: GoogleSignInPayload) => {
-  const response = await request<AuthSession>("/auth/google/mobile", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const response = await request<AuthSession>(
+    '/auth/google/mobile',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    { showNetworkAlert: false },
+  );
 
   return applyDevPremiumDefault(response.data);
 };
 
 const signInWithApple = async (payload: AppleSignInPayload) => {
-  const response = await request<AuthSession>("/auth/apple/mobile", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const response = await request<AuthSession>(
+    '/auth/apple/mobile',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    { showNetworkAlert: false },
+  );
 
   return applyDevPremiumDefault(response.data);
 };
 
 const logout = async () => {
-  await request<{}>("/auth/logout", {
-    method: "POST",
+  await request<{}>('/auth/logout', {
+    method: 'POST',
   });
 };
 

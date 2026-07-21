@@ -16,7 +16,7 @@ import { revenueCatWebhookEventModel } from "../../schema/revenueCatWebhookEvent
 import { type IUser, userModel } from "../../schema/user.schema";
 import { paywallOfferingModel } from "../../schema/paywallOffering.schema";
 import {
-  buildUserProfilePayload,
+  buildAuthenticatedUserProfilePayload,
   type UserProfilePayload,
 } from "../user/user.service";
 
@@ -540,7 +540,7 @@ const reconcileRevenueCatSubscriberForUser = async (
     }
 
     return {
-      profile: buildUserProfilePayload(currentUser),
+      profile: await buildAuthenticatedUserProfilePayload(currentUser),
       requestDate: mappedState.requestDate,
       isPremium: Boolean(currentUser.isPremium),
       isStale: true,
@@ -560,7 +560,7 @@ const reconcileRevenueCatSubscriberForUser = async (
   }
 
   return {
-    profile: buildUserProfilePayload(updatedUser),
+    profile: await buildAuthenticatedUserProfilePayload(updatedUser),
     requestDate: mappedState.requestDate,
     isPremium: mappedState.isPremium,
     isStale: false,

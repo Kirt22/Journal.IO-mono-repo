@@ -4,6 +4,8 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
+The project-specific source of truth for Simulator, Local Test, and Local Prod commands is [`docs/LOCAL_IOS_ENVIRONMENTS.md`](../docs/LOCAL_IOS_ENVIRONMENTS.md).
+
 ## Step 1: Start Metro
 
 First, you will need to run **Metro**, the JavaScript build tool for React Native.
@@ -18,7 +20,11 @@ npm start
 yarn start
 ```
 
-`npm start` now exports `APP_ENV=local`, so the bundle resolves `frontend/.env.local` when that file exists and falls back to `frontend/.env` otherwise.
+`npm start` exports `APP_ENV=simulator`, so the default development bundle resolves `frontend/.env.simulator`.
+
+For development-only auth speedups during the physical-device Local Test flow,
+set `FRONTEND_ENV=dev` in `frontend/.env.local`. Tapping `Continue with Apple`
+then skips the native Apple sheet without saving tokens or calling the backend.
 
 ## Step 2: Build and run your app
 
@@ -60,7 +66,7 @@ npm run ios
 yarn ios
 ```
 
-`npm run ios` now also exports `APP_ENV=local`, which keeps the normal simulator flow pointed at your local env values instead of the production base URL.
+`npm run ios` exports `APP_ENV=simulator`, which keeps the normal simulator flow pointed at `frontend/.env.simulator` instead of a physical-device or production URL.
 
 If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
 
@@ -68,27 +74,7 @@ This is one way to run your app — you can also build it directly from Android 
 
 ## Debug Against Local Backend
 
-Use this path when you want Metro, console logs, and the RN dev menu while sending API requests to your local backend.
-
-1. Confirm `frontend/.env.local` points to the local backend:
-
-```env
-API_BASE_URL=http://localhost:3000/api/v1
-```
-
-2. Start Metro in local-app-env mode:
-
-```sh
-npm run start:local-debug
-```
-
-3. In a second terminal, install or relaunch the Debug build without starting another packager:
-
-```sh
-npm run ios:local-debug
-```
-
-Do not use `npm run start:prod-debug` for local backend testing. That command exports `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production`.
+Use [`docs/LOCAL_IOS_ENVIRONMENTS.md`](../docs/LOCAL_IOS_ENVIRONMENTS.md) for the matching backend, Metro, and iOS commands. It documents separate flows for the iOS Simulator and a physical iPhone because they require different client URLs.
 
 ## Step 3: Modify your app
 
@@ -160,72 +146,11 @@ This is a local compatibility workaround for the Xcode 26.4 simulator toolchain 
 
 ## Production iPhone Build
 
-Use this path when you want a Release build on a real iPhone without changing the local development defaults in `frontend/.env`.
-
-1. Edit `frontend/.env.production` with the production values you want to test.
-
-Minimum for the live backend:
-
-```env
-API_BASE_URL=https://api.journalio.app/api/v1
-```
-
-Optional fallback store-rating links. The onboarding rating step uses the native in-app review prompt first; these values are only used if the native review bridge is unavailable.
-
-```env
-IOS_APP_STORE_ID=1234567890
-ANDROID_PLAY_STORE_PACKAGE_NAME=app.journalio
-```
-
-2. Install pods if needed:
-
-```sh
-cd ios
-pod install
-cd ..
-```
-
-3. Build the Release app for your connected iPhone:
-
-```sh
-npm run ios:release -- --device "Your iPhone Name"
-```
-
-Release builds now export `BABEL_ENV=production` from `ios/.xcode.env`, so the React Native bundle resolves `frontend/.env.production` automatically.
-
-### Xcode requirements for a real device
-
-Before the build will install on a physical iPhone, you still need to confirm these native settings in Xcode:
-
-- open `frontend/ios/JournalFrontend.xcworkspace`
-- select the `JournalFrontend` target
-- set your Apple development team under `Signing & Capabilities`
-- use a real bundle identifier instead of the default example identifier if you want Google sign-in or App Store style signing to match your production setup
-- make sure the iOS OAuth client in Google Cloud matches that bundle identifier and that its reversed client ID is present in the target URL schemes
+Use the Local Prod section in [`docs/LOCAL_IOS_ENVIRONMENTS.md`](../docs/LOCAL_IOS_ENVIRONMENTS.md). It is the source of truth for the Release-device command, production env selection, and Xcode signing prerequisites.
 
 ## Debug On iPhone Against Production Backend
 
-Use this path when you want Metro, console logs, and the RN dev menu on your physical iPhone while still sending API requests to the production backend.
-
-1. Keep production values in `frontend/.env.production`.
-
-2. Start Metro in production-app-env mode:
-
-```sh
-npm run start:prod-debug
-```
-
-3. In a second terminal, install or relaunch the Debug build on your phone without starting another packager:
-
-```sh
-npm run ios:prod-debug -- --device "Your iPhone Name"
-```
-
-Why this works:
-
-- `npm start` and `npm run ios` export `APP_ENV=local`, so normal development resolves `frontend/.env.local` when present, with `frontend/.env` as the fallback
-- `npm run start:prod-debug` and `npm run ios:prod-debug` set `APP_ENV=production`, so `react-native-dotenv` resolves `frontend/.env.production` even in Debug
-- this gives you live Metro logs while the app talks to `https://api.journalio.app/api/v1`
+Use the optional Local Prod Debug subsection in [`docs/LOCAL_IOS_ENVIRONMENTS.md`](../docs/LOCAL_IOS_ENVIRONMENTS.md) when production API behavior needs Metro logs. That Debug workflow is separate from the full Release-style Local Prod check.
 
 # Learn More
 

@@ -1,39 +1,66 @@
 import {
   NavigationContainer,
+  useNavigation,
   useRoute,
   type LinkingOptions,
   type RouteProp,
-} from "@react-navigation/native";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { StyleSheet, Text, View } from "react-native";
-import AuthChoiceScreen from "../screens/auth/AuthChoiceScreen";
-import SignInScreen from "../screens/auth/SignInScreen";
-import ForgotPasswordScreen from "../screens/auth/ForgotPasswordScreen";
-import ResetPasswordScreen from "../screens/auth/ResetPasswordScreen";
-import CreateAccountScreen from "../screens/auth/CreateAccountScreen";
-import VerifyEmailScreen from "../screens/auth/VerifyEmailScreen";
-import { OnboardingScreen } from "../screens/onboarding/OnboardingScreen";
-import MainAppShell from "../screens/main/MainAppShell";
-import SetupProfileScreen from "../screens/profile/SetupProfileScreen";
-import PaywallScreen from "../screens/profile/PaywallScreen";
-import HostedRevenueCatPaywallScreen from "../screens/profile/HostedRevenueCatPaywallScreen";
-import LifetimeOfferPaywallScreen from "../screens/profile/LifetimeOfferPaywallScreen";
-import InAppBrowserModal from "../components/InAppBrowserModal";
-import { useAppStore } from "../store/appStore";
-import { useTheme } from "../theme/provider";
-import { navigationRef, type RootStackParamList } from "./navigation";
+} from '@react-navigation/native';
 import {
-  requestPasswordReset,
-  resetPassword,
-} from "../services/authService";
+  createNativeStackNavigator,
+  type NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
+import { StyleSheet, Text, View } from 'react-native';
+import AuthChoiceScreen from '../screens/auth/AuthChoiceScreen';
+import SignInScreen from '../screens/auth/SignInScreen';
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
+import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen';
+import CreateAccountScreen from '../screens/auth/CreateAccountScreen';
+import VerifyEmailScreen from '../screens/auth/VerifyEmailScreen';
+import { OnboardingScreen } from '../screens/onboarding/OnboardingScreen';
+import OnboardingV2Screen from '../screens/onboarding/OnboardingV2Screen';
+import FirstGuidedReflectionScreen from '../screens/onboarding/FirstGuidedReflectionScreen';
+import MainAppShell from '../screens/main/MainAppShell';
+import SetupProfileScreen from '../screens/profile/SetupProfileScreen';
+import PaywallScreen from '../screens/profile/PaywallScreen';
+import HostedRevenueCatPaywallScreen from '../screens/profile/HostedRevenueCatPaywallScreen';
+import LifetimeOfferPaywallScreen from '../screens/profile/LifetimeOfferPaywallScreen';
+import AboutYouScreen from '../screens/profile/AboutYouScreen';
+import ProfileScreen from '../screens/profile/ProfileScreen';
+import PrivacyScreen from '../screens/profile/PrivacyScreen';
+import BiometricLockScreen from '../screens/profile/BiometricLockScreen';
+import AccountScreen from '../screens/profile/AccountScreen';
+import {
+  SettingsAccountSection,
+  SettingsMoreSection,
+  SettingsPersonalizationSection,
+  SettingsPrivacyDataSection,
+  SettingsSignOutSection,
+  SettingsSupportSection,
+} from '../screens/profile/SettingsScreen';
+import SubscriptionScreen from '../screens/profile/SubscriptionScreen';
+import ThemeSettingsScreen from '../screens/profile/ThemeSettingsScreen';
+import RemindersScreen from '../screens/reminders/RemindersScreen';
+import InAppBrowserModal from '../components/InAppBrowserModal';
+import { ENABLE_ONBOARDING_V2 } from '../config/onboarding';
+import { useAppStore } from '../store/appStore';
+import { ThemeTransitionOverlay, useTheme } from '../theme/provider';
+import {
+  navigateMainApp,
+  navigationRef,
+  type MainAppStackParamList,
+  type ProfileModalStackParamList,
+  type RootStackParamList,
+} from './navigation';
+import { requestPasswordReset, resetPassword } from '../services/authService';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
+const ProfileModalStack = createNativeStackNavigator<ProfileModalStackParamList>();
 
 const rootLinkingConfig: LinkingOptions<RootStackParamList> = {
-  prefixes: ["journalio://"],
+  prefixes: ['journalio://'],
   config: {
     screens: {
-      ResetPassword: "reset-password",
+      ResetPassword: 'reset-password',
     },
   },
 };
@@ -42,8 +69,87 @@ function OnboardingRoute() {
   const isCompleting = useAppStore(state => state.isCompletingOnboarding);
   const completeOnboarding = useAppStore(state => state.completeOnboarding);
 
+  if (ENABLE_ONBOARDING_V2) {
+    return <OnboardingV2Screen />;
+  }
+
   return (
-    <OnboardingScreen isCompleting={isCompleting} onContinue={completeOnboarding} />
+    <OnboardingScreen
+      isCompleting={isCompleting}
+      onContinue={completeOnboarding}
+    />
+  );
+}
+
+function FirstGuidedReflectionRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstGuidedReflection'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstGuidedReflection'>
+  >();
+
+  return (
+    <FirstGuidedReflectionScreen
+      draft={route.params.draft}
+      onAnalysisReady={payload =>
+        navigation.replace('FirstReflectionAnalysis', payload)
+      }
+      onBackToReady={() => navigation.goBack()}
+    />
+  );
+}
+
+function FirstReflectionAnalysisRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionAnalysis'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionAnalysis'>
+  >();
+
+  return (
+    <FirstGuidedReflectionScreen
+      draft={route.params.draft}
+      initialAnalysisPayload={route.params}
+      onGoalsReady={payload => navigation.replace('FirstReflectionGoals', payload)}
+      onBackToReady={() => navigation.goBack()}
+    />
+  );
+}
+
+function FirstReflectionGoalsRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionGoals'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionGoals'>
+  >();
+
+  return (
+    <FirstGuidedReflectionScreen
+      draft={route.params.draft}
+      initialGoalsPayload={route.params}
+      onStreakReady={payload => navigation.replace('FirstReflectionStreak', payload)}
+      onBackToReady={() => navigation.goBack()}
+    />
+  );
+}
+
+function FirstReflectionStreakRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionStreak'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionStreak'>
+  >();
+
+  return (
+    <FirstGuidedReflectionScreen
+      draft={route.params.draft}
+      initialStreakPayload={route.params}
+      onBackToReady={() => navigation.goBack()}
+    />
   );
 }
 
@@ -91,12 +197,12 @@ function ForgotPasswordRoute() {
 }
 
 function ResetPasswordRoute() {
-  const route = useRoute<RouteProp<RootStackParamList, "ResetPassword">>();
+  const route = useRoute<RouteProp<RootStackParamList, 'ResetPassword'>>();
   const goToSignIn = useAppStore(state => state.goToSignIn);
 
   return (
     <ResetPasswordScreen
-      token={route.params?.token || ""}
+      token={route.params?.token || ''}
       onSubmit={resetPassword}
       onBackToSignIn={goToSignIn}
     />
@@ -123,13 +229,13 @@ function VerifyEmailRoute() {
   const pendingEmail = useAppStore(state => state.pendingEmail);
   const verifyPendingEmail = useAppStore(state => state.verifyPendingEmail);
   const finishEmailVerification = useAppStore(
-    state => state.finishEmailVerification
+    state => state.finishEmailVerification,
   );
   const resendVerificationCode = useAppStore(
-    state => state.resendVerificationCode
+    state => state.resendVerificationCode,
   );
   const goBackToCreateAccount = useAppStore(
-    state => state.goBackToCreateAccount
+    state => state.goBackToCreateAccount,
   );
 
   return (
@@ -150,12 +256,12 @@ function SetupProfileRoute() {
   const initialProfileName = useAppStore(state => state.initialProfileName);
   const completeProfile = useAppStore(state => state.completeProfile);
   const skipProfileSetup = useAppStore(state => state.skipProfileSetup);
-  const sessionEmail = useAppStore(state => state.session?.user.email || "");
+  const sessionEmail = useAppStore(state => state.session?.user.email || '');
 
   return (
     <SetupProfileScreen
       authEmail={pendingEmail || sessionEmail}
-      authSource={authSource || "email"}
+      authSource={authSource || 'email'}
       onboardingContext={onboardingData}
       initialName={initialProfileName}
       onComplete={completeProfile}
@@ -176,10 +282,249 @@ function HostedPaywallRoute() {
 
 function LifetimeOfferRoute() {
   const continueFromLifetimeOffer = useAppStore(
-    state => state.continueFromLifetimeOffer
+    state => state.continueFromLifetimeOffer,
   );
 
   return <LifetimeOfferPaywallScreen onBack={continueFromLifetimeOffer} />;
+}
+
+const EMPTY_GOALS: string[] = [];
+
+const getRootModalNavigation = (
+  navigation: NativeStackNavigationProp<ProfileModalStackParamList>,
+) => navigation.getParent<NativeStackNavigationProp<RootStackParamList>>();
+
+function ProfileHubRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const rootNavigation = getRootModalNavigation(navigation);
+  const session = useAppStore(state => state.session);
+  const onboardingGoals = useAppStore(
+    state => state.onboardingData?.goals ?? EMPTY_GOALS,
+  );
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement,
+  );
+  const openLifetimeOffer = useAppStore(state => state.openLifetimeOffer);
+  const signOut = useAppStore(state => state.signOut);
+  const themeModeOverride = useAppStore(state => state.themeModeOverride);
+
+  const dismissAndOpen = (screen: keyof MainAppStackParamList) => {
+    rootNavigation?.goBack();
+    setTimeout(() => navigateMainApp(screen), 0);
+  };
+
+  const openPaywallFromModal = (placementKey: string, screenKey: string) => {
+    rootNavigation?.goBack();
+    setTimeout(() => {
+      openPaywallForPlacement({
+        placementKey,
+        returnStage: 'main-app',
+        screenKey,
+      });
+    }, 0);
+  };
+
+  return (
+    <ProfileScreen
+      userName={session?.user.name || 'Journal User'}
+      userEmail={session?.user.email}
+      fallbackEmail={session?.user.email}
+      userGoals={session?.user.journalingGoals}
+      onboardingGoals={onboardingGoals}
+      userAvatarColor={session?.user.avatarColor}
+      userProfilePic={session?.user.profilePic}
+      isPremium={Boolean(session?.user.isPremium)}
+      showProfileSummary={false}
+      onClose={() => rootNavigation?.goBack()}
+      onOpenStreaks={() => dismissAndOpen('Streaks')}
+      onOpenSubscription={() => {
+        if (session?.user.isPremium) {
+          navigation.navigate('Subscription');
+          return;
+        }
+
+        openPaywallFromModal('subscription_screen', 'profile');
+      }}
+      onOpenPrivacy={() => navigation.navigate('Privacy')}
+      onOpenPaywall={() => {
+        rootNavigation?.goBack();
+        setTimeout(() => {
+          openLifetimeOffer({
+            returnStage: 'main-app',
+            screenKey: 'profile',
+          });
+        }, 0);
+      }}
+      settingsContent={
+        <>
+          <SettingsAccountSection
+            onOpenManageAccount={() => navigation.navigate('ManageAccount')}
+            onOpenSubscription={() => navigation.navigate('Subscription')}
+          />
+          <SettingsPersonalizationSection
+            currentThemePreference={themeModeOverride ?? 'system'}
+            onOpenAboutYou={() => navigation.navigate('AboutYou')}
+            onOpenNotifications={() => navigation.navigate('Reminders')}
+            onOpenTheme={() => navigation.navigate('Theme')}
+          />
+          <SettingsPrivacyDataSection
+            onOpenExport={() => navigation.navigate('Privacy')}
+            onOpenBiometricLock={() => navigation.navigate('BiometricLock')}
+            onOpenHidePreviewsPaywall={() =>
+              openPaywallFromModal('settings_hide_previews_locked', 'settings')
+            }
+            onOpenPrivacyModePaywall={() =>
+              openPaywallFromModal('settings_privacy_mode_locked', 'settings')
+            }
+          />
+          <SettingsMoreSection />
+          <SettingsSupportSection />
+          <SettingsSignOutSection onSignOut={signOut} />
+        </>
+      }
+    />
+  );
+}
+
+function AboutYouModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+
+  return <AboutYouScreen onBack={() => navigation.goBack()} />;
+}
+
+function ManageAccountModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const signOut = useAppStore(state => state.signOut);
+
+  return (
+    <AccountScreen onBack={() => navigation.goBack()} onSignOut={signOut} />
+  );
+}
+
+function SubscriptionModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const currentPlanKey = useAppStore(
+    state => state.session?.user.premiumPlanKey,
+  );
+
+  return (
+    <SubscriptionScreen
+      onBack={() => navigation.goBack()}
+      currentPlanKey={currentPlanKey}
+    />
+  );
+}
+
+function PrivacyModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+
+  return <PrivacyScreen onBack={() => navigation.goBack()} />;
+}
+
+function BiometricLockModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const rootNavigation = getRootModalNavigation(navigation);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement,
+  );
+
+  return (
+    <BiometricLockScreen
+      onBack={() => navigation.goBack()}
+      onOpenPremium={() => {
+        rootNavigation?.goBack();
+        setTimeout(() => {
+          openPaywallForPlacement({
+            placementKey: 'settings_biometric_lock_locked',
+            returnStage: 'main-app',
+            screenKey: 'biometric_lock',
+          });
+        }, 0);
+      }}
+    />
+  );
+}
+
+function RemindersModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+
+  return <RemindersScreen onBack={() => navigation.goBack()} />;
+}
+
+function ThemeModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const currentThemePreference = useAppStore(
+    state => state.themeModeOverride ?? 'system',
+  );
+  const setThemeModeOverride = useAppStore(
+    state => state.setThemeModeOverride,
+  );
+
+  return (
+    <ThemeSettingsScreen
+      currentThemePreference={currentThemePreference}
+      onBack={() => navigation.goBack()}
+      onToggleTheme={setThemeModeOverride}
+    />
+  );
+}
+
+function ProfileModalRoute() {
+  const theme = useTheme();
+
+  return (
+    <View style={appNavigatorStyles.profileModalRoot}>
+      <ProfileModalStack.Navigator
+        initialRouteName="ProfileHub"
+        screenOptions={{
+          animation: 'fade',
+          animationDuration: 200,
+          contentStyle: { backgroundColor: theme.colors.card },
+          headerShown: false,
+          statusBarStyle: theme.mode === 'dark' ? 'light' : 'dark',
+        }}
+      >
+        <ProfileModalStack.Screen
+          name="ProfileHub"
+          component={ProfileHubRoute}
+        />
+        <ProfileModalStack.Screen
+          name="AboutYou"
+          component={AboutYouModalRoute}
+        />
+        <ProfileModalStack.Screen
+          name="ManageAccount"
+          component={ManageAccountModalRoute}
+        />
+        <ProfileModalStack.Screen
+          name="Subscription"
+          component={SubscriptionModalRoute}
+        />
+        <ProfileModalStack.Screen
+          name="Privacy"
+          component={PrivacyModalRoute}
+        />
+        <ProfileModalStack.Screen
+          name="BiometricLock"
+          component={BiometricLockModalRoute}
+        />
+        <ProfileModalStack.Screen
+          name="Reminders"
+          component={RemindersModalRoute}
+        />
+        <ProfileModalStack.Screen name="Theme" component={ThemeModalRoute} />
+      </ProfileModalStack.Navigator>
+      <ThemeTransitionOverlay />
+    </View>
+  );
 }
 
 function CompleteRoute() {
@@ -224,45 +569,45 @@ function CompleteRoute() {
 
 export function getInitialRouteName(stage: string) {
   switch (stage) {
-    case "onboarding":
-      return "Onboarding";
-    case "auth":
-      return "AuthChoice";
-    case "sign-in":
-      return "SignIn";
-    case "forgot-password":
-      return "ForgotPassword";
-    case "reset-password":
-      return "ResetPassword";
-    case "create-account":
-      return "CreateAccount";
-    case "verify-email":
-      return "VerifyEmail";
-    case "profile":
-      return "SetupProfile";
-    case "paywall":
-      return "Paywall";
-    case "hosted-paywall":
-      return "HostedPaywall";
-    case "lifetime-offer":
-      return "LifetimeOffer";
-    case "complete":
-      return "Complete";
-    case "main-app":
+    case 'onboarding':
+      return 'Onboarding';
+    case 'auth':
+      return 'AuthChoice';
+    case 'sign-in':
+      return 'SignIn';
+    case 'forgot-password':
+      return 'ForgotPassword';
+    case 'reset-password':
+      return 'ResetPassword';
+    case 'create-account':
+      return 'CreateAccount';
+    case 'verify-email':
+      return 'VerifyEmail';
+    case 'profile':
+      return 'SetupProfile';
+    case 'paywall':
+      return 'Paywall';
+    case 'hosted-paywall':
+      return 'HostedPaywall';
+    case 'lifetime-offer':
+      return 'LifetimeOffer';
+    case 'complete':
+      return 'Complete';
+    case 'main-app':
     default:
-      return "MainApp";
+      return 'MainApp';
   }
 }
 
 function getMainAppInitialParams(stage: string) {
   switch (stage) {
-    case "new-entry":
-      return { screen: "NewEntry" as const };
-    case "journal-detail":
-      return { screen: "EntryDetail" as const };
-    case "journal-edit":
-      return { screen: "EditEntry" as const };
-    case "main-app":
+    case 'new-entry':
+      return { screen: 'NewEntry' as const };
+    case 'journal-detail':
+      return { screen: 'EntryDetail' as const };
+    case 'journal-edit':
+      return { screen: 'EditEntry' as const };
+    case 'main-app':
     default:
       return undefined;
   }
@@ -271,7 +616,7 @@ function getMainAppInitialParams(stage: string) {
 export default function AppNavigator() {
   const theme = useTheme();
   const hasBootstrappedAuthGate = useAppStore(
-    state => state.hasBootstrappedAuthGate
+    state => state.hasBootstrappedAuthGate,
   );
   const stage = useAppStore(state => state.stage);
   const activeTab = useAppStore(state => state.activeTab);
@@ -294,9 +639,32 @@ export default function AppNavigator() {
         screenOptions={{ headerShown: false }}
       >
         <RootStack.Screen name="Onboarding" component={OnboardingRoute} />
+        <RootStack.Screen
+          name="FirstGuidedReflection"
+          component={FirstGuidedReflectionRoute}
+          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionAnalysis"
+          component={FirstReflectionAnalysisRoute}
+          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionGoals"
+          component={FirstReflectionGoalsRoute}
+          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionStreak"
+          component={FirstReflectionStreakRoute}
+          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+        />
         <RootStack.Screen name="AuthChoice" component={AuthChoiceRoute} />
         <RootStack.Screen name="SignIn" component={SignInRoute} />
-        <RootStack.Screen name="ForgotPassword" component={ForgotPasswordRoute} />
+        <RootStack.Screen
+          name="ForgotPassword"
+          component={ForgotPasswordRoute}
+        />
         <RootStack.Screen name="ResetPassword" component={ResetPasswordRoute} />
         <RootStack.Screen name="CreateAccount" component={CreateAccountRoute} />
         <RootStack.Screen name="VerifyEmail" component={VerifyEmailRoute} />
@@ -308,15 +676,39 @@ export default function AppNavigator() {
         <RootStack.Screen
           name="MainApp"
           component={MainAppShell}
-          initialParams={getMainAppInitialParams(stage) || { screen: activeTab === "calendar" ? "Calendar" : activeTab === "insights" ? "Insights" : activeTab === "profile" ? "Profile" : "Home" }}
+          initialParams={
+            getMainAppInitialParams(stage) || {
+              screen:
+                activeTab === 'calendar'
+                  ? 'Calendar'
+                  : activeTab === 'insights'
+                  ? 'Insights'
+                  : activeTab === 'profile'
+                  ? 'Profile'
+                  : 'Home',
+            }
+          }
         />
         <RootStack.Group
           screenOptions={{
-            presentation: "modal",
-            animation: "slide_from_bottom",
+            presentation: 'modal',
+            animation: 'slide_from_bottom',
           }}
         >
-          <RootStack.Screen name="LegalBrowserModal" component={InAppBrowserModal} />
+          <RootStack.Screen
+            name="LegalBrowserModal"
+            component={InAppBrowserModal}
+          />
+          <RootStack.Screen
+            name="ProfileModal"
+            component={ProfileModalRoute}
+            options={{
+              contentStyle: {
+                backgroundColor: theme.colors.card,
+              },
+              statusBarStyle: theme.mode === 'dark' ? 'light' : 'dark',
+            }}
+          />
         </RootStack.Group>
       </RootStack.Navigator>
     </NavigationContainer>
@@ -324,23 +716,27 @@ export default function AppNavigator() {
 }
 
 const appNavigatorStyles = StyleSheet.create({
+  profileModalRoot: {
+    flex: 1,
+    position: 'relative',
+  },
   completeRoot: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 24,
   },
   completeTitle: {
     fontSize: 24,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   completeSubtitle: {
     marginTop: 8,
-    textAlign: "center",
+    textAlign: 'center',
   },
   completeRestart: {
     marginTop: 16,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   loadingRoot: {
     flex: 1,

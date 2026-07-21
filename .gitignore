@@ -52,6 +52,7 @@ frontend/.env
 frontend/.env.*
 !frontend/.env.example
 !frontend/.env.production.example
+!frontend/.env.simulator.example
 
 # Test coverage
 frontend/coverage/

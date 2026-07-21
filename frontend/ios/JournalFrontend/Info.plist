@@ -65,6 +65,8 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the Journal.IO development server while testing on your local network.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to keep your Journal.IO entries covered on this iPhone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a profile photo from your library to personalize your Journal.IO account.</string>
 	<key>RCTNewArchEnabled</key>

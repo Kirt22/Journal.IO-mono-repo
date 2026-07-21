@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import test, { afterEach } from "node:test";
+import test, { afterEach, beforeEach } from "node:test";
+import { journalModel } from "../../schema/journal.schema";
+import { reminderModel } from "../../schema/reminder.schema";
 import { userModel } from "../../schema/user.schema";
 import {
   requestPasswordReset,
@@ -30,6 +32,9 @@ type UserDocument = {
   avatarColor: string | null;
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
+  onboardingVersion?: number | null;
+  onboardingCompletedAt?: Date | null;
+  onboardingPayload?: Record<string, unknown> | null;
   profilePic: string | null;
   isPremium?: boolean;
   premiumPlanKey?: "weekly" | "monthly" | "yearly" | "lifetime" | null;
@@ -45,6 +50,8 @@ type UserDocument = {
   } | null;
   emailVerified: boolean;
   emailVerifiedAt: Date | null;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
   save: () => Promise<UserDocument>;
 };
 
@@ -53,10 +60,20 @@ const userTarget = userModel as unknown as {
   create: (payload: Record<string, unknown>) => Promise<UserDocument>;
   updateOne: (...args: unknown[]) => Promise<unknown>;
 };
+const journalTarget = journalModel as unknown as {
+  exists: (query: AuthLookupQuery) => Promise<unknown>;
+  countDocuments: (query: AuthLookupQuery) => Promise<number>;
+};
+const reminderTarget = reminderModel as unknown as {
+  exists: (query: AuthLookupQuery) => Promise<unknown>;
+};
 
 const originalFindOne = userTarget.findOne;
 const originalCreate = userTarget.create;
 const originalUpdateOne = userTarget.updateOne;
+const originalJournalExists = journalTarget.exists;
+const originalJournalCountDocuments = journalTarget.countDocuments;
+const originalReminderExists = reminderTarget.exists;
 const originalConsoleInfo = console.info;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAuthEmailHeloHost = process.env.AUTH_EMAIL_HELO_HOST;
@@ -88,6 +105,9 @@ const buildUserDocument = (
     avatarColor: null,
     profileSetupCompleted: false,
     onboardingCompleted: false,
+    onboardingVersion: null,
+    onboardingCompletedAt: null,
+    onboardingPayload: null,
     profilePic: null,
     isPremium: false,
     premiumPlanKey: null,
@@ -99,6 +119,8 @@ const buildUserDocument = (
     passwordResetRequestedAt: null,
     emailVerified: false,
     emailVerifiedAt: null,
+    createdAt: new Date("2026-07-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-01T00:00:00.000Z"),
     save: async () => user,
     ...overrides,
   };
@@ -106,10 +128,19 @@ const buildUserDocument = (
   return user;
 };
 
+beforeEach(() => {
+  journalTarget.exists = async () => null;
+  journalTarget.countDocuments = async () => 0;
+  reminderTarget.exists = async () => null;
+});
+
 afterEach(() => {
   userTarget.findOne = originalFindOne;
   userTarget.create = originalCreate;
   userTarget.updateOne = originalUpdateOne;
+  journalTarget.exists = originalJournalExists;
+  journalTarget.countDocuments = originalJournalCountDocuments;
+  reminderTarget.exists = originalReminderExists;
   console.info = originalConsoleInfo;
   resetAppleIdentityTokenVerifierForTests();
   resetGoogleIdTokenVerifierForTests();
@@ -185,9 +216,11 @@ test("signInWithEmail persists onboarding AI preference for an existing user", a
   assert.equal(existingUser.onboardingContext?.aiOptIn, false);
   assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
   assert.equal(existingUser.onboardingCompleted, true);
+  assert.equal(existingUser.onboardingVersion, 2);
   assert.equal(result.user.aiOptIn, false);
+  assert.equal(result.user.onboardingVersion, 2);
   assert.deepEqual(result.user.journalingGoals, ["Daily Reflection"]);
-  assert.equal(saveCount, 1);
+  assert.equal(saveCount, 2);
   assert.equal(refreshUpdates.length, 1);
 });
 

@@ -1,7 +1,10 @@
 import mongoose, { Document, Model } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 import type { MoodValue } from "../types/mood.types";
-import type { InsightsAiAnalysisResponse } from "../types/insights.types";
+import type {
+  InsightsAiAnalysisResponse,
+  InsightsMindMapResponse,
+} from "../types/insights.types";
 
 export interface IInsights extends Document {
   toObject(): Record<string, unknown>;
@@ -20,6 +23,14 @@ export interface IInsights extends Document {
   aiAnalysisComputedAt: Date | null;
   aiAnalysisWindowEndDateKey: string | null;
   aiAnalysisCacheKey: string | null;
+  mindMapLatestWeek: InsightsMindMapResponse | null;
+  mindMapLatestWeekStale: boolean;
+  mindMapLatestWeekComputedAt: Date | null;
+  mindMapLatestWeekCacheKey: string | null;
+  mindMapAllTime: InsightsMindMapResponse | null;
+  mindMapAllTimeStale: boolean;
+  mindMapAllTimeComputedAt: Date | null;
+  mindMapAllTimeCacheKey: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +68,14 @@ const insightsSchema = new mongoose.Schema<IInsights>(
     aiAnalysisComputedAt: { type: Date, default: null },
     aiAnalysisWindowEndDateKey: { type: String, default: null, trim: true },
     aiAnalysisCacheKey: { type: String, default: null, trim: true },
+    mindMapLatestWeek: { type: mongoose.Schema.Types.Mixed, default: null },
+    mindMapLatestWeekStale: { type: Boolean, required: true, default: true },
+    mindMapLatestWeekComputedAt: { type: Date, default: null },
+    mindMapLatestWeekCacheKey: { type: String, default: null, trim: true },
+    mindMapAllTime: { type: mongoose.Schema.Types.Mixed, default: null },
+    mindMapAllTimeStale: { type: Boolean, required: true, default: true },
+    mindMapAllTimeComputedAt: { type: Date, default: null },
+    mindMapAllTimeCacheKey: { type: String, default: null, trim: true },
   },
   { timestamps: true }
 );

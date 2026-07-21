@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,37 +9,37 @@ import {
   TextInput,
   View,
   useWindowDimensions,
-} from "react-native";
-import {
-  ArrowLeft,
-  Heart,
-  Loader2,
-  Save,
-  Tag,
-  X,
-} from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+} from 'react-native';
+import { ArrowLeft, Heart, Loader2, Save, Tag, X } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav, {
   BOTTOM_NAV_CONTENT_PADDING,
   type BottomNavKey,
-} from "../../components/BottomNav";
-import JournalPromptCard from "../../components/JournalPromptCard";
-import { getJournalEntry, updateJournalEntry } from "../../services/journalService";
-import { useAppStore } from "../../store/appStore";
-import { useTheme } from "../../theme/provider";
-import { getFilteredTags } from "../../utils/journalEntryCard";
+} from '../../components/BottomNav';
+import ButtonLoadingContent from '../../components/ButtonLoadingContent';
+import JournalPromptCard from '../../components/JournalPromptCard';
+import {
+  getJournalEntry,
+  updateJournalEntry,
+} from '../../services/journalService';
+import { useAppStore } from '../../store/appStore';
+import { useTheme } from '../../theme/provider';
+import { getFilteredTags } from '../../utils/journalEntryCard';
+import { useConnectivity } from '../../hooks/useConnectivity';
 
 function formatEntryDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
   }).format(new Date(value));
 }
 
 export default function EditEntryScreen() {
   const theme = useTheme();
+  const { reconnectVersion, status: connectivityStatus } = useConnectivity();
+  const isOnline = connectivityStatus === 'online';
   const { width } = useWindowDimensions();
   const activeTab = useAppStore(state => state.activeTab);
   const entryId = useAppStore(state => state.selectedJournalEntryId);
@@ -50,18 +49,19 @@ export default function EditEntryScreen() {
   const setActiveTab = useAppStore(state => state.setActiveTab);
   const openNewEntry = useAppStore(state => state.openNewEntry);
   const returnHomeFromJournalFlow = useAppStore(
-    state => state.returnHomeFromJournalFlow
+    state => state.returnHomeFromJournalFlow,
   );
   const updateRecentJournalEntry = useAppStore(
-    state => state.updateRecentJournalEntry
+    state => state.updateRecentJournalEntry,
   );
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [hiddenTags, setHiddenTags] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hydratedEntryIdRef = useRef<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -70,7 +70,7 @@ export default function EditEntryScreen() {
 
   const entry = useMemo(
     () => entries.find(current => current._id === entryId) || null,
-    [entryId, entries]
+    [entryId, entries],
   );
 
   useEffect(() => {
@@ -81,17 +81,25 @@ export default function EditEntryScreen() {
     let isActive = true;
 
     if (entry) {
-      setTitle(entry.title);
-      setContent(entry.content);
-      setTags(getFilteredTags(entry.tags));
-      setHiddenTags(
-        entry.tags.filter(tag => tag.toLowerCase().startsWith("mood:"))
-      );
+      if (hydratedEntryIdRef.current !== entry._id) {
+        hydratedEntryIdRef.current = entry._id;
+        setTitle(entry.title);
+        setContent(entry.content);
+        setTags(getFilteredTags(entry.tags));
+        setHiddenTags(
+          entry.tags.filter(tag => tag.toLowerCase().startsWith('mood:')),
+        );
+      }
       setError(null);
       setIsRefreshing(false);
       return () => {
         isActive = false;
       };
+    }
+
+    if (!isOnline) {
+      setIsRefreshing(false);
+      return;
     }
 
     setIsRefreshing(true);
@@ -104,9 +112,12 @@ export default function EditEntryScreen() {
 
         setTitle(fetchedEntry.title);
         setContent(fetchedEntry.content);
+        hydratedEntryIdRef.current = fetchedEntry._id;
         setTags(getFilteredTags(fetchedEntry.tags));
         setHiddenTags(
-          fetchedEntry.tags.filter(tag => tag.toLowerCase().startsWith("mood:"))
+          fetchedEntry.tags.filter(tag =>
+            tag.toLowerCase().startsWith('mood:'),
+          ),
         );
         setError(null);
         updateRecentJournalEntry(fetchedEntry);
@@ -123,17 +134,23 @@ export default function EditEntryScreen() {
     return () => {
       isActive = false;
     };
-  }, [entry, entryId, updateRecentJournalEntry]);
+  }, [
+    entry,
+    entryId,
+    isOnline,
+    reconnectVersion,
+    updateRecentJournalEntry,
+  ]);
 
   const handleSave = async () => {
-    if (!entry) {
+    if (!entry || !isOnline) {
       return;
     }
 
     const trimmedContent = content.trim();
 
     if (!trimmedContent) {
-      setError("Please write something before saving.");
+      setError('Please write something before saving.');
       return;
     }
 
@@ -145,7 +162,7 @@ export default function EditEntryScreen() {
         journalId: entry._id,
         title: title.trim() || `Entry for ${formatEntryDate(entry.createdAt)}`,
         content: trimmedContent,
-        type: entry.type,
+        type: entry.type === 'guided' ? 'guided' : 'open_ended',
         tags: Array.from(new Set([...hiddenTags, ...tags])),
         images: entry.images || [],
         isFavorite: entry.isFavorite ?? false,
@@ -157,7 +174,7 @@ export default function EditEntryScreen() {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Unable to update this entry right now."
+          : 'Unable to update this entry right now.',
       );
     } finally {
       setIsSaving(false);
@@ -165,7 +182,7 @@ export default function EditEntryScreen() {
   };
 
   const handleBottomNavPress = (nextTab: BottomNavKey) => {
-    if (nextTab === "new") {
+    if (nextTab === 'new') {
       closeJournalEntry();
       openNewEntry();
       return;
@@ -183,13 +200,23 @@ export default function EditEntryScreen() {
     if (isRefreshing) {
       return (
         <SafeAreaView
-          edges={["top", "left", "right"]}
-          style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+          edges={['top', 'left', 'right']}
+          style={[
+            styles.safeArea,
+            { backgroundColor: theme.colors.background },
+          ]}
         >
-          <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+          <View
+            style={[
+              styles.emptyShell,
+              { paddingHorizontal: horizontalPadding },
+            ]}
+          >
             <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
               <Loader2 size={22} color={theme.colors.primary} />
-              <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
+              <Text
+                style={[styles.emptyTitle, { color: theme.colors.foreground }]}
+              >
                 Loading entry
               </Text>
             </View>
@@ -201,16 +228,27 @@ export default function EditEntryScreen() {
 
     return (
       <SafeAreaView
-        edges={["top", "left", "right"]}
+        edges={['top', 'left', 'right']}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        <View style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}>
+        <View
+          style={[styles.emptyShell, { paddingHorizontal: horizontalPadding }]}
+        >
           <View style={[styles.emptyState, { maxWidth: layoutMaxWidth }]}>
-            <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
-              Entry unavailable
+            <Text
+              style={[styles.emptyTitle, { color: theme.colors.foreground }]}
+            >
+              {isOnline ? 'Entry unavailable' : 'Entry unavailable offline'}
             </Text>
-            <Text style={[styles.emptyText, { color: theme.colors.mutedForeground }]}>
-              Open a journal entry first to edit it.
+            <Text
+              style={[
+                styles.emptyText,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              {isOnline
+                ? 'Open a journal entry first to edit it.'
+                : 'Reconnect to load this entry. Any open draft remains on this screen.'}
             </Text>
             <Pressable
               accessibilityRole="button"
@@ -225,7 +263,12 @@ export default function EditEntryScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={[styles.backButtonText, { color: theme.colors.foreground }]}>
+              <Text
+                style={[
+                  styles.backButtonText,
+                  { color: theme.colors.foreground },
+                ]}
+              >
                 Back
               </Text>
             </Pressable>
@@ -238,14 +281,16 @@ export default function EditEntryScreen() {
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
     >
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
+        <View
+          style={[styles.container, { paddingHorizontal: horizontalPadding }]}
+        >
           <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
             <View style={styles.header}>
               <Pressable
@@ -272,7 +317,12 @@ export default function EditEntryScreen() {
                   ]}
                 >
                   <X size={14} color={theme.colors.foreground} />
-                  <Text style={[styles.cancelButtonText, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.cancelButtonText,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     Cancel
                   </Text>
                 </Pressable>
@@ -280,34 +330,33 @@ export default function EditEntryScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Save entry"
+                  accessibilityState={{ busy: isSaving, disabled: !isOnline || isSaving }}
                   onPress={handleSave}
-                  disabled={isSaving}
+                  disabled={!isOnline || isSaving}
                   style={({ pressed }) => [
                     styles.saveButton,
                     {
                       backgroundColor: theme.colors.primary,
                     },
-                    pressed && !isSaving && styles.pressed,
-                    isSaving && styles.saveButtonSaving,
+                    pressed && isOnline && !isSaving && styles.pressed,
+                    (!isOnline || isSaving) && styles.saveButtonSaving,
                   ]}
                 >
-                  {isSaving ? (
-                    <ActivityIndicator
-                      accessibilityLabel="Saving entry"
-                      color={theme.colors.primaryForeground}
-                      size="small"
-                    />
-                  ) : (
+                  <ButtonLoadingContent
+                    contentStyle={styles.saveButtonContent}
+                    loaderColor={theme.colors.primaryForeground}
+                    loading={isSaving}
+                  >
                     <Save size={14} color={theme.colors.primaryForeground} />
-                  )}
                   <Text
                     style={[
                       styles.saveButtonText,
                       { color: theme.colors.primaryForeground },
                     ]}
                   >
-                    {isSaving ? "Saving..." : "Save"}
+                    Save
                   </Text>
+                  </ButtonLoadingContent>
                 </Pressable>
               </View>
             </View>
@@ -327,7 +376,12 @@ export default function EditEntryScreen() {
               <View style={styles.body}>
                 <View style={styles.metaRow}>
                   <Heart size={16} color={theme.colors.success} />
-                  <Text style={[styles.metaText, { color: theme.colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.metaText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
                     {formatEntryDate(entry.createdAt)}
                   </Text>
                 </View>
@@ -368,7 +422,12 @@ export default function EditEntryScreen() {
                 />
 
                 <View style={styles.wordCountRow}>
-                  <Text style={[styles.metaText, { color: theme.colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.metaText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
                     {content.trim().split(/\s+/).filter(Boolean).length} words
                   </Text>
                 </View>
@@ -381,7 +440,12 @@ export default function EditEntryScreen() {
                 >
                   <View style={styles.tagsSectionHeader}>
                     <Tag size={14} color={theme.colors.mutedForeground} />
-                    <Text style={[styles.sectionLabel, { color: theme.colors.foreground }]}>
+                    <Text
+                      style={[
+                        styles.sectionLabel,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
                       Tags
                     </Text>
                   </View>
@@ -414,7 +478,12 @@ export default function EditEntryScreen() {
                 </View>
 
                 {error ? (
-                  <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
+                  <Text
+                    style={[
+                      styles.errorText,
+                      { color: theme.colors.destructive },
+                    ]}
+                  >
                     {error}
                   </Text>
                 ) : null}
@@ -443,28 +512,28 @@ const styles = StyleSheet.create({
   },
   emptyShell: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   container: {
     flex: 1,
-    alignItems: "center",
+    alignItems: 'center',
   },
   shell: {
     flex: 1,
-    width: "100%",
+    width: '100%',
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
     paddingTop: 10,
     paddingBottom: 12,
   },
   headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   headerDivider: {
@@ -474,12 +543,12 @@ const styles = StyleSheet.create({
   headerIconButton: {
     width: 32,
     height: 32,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButton: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -488,20 +557,26 @@ const styles = StyleSheet.create({
   saveButtonSaving: {
     opacity: 0.78,
   },
+  saveButtonContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+  },
   saveButtonText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   cancelButton: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     paddingHorizontal: 2,
     paddingVertical: 6,
   },
   cancelButtonText: {
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: '500',
   },
   content: {
     paddingBottom: BOTTOM_NAV_CONTENT_PADDING + 24,
@@ -511,7 +586,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   titleInput: {
     paddingHorizontal: 0,
@@ -519,7 +594,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     fontSize: 28,
     lineHeight: 34,
-    fontWeight: "400",
+    fontWeight: '400',
     letterSpacing: -0.3,
   },
   contentInput: {
@@ -531,8 +606,8 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   metaText: {
@@ -548,20 +623,20 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   tagsSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     marginBottom: 10,
   },
   chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 12,
   },
   tagChip: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     borderWidth: 1,
     borderRadius: 999,
@@ -571,7 +646,7 @@ const styles = StyleSheet.create({
   },
   tagChipText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   errorText: {
     marginTop: 12,
@@ -581,19 +656,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   emptyState: {
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 10,
-    alignSelf: "center",
+    alignSelf: 'center',
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   emptyText: {
     fontSize: 14,
     lineHeight: 20,
-    textAlign: "center",
+    textAlign: 'center',
   },
   backButton: {
     paddingHorizontal: 14,
@@ -603,7 +678,7 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   pressed: {
     opacity: 0.72,

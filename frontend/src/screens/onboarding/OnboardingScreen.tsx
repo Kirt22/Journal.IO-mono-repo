@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -41,10 +40,11 @@ import {
   Wand2,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import ButtonLoadingContent from "../../components/ButtonLoadingContent";
+import JournalWordmark from '../../components/JournalWordmark';
 import { OnboardingProgressIndicator } from "../../components/OnboardingProgressIndicator";
 import { OnboardingValueCard } from "../../components/OnboardingValueCard";
 import KeyboardDismissAccessory from "../../components/KeyboardDismissAccessory";
-import { requestAppRating } from "../../services/appRatingService";
 import {
   generateOnboardingDemoAnalysis,
   type OnboardingDemoAnalysisResponse,
@@ -55,7 +55,6 @@ import { useTheme } from "../../theme/provider";
 import type { OnboardingCompletionData } from "../../types/onboarding";
 import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 
-const mascotImage = require("../../assets/png/Masscott.png");
 const TOTAL_STEPS = 12;
 const PRIVACY_STEP = 8;
 const JOURNAL_DEMO_STEP = 9;
@@ -270,7 +269,7 @@ const journalMoodOptions = [
 
 type OnboardingScreenProps = {
   isCompleting: boolean;
-  onContinue: (data: OnboardingCompletionData) => void;
+  onContinue: (data: OnboardingCompletionData) => Promise<void>;
 };
 
 export function getOnboardingResponsiveMetrics(width: number) {
@@ -280,7 +279,6 @@ export function getOnboardingResponsiveMetrics(width: number) {
   const layoutMaxWidth = isWide ? 460 : 420;
   const titleSize = isCompact ? 26 : isWide ? 34 : 30;
   const sectionTitleSize = isCompact ? 24 : isWide ? 30 : 28;
-  const heroSize = isCompact ? 82 : isWide ? 108 : 94;
   const goalGridGap = isCompact ? 10 : 12;
   const availableSheetWidth = Math.min(Math.max(width - horizontalPadding * 2, 0), layoutMaxWidth);
   const goalColumns = width < 350 ? 1 : 2;
@@ -294,7 +292,6 @@ export function getOnboardingResponsiveMetrics(width: number) {
     goalCardWidth,
     goalColumns,
     goalGridGap,
-    heroSize,
     horizontalPadding,
     isCompact,
     isWide,
@@ -320,7 +317,6 @@ export function OnboardingScreen({
   const [aiComfort, setAiComfort] = useState(true);
   const [excitementRating, setExcitementRating] = useState(0);
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
-  const [isRequestingAppRating, setIsRequestingAppRating] = useState(false);
   const [hasRequestedAppRating, setHasRequestedAppRating] = useState(false);
   const [appRatingMessage, setAppRatingMessage] = useState<string | null>(null);
   const [agreedToPrivacy, setAgreedToPrivacy] = useState(false);
@@ -355,7 +351,6 @@ export function OnboardingScreen({
     availableSheetWidth,
     goalCardWidth,
     goalGridGap,
-    heroSize,
     horizontalPadding,
     isCompact,
     layoutMaxWidth,
@@ -754,15 +749,23 @@ export function OnboardingScreen({
       return;
     }
 
-    onContinue({
-      ageRange: selectedAgeRange,
-      journalingExperience: selectedExperience,
-      goals: selectedGoals,
-      supportFocusAreas: selectedSupportAreas,
-      reminderPreference: selectedReminder,
-      aiComfort,
-      privacyConsent: agreedToPrivacy,
-    });
+    try {
+      await onContinue({
+        ageRange: selectedAgeRange,
+        journalingExperience: selectedExperience,
+        goals: selectedGoals,
+        supportFocusAreas: selectedSupportAreas,
+        reminderPreference: selectedReminder,
+        aiComfort,
+        privacyConsent: agreedToPrivacy,
+      });
+    } catch (error) {
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Unable to finish onboarding right now. Please try again."
+      );
+    }
   };
 
   const toggleGoal = (goalId: string) => {
@@ -800,53 +803,19 @@ export function OnboardingScreen({
     }).start();
   };
 
-  const requestNativeAppRating = () => {
-    setHasRequestedAppRating(true);
-    setIsRequestingAppRating(true);
-    requestAppRating()
-      .then(result => {
-        if (result.status === "requested" || result.status === "opened") {
-          setAppRatingMessage("Thanks for supporting Journal.IO.");
-        } else if (result.status === "unavailable") {
-          setAppRatingMessage(
-            "App rating will be available once the native review prompt is configured."
-          );
-        } else {
-          setAppRatingMessage("Unable to open app rating right now.");
-        }
-      })
-      .catch(() => {
-        setAppRatingMessage("Unable to open app rating right now.");
-      })
-      .finally(() => {
-        setIsRequestingAppRating(false);
-      });
-  };
-
   const handleSelectExcitementRating = (star: number) => {
     setExcitementRating(star);
     setAppRatingMessage(null);
     setStepError(null);
     animateStarSelection(star);
 
-    if (hasRequestedAppRating || isRequestingAppRating) {
+    if (hasRequestedAppRating) {
       return;
     }
 
-    Alert.alert(
-      "Rate Journal.IO",
-      "Your feedback helps us keep Journal.IO calm, useful, and focused on reflection.",
-      [
-        {
-          text: "Not now",
-          style: "cancel",
-        },
-        {
-          text: "Rate now",
-          onPress: requestNativeAppRating,
-        },
-      ]
-    );
+    // TODO Phase 7: re-enable the native review prompt outside onboarding.
+    setHasRequestedAppRating(true);
+    setAppRatingMessage("Thanks for the feedback.");
   };
 
   const handleTestimonialMomentumEnd = (
@@ -880,29 +849,14 @@ export function OnboardingScreen({
       return (
         <>
           <View style={[styles.heroSection, heroSpacingStyle]}>
-            <View
+            <Animated.View
               style={[
-                styles.heroBadge,
-                {
-                  backgroundColor: theme.colors.accent,
-                  width: heroSize,
-                  height: heroSize,
-                },
+                styles.heroWordmark,
+                { transform: [{ translateY: mascotFloatY }] },
               ]}
             >
-              <Animated.Image
-                source={mascotImage}
-                resizeMode="contain"
-                style={[
-                  styles.heroMascot,
-                  {
-                    width: heroSize * 0.82,
-                    height: heroSize * 0.82,
-                    transform: [{ translateY: mascotFloatY }],
-                  },
-                ]}
-              />
-            </View>
+              <JournalWordmark accessibilityLabel="Journal.IO" />
+            </Animated.View>
 
             <Text style={[styles.title, { fontSize: titleSize, color: theme.colors.foreground }]}>
               Welcome to Journal.IO
@@ -1470,9 +1424,6 @@ export function OnboardingScreen({
                   <Text style={[styles.ratingHint, { color: theme.colors.mutedForeground }]}>
                     Channel that energy. Your rating helps us inspire others.
                   </Text>
-                ) : null}
-                {isRequestingAppRating ? (
-                  <ActivityIndicator color={theme.colors.primary} size="small" />
                 ) : null}
                 {appRatingMessage ? (
                   <Text style={[styles.ratingStatusText, { color: theme.colors.mutedForeground }]}>
@@ -2169,6 +2120,14 @@ export function OnboardingScreen({
               <View style={styles.actionSlot}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{
+                    busy: isCompleting || isApplyingReminderPreference || isGeneratingDemoAnalysis,
+                    disabled:
+                      isCompleting ||
+                      isApplyingReminderPreference ||
+                      isGeneratingDemoAnalysis ||
+                      !canProceed,
+                  }}
                   disabled={
                     isCompleting ||
                     isApplyingReminderPreference ||
@@ -2189,9 +2148,12 @@ export function OnboardingScreen({
                       styles.primaryButtonDisabled,
                   ]}
                 >
-                  {isCompleting || isApplyingReminderPreference || isGeneratingDemoAnalysis ? (
-                    <ActivityIndicator color={theme.colors.primaryForeground} size="small" />
-                  ) : (
+                  <ButtonLoadingContent
+                    loaderColor={theme.colors.primaryForeground}
+                    loading={
+                      isCompleting || isApplyingReminderPreference || isGeneratingDemoAnalysis
+                    }
+                  >
                     <Text
                       style={[
                         styles.primaryButtonText,
@@ -2204,7 +2166,7 @@ export function OnboardingScreen({
                     >
                       {primaryButtonText}
                     </Text>
-                  )}
+                  </ButtonLoadingContent>
                 </Pressable>
               </View>
             </View>
@@ -2257,15 +2219,10 @@ const styles = StyleSheet.create({
   heroSectionStandard: {
     marginBottom: 24,
   },
-  heroBadge: {
-    alignItems: "center",
-    borderRadius: 999,
-    justifyContent: "center",
+  heroWordmark: {
     marginBottom: 22,
-  },
-  heroMascot: {
-    alignItems: "center",
-    justifyContent: "center",
+    maxWidth: 340,
+    width: "100%",
   },
   title: {
     fontWeight: "600",

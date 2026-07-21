@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from 'react';
 import {
   Alert,
   Animated,
@@ -10,7 +17,7 @@ import {
   Text,
   View,
   useWindowDimensions,
-} from "react-native";
+} from 'react-native';
 import {
   Award,
   BookOpen,
@@ -23,13 +30,21 @@ import {
   Shield,
   Target,
   Trophy,
-} from "lucide-react-native";
-import EmojiWithFallback from "../../components/EmojiWithFallback";
-import TabScreenLayout from "../../components/TabScreenLayout";
-import { getPaywallConfig, trackPaywallEvent } from "../../services/paywallService";
-import { getCurrentStreakSummary, type StreakAchievement, type StreakCurrentSummary } from "../../services/streaksService";
-import { useTheme } from "../../theme/provider";
-import { isApplePrivateRelayEmail } from "../../utils/authEmailDisplay";
+  X,
+} from 'lucide-react-native';
+import EmojiWithFallback from '../../components/EmojiWithFallback';
+import TabScreenLayout from '../../components/TabScreenLayout';
+import {
+  getPaywallConfig,
+  trackPaywallEvent,
+} from '../../services/paywallService';
+import {
+  getCurrentStreakSummary,
+  type StreakAchievement,
+  type StreakCurrentSummary,
+} from '../../services/streaksService';
+import { useTheme } from '../../theme/provider';
+import { isApplePrivateRelayEmail } from '../../utils/authEmailDisplay';
 
 type ProfileScreenProps = {
   userName?: string;
@@ -45,6 +60,9 @@ type ProfileScreenProps = {
   onOpenSubscription?: () => void;
   onOpenPrivacy?: () => void;
   onOpenPaywall?: () => void;
+  onClose?: () => void;
+  settingsContent?: ReactNode;
+  showProfileSummary?: boolean;
 };
 
 type MenuItem = {
@@ -63,26 +81,26 @@ type ContactItem = {
 
 const emergencyContacts: ContactItem[] = [
   {
-    label: "988 Suicide & Crisis Lifeline",
-    description: "Call or text 988 - available 24/7",
-    phoneNumber: "988",
+    label: '988 Suicide & Crisis Lifeline',
+    description: 'Call or text 988 - available 24/7',
+    phoneNumber: '988',
   },
   {
-    label: "Crisis Text Line",
-    description: "Text HOME to 741741",
-    phoneNumber: "741741",
+    label: 'Crisis Text Line',
+    description: 'Text HOME to 741741',
+    phoneNumber: '741741',
   },
   {
-    label: "Emergency Services",
-    description: "Call 911 for immediate help",
-    phoneNumber: "911",
+    label: 'Emergency Services',
+    description: 'Call 911 for immediate help',
+    phoneNumber: '911',
   },
 ];
 
-const DUMMY_EMAIL = "hello@journal.io";
+const DUMMY_EMAIL = 'hello@journal.io';
 
 function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
+  const normalized = hex.replace('#', '');
 
   if (normalized.length !== 6) {
     return hex;
@@ -100,14 +118,14 @@ function getInitials(fullName: string) {
     .trim()
     .split(/\s+/)
     .map(part => part[0])
-    .join("")
+    .join('')
     .toUpperCase();
 
-  return initials.slice(0, 2) || "U";
+  return initials.slice(0, 2) || 'U';
 }
 
 async function handleExternalPhoneAction(phoneNumber: string, label: string) {
-  const sanitizedPhoneNumber = phoneNumber.replace(/[^\d+]/g, "");
+  const sanitizedPhoneNumber = phoneNumber.replace(/[^\d+]/g, '');
   const telUrl = `tel:${sanitizedPhoneNumber}`;
 
   try {
@@ -227,7 +245,12 @@ function MenuRow({
             </Text>
           ) : null}
         </View>
-        <Text style={[styles.menuDescription, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[
+            styles.menuDescription,
+            { color: theme.colors.mutedForeground },
+          ]}
+        >
           {description}
         </Text>
       </View>
@@ -260,7 +283,12 @@ function ContactRow({
         <Text style={[styles.contactLabel, { color: theme.colors.foreground }]}>
           {label}
         </Text>
-        <Text style={[styles.contactDescription, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[
+            styles.contactDescription,
+            { color: theme.colors.mutedForeground },
+          ]}
+        >
           {description}
         </Text>
       </View>
@@ -271,13 +299,13 @@ function ContactRow({
 
 function getAchievementIcon(achievement: StreakAchievement) {
   switch (achievement.key) {
-    case "7-day-streak":
-    case "30-day-streak":
+    case '7-day-streak':
+    case '30-day-streak':
       return Flame;
-    case "50-entries":
-    case "100-entries":
+    case '50-entries':
+    case '100-entries':
       return Target;
-    case "first-entry":
+    case 'first-entry':
       return Trophy;
     default:
       return Award;
@@ -286,40 +314,40 @@ function getAchievementIcon(achievement: StreakAchievement) {
 
 function getAchievementEmoji(achievement: StreakAchievement) {
   switch (achievement.key) {
-    case "7-day-streak":
-      return "🔥";
-    case "30-day-streak":
-      return "🌿";
-    case "50-entries":
-      return "📝";
-    case "100-entries":
-      return "✨";
-    case "first-entry":
+    case '7-day-streak':
+      return '🔥';
+    case '30-day-streak':
+      return '🌿';
+    case '50-entries':
+      return '📝';
+    case '100-entries':
+      return '✨';
+    case 'first-entry':
     default:
-      return "🏆";
+      return '🏆';
   }
 }
 
 function getAchievementIconColor(
   achievement: StreakAchievement,
-  theme: ReturnType<typeof useTheme>
+  theme: ReturnType<typeof useTheme>,
 ) {
   switch (achievement.key) {
-    case "7-day-streak":
+    case '7-day-streak':
       return theme.colors.primary;
-    case "30-day-streak":
+    case '30-day-streak':
       return theme.colors.success;
-    case "50-entries":
-    case "100-entries":
+    case '50-entries':
+    case '100-entries':
       return theme.colors.info;
-    case "first-entry":
+    case 'first-entry':
     default:
       return theme.colors.warning;
   }
 }
 
 export default function ProfileScreen({
-  userName = "Journal User",
+  userName = 'Journal User',
   userEmail,
   fallbackEmail,
   userGoals = [],
@@ -332,10 +360,14 @@ export default function ProfileScreen({
   onOpenSubscription,
   onOpenPrivacy,
   onOpenPaywall,
+  onClose,
+  settingsContent,
+  showProfileSummary = true,
 }: ProfileScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [streakSummary, setStreakSummary] = useState<StreakCurrentSummary | null>(null);
+  const [streakSummary, setStreakSummary] =
+    useState<StreakCurrentSummary | null>(null);
   const [lifetimeClaimState, setLifetimeClaimState] = useState<{
     count: number;
     limit: number | null;
@@ -350,11 +382,11 @@ export default function ProfileScreen({
   const avatarSize = isCompact ? 88 : isWide ? 104 : 96;
   const displayMonth = useMemo(
     () =>
-      new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        year: "numeric",
+      new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        year: 'numeric',
       }).format(new Date()),
-    []
+    [],
   );
 
   useEffect(() => {
@@ -397,17 +429,17 @@ export default function ProfileScreen({
 
       try {
         const config = await getPaywallConfig({
-          placementKey: "profile_upgrade_banner",
-          screenKey: "profile",
-          triggerMode: "contextual",
+          placementKey: 'profile_upgrade_banner',
+          screenKey: 'profile',
+          triggerMode: 'contextual',
         });
         const lifetimeOffering = config.offerings.find(
-          offering => offering.key === "lifetime"
+          offering => offering.key === 'lifetime',
         );
 
         if (isActive) {
           const count =
-            typeof lifetimeOffering?.purchasedUsersCount === "number"
+            typeof lifetimeOffering?.purchasedUsersCount === 'number'
               ? lifetimeOffering.purchasedUsersCount
               : null;
 
@@ -417,10 +449,10 @@ export default function ProfileScreen({
               : {
                   count,
                   limit:
-                    typeof lifetimeOffering?.purchaseLimit === "number"
+                    typeof lifetimeOffering?.purchaseLimit === 'number'
                       ? lifetimeOffering.purchaseLimit
                       : null,
-                }
+                },
           );
         }
       } catch {
@@ -454,7 +486,7 @@ export default function ProfileScreen({
         duration: 1200,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
-      })
+      }),
     );
 
     loop.start();
@@ -467,7 +499,7 @@ export default function ProfileScreen({
   const initials = useMemo(() => getInitials(userName), [userName]);
   const accountEmail = userEmail || fallbackEmail || DUMMY_EMAIL;
   const displayedEmail = isApplePrivateRelayEmail(accountEmail)
-    ? "Apple private relay email"
+    ? 'Apple private relay email'
     : accountEmail;
   const displayedGoals = userGoals.length > 0 ? userGoals : onboardingGoals;
   const hasGoals = displayedGoals.length > 0;
@@ -488,9 +520,9 @@ export default function ProfileScreen({
   });
   const handleOpenUpgradePaywall = () => {
     trackPaywallEvent({
-      placementKey: "profile_upgrade_banner",
-      screenKey: "profile",
-      eventType: "upgrade_tap",
+      placementKey: 'profile_upgrade_banner',
+      screenKey: 'profile',
+      eventType: 'upgrade_tap',
       wasInterruptive: false,
     }).catch(() => undefined);
 
@@ -499,48 +531,60 @@ export default function ProfileScreen({
       return;
     }
 
-    Alert.alert("Unlock Premium", "This section is not available right now.");
+    Alert.alert('Unlock Premium', 'This section is not available right now.');
   };
   const accentColor = userAvatarColor || theme.colors.primary;
 
   const statCards = [
     {
-      label: "Total Entries",
+      label: 'Total Entries',
       value: streakSummary?.totalEntries ?? 0,
       icon: BookOpen,
     },
     {
-      label: "Current Streak",
+      label: 'Current Streak',
       value: `${streakSummary?.currentStreak ?? 0} days`,
       icon: Award,
     },
     {
-      label: "Member Since",
+      label: 'Member Since',
       value: displayMonth,
       icon: Calendar,
     },
   ];
 
   const menuItems: MenuItem[] = [
-    {
-      icon: Settings,
-      label: "Settings",
-      description: "Preferences and account",
-      onPress: onOpenSettings,
-    },
-    {
-      icon: Crown,
-      label: "Subscription",
-      description: "Manage your plan",
-      badge: isPremium ? "Premium" : null,
-      onPress: onOpenSubscription,
-    },
-    {
-      icon: Shield,
-      label: "Privacy & Data",
-      description: "Your data and privacy controls",
-      onPress: onOpenPrivacy,
-    },
+    ...(settingsContent
+      ? []
+      : [
+          {
+            icon: Settings,
+            label: 'Settings',
+            description: 'Preferences and account',
+            onPress: onOpenSettings,
+          },
+        ]),
+    ...(!settingsContent
+      ? [
+          {
+            icon: Crown,
+            label: 'Subscription',
+            description: 'Manage your plan',
+            badge: isPremium ? 'Premium' : null,
+            onPress: onOpenSubscription,
+          },
+        ]
+      : []),
+    ...(settingsContent
+      ? []
+      : [
+          {
+            icon: Shield,
+            label: 'Privacy & Data',
+            description: 'Your data and privacy controls',
+            onPress: onOpenPrivacy,
+          },
+        ]),
   ];
 
   const achievements = (streakSummary?.achievements || [])
@@ -558,141 +602,203 @@ export default function ProfileScreen({
   return (
     <TabScreenLayout
       backgroundColor={theme.colors.background}
+      safeAreaBackgroundColor={onClose ? theme.colors.card : undefined}
       horizontalPadding={horizontalPadding}
       layoutMaxWidth={layoutMaxWidth}
+      bottomPadding={onClose ? 28 : undefined}
       shellStyle={styles.shell}
-    >
-      <View style={styles.heroSection}>
-        <View style={styles.avatarWrap}>
+      header={
+        onClose ? (
           <View
             style={[
-              styles.avatarShell,
+              styles.modalHeaderShell,
               {
-                width: avatarSize,
-                height: avatarSize,
-                backgroundColor: accentColor,
+                backgroundColor: theme.colors.card,
+                borderBottomColor: theme.colors.border,
+                paddingHorizontal: horizontalPadding,
               },
             ]}
           >
-            {userProfilePic ? (
-              <Image
-                source={{ uri: userProfilePic }}
-                style={styles.avatarImage}
-                resizeMode="cover"
-              />
-            ) : (
+            <View style={[styles.modalHeader, { maxWidth: layoutMaxWidth }]}>
+              <View style={styles.modalHeaderSpacer} />
               <Text
-                style={[
-                  styles.avatarInitials,
-                  isCompact
-                    ? styles.avatarInitialsCompact
-                    : isWide
-                      ? styles.avatarInitialsWide
-                      : styles.avatarInitialsDefault,
+                style={[styles.modalTitle, { color: theme.colors.foreground }]}
+              >
+                Settings
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close account"
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  {
+                    backgroundColor: theme.colors.secondary,
+                    borderColor: theme.colors.border,
+                  },
+                  pressed && styles.pressed,
                 ]}
               >
-                {initials}
-              </Text>
-            )}
+                <X size={18} color={theme.colors.foreground} />
+              </Pressable>
+            </View>
           </View>
-        </View>
-
-        <Text style={[styles.name, { color: theme.colors.foreground }]}>
-          {userName}
-        </Text>
-        <Text style={[styles.email, { color: theme.colors.mutedForeground }]}>
-          {displayedEmail}
-        </Text>
-
-        {showPremiumBanner ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleOpenUpgradePaywall}
-            style={({ pressed }) => [
-              styles.premiumBadge,
-              { backgroundColor: theme.colors.primary },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Crown size={14} color={theme.colors.primaryForeground} />
-            <Text
-              style={[styles.premiumBadgeText, { color: theme.colors.primaryForeground }]}
-            >
-              Unlock Premium
-            </Text>
-          </Pressable>
-        ) : (
-          <View
-            style={[
-              styles.premiumBadge,
-              { backgroundColor: theme.colors.primary },
-            ]}
-          >
-            <Crown size={14} color={theme.colors.primaryForeground} />
-            <Text
-              style={[styles.premiumBadgeText, { color: theme.colors.primaryForeground }]}
-            >
-              Premium Member
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.statsGrid}>
-        {statCards.map(stat => (
-          <StatCard
-            key={stat.label}
-            icon={stat.icon}
-            label={stat.label}
-            value={stat.value}
-            theme={theme}
-          />
-        ))}
-      </View>
-
-      <SectionCard theme={theme}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-          Your Goals
-        </Text>
-        <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-          What you&apos;re working towards
-        </Text>
-        <View style={styles.goalWrap}>
-          {hasGoals ? (
-            displayedGoals.map(goal => (
+        ) : undefined
+      }
+    >
+      {showProfileSummary ? (
+        <>
+          <View style={styles.heroSection}>
+            <View style={styles.avatarWrap}>
               <View
-                key={goal}
                 style={[
-                  styles.goalPill,
+                  styles.avatarShell,
                   {
-                    backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                    width: avatarSize,
+                    height: avatarSize,
+                    backgroundColor: accentColor,
                   },
                 ]}
               >
-                <Text style={[styles.goalText, { color: theme.colors.primary }]}>
-                  {goal}
-                </Text>
+                {userProfilePic ? (
+                  <Image
+                    source={{ uri: userProfilePic }}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text
+                    style={[
+                      styles.avatarInitials,
+                      isCompact
+                        ? styles.avatarInitialsCompact
+                        : isWide
+                        ? styles.avatarInitialsWide
+                        : styles.avatarInitialsDefault,
+                    ]}
+                  >
+                    {initials}
+                  </Text>
+                )}
               </View>
-            ))
-          ) : (
-            <View
-              style={[
-                styles.goalEmptyState,
-                { backgroundColor: theme.colors.accent },
-              ]}
+            </View>
+
+            <Text style={[styles.name, { color: theme.colors.foreground }]}>
+              {userName}
+            </Text>
+            <Text
+              style={[styles.email, { color: theme.colors.mutedForeground }]}
             >
-              <Text
-                style={[
-                  styles.goalEmptyText,
-                  { color: theme.colors.mutedForeground },
+              {displayedEmail}
+            </Text>
+
+            {showPremiumBanner ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleOpenUpgradePaywall}
+                style={({ pressed }) => [
+                  styles.premiumBadge,
+                  { backgroundColor: theme.colors.primary },
+                  pressed && styles.pressed,
                 ]}
               >
-                Your onboarding goals will appear here once they&apos;re selected.
-              </Text>
+                <Crown size={14} color={theme.colors.primaryForeground} />
+                <Text
+                  style={[
+                    styles.premiumBadgeText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  Unlock Premium
+                </Text>
+              </Pressable>
+            ) : (
+              <View
+                style={[
+                  styles.premiumBadge,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                <Crown size={14} color={theme.colors.primaryForeground} />
+                <Text
+                  style={[
+                    styles.premiumBadgeText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  Premium Member
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.statsGrid}>
+            {statCards.map(stat => (
+              <StatCard
+                key={stat.label}
+                icon={stat.icon}
+                label={stat.label}
+                value={stat.value}
+                theme={theme}
+              />
+            ))}
+          </View>
+
+          <SectionCard theme={theme}>
+            <Text
+              style={[styles.sectionTitle, { color: theme.colors.foreground }]}
+            >
+              Your Goals
+            </Text>
+            <Text
+              style={[
+                styles.sectionSubtitle,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              What you&apos;re working towards
+            </Text>
+            <View style={styles.goalWrap}>
+              {hasGoals ? (
+                displayedGoals.map(goal => (
+                  <View
+                    key={goal}
+                    style={[
+                      styles.goalPill,
+                      {
+                        backgroundColor: hexToRgba(theme.colors.primary, 0.1),
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.goalText, { color: theme.colors.primary }]}
+                    >
+                      {goal}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View
+                  style={[
+                    styles.goalEmptyState,
+                    { backgroundColor: theme.colors.accent },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.goalEmptyText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Your onboarding goals will appear here once they&apos;re
+                    selected.
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
-      </SectionCard>
+          </SectionCard>
+        </>
+      ) : null}
 
       {showPremiumBanner ? (
         <Pressable
@@ -700,6 +806,7 @@ export default function ProfileScreen({
           onPress={handleOpenUpgradePaywall}
           style={({ pressed }) => [
             styles.upgradeBanner,
+            !showProfileSummary && styles.modalUpgradeBanner,
             { backgroundColor: theme.colors.primary },
             pressed && styles.pressed,
           ]}
@@ -708,13 +815,23 @@ export default function ProfileScreen({
           <View style={styles.upgradeCopy}>
             <View style={styles.upgradeHeadingRow}>
               <Crown size={20} color={theme.colors.primaryForeground} />
-              <Text style={[styles.upgradeTitle, { color: theme.colors.primaryForeground }]}>
+              <Text
+                style={[
+                  styles.upgradeTitle,
+                  { color: theme.colors.primaryForeground },
+                ]}
+              >
                 Unlock Premium
               </Text>
             </View>
-            <Text style={[styles.upgradeText, { color: theme.colors.primaryForeground }]}>
-              Unlock Lifetime Premium with one payment for AI insights, advanced analytics,
-              and secure exports.
+            <Text
+              style={[
+                styles.upgradeText,
+                { color: theme.colors.primaryForeground },
+              ]}
+            >
+              Unlock Lifetime Premium with one payment for AI insights, advanced
+              analytics, and secure exports.
             </Text>
             {isLifetimeClaimLoading ? (
               <View style={styles.upgradeClaimRow}>
@@ -761,7 +878,12 @@ export default function ProfileScreen({
               </View>
             ) : null}
             <View style={styles.upgradeCtaRow}>
-              <Text style={[styles.upgradeCta, { color: theme.colors.primaryForeground }]}>
+              <Text
+                style={[
+                  styles.upgradeCta,
+                  { color: theme.colors.primaryForeground },
+                ]}
+              >
                 View lifetime offer
               </Text>
               <ChevronRight size={16} color={theme.colors.primaryForeground} />
@@ -770,7 +892,11 @@ export default function ProfileScreen({
         </Pressable>
       ) : null}
 
-      <View style={styles.menuList}>
+      {settingsContent}
+
+      <View
+        style={[styles.menuList, !showProfileSummary && styles.modalMenuList]}
+      >
         {menuItems.map(item => (
           <MenuRow
             key={item.label}
@@ -782,15 +908,22 @@ export default function ProfileScreen({
                 return;
               }
 
-              Alert.alert(item.label, "This section is not available right now.");
+              Alert.alert(
+                item.label,
+                'This section is not available right now.',
+              );
             }}
           />
         ))}
       </View>
 
-      <SectionCard theme={theme}>
+      {showProfileSummary ? (
+        <>
+          <SectionCard theme={theme}>
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
+          <Text
+            style={[styles.sectionTitle, { color: theme.colors.foreground }]}
+          >
             Recent Achievements
           </Text>
           <Pressable
@@ -801,7 +934,10 @@ export default function ProfileScreen({
                 return;
               }
 
-              Alert.alert("Streaks", "This section is not available right now.");
+              Alert.alert(
+                'Streaks',
+                'This section is not available right now.',
+              );
             }}
             style={({ pressed }) => [
               styles.viewAllButton,
@@ -882,7 +1018,7 @@ export default function ProfileScreen({
         )}
       </SectionCard>
 
-      <SectionCard
+          <SectionCard
         theme={theme}
         borderColor={hexToRgba(theme.colors.destructive, 0.3)}
       >
@@ -896,10 +1032,17 @@ export default function ProfileScreen({
             <Phone size={16} color={theme.colors.destructive} />
           </View>
           <View style={styles.emergencyHeaderCopy}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[styles.sectionTitle, { color: theme.colors.foreground }]}
+            >
               Emergency Contact
             </Text>
-            <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
+            <Text
+              style={[
+                styles.sectionSubtitle,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
               Reach out when you need support
             </Text>
           </View>
@@ -911,10 +1054,17 @@ export default function ProfileScreen({
           ))}
         </View>
 
-        <Text style={[styles.emergencyFootnote, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[
+            styles.emergencyFootnote,
+            { color: theme.colors.mutedForeground },
+          ]}
+        >
           You are not alone. Help is always available.
         </Text>
-      </SectionCard>
+          </SectionCard>
+        </>
+      ) : null}
     </TabScreenLayout>
   );
 }
@@ -923,8 +1073,37 @@ const styles = StyleSheet.create({
   shell: {
     gap: 18,
   },
+  modalHeaderShell: {
+    borderBottomWidth: 1,
+    paddingBottom: 12,
+    paddingTop: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 42,
+    width: '100%',
+  },
+  modalHeaderSpacer: {
+    height: 38,
+    width: 38,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '400',
+  },
+  closeButton: {
+    alignItems: 'center',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
   heroSection: {
-    alignItems: "center",
+    alignItems: 'center',
     paddingTop: 8,
   },
   avatarWrap: {
@@ -932,17 +1111,17 @@ const styles = StyleSheet.create({
   },
   avatarShell: {
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarImage: {
-    width: "100%",
-    height: "100%",
+    width: '100%',
+    height: '100%',
   },
   avatarInitials: {
-    color: "#FFFFFF",
-    fontWeight: "600",
+    color: '#FFFFFF',
+    fontWeight: '600',
     letterSpacing: 0.4,
   },
   avatarInitialsCompact: {
@@ -956,56 +1135,56 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 25,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 4,
-    textAlign: "center",
+    textAlign: 'center',
   },
   email: {
     fontSize: 14,
     marginBottom: 12,
-    textAlign: "center",
+    textAlign: 'center',
   },
   premiumBadge: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   premiumBadgeText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   statCard: {
-    flexBasis: "31%",
+    flexBasis: '31%',
     flexGrow: 1,
     minWidth: 92,
     borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 14,
-    alignItems: "center",
+    alignItems: 'center',
   },
   statIcon: {
     marginBottom: 10,
   },
   statValue: {
     fontSize: 17,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 4,
-    textAlign: "center",
+    textAlign: 'center',
   },
   statLabel: {
     fontSize: 11,
     lineHeight: 14,
-    textAlign: "center",
+    textAlign: 'center',
   },
   sectionCard: {
     borderRadius: 20,
@@ -1020,15 +1199,15 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   sectionSubtitle: {
     fontSize: 12,
     marginTop: 4,
   },
   goalWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 14,
   },
@@ -1041,7 +1220,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    width: "100%",
+    width: '100%',
   },
   goalEmptyText: {
     fontSize: 12,
@@ -1049,21 +1228,24 @@ const styles = StyleSheet.create({
   },
   goalText: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: '500',
   },
   upgradeBanner: {
     borderRadius: 20,
     padding: 18,
-    overflow: "hidden",
-    position: "relative",
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  modalUpgradeBanner: {
+    marginTop: 16,
   },
   upgradeGlow: {
-    position: "absolute",
+    position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 20,
     opacity: 0.35,
   },
@@ -1071,13 +1253,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   upgradeHeadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   upgradeTitle: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   upgradeText: {
     fontSize: 13,
@@ -1085,47 +1267,50 @@ const styles = StyleSheet.create({
     opacity: 0.95,
   },
   upgradeClaimRow: {
-    alignSelf: "center",
-    width: "88%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    alignSelf: 'center',
+    width: '88%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
   },
   upgradeClaimTrack: {
     flex: 1,
     height: 6,
     borderRadius: 999,
-    overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.26)",
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.26)',
   },
   upgradeClaimFill: {
-    height: "100%",
+    height: '100%',
     borderRadius: 999,
   },
   upgradeClaimShimmer: {
     width: 72,
-    height: "100%",
+    height: '100%',
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.42)",
+    backgroundColor: 'rgba(255,255,255,0.42)',
   },
   upgradeClaimText: {
     minWidth: 82,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "700",
+    fontWeight: '700',
   },
   upgradeCtaRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
   },
   upgradeCta: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   menuList: {
     gap: 12,
+  },
+  modalMenuList: {
+    marginTop: 16,
   },
   devButton: {
     marginTop: 14,
@@ -1133,60 +1318,60 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
   devButtonText: {
     flex: 1,
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   menuRow: {
     borderRadius: 18,
     borderWidth: 1,
     padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
   },
   menuIcon: {
     width: 40,
     height: 40,
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuCopy: {
     flex: 1,
     minWidth: 0,
   },
   menuTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     marginBottom: 4,
   },
   menuLabel: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   menuBadge: {
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: '600',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   menuDescription: {
     fontSize: 12,
     lineHeight: 17,
   },
   sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 14,
   },
   viewAllButton: {
@@ -1195,10 +1380,10 @@ const styles = StyleSheet.create({
   },
   viewAllText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   achievementRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
   },
   achievementCard: {
@@ -1206,8 +1391,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 10,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   achievementIcon: {
     marginBottom: 8,
@@ -1218,14 +1403,14 @@ const styles = StyleSheet.create({
   },
   achievementLabel: {
     fontSize: 11,
-    textAlign: "center",
+    textAlign: 'center',
     lineHeight: 14,
   },
   achievementEmptyState: {
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 18,
-    alignItems: "center",
+    alignItems: 'center',
   },
   achievementEmptyIcon: {
     marginBottom: 10,
@@ -1237,18 +1422,18 @@ const styles = StyleSheet.create({
   achievementEmptyTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "600",
-    textAlign: "center",
+    fontWeight: '600',
+    textAlign: 'center',
   },
   achievementEmptyText: {
     marginTop: 6,
     fontSize: 12,
     lineHeight: 17,
-    textAlign: "center",
+    textAlign: 'center',
   },
   emergencyHeader: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     marginBottom: 14,
   },
@@ -1256,8 +1441,8 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emergencyHeaderCopy: {
     flex: 1,
@@ -1268,9 +1453,9 @@ const styles = StyleSheet.create({
   contactRow: {
     borderRadius: 14,
     padding: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   contactCopy: {
     flex: 1,
@@ -1278,7 +1463,7 @@ const styles = StyleSheet.create({
   },
   contactLabel: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 4,
   },
   contactDescription: {
@@ -1288,7 +1473,7 @@ const styles = StyleSheet.create({
   emergencyFootnote: {
     fontSize: 10,
     lineHeight: 14,
-    textAlign: "center",
+    textAlign: 'center',
     marginTop: 12,
   },
   pressed: {

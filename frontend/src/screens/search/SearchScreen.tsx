@@ -28,6 +28,7 @@ import type { JournalEntry } from "../../models/journalModels";
 import { buildSearchTags, filterSearchEntries } from "./searchUtils";
 import { BOTTOM_NAV_CONTENT_PADDING } from "../../components/BottomNav";
 import mascotImage from "../../assets/png/Masscott.png";
+import { useConnectivity } from "../../hooks/useConnectivity";
 
 type SearchScreenProps = {
   onBack: () => void;
@@ -142,10 +143,21 @@ function EmptyResults({
 
 export default function SearchScreen({ onBack }: SearchScreenProps) {
   const theme = useTheme();
+  const { reconnectVersion, status: connectivityStatus } = useConnectivity();
+  const isOnline = connectivityStatus === "online";
   const { width } = useWindowDimensions();
   const openJournalEntry = useAppStore(state => state.openJournalEntry);
   const updateRecentJournalEntry = useAppStore(state => state.updateRecentJournalEntry);
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const recentJournalEntries = useAppStore(state => state.recentJournalEntries);
+  const hasHydratedRecentJournalEntries = useAppStore(
+    state => state.hasHydratedRecentJournalEntries
+  );
+  const mergeRecentJournalEntries = useAppStore(
+    state => state.mergeRecentJournalEntries
+  );
+  const [entries, setEntries] = useState<JournalEntry[]>(
+    recentJournalEntries
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -165,6 +177,22 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
   }, []);
 
   useEffect(() => {
+    if (!isOnline) {
+      const cachedEntries = useAppStore.getState().recentJournalEntries;
+
+      if (cachedEntries.length > 0) {
+        setEntries(cachedEntries);
+      }
+
+      setIsLoading(false);
+      setErrorMessage(
+        cachedEntries.length === 0 && !hasHydratedRecentJournalEntries
+          ? "Reconnect to search your journal history."
+          : null
+      );
+      return;
+    }
+
     let isActive = true;
 
     const loadEntries = async () => {
@@ -175,6 +203,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
         const loadedEntries = await getJournalEntries();
 
         if (isActive) {
+          mergeRecentJournalEntries(loadedEntries);
           setEntries(
             [...loadedEntries].sort(
               (left, right) =>
@@ -205,7 +234,12 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [
+    hasHydratedRecentJournalEntries,
+    isOnline,
+    mergeRecentJournalEntries,
+    reconnectVersion,
+  ]);
 
   useEffect(() => {
     Animated.timing(filtersAnimation, {
@@ -240,6 +274,10 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
   };
 
   const handleToggleFavorite = async (entryId: string) => {
+    if (!isOnline) {
+      return;
+    }
+
     const currentEntry = entries.find(entry => entry._id === entryId);
 
     if (!currentEntry) {

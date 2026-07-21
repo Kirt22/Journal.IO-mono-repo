@@ -10,6 +10,10 @@ import {
   sendEmailVerificationCode,
   sendPasswordResetEmail,
 } from "./emailOtp.service";
+import {
+  buildAuthenticatedUserProfilePayload,
+  type UserProfilePayload,
+} from "../user/user.service";
 
 const OTP_LENGTH = 6;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
@@ -617,36 +621,6 @@ const isEmailVerified = (user: IUser) => {
   return Boolean(user.emailVerified || user.emailVerifiedAt);
 };
 
-const buildUserPayload = (user: IUser) => {
-  return {
-    userId: user._id.toString(),
-    name: user.name,
-    phoneNumber: user.phoneNumber || null,
-    email: user.email || null,
-    isPremium: Boolean(user.isPremium),
-    premiumPlanKey: user.premiumPlanKey || null,
-    premiumActivatedAt: user.premiumActivatedAt?.toISOString() || null,
-    premiumProductId: user.premiumProductId || null,
-    premiumExpiresAt: user.premiumExpiresAt?.toISOString() || null,
-    premiumWillRenew:
-      typeof user.premiumWillRenew === "boolean" ? user.premiumWillRenew : null,
-    premiumVerifiedAt: user.premiumVerifiedAt?.toISOString() || null,
-    premiumRevenueCatRequestDate:
-      user.premiumRevenueCatRequestDate?.toISOString() || null,
-    revenueCatAppUserId: user.revenueCatAppUserId || null,
-    premiumSource: user.premiumSource || null,
-    journalingGoals: user.journalingGoals || [],
-    avatarColor: user.avatarColor || null,
-    profileSetupCompleted: Boolean(user.profileSetupCompleted),
-    onboardingCompleted: Boolean(user.onboardingCompleted),
-    profilePic: user.profilePic || null,
-    aiOptIn:
-      typeof user.onboardingContext?.aiOptIn === "boolean"
-        ? user.onboardingContext.aiOptIn
-        : null,
-  };
-};
-
 const buildEmailVerificationChallenge = (
   email: string,
   verificationCode: string
@@ -930,7 +904,7 @@ const verifyEmail = async ({
 }: VerifyEmailInput): Promise<
   | AuthSuccess<{
       tokens: AuthTokens;
-      user: ReturnType<typeof buildUserPayload>;
+      user: UserProfilePayload;
       isNewUser: boolean;
     }>
   | AuthFailure
@@ -1040,7 +1014,7 @@ const verifyEmail = async ({
   return {
     ok: true,
     tokens,
-    user: buildUserPayload(user),
+    user: await buildAuthenticatedUserProfilePayload(user),
     isNewUser,
   };
 };
@@ -1053,7 +1027,7 @@ const signInWithEmail = async ({
 }: SignInWithEmailInput): Promise<
   | AuthSuccess<{
       tokens: AuthTokens;
-      user: ReturnType<typeof buildUserPayload>;
+      user: UserProfilePayload;
     }>
   | AuthFailure
 > => {
@@ -1104,7 +1078,7 @@ const signInWithEmail = async ({
   return {
     ok: true,
     tokens,
-    user: buildUserPayload(user),
+    user: await buildAuthenticatedUserProfilePayload(user),
   };
 };
 
@@ -1209,7 +1183,7 @@ const signInWithGoogle = async (
 ): Promise<
   | AuthSuccess<{
       tokens: AuthTokens;
-      user: ReturnType<typeof buildUserPayload>;
+      user: UserProfilePayload;
     }>
   | AuthFailure
 > => {
@@ -1319,7 +1293,7 @@ const signInWithGoogle = async (
   return {
     ok: true,
     tokens,
-    user: buildUserPayload(user),
+    user: await buildAuthenticatedUserProfilePayload(user),
   };
 };
 
@@ -1328,7 +1302,7 @@ const signInWithApple = async (
 ): Promise<
   | AuthSuccess<{
       tokens: AuthTokens;
-      user: ReturnType<typeof buildUserPayload>;
+      user: UserProfilePayload;
     }>
   | AuthFailure
 > => {
@@ -1444,7 +1418,7 @@ const signInWithApple = async (
   return {
     ok: true,
     tokens,
-    user: buildUserPayload(user),
+    user: await buildAuthenticatedUserProfilePayload(user),
   };
 };
 

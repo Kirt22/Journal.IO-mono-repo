@@ -29,6 +29,7 @@ import BottomNav, {
   BOTTOM_NAV_CONTENT_PADDING,
   type BottomNavKey,
 } from "../../components/BottomNav";
+import ButtonLoadingContent from "../../components/ButtonLoadingContent";
 import JournalPromptCard from "../../components/JournalPromptCard";
 import {
   deleteJournalEntry,
@@ -515,6 +516,7 @@ export default function EntryDetailScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={favoriteLabel}
+                accessibilityState={{ busy: isTogglingFavorite, disabled: isTogglingFavorite }}
                 onPress={handleToggleFavorite}
                 disabled={isTogglingFavorite}
                 hitSlop={8}
@@ -523,15 +525,16 @@ export default function EntryDetailScreen() {
                   pressed && !isTogglingFavorite && styles.pressed,
                 ]}
               >
-                {isTogglingFavorite ? (
-                  <Loader2 size={16} color={theme.colors.primary} />
-                ) : (
+                <ButtonLoadingContent
+                  loaderColor={theme.colors.primary}
+                  loading={isTogglingFavorite}
+                >
                   <Star
                     size={16}
                     fill={entry.isFavorite ? theme.colors.primary : "transparent"}
                     color={entry.isFavorite ? theme.colors.primary : theme.colors.foreground}
                   />
-                )}
+                </ButtonLoadingContent>
               </Pressable>
 
               <Pressable
@@ -547,6 +550,7 @@ export default function EntryDetailScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Delete entry"
+                accessibilityState={{ busy: isDeleting, disabled: isDeleting }}
                 onPress={handleDelete}
                 disabled={isDeleting}
                 hitSlop={8}
@@ -555,11 +559,12 @@ export default function EntryDetailScreen() {
                   pressed && !isDeleting && styles.pressed,
                 ]}
               >
-                {isDeleting ? (
-                  <Loader2 size={16} color={theme.colors.destructive} />
-                ) : (
+                <ButtonLoadingContent
+                  loaderColor={theme.colors.destructive}
+                  loading={isDeleting}
+                >
                   <Trash2 size={16} color={theme.colors.destructive} />
-                )}
+                </ButtonLoadingContent>
               </Pressable>
             </View>
           </View>
@@ -630,6 +635,10 @@ export default function EntryDetailScreen() {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Refresh quick analysis"
+                        accessibilityState={{
+                          busy: isQuickAnalysisLoading,
+                          disabled: isQuickAnalysisLoading,
+                        }}
                         onPress={() => {
                           handleLoadQuickAnalysis({ force: true }).catch(() => undefined);
                         }}
@@ -639,11 +648,12 @@ export default function EntryDetailScreen() {
                           pressed && !isQuickAnalysisLoading && styles.pressed,
                         ]}
                       >
-                        {isQuickAnalysisLoading ? (
-                          <ActivityIndicator size="small" color={theme.colors.primary} />
-                        ) : (
+                        <ButtonLoadingContent
+                          loaderColor={theme.colors.primary}
+                          loading={isQuickAnalysisLoading}
+                        >
                           <RefreshCw size={14} color={theme.colors.primary} />
-                        )}
+                        </ButtonLoadingContent>
                       </Pressable>
                     ) : null}
                   </View>

@@ -2,10 +2,11 @@
  * @format
  */
 
-import React from "react";
-import ReactTestRenderer from "react-test-renderer";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import ForgotPasswordScreen from "../src/screens/auth/ForgotPasswordScreen";
+import React from 'react';
+import ReactTestRenderer from 'react-test-renderer';
+import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import ForgotPasswordScreen from '../src/screens/auth/ForgotPasswordScreen';
 
 const safeAreaMetrics = {
   frame: {
@@ -22,7 +23,7 @@ const safeAreaMetrics = {
   },
 };
 
-describe("ForgotPasswordScreen", () => {
+describe('ForgotPasswordScreen', () => {
   let root: ReactTestRenderer.ReactTestRenderer | null = null;
 
   afterEach(async () => {
@@ -32,11 +33,41 @@ describe("ForgotPasswordScreen", () => {
     root = null;
   });
 
-  test("shows the local reset action when a dev reset link is returned", async () => {
+  test('uses one shared notice for reset-request validation', async () => {
     const onSubmit = jest.fn(async () => ({
-      email: "alex@example.com",
+      email: 'alex@example.com',
       expiresInSeconds: 1800,
-      resetLink: "http://localhost:3000/reset-password?token=abc",
+    }));
+
+    await ReactTestRenderer.act(async () => {
+      root = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <ForgotPasswordScreen
+            onSubmit={onSubmit}
+            onBackToSignIn={jest.fn()}
+          />
+        </SafeAreaProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      root!.root.findByProps({ label: 'Send Reset Link' }).props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(
+      root!.root.findByProps({ testID: 'forgot-password-error-notice' }),
+    ).toBeTruthy();
+    expect(JSON.stringify(root!.toJSON())).toContain('Email is required.');
+  });
+
+  test('shows the local reset action when a dev reset link is returned', async () => {
+    const onSubmit = jest.fn(async () => ({
+      email: 'alex@example.com',
+      expiresInSeconds: 1800,
+      resetLink: 'http://localhost:3000/reset-password?token=abc',
     }));
 
     await ReactTestRenderer.act(() => {
@@ -46,17 +77,35 @@ describe("ForgotPasswordScreen", () => {
             onSubmit={onSubmit}
             onBackToSignIn={jest.fn()}
           />
-        </SafeAreaProvider>
+        </SafeAreaProvider>,
       );
     });
 
-    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
-
-    await ReactTestRenderer.act(async () => {
-      emailInput.props.onChangeText("alex@example.com");
+    expect(
+      root!.root.findByProps({ testID: 'auth-ink-backdrop' }),
+    ).toBeTruthy();
+    expect(
+      root!.root.findByProps({ testID: 'forgot-password-back-row' }),
+    ).toBeTruthy();
+    expect(
+      StyleSheet.flatten(
+        root!.root.findByProps({
+          testID: 'forgot-password-centered-scroll',
+        }).props.contentContainerStyle,
+      ).justifyContent,
+    ).toBe('center');
+    expect(
+      root!.root.findByProps({ testID: 'auth-reset-link-action-icon' }),
+    ).toBeTruthy();
+    const emailInput = root!.root.findByProps({
+      placeholder: 'you@example.com',
     });
 
-    const sendButton = root!.root.findByProps({ label: "Send Reset Link" });
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText('alex@example.com');
+    });
+
+    const sendButton = root!.root.findByProps({ label: 'Send Reset Link' });
 
     await ReactTestRenderer.act(async () => {
       sendButton.props.onPress();
@@ -66,15 +115,15 @@ describe("ForgotPasswordScreen", () => {
 
     const screenText = JSON.stringify(root!.toJSON());
 
-    expect(onSubmit).toHaveBeenCalledWith({ email: "alex@example.com" });
-    expect(screenText).toContain("Reset link ready");
-    expect(screenText).toContain("Open Reset Page");
-    expect(screenText).toContain("Local testing");
+    expect(onSubmit).toHaveBeenCalledWith({ email: 'alex@example.com' });
+    expect(screenText).toContain('Reset link ready');
+    expect(screenText).toContain('Open Reset Page');
+    expect(screenText).toContain('Local testing');
   });
 
-  test("shows the generic email confirmation when no local reset link is returned", async () => {
+  test('shows the generic email confirmation when no local reset link is returned', async () => {
     const onSubmit = jest.fn(async () => ({
-      email: "missing@example.com",
+      email: 'missing@example.com',
       expiresInSeconds: 1800,
     }));
 
@@ -85,17 +134,19 @@ describe("ForgotPasswordScreen", () => {
             onSubmit={onSubmit}
             onBackToSignIn={jest.fn()}
           />
-        </SafeAreaProvider>
+        </SafeAreaProvider>,
       );
     });
 
-    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
-
-    await ReactTestRenderer.act(async () => {
-      emailInput.props.onChangeText("missing@example.com");
+    const emailInput = root!.root.findByProps({
+      placeholder: 'you@example.com',
     });
 
-    const sendButton = root!.root.findByProps({ label: "Send Reset Link" });
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText('missing@example.com');
+    });
+
+    const sendButton = root!.root.findByProps({ label: 'Send Reset Link' });
 
     await ReactTestRenderer.act(async () => {
       sendButton.props.onPress();
@@ -105,18 +156,18 @@ describe("ForgotPasswordScreen", () => {
 
     const screenText = JSON.stringify(root!.toJSON());
 
-    expect(screenText).toContain("Check your email");
-    expect(screenText).toContain("Reset email sent");
-    expect(screenText).toContain("password reset email is on the way");
-    expect(screenText).toContain("Try Another Email");
+    expect(screenText).toContain('Check your email');
+    expect(screenText).toContain('Reset email sent');
+    expect(screenText).toContain('password reset email is on the way');
+    expect(screenText).toContain('Try Another Email');
   });
 
-  test("shows a local failure when the backend says no reset was issued", async () => {
+  test('shows a local failure when the backend says no reset was issued', async () => {
     const onSubmit = jest.fn(async () => ({
-      email: "missing@example.com",
+      email: 'missing@example.com',
       expiresInSeconds: 1800,
       resetIssued: false,
-      resetSkippedReason: "user_not_found" as const,
+      resetSkippedReason: 'user_not_found' as const,
     }));
 
     await ReactTestRenderer.act(() => {
@@ -126,17 +177,19 @@ describe("ForgotPasswordScreen", () => {
             onSubmit={onSubmit}
             onBackToSignIn={jest.fn()}
           />
-        </SafeAreaProvider>
+        </SafeAreaProvider>,
       );
     });
 
-    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
-
-    await ReactTestRenderer.act(async () => {
-      emailInput.props.onChangeText("missing@example.com");
+    const emailInput = root!.root.findByProps({
+      placeholder: 'you@example.com',
     });
 
-    const sendButton = root!.root.findByProps({ label: "Send Reset Link" });
+    await ReactTestRenderer.act(async () => {
+      emailInput.props.onChangeText('missing@example.com');
+    });
+
+    const sendButton = root!.root.findByProps({ label: 'Send Reset Link' });
 
     await ReactTestRenderer.act(async () => {
       sendButton.props.onPress();
@@ -146,9 +199,9 @@ describe("ForgotPasswordScreen", () => {
 
     const screenText = JSON.stringify(root!.toJSON());
 
-    expect(screenText).toContain("Email not found");
-    expect(screenText).toContain("Request failed");
-    expect(screenText).toContain("not registered in this local backend");
-    expect(screenText).toContain("Try Another Email");
+    expect(screenText).toContain('Email not found');
+    expect(screenText).toContain('Request failed');
+    expect(screenText).toContain('not registered in this local backend');
+    expect(screenText).toContain('Try Another Email');
   });
 });

@@ -286,6 +286,68 @@ test("resolveTemplateForPlacement keeps privacy export locked on weekly and year
   );
 });
 
+test("resolveTemplateForPlacement keeps biometric app lock locked on weekly and yearly", () => {
+  const placement = {
+    key: "settings_biometric_lock_locked",
+    templateKey: "weekly-standard",
+    fallbackTemplateKey: null,
+    enabled: true,
+    interruptiveEnabled: false,
+    interruptiveTemplateKey: null,
+  } as any;
+
+  const templatesByKey = new Map([
+    [
+      "weekly-standard",
+      {
+        key: "weekly-standard",
+        enabled: true,
+        featureList: [],
+        primaryOfferingKey: "weekly",
+        secondaryOfferingKeys: ["yearly"],
+        visibleOfferingKeys: ["weekly", "yearly"],
+        fallbackTemplateKey: null,
+        placementKeys: ["settings_biometric_lock_locked"],
+      },
+    ],
+  ]) as any;
+
+  const offeringsByKey = new Map([
+    [
+      "weekly",
+      {
+        key: "weekly",
+        enabled: true,
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+        sortOrder: 1,
+      },
+    ],
+    [
+      "yearly",
+      {
+        key: "yearly",
+        enabled: true,
+        purchasedUsersCount: 0,
+        purchaseLimit: null,
+        sortOrder: 3,
+      },
+    ],
+  ]) as any;
+
+  const resolved = resolveTemplateForPlacement({
+    placement,
+    templatesByKey,
+    offeringsByKey,
+  });
+
+  assert.equal(resolved.template?.key, "weekly-standard");
+  assert.deepEqual(
+    resolved.offerings.map(offering => offering.key),
+    ["weekly", "yearly"]
+  );
+});
+
 test("getMissingDefaultPlacements returns only placements absent from current config", () => {
   const missing = getMissingDefaultPlacements(
     [
@@ -324,6 +386,14 @@ test("getMissingDefaultPlacements returns only placements absent from current co
         interruptiveTemplateKey: null,
       },
       {
+        key: "settings_biometric_lock_locked",
+        templateKey: "weekly-standard",
+        fallbackTemplateKey: null,
+        enabled: true,
+        interruptiveEnabled: false,
+        interruptiveTemplateKey: null,
+      },
+      {
         key: "privacy_export_locked",
         templateKey: "weekly-standard",
         fallbackTemplateKey: null,
@@ -336,7 +406,7 @@ test("getMissingDefaultPlacements returns only placements absent from current co
 
   assert.deepEqual(
     missing.map((placement: { key: string }) => placement.key),
-    ["privacy_export_locked"]
+    ["settings_biometric_lock_locked", "privacy_export_locked"]
   );
 });
 
@@ -347,11 +417,15 @@ test("getMissingTemplatePlacementKeys returns only missing placement keys", () =
       "post_auth",
       "settings_privacy_mode_locked",
       "settings_hide_previews_locked",
+      "settings_biometric_lock_locked",
       "privacy_export_locked",
     ]
   );
 
-  assert.deepEqual(missing, ["privacy_export_locked"]);
+  assert.deepEqual(missing, [
+    "settings_biometric_lock_locked",
+    "privacy_export_locked",
+  ]);
 });
 
 test("shouldAllowInterruptivePaywall blocks users below the premium-intent threshold", async () => {

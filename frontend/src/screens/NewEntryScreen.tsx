@@ -29,6 +29,7 @@ import {
   Meh,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import ButtonLoadingContent from "../components/ButtonLoadingContent";
 import KeyboardDismissAccessory from "../components/KeyboardDismissAccessory";
 import {
   createJournalEntry,
@@ -47,6 +48,7 @@ import {
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import { ApiError } from "../utils/apiClient";
+import { useConnectivity } from "../hooks/useConnectivity";
 
 type MoodKey = "amazing" | "good" | "okay" | "bad" | "terrible";
 
@@ -240,6 +242,8 @@ export default function NewEntryScreen({
   initialPrompt,
 }: NewEntryScreenProps) {
   const theme = useTheme();
+  const { status: connectivityStatus } = useConnectivity();
+  const isOnline = connectivityStatus === "online";
   const { width } = useWindowDimensions();
   const addRecentJournalEntry = useAppStore(
     state => state.addRecentJournalEntry
@@ -382,6 +386,10 @@ export default function NewEntryScreen({
   const handleSave = async () => {
     const trimmedContent = content.trim();
 
+    if (!isOnline) {
+      return;
+    }
+
     if (!trimmedContent) {
       setError("Please write something before saving.");
       return;
@@ -398,7 +406,7 @@ export default function NewEntryScreen({
       _id: `entry-${Date.now()}`,
       title: title.trim() || UNTITLED_ENTRY_TITLE,
       content: trimmedContent,
-      type: "journal",
+      type: "open_ended" as const,
       aiPrompt: selectedPrompt,
       images: [],
       tags: optimisticTags,
@@ -640,32 +648,31 @@ export default function NewEntryScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Save entry"
+              accessibilityState={{ busy: isSaving, disabled: !isOnline || isSaving }}
               onPress={handleSave}
-              disabled={isSaving}
+              disabled={!isOnline || isSaving}
               style={({ pressed }) => [
                 styles.saveButton,
                 {
                   backgroundColor: theme.colors.card,
                   borderColor: theme.colors.border,
                 },
-                pressed && !isSaving && styles.pressed,
-                isSaving && styles.saveButtonSaving,
+                pressed && isOnline && !isSaving && styles.pressed,
+                (!isOnline || isSaving) && styles.saveButtonSaving,
               ]}
             >
-              {isSaving ? (
-                <ActivityIndicator
-                  accessibilityLabel="Saving entry"
-                  color={theme.colors.primary}
-                  size="small"
-                />
-              ) : (
-                <Save size={14} color={theme.colors.primary} />
-              )}
-              <Text
-                style={[styles.saveButtonText, { color: theme.colors.primary }]}
+              <ButtonLoadingContent
+                contentStyle={styles.saveButtonContent}
+                loaderColor={theme.colors.primary}
+                loading={isSaving}
               >
-                {isSaving ? "Saving..." : "Save"}
-              </Text>
+                <Save size={14} color={theme.colors.primary} />
+                <Text
+                  style={[styles.saveButtonText, { color: theme.colors.primary }]}
+                >
+                  Save
+                </Text>
+              </ButtonLoadingContent>
             </Pressable>
           </View>
 
@@ -867,6 +874,7 @@ export default function NewEntryScreen({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Auto-tag with AI"
+                accessibilityState={{ busy: isAutoTagging, disabled: isAutoTagging }}
                 onPress={handleAutoTag}
                 disabled={isAutoTagging}
                 style={({ pressed }) => [
@@ -883,6 +891,12 @@ export default function NewEntryScreen({
                   (isAutoTagging || !isPremiumUser) && styles.autoTagCardDisabled,
                 ]}
               >
+                <ButtonLoadingContent
+                  contentStyle={styles.autoTagContent}
+                  loaderColor={theme.colors.primary}
+                  loading={isAutoTagging}
+                  style={styles.autoTagLoadingContent}
+                >
                 <View
                   style={[
                     styles.autoTagIconWrap,
@@ -893,13 +907,7 @@ export default function NewEntryScreen({
                     },
                   ]}
                 >
-                  {isAutoTagging ? (
-                    <ActivityIndicator
-                      accessibilityLabel="Generating AI tags"
-                      color={theme.colors.primary}
-                      size="small"
-                    />
-                  ) : !isPremiumUser ? (
+                  {!isPremiumUser ? (
                     <Lock size={18} color={theme.colors.mutedForeground} />
                   ) : (
                     <Wand2 size={18} color={theme.colors.primary} />
@@ -935,6 +943,7 @@ export default function NewEntryScreen({
                     Premium
                   </Text>
                 )}
+                </ButtonLoadingContent>
               </Pressable>
 
               <View style={styles.section}>
@@ -1175,6 +1184,12 @@ const styles = StyleSheet.create({
   saveButtonSaving: {
     opacity: 0.8,
   },
+  saveButtonContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
   saveButtonText: {
     fontSize: 12,
     fontWeight: "600",
@@ -1292,6 +1307,16 @@ const styles = StyleSheet.create({
   },
   autoTagCardDisabled: {
     opacity: 0.7,
+  },
+  autoTagLoadingContent: {
+    alignSelf: "stretch",
+    flex: 1,
+  },
+  autoTagContent: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 12,
   },
   autoTagIconWrap: {
     width: 36,

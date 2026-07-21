@@ -1,5 +1,6 @@
 import {
   API_BASE_URL,
+  FRONTEND_ENV,
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_WEB_CLIENT_ID,
   REVENUECAT_ANDROID_API_KEY,
@@ -21,6 +22,10 @@ const normalizeEnvValue = (value?: string | null) => {
 
 const env = {
   apiBaseUrl: normalizeEnvValue(API_BASE_URL),
+  frontendEnv: normalizeEnvValue(FRONTEND_ENV),
+  isDevFrontendEnv: normalizeEnvValue(FRONTEND_ENV)?.toLowerCase() === "dev",
+  isSimulatorFrontendEnv:
+    normalizeEnvValue(FRONTEND_ENV)?.toLowerCase() === "simulator",
   googleWebClientId: normalizeEnvValue(GOOGLE_WEB_CLIENT_ID),
   googleIosClientId: normalizeEnvValue(GOOGLE_IOS_CLIENT_ID),
   revenueCatIosApiKey: normalizeEnvValue(REVENUECAT_IOS_API_KEY),

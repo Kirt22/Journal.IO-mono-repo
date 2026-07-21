@@ -30,6 +30,7 @@ import {
 } from "react-native-purchases";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
+import ButtonLoadingContent from "../../components/ButtonLoadingContent";
 import PrimaryButton from "../../components/PrimaryButton";
 import {
   getRevenueCatActiveEntitlement,
@@ -231,6 +232,7 @@ function StepActionButton({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ busy: loading, disabled: isDisabled }}
       onPress={onPress}
       disabled={isDisabled}
       style={({ pressed }) => [
@@ -249,9 +251,10 @@ function StepActionButton({
         pressed && !isDisabled && styles.pressed,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={theme.colors.primaryForeground} />
-      ) : (
+      <ButtonLoadingContent
+        loaderColor={theme.colors.primaryForeground}
+        loading={loading}
+      >
         <Text
           style={[
             styles.stepActionButtonLabel,
@@ -260,7 +263,7 @@ function StepActionButton({
         >
           {label}
         </Text>
-      )}
+      </ButtonLoadingContent>
     </Pressable>
   );
 }
@@ -1778,13 +1781,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
           <View style={styles.postAuthPurchaseActions}>
             <StepActionButton
-              label={
-                isProcessing
-                  ? "Processing..."
-                  : selectedPlanHasTrial
-                    ? introButtonLabel
-                    : "Subscribe Now"
-              }
+              label={selectedPlanHasTrial ? introButtonLabel : "Subscribe Now"}
               onPress={() => {
                 handleUpgrade().catch(() => undefined);
               }}
@@ -1801,13 +1798,15 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
             >
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlans }}
                 onPress={handleRestore}
                 disabled={isBusy || isLoadingPlans}
                 style={({ pressed }) => [pressed && styles.pressed]}
               >
-                {isRestoring ? (
-                  <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
-                ) : (
+                <ButtonLoadingContent
+                  loaderColor={theme.colors.mutedForeground}
+                  loading={isRestoring}
+                >
                   <Text
                     style={[
                       styles.postAuthRestoreText,
@@ -1816,7 +1815,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
                   >
                     Restore purchases
                   </Text>
-                )}
+                </ButtonLoadingContent>
               </Pressable>
 
               <Text
@@ -1936,13 +1935,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
 
       <View style={styles.footer}>
         <PrimaryButton
-          label={
-            isProcessing
-              ? "Processing..."
-              : selectedPlanHasTrial
-                ? introButtonLabel
-                : "Continue"
-          }
+          label={selectedPlanHasTrial ? introButtonLabel : "Continue"}
           onPress={() => {
             handleUpgrade().catch(() => undefined);
           }}
@@ -1954,15 +1947,17 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         <Pressable
           onPress={handleRestore}
           disabled={isBusy || isLoadingPlans}
+          accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlans }}
           style={styles.restoreAction}
         >
-          {isRestoring ? (
-            <ActivityIndicator size="small" color={theme.colors.mutedForeground} />
-          ) : (
+          <ButtonLoadingContent
+            loaderColor={theme.colors.mutedForeground}
+            loading={isRestoring}
+          >
             <Text style={[styles.restoreText, { color: theme.colors.mutedForeground }]}>
               Restore Purchases
             </Text>
-          )}
+          </ButtonLoadingContent>
         </Pressable>
 
         <Text style={[styles.legalText, { color: theme.colors.mutedForeground }]}>

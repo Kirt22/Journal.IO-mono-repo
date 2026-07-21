@@ -6,6 +6,15 @@ const AUTH_USER_CACHE_KEY = "journalio.auth.user";
 const isNullableString = (value: unknown) =>
   value === null || typeof value === "string";
 
+const isOptionalNullableString = (value: unknown) =>
+  value === undefined || isNullableString(value);
+
+const isOptionalNullableNumber = (value: unknown) =>
+  value === undefined || value === null || typeof value === "number";
+
+const isOptionalBoolean = (value: unknown) =>
+  value === undefined || typeof value === "boolean";
+
 const isCachedAuthUser = (value: unknown): value is AuthUser => {
   if (!value || typeof value !== "object") {
     return false;
@@ -18,11 +27,17 @@ const isCachedAuthUser = (value: unknown): value is AuthUser => {
     typeof candidate.name === "string" &&
     isNullableString(candidate.phoneNumber) &&
     isNullableString(candidate.email) &&
+    isOptionalNullableString(candidate.createdAt) &&
     Array.isArray(candidate.journalingGoals) &&
     candidate.journalingGoals.every(goal => typeof goal === "string") &&
     isNullableString(candidate.avatarColor) &&
     typeof candidate.profileSetupCompleted === "boolean" &&
-    typeof candidate.onboardingCompleted === "boolean" &&
+    isOptionalBoolean(candidate.onboardingCompleted) &&
+    isOptionalNullableNumber(candidate.onboardingVersion) &&
+    isOptionalNullableString(candidate.onboardingCompletedAt) &&
+    isOptionalBoolean(candidate.hasJournalEntries) &&
+    (candidate.journalCount === undefined ||
+      typeof candidate.journalCount === "number") &&
     isNullableString(candidate.profilePic) &&
     (candidate.aiOptIn === null || typeof candidate.aiOptIn === "boolean")
   );

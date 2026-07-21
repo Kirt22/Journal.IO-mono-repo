@@ -7,6 +7,7 @@ import { userModel } from "../../schema/user.schema";
 import {
   AiAnalysisDisabledError,
   getInsightsAiAnalysis,
+  getInsightsMindMap,
   mergeAiAnalysisEnhancement,
   PremiumFeatureRequiredError,
 } from "./insights.service";
@@ -30,11 +31,16 @@ const insightsTarget = insightsModel as unknown as {
 const journalTarget = journalModel as unknown as {
   find: (query: unknown) => {
     sort: (value: unknown) => {
-      limit: (count: number) => {
+      limit?: (count: number) => {
         select: (value: unknown) => {
           lean: () => {
             exec: () => Promise<unknown[]>;
           };
+        };
+      };
+      select?: (value: unknown) => {
+        lean: () => {
+          exec: () => Promise<unknown[]>;
         };
       };
     };
@@ -701,6 +707,487 @@ test("getInsightsAiAnalysis uses support-first weekly copy for safety-sensitive 
   assert.equal(analysis.patternTags[0]?.label, "Safety");
   assert.equal(analysis.actionPlan.steps[0]?.focus, "Safety");
   assert.match(analysis.appSupport.headline, /not a crisis-response service/i);
+});
+
+test("getInsightsMindMap returns a ready latest-week map with exactly 8 ranked regions", async () => {
+  process.env.NODE_ENV = "production";
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 5,
+      totalWords: 620,
+      totalFavorites: 1,
+      dailyJournalCounts: new Map([
+        ["2026-04-12", 1],
+        ["2026-04-13", 1],
+        ["2026-04-14", 1],
+        ["2026-04-15", 1],
+      ]),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      aiAnalysis: null,
+      aiAnalysisStale: true,
+      aiAnalysisWindowEndDateKey: null,
+      aiAnalysisCacheKey: null,
+      mindMapLatestWeek: null,
+      mindMapLatestWeekStale: true,
+      mindMapLatestWeekComputedAt: null,
+      mindMapLatestWeekCacheKey: null,
+      mindMapAllTime: null,
+      mindMapAllTimeStale: true,
+      mindMapAllTimeComputedAt: null,
+      mindMapAllTimeCacheKey: null,
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [
+              {
+                content:
+                  "I planned tomorrow carefully, protected my morning focus, and felt proud of the progress.",
+                aiPrompt: null,
+                tags: ["focus", "progress"],
+                isFavorite: true,
+                createdAt: new Date("2026-04-12T12:00:00.000Z"),
+              },
+              {
+                content:
+                  "Work stress felt heavy, but writing out a clear next step helped me settle.",
+                aiPrompt: null,
+                tags: ["work", "stress"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-13T12:00:00.000Z"),
+              },
+              {
+                content:
+                  "I want to carry this routine forward because the structure makes tomorrow feel lighter.",
+                aiPrompt: null,
+                tags: ["routine"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-14T12:00:00.000Z"),
+              },
+              {
+                content:
+                  "I noticed how much better I do when I decide the next action before bed.",
+                aiPrompt: null,
+                tags: ["planning"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-15T12:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      }),
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const map = await getInsightsMindMap("user-123", {
+    range: "latest_week",
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-20T10:00:00.000Z"),
+  });
+
+  assert.equal(map.status, "ready");
+
+  if (map.status !== "ready") {
+    throw new Error("Expected ready Mind Map payload.");
+  }
+
+  assert.equal(map.period.range, "latest_week");
+  assert.equal(map.regions.length, 8);
+  assert.equal(map.strongestRegionId, "planning_self_control");
+  assert.equal(map.regions[0]?.id, "planning_self_control");
+  assert.equal(map.regions[0]?.rank, 1);
+  assert.equal(map.regions[7]?.rank, 8);
+  assert.match(map.disclaimer.body, /not a brain scan/i);
+});
+
+test("getInsightsMindMap returns support-first for safety-sensitive latest-week writing", async () => {
+  process.env.NODE_ENV = "production";
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 4,
+      totalWords: 280,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map(),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      mindMapLatestWeek: null,
+      mindMapLatestWeekStale: true,
+      mindMapLatestWeekComputedAt: null,
+      mindMapLatestWeekCacheKey: null,
+      mindMapAllTime: null,
+      mindMapAllTimeStale: true,
+      mindMapAllTimeComputedAt: null,
+      mindMapAllTimeCacheKey: null,
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [
+              {
+                content: "I want to kill myself and do not feel safe tonight.",
+                aiPrompt: null,
+                tags: ["mood:terrible"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-12T12:00:00.000Z"),
+              },
+              {
+                content: "I took a walk and tried to slow things down.",
+                aiPrompt: null,
+                tags: ["self-care"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-13T12:00:00.000Z"),
+              },
+              {
+                content: "I wrote to a friend instead of holding it alone.",
+                aiPrompt: null,
+                tags: ["relationships"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-14T12:00:00.000Z"),
+              },
+              {
+                content: "I am trying to stay grounded this evening.",
+                aiPrompt: null,
+                tags: ["grounding"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-15T12:00:00.000Z"),
+              },
+            ],
+          }),
+        }),
+      }),
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const map = await getInsightsMindMap("user-123", {
+    range: "latest_week",
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-20T10:00:00.000Z"),
+  });
+
+  assert.equal(map.status, "support_first");
+
+  if (map.status !== "support_first") {
+    throw new Error("Expected support-first Mind Map payload.");
+  }
+
+  assert.match(map.summary.headline, /support-first/i);
+  assert.match(map.support.body, /local emergency or crisis support/i);
+});
+
+test("getInsightsMindMap excludes safety-sensitive entries from all-time aggregation", async () => {
+  process.env.NODE_ENV = "production";
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 6,
+      totalWords: 740,
+      totalFavorites: 1,
+      dailyJournalCounts: new Map(),
+      tagCounts: new Map(),
+      moodCounts: new Map(),
+      mindMapLatestWeek: null,
+      mindMapLatestWeekStale: true,
+      mindMapLatestWeekComputedAt: null,
+      mindMapLatestWeekCacheKey: null,
+      mindMapAllTime: null,
+      mindMapAllTimeStale: true,
+      mindMapAllTimeComputedAt: null,
+      mindMapAllTimeCacheKey: null,
+      save: async function save() {
+        return this;
+      },
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [
+            {
+              content: "I planned tomorrow, set one clear goal, and protected my focus.",
+              aiPrompt: null,
+              tags: ["planning", "focus"],
+              isFavorite: false,
+              createdAt: new Date("2026-04-16T12:00:00.000Z"),
+            },
+            {
+              content: "I was proud of the steady progress and the routine is starting to stick.",
+              aiPrompt: null,
+              tags: ["progress", "routine"],
+              isFavorite: true,
+              createdAt: new Date("2026-04-15T12:00:00.000Z"),
+            },
+            {
+              content: "I feel tired and my body is asking for rest and sleep.",
+              aiPrompt: null,
+              tags: ["rest", "sleep"],
+              isFavorite: false,
+              createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            },
+            {
+              content: "I wrote to a friend because the relationship tension felt heavy.",
+              aiPrompt: null,
+              tags: ["relationships"],
+              isFavorite: false,
+              createdAt: new Date("2026-04-13T12:00:00.000Z"),
+            },
+            {
+              content: "I want to kill myself tonight.",
+              aiPrompt: null,
+              tags: ["mood:terrible"],
+              isFavorite: false,
+              createdAt: new Date("2026-04-12T12:00:00.000Z"),
+            },
+          ],
+        }),
+      }),
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => [],
+          }),
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const map = await getInsightsMindMap("user-123", {
+    range: "all_time",
+    timeZone: "Asia/Kolkata",
+    today: new Date("2026-04-20T10:00:00.000Z"),
+  });
+
+  assert.equal(map.status, "ready");
+
+  if (map.status !== "ready") {
+    throw new Error("Expected ready Mind Map payload.");
+  }
+
+  assert.equal(map.period.range, "all_time");
+  assert.equal(map.period.entryCount, 4);
+  assert.equal(map.regions.length, 8);
+  assert.ok(
+    map.regions.every(region =>
+      region.evidenceSnippets.every(snippet => !/kill myself/i.test(snippet))
+    )
+  );
+});
+
+test("getInsightsMindMap reuses a cached all-time map when the cache key matches", async () => {
+  process.env.NODE_ENV = "production";
+
+  userTarget.findById = (_userId: string) => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          onboardingContext: {
+            aiOptIn: true,
+          },
+          premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
+          createdAt: new Date("2026-04-03T10:00:00.000Z"),
+        }),
+      }),
+    }),
+  });
+
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      mindMapAllTime: {
+        status: "ready",
+        period: {
+          range: "all_time",
+          label: "All reflections",
+          startDate: "2026-04-10",
+          endDate: "2026-04-16",
+          entryCount: 4,
+          activeDays: 4,
+          clearEntryCount: 4,
+          totalWords: 240,
+          minimumActiveDays: 4,
+          generatedAt: "2026-04-20T10:00:00.000Z",
+        },
+        summary: {
+          headline: "Planning & Self-Control carried the strongest reflection signal",
+          narrative: "Cached narrative",
+          note: "Cached note",
+        },
+        strongestRegionId: "planning_self_control",
+        regions: Array.from({ length: 8 }, (_, index) => ({
+          id:
+            index === 0
+              ? "planning_self_control"
+              : index === 1
+                ? "motivation_reward"
+                : index === 2
+                  ? "body_inner_signals"
+                  : index === 3
+                    ? "relationships_perspective"
+                    : index === 4
+                      ? "emotional_intensity"
+                      : index === 5
+                        ? "conflict_attention"
+                        : index === 6
+                          ? "memory_meaning"
+                          : "self_reflection_identity",
+          productLabel: "Cached Region",
+          brainRegionSubtitle: "Cached Brain Region",
+          signalScore: 1 - index * 0.08,
+          confidence: 0.7,
+          rank: index + 1,
+          intensity: index < 2 ? "high" : "moderate",
+          shortInsight: "Cached short insight",
+          evidenceSnippets: [],
+        })),
+        disclaimer: {
+          title: "Reflection signal, not a medical measure",
+          body:
+            "Brightness and pulse reflect patterns in your writing. This map is not a brain scan, diagnosis, or medical measure.",
+        },
+      },
+      mindMapAllTimeStale: false,
+      mindMapAllTimeCacheKey: "all_time:Asia/Kolkata:v1:ready",
+    }),
+  });
+  journalTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => {
+            throw new Error("Should not read journals when cached all-time map is valid.");
+          },
+        }),
+      }),
+      limit: () => ({
+        select: () => ({
+          lean: () => ({
+            exec: async () => {
+              throw new Error("Should not read limited journals when cached all-time map is valid.");
+            },
+          }),
+        }),
+      }),
+    }),
+  });
+  moodTarget.find = () => ({
+    sort: () => ({
+      select: () => ({
+        lean: () => ({
+          exec: async () => [],
+        }),
+      }),
+    }),
+  });
+
+  const map = await getInsightsMindMap("user-123", {
+    range: "all_time",
+    timeZone: "Asia/Kolkata",
+  });
+
+  assert.equal(map.status, "ready");
+
+  if (map.status !== "ready") {
+    throw new Error("Expected ready cached Mind Map payload.");
+  }
+
+  assert.equal(map.summary.narrative, "Cached narrative");
 });
 
 test("mergeAiAnalysisEnhancement only replaces the user-facing narrative sections", () => {

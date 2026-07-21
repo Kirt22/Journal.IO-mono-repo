@@ -1,7 +1,11 @@
+export type JournalEntryMode = 'open_ended' | 'guided';
+// Read compatibility keeps historic entries renderable while writes use JournalEntryMode.
+export type JournalEntryType = JournalEntryMode | (string & {});
+
 export type CreateJournalPayload = {
   title: string;
   content: string;
-  type?: string;
+  type?: JournalEntryMode;
   aiPrompt?: string;
   images?: string[];
   tags?: string[];
@@ -12,7 +16,7 @@ export type UpdateJournalPayload = {
   journalId: string;
   title: string;
   content: string;
-  type?: string;
+  type?: JournalEntryMode;
   aiPrompt?: string;
   images?: string[];
   tags?: string[];
@@ -23,7 +27,7 @@ export type JournalEntry = {
   _id: string;
   title: string;
   content: string;
-  type: string;
+  type: JournalEntryType;
   aiPrompt: string | null;
   images: string[] | null;
   tags: string[];
@@ -32,7 +36,7 @@ export type JournalEntry = {
   updatedAt: string;
 };
 
-export type JournalEntryApiRecord = Omit<JournalEntry, "tags"> & {
+export type JournalEntryApiRecord = Omit<JournalEntry, 'tags'> & {
   tags?: string[];
   isFavorite?: boolean;
 };
@@ -50,36 +54,36 @@ export type JournalQuickAnalysis = {
   };
   scorecard: {
     vibeLabel: string;
-    vibeTone: "coral" | "blue" | "sage" | "amber" | "slate";
+    vibeTone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
     cards: {
-      key: "words" | "mood" | "focus" | "depth";
+      key: 'words' | 'mood' | 'focus' | 'depth';
       label: string;
       value: string;
-      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+      tone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
     }[];
   };
   patternTags: {
     label: string;
-    tone: "coral" | "blue" | "sage" | "amber" | "slate";
+    tone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
   }[];
   signals: {
     whatStoodOut: {
       title: string;
       description: string;
       evidence: string[];
-      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+      tone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
     };
     whatNeedsCare: {
       title: string;
       description: string;
       evidence: string[];
-      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+      tone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
     };
     whatToCarryForward: {
       title: string;
       description: string;
       evidence: string[];
-      tone: "coral" | "blue" | "sage" | "amber" | "slate";
+      tone: 'coral' | 'blue' | 'sage' | 'amber' | 'slate';
     };
   };
   nextStep: {

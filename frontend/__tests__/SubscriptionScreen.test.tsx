@@ -2,27 +2,28 @@
  * @format
  */
 
-import React from "react";
-import ReactTestRenderer from "react-test-renderer";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import SubscriptionScreen from "../src/screens/profile/SubscriptionScreen";
-import { useAppStore, resetAppStore } from "../src/store/appStore";
+import React from 'react';
+import ReactTestRenderer from 'react-test-renderer';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import SubscriptionScreen from '../src/screens/profile/SubscriptionScreen';
+import { useAppStore, resetAppStore } from '../src/store/appStore';
 import {
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
-} from "../src/services/revenueCatService";
+} from '../src/services/revenueCatService';
 
 const originalConsoleError = console.error;
 
-jest.mock("../src/services/revenueCatService", () => ({
-  getRevenueCatActiveEntitlement: jest.fn(customerInfo =>
-    customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null
+jest.mock('../src/services/revenueCatService', () => ({
+  getRevenueCatActiveEntitlement: jest.fn(
+    customerInfo =>
+      customerInfo?.entitlements?.active?.['Journal.IO Pro'] ?? null,
   ),
   getRevenueCatConfigurationError: jest.fn(() => null),
   getRevenueCatOfferings: jest.fn(async () => ({ current: null, all: {} })),
   getRevenueCatPurchaseAttribution: jest.fn(customerInfo => {
     const activeEntitlement =
-      customerInfo?.entitlements?.active?.["Journal.IO Pro"] ?? null;
+      customerInfo?.entitlements?.active?.['Journal.IO Pro'] ?? null;
 
     if (!activeEntitlement?.productIdentifier) {
       return null;
@@ -30,9 +31,9 @@ jest.mock("../src/services/revenueCatService", () => ({
 
     return {
       activeEntitlement,
-      offeringKey: "weekly",
+      offeringKey: 'weekly',
       productIdentifier: activeEntitlement.productIdentifier,
-      revenueCatOfferingId: "journalio_offering_other_screens_standard",
+      revenueCatOfferingId: 'journalio_offering_other_screens_standard',
       revenueCatPackageId: activeEntitlement.productIdentifier,
       rcPackage: null,
     };
@@ -42,10 +43,10 @@ jest.mock("../src/services/revenueCatService", () => ({
     customerInfo: {
       entitlements: {
         active: {
-          "Journal.IO Pro": {
-            identifier: "Journal.IO Pro",
+          'Journal.IO Pro': {
+            identifier: 'Journal.IO Pro',
             isActive: true,
-            store: "APP_STORE",
+            store: 'APP_STORE',
           },
         },
       },
@@ -54,39 +55,39 @@ jest.mock("../src/services/revenueCatService", () => ({
   getRevenueCatCustomerInfo: jest.fn(async () => ({
     entitlements: {
       active: {
-        "Journal.IO Pro": {
-          identifier: "Journal.IO Pro",
+        'Journal.IO Pro': {
+          identifier: 'Journal.IO Pro',
           isActive: true,
-          store: "APP_STORE",
+          store: 'APP_STORE',
         },
       },
     },
   })),
   hasRevenueCatPremiumAccess: jest.fn(customerInfo =>
-    Boolean(customerInfo?.entitlements?.active?.["Journal.IO Pro"]?.isActive)
+    Boolean(customerInfo?.entitlements?.active?.['Journal.IO Pro']?.isActive),
   ),
   restoreRevenueCatPurchases: jest.fn(async () => ({
     entitlements: {
       active: {
-        "Journal.IO Pro": {
-          identifier: "Journal.IO Pro",
+        'Journal.IO Pro': {
+          identifier: 'Journal.IO Pro',
           isActive: true,
-          store: "APP_STORE",
+          store: 'APP_STORE',
         },
       },
     },
   })),
 }));
 
-jest.mock("../src/services/paywallService", () => ({
+jest.mock('../src/services/paywallService', () => ({
   syncPaywallPurchase: jest.fn(async () => ({
-    userId: "user-test",
-    name: "Premium User",
+    userId: 'user-test',
+    name: 'Premium User',
     phoneNumber: null,
-    email: "premium@example.com",
+    email: 'premium@example.com',
     isPremium: true,
-    premiumPlanKey: "weekly",
-    premiumActivatedAt: "2026-04-16T09:30:00.000Z",
+    premiumPlanKey: 'weekly',
+    premiumActivatedAt: '2026-04-16T09:30:00.000Z',
     journalingGoals: [],
     avatarColor: null,
     profileSetupCompleted: true,
@@ -96,7 +97,7 @@ jest.mock("../src/services/paywallService", () => ({
   })),
 }));
 
-jest.mock("../src/services/reminderNotificationsService", () => ({
+jest.mock('../src/services/reminderNotificationsService', () => ({
   cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
 }));
 
@@ -117,22 +118,22 @@ const safeAreaMetrics = {
 
 function extractText(node: unknown): string {
   if (node == null) {
-    return "";
+    return '';
   }
 
-  if (typeof node === "string" || typeof node === "number") {
+  if (typeof node === 'string' || typeof node === 'number') {
     return String(node);
   }
 
   if (Array.isArray(node)) {
-    return node.map(child => extractText(child)).join("");
+    return node.map(child => extractText(child)).join('');
   }
 
-  if (typeof node === "object" && "children" in node) {
+  if (typeof node === 'object' && 'children' in node) {
     return extractText((node as { children?: unknown }).children);
   }
 
-  return "";
+  return '';
 }
 
 const flushMicrotasks = async () => {
@@ -151,16 +152,16 @@ beforeEach(() => {
   ReactTestRenderer.act(() => {
     useAppStore.setState({
       session: {
-        accessToken: "test-access",
-        refreshToken: "test-refresh",
+        accessToken: 'test-access',
+        refreshToken: 'test-refresh',
         user: {
-          userId: "user-test",
-          name: "Premium User",
+          userId: 'user-test',
+          name: 'Premium User',
           phoneNumber: null,
-          email: "premium@example.com",
+          email: 'premium@example.com',
           isPremium: true,
-          premiumPlanKey: "weekly",
-          premiumActivatedAt: "2026-04-16T09:30:00.000Z",
+          premiumPlanKey: 'weekly',
+          premiumActivatedAt: '2026-04-16T09:30:00.000Z',
           journalingGoals: [],
           avatarColor: null,
           profileSetupCompleted: true,
@@ -177,7 +178,7 @@ afterEach(() => {
   console.error = originalConsoleError;
 });
 
-test("shows member-facing details for renewable premium plans", async () => {
+test('shows member-facing details for renewable premium plans', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   let resolveMembershipRefresh:
     | ((value: { hasPremiumAccess: boolean; customerInfo?: unknown }) => void)
@@ -187,14 +188,14 @@ test("shows member-facing details for renewable premium plans", async () => {
     () =>
       new Promise(resolve => {
         resolveMembershipRefresh = resolve;
-      })
+      }),
   );
 
   await ReactTestRenderer.act(async () => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SubscriptionScreen onBack={jest.fn()} currentPlanKey="weekly" />
-      </SafeAreaProvider>
+      </SafeAreaProvider>,
     );
   });
 
@@ -204,10 +205,10 @@ test("shows member-facing details for renewable premium plans", async () => {
       customerInfo: {
         entitlements: {
           active: {
-            "Journal.IO Pro": {
-              identifier: "Journal.IO Pro",
+            'Journal.IO Pro': {
+              identifier: 'Journal.IO Pro',
               isActive: true,
-              store: "APP_STORE",
+              store: 'APP_STORE',
             },
           },
         },
@@ -216,17 +217,21 @@ test("shows member-facing details for renewable premium plans", async () => {
     await flushMicrotasks();
   });
 
-  expect(refreshRevenueCatEntitlementState).toHaveBeenCalledWith("user-test");
-  expect(extractText(root!.toJSON())).toContain("Weekly Premium");
+  expect(refreshRevenueCatEntitlementState).toHaveBeenCalledWith('user-test');
+  expect(extractText(root!.toJSON())).toContain('Weekly Premium');
+  expect(extractText(root!.toJSON())).toContain('Subscription details');
+  expect(extractText(root!.toJSON())).toContain('Status');
+  expect(extractText(root!.toJSON())).toContain('Price');
+  expect(extractText(root!.toJSON())).toContain('App Store price');
   expect(extractText(root!.toJSON())).toContain(
-    "Your weekly membership is active."
+    'Your weekly membership is active.',
   );
-  expect(extractText(root!.toJSON())).toContain("Manage Subscription");
-  expect(extractText(root!.toJSON())).toContain("Membership already active");
-  expect(extractText(root!.toJSON())).not.toContain("RevenueCat");
+  expect(extractText(root!.toJSON())).toContain('Manage Subscription');
+  expect(extractText(root!.toJSON())).toContain('Membership already active');
+  expect(extractText(root!.toJSON())).not.toContain('RevenueCat');
 });
 
-test("shows non-recurring messaging for lifetime members", async () => {
+test('shows non-recurring messaging for lifetime members', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   let resolveMembershipRefresh:
     | ((value: { hasPremiumAccess: boolean; customerInfo?: unknown }) => void)
@@ -236,14 +241,14 @@ test("shows non-recurring messaging for lifetime members", async () => {
     () =>
       new Promise(resolve => {
         resolveMembershipRefresh = resolve;
-      })
+      }),
   );
 
   await ReactTestRenderer.act(async () => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SubscriptionScreen onBack={jest.fn()} currentPlanKey="lifetime" />
-      </SafeAreaProvider>
+      </SafeAreaProvider>,
     );
   });
 
@@ -253,10 +258,10 @@ test("shows non-recurring messaging for lifetime members", async () => {
       customerInfo: {
         entitlements: {
           active: {
-            "Journal.IO Pro": {
-              identifier: "Journal.IO Pro",
+            'Journal.IO Pro': {
+              identifier: 'Journal.IO Pro',
               isActive: true,
-              store: "APP_STORE",
+              store: 'APP_STORE',
             },
           },
         },
@@ -265,8 +270,10 @@ test("shows non-recurring messaging for lifetime members", async () => {
     await flushMicrotasks();
   });
 
-  expect(extractText(root!.toJSON())).toContain("Lifetime Premium");
-  expect(extractText(root!.toJSON())).toContain("No recurring subscription");
-  expect(extractText(root!.toJSON())).not.toContain("Manage renewal or billing");
+  expect(extractText(root!.toJSON())).toContain('Lifetime Premium');
+  expect(extractText(root!.toJSON())).toContain('No recurring subscription');
+  expect(extractText(root!.toJSON())).not.toContain(
+    'Manage renewal or billing',
+  );
   expect(restoreRevenueCatPurchases).not.toHaveBeenCalled();
 });

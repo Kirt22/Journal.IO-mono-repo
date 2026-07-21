@@ -1,11 +1,11 @@
 import React from "react";
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "../infrastructure/reactNative";
+import ButtonLoadingContent from './ButtonLoadingContent';
 import { useTheme } from "../theme/provider";
 import type { ReactNode } from "react";
 
@@ -47,6 +47,7 @@ const PrimaryButton = ({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ busy: Boolean(loading), disabled: isDisabled }}
       onPress={onPress}
       disabled={isDisabled}
       style={({ pressed }: { pressed: boolean }) => [
@@ -69,9 +70,10 @@ const PrimaryButton = ({
         pressed && !isDisabled && styles.buttonPressed,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={isGhost || isOutline ? outlineText : solidText} />
-      ) : (
+      <ButtonLoadingContent
+        loaderColor={isGhost || isOutline ? outlineText : solidText}
+        loading={Boolean(loading)}
+      >
         <View style={styles.content}>
           {icon ? <View style={styles.iconWrap}>{icon}</View> : null}
           <Text
@@ -86,7 +88,7 @@ const PrimaryButton = ({
             {label}
           </Text>
         </View>
-      )}
+      </ButtonLoadingContent>
     </Pressable>
   );
 };

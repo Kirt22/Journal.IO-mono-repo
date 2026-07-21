@@ -13,6 +13,11 @@ import {
 import { getWritingPrompts } from "../src/services/promptsService";
 import { cancelWeeklyInsightNotifications } from "../src/services/reminderNotificationsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
+import {
+  reportBackendReachable,
+  reportBackendUnavailable,
+  resetConnectivityForTests,
+} from "../src/services/connectivityService";
 
 jest.mock("../src/services/journalService", () => ({
   createJournalEntry: jest.fn(async payload => ({
@@ -66,6 +71,7 @@ jest.mock("../src/services/reminderNotificationsService", () => ({
 }));
 
 beforeEach(() => {
+  resetConnectivityForTests("online");
   ReactTestRenderer.act(() => {
     resetAppStore();
   });
@@ -233,7 +239,7 @@ test("saves an entry and returns to home", async () => {
       content: expect.stringMatching(
         /A calm reset after a busy meeting[\s\S]*What are you grateful for today\?/
       ),
-      type: "journal",
+      type: "open_ended",
       aiPrompt: "What are you grateful for today?",
     })
   );
@@ -242,6 +248,59 @@ test("saves an entry and returns to home", async () => {
   expect(useAppStore.getState().stage).toBe("main-app");
   expect(useAppStore.getState().activeTab).toBe("home");
   expect(useAppStore.getState().selectedJournalEntryId).toBeNull();
+});
+
+test("preserves the draft and waits to save until connectivity returns", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <NewEntryScreen onBack={jest.fn()} />
+      </SafeAreaProvider>
+    );
+  });
+
+  await ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Entry content" })
+      .props.onChangeText("Keep this thought while offline");
+    reportBackendUnavailable();
+  });
+
+  const offlineSaveButton = root!.root.findByProps({
+    accessibilityLabel: "Save entry",
+  });
+  expect(offlineSaveButton.props.disabled).toBe(true);
+
+  await ReactTestRenderer.act(async () => {
+    await offlineSaveButton.props.onPress();
+  });
+
+  expect(createJournalEntry).not.toHaveBeenCalled();
+  expect(
+    root!.root.findByProps({ accessibilityLabel: "Entry content" }).props.value
+  ).toBe("Keep this thought while offline");
+
+  await ReactTestRenderer.act(() => {
+    reportBackendReachable();
+  });
+
+  const onlineSaveButton = root!.root.findByProps({
+    accessibilityLabel: "Save entry",
+  });
+  expect(onlineSaveButton.props.disabled).toBe(false);
+
+  await ReactTestRenderer.act(async () => {
+    await onlineSaveButton.props.onPress();
+  });
+
+  expect(createJournalEntry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      content: "Keep this thought while offline",
+      type: "open_ended",
+    })
+  );
 });
 
 test("saves blank titles as untitled entries instead of a generated date title", async () => {
@@ -281,7 +340,7 @@ test("saves blank titles as untitled entries instead of a generated date title",
       content: expect.stringMatching(
         /Left the title blank on purpose[\s\S]*What are you grateful for today\?/
       ),
-      type: "journal",
+      type: "open_ended",
       aiPrompt: "What are you grateful for today?",
     })
   );
@@ -404,8 +463,9 @@ test("shows a loading spinner while AI tag suggestions are being generated", asy
   });
 
   expect(
-    root!.root.findByProps({ accessibilityLabel: "Generating AI tags" })
-  ).toBeTruthy();
+    root!.root.findByProps({ accessibilityLabel: "Auto-tag with AI" }).props
+      .accessibilityState
+  ).toEqual({ busy: true, disabled: true });
 
   await ReactTestRenderer.act(async () => {
     deferred.resolve({
@@ -415,8 +475,9 @@ test("shows a loading spinner while AI tag suggestions are being generated", asy
   });
 
   expect(
-    root!.root.findAllByProps({ accessibilityLabel: "Generating AI tags" }).length
-  ).toBe(0);
+    root!.root.findByProps({ accessibilityLabel: "Auto-tag with AI" }).props
+      .accessibilityState
+  ).toEqual({ busy: false, disabled: false });
   expect(extractText(root!.toJSON())).toContain("self-care");
 });
 

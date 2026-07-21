@@ -97,3 +97,12 @@ Use the consolidated branch model:
 3. `prod` is the production-ready branch
 
 Do not split frontend, backend, and root-doc work across separate long-lived branches. Keep related changes together on `codex`, validate them as one slice, and push them in one go unless the user explicitly asks for a different flow.
+
+---
+
+# 8) Local iOS Environments
+
+Use `LOCAL_IOS_ENVIRONMENTS.md` as the command source of truth when switching
+between the iOS Simulator, a physical-device local test, and a physical-device
+production-configured run. Keep the Metro and `run-ios` environment commands
+matched so the generated JavaScript bundle uses the intended API URL.

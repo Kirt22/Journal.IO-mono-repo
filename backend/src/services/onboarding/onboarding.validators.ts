@@ -19,7 +19,42 @@ const createOnboardingDemoAnalysisSchema = z.object({
   params: z.object({}).optional(),
 });
 
+const onboardingStringArraySchema = z.array(z.string().trim().min(1)).max(16);
+
+const onboardingFirstReflectionSummarySchema = z.object({
+  title: z.string().trim().max(120).optional(),
+  theme: z.string().trim().max(80).optional(),
+  tags: onboardingStringArraySchema.optional(),
+  mindMapNode: z.string().trim().max(120).optional(),
+});
+
+const completeOnboardingBodySchema = z.object({
+  version: z.number().int().positive().optional(),
+  whatBringsYouHere: onboardingStringArraySchema.optional(),
+  supportFocusAreas: onboardingStringArraySchema.optional(),
+  primaryContext: z.string().trim().max(120).optional(),
+  ageRange: z.string().trim().max(40).optional(),
+  reflectionTone: onboardingStringArraySchema.optional(),
+  preferredTheme: z.string().trim().max(80).optional(),
+  reminderPreference: z.string().trim().max(80).optional(),
+  aiComfort: z.boolean().optional(),
+  privacyConsent: z.boolean().optional(),
+  firstReflectionId: z.string().trim().max(120).optional(),
+  firstReflectionSummary: onboardingFirstReflectionSummarySchema.optional(),
+  personalGoals: onboardingStringArraySchema.optional(),
+  goals: onboardingStringArraySchema.optional(),
+  journalingExperience: z.string().trim().max(120).optional(),
+});
+
+const completeOnboardingSchema = z.object({
+  body: completeOnboardingBodySchema,
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
+  completeOnboardingBodySchema,
+  completeOnboardingSchema,
   createOnboardingDemoAnalysisSchema,
   onboardingDemoAnalysisBodySchema,
   onboardingDemoMoodSchema,

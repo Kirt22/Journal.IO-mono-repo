@@ -13,6 +13,8 @@ type StructuredOpenAiRequest<T> = {
   parser: z.ZodType<T>;
   messages: OpenAiInputMessage[];
   maxOutputTokens?: number;
+  model?: string;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
 };
 
 type OpenAiResponseContent = {
@@ -92,12 +94,15 @@ const requestStructuredOpenAi = async <T>({
   parser,
   messages,
   maxOutputTokens = 900,
+  model,
+  reasoningEffort,
 }: StructuredOpenAiRequest<T>): Promise<T | null> => {
   if (!isOpenAiConfigured()) {
     return null;
   }
 
   try {
+    const resolvedModel = model?.trim() || getOpenAiModel();
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -105,9 +110,10 @@ const requestStructuredOpenAi = async <T>({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: getOpenAiModel(),
+        model: resolvedModel,
         input: messages,
         max_output_tokens: maxOutputTokens,
+        ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
         text: {
           format: {
             type: "json_schema",
@@ -133,7 +139,7 @@ const requestStructuredOpenAi = async <T>({
 
     if (shouldLogOpenAiDebug) {
       console.log(`[OpenAI] ${feature} raw response`, {
-        model: getOpenAiModel(),
+        model: resolvedModel,
         schemaName,
         outputText,
         payload,
@@ -158,7 +164,7 @@ const requestStructuredOpenAi = async <T>({
 
     if (shouldLogOpenAiDebug) {
       console.log(`[OpenAI] ${feature} parsed response`, {
-        model: getOpenAiModel(),
+        model: resolvedModel,
         schemaName,
         parsed: parsed.data,
       });

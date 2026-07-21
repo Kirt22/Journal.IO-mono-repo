@@ -38,15 +38,16 @@ Insight language must remain uncertainty-aware, for example:
 
 Primary user journey represented by the latest design context:
 
-1. Onboarding (9 steps)
-2. Auth entry (email or Google)
+1. Auth entry (email, Google, or Apple)
+2. Onboarding v2 (12 steps) for authenticated users who still need it
 3. Create account (email path)
 4. Verify email (email path)
 5. Sign in (returning email users)
-6. Profile setup
-7. Home dashboard
-8. Core journaling loops (new entry, history/calendar, insights, profile/settings/privacy)
-9. Supporting monetization entry surfaces such as the premium paywall
+6. Post-auth paywall for eligible non-premium users after onboarding is complete
+7. Profile setup where still needed
+8. Home dashboard
+9. Core journaling loops (new entry, history/calendar, manual Goals, insights, Mind Map, profile/settings/privacy)
+10. Supporting monetization entry surfaces such as the premium paywall
 
 ---
 
@@ -61,6 +62,12 @@ Primary user journey represented by the latest design context:
 - streak and habit reinforcement
 - reminders and weekly action plans
 - privacy and safety controls
+- user-owned manual goals available without Premium
+- an educational iOS Mind Map that never presents personal data without Premium and AI consent
+
+## Revamp Implementation Note
+
+The approved post-entry chooser, generic Free previews, paid guided-entry gate, per-entry map contexts, historical backfill, and purchase-resume flow remain target work. The current implementation provides the foundations documented in `APP_EXPERIENCE_FLOW.md`: normalized entry modes, manual Goals, Pro-only suggestion retrieval, an iOS Mind Map tab, and Free/AI-off educational rendering.
 
 ---
 

@@ -1,4 +1,7 @@
 import { request } from "../utils/apiClient";
+import { CURRENT_ONBOARDING_VERSION } from "../config/onboarding";
+import type { AuthUser } from "./authService";
+import type { OnboardingCompletionData } from "../types/onboarding";
 
 type OnboardingDemoMood = "great" | "good" | "okay" | "low" | "stressed";
 
@@ -21,6 +24,8 @@ type OnboardingDemoAnalysisResponse = {
   prompt: string;
 };
 
+type CompleteOnboardingPayload = OnboardingCompletionData;
+
 const generateOnboardingDemoAnalysis = async (
   payload: OnboardingDemoAnalysisRequest
 ) => {
@@ -35,8 +40,21 @@ const generateOnboardingDemoAnalysis = async (
   return response.data;
 };
 
-export { generateOnboardingDemoAnalysis };
+const completeOnboarding = async (payload: CompleteOnboardingPayload) => {
+  const response = await request<AuthUser>("/onboarding/complete", {
+    body: JSON.stringify({
+      ...payload,
+      version: CURRENT_ONBOARDING_VERSION,
+    }),
+    method: "POST",
+  });
+
+  return response.data;
+};
+
+export { completeOnboarding, generateOnboardingDemoAnalysis };
 export type {
+  CompleteOnboardingPayload,
   OnboardingDemoAnalysisRequest,
   OnboardingDemoAnalysisResponse,
   OnboardingDemoKeyword,

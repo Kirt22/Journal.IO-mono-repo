@@ -1,4 +1,5 @@
 import { request } from "../utils/apiClient";
+import type { BrainReflectionCenterId } from "./guidedReflectionService";
 
 type InsightMood = "amazing" | "good" | "okay" | "bad" | "terrible";
 type InsightTone = "coral" | "blue" | "sage" | "amber" | "slate";
@@ -202,6 +203,84 @@ type InsightsAiAnalysis =
   | InsightsAiAnalysisInsufficient
   | InsightsAiAnalysisReady;
 
+type InsightsMindMapRange = "latest_week" | "all_time";
+
+type InsightsMindMapPeriod = {
+  range: InsightsMindMapRange;
+  label: string;
+  startDate: string | null;
+  endDate: string | null;
+  entryCount: number;
+  activeDays: number;
+  clearEntryCount: number;
+  totalWords: number;
+  minimumActiveDays: number;
+  generatedAt: string | null;
+};
+
+type InsightsMindMapSummary = {
+  headline: string;
+  narrative: string;
+  note: string;
+};
+
+type InsightsMindMapDisclaimer = {
+  title: string;
+  body: string;
+};
+
+type InsightsMindMapRegion = {
+  id: BrainReflectionCenterId;
+  productLabel: string;
+  brainRegionSubtitle: string;
+  signalScore: number;
+  confidence: number;
+  rank: number;
+  intensity: "low" | "moderate" | "high";
+  shortInsight: string;
+  evidenceSnippets: string[];
+};
+
+type InsightsMindMapReady = {
+  status: "ready";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  strongestRegionId: BrainReflectionCenterId;
+  regions: InsightsMindMapRegion[];
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+type InsightsMindMapBuilding = {
+  status: "building";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  progress: {
+    activeDays: number;
+    minimumActiveDays: number;
+    clearEntryCount: number;
+    entriesNeeded: number;
+    daysRemaining: number | null;
+  };
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+type InsightsMindMapSupportFirst = {
+  status: "support_first";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  support: {
+    headline: string;
+    body: string;
+    note: string;
+  };
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+type InsightsMindMap =
+  | InsightsMindMapReady
+  | InsightsMindMapBuilding
+  | InsightsMindMapSupportFirst;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -257,6 +336,91 @@ function hasReadyShape(value: unknown): value is Omit<InsightsAiAnalysisReady, "
   );
 }
 
+function hasMindMapPeriodShape(value: unknown): value is InsightsMindMapPeriod {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    typeof value.entryCount === "number" &&
+    typeof value.activeDays === "number" &&
+    typeof value.clearEntryCount === "number" &&
+    typeof value.totalWords === "number"
+  );
+}
+
+function hasMindMapSummaryShape(value: unknown): value is InsightsMindMapSummary {
+  return (
+    isRecord(value) &&
+    typeof value.headline === "string" &&
+    typeof value.narrative === "string" &&
+    typeof value.note === "string"
+  );
+}
+
+function hasMindMapDisclaimerShape(value: unknown): value is InsightsMindMapDisclaimer {
+  return (
+    isRecord(value) &&
+    typeof value.title === "string" &&
+    typeof value.body === "string"
+  );
+}
+
+function hasMindMapRegionShape(value: unknown): value is InsightsMindMapRegion {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.productLabel === "string" &&
+    typeof value.brainRegionSubtitle === "string" &&
+    typeof value.signalScore === "number" &&
+    typeof value.confidence === "number" &&
+    typeof value.rank === "number" &&
+    typeof value.shortInsight === "string" &&
+    Array.isArray(value.evidenceSnippets)
+  );
+}
+
+function hasMindMapReadyShape(value: unknown): value is Omit<InsightsMindMapReady, "status"> {
+  return (
+    isRecord(value) &&
+    hasMindMapPeriodShape(value.period) &&
+    hasMindMapSummaryShape(value.summary) &&
+    typeof value.strongestRegionId === "string" &&
+    Array.isArray(value.regions) &&
+    value.regions.every(hasMindMapRegionShape) &&
+    hasMindMapDisclaimerShape(value.disclaimer)
+  );
+}
+
+function hasMindMapBuildingShape(
+  value: unknown
+): value is Omit<InsightsMindMapBuilding, "status"> {
+  return (
+    isRecord(value) &&
+    hasMindMapPeriodShape(value.period) &&
+    hasMindMapSummaryShape(value.summary) &&
+    isRecord(value.progress) &&
+    typeof value.progress.activeDays === "number" &&
+    typeof value.progress.minimumActiveDays === "number" &&
+    typeof value.progress.clearEntryCount === "number" &&
+    typeof value.progress.entriesNeeded === "number" &&
+    hasMindMapDisclaimerShape(value.disclaimer)
+  );
+}
+
+function hasMindMapSupportFirstShape(
+  value: unknown
+): value is Omit<InsightsMindMapSupportFirst, "status"> {
+  return (
+    isRecord(value) &&
+    hasMindMapPeriodShape(value.period) &&
+    hasMindMapSummaryShape(value.summary) &&
+    isRecord(value.support) &&
+    typeof value.support.headline === "string" &&
+    typeof value.support.body === "string" &&
+    typeof value.support.note === "string" &&
+    hasMindMapDisclaimerShape(value.disclaimer)
+  );
+}
+
 function normalizeInsightsAiAnalysis(data: unknown): InsightsAiAnalysis {
   if (isRecord(data) && data.status === "collecting" && hasCollectingShape(data)) {
     return data as InsightsAiAnalysisCollecting;
@@ -294,6 +458,47 @@ function normalizeInsightsAiAnalysis(data: unknown): InsightsAiAnalysis {
   throw new Error("AI analysis response was missing required fields.");
 }
 
+function normalizeInsightsMindMap(data: unknown): InsightsMindMap {
+  if (isRecord(data) && data.status === "ready" && hasMindMapReadyShape(data)) {
+    return data as InsightsMindMapReady;
+  }
+
+  if (isRecord(data) && data.status === "building" && hasMindMapBuildingShape(data)) {
+    return data as InsightsMindMapBuilding;
+  }
+
+  if (
+    isRecord(data) &&
+    data.status === "support_first" &&
+    hasMindMapSupportFirstShape(data)
+  ) {
+    return data as InsightsMindMapSupportFirst;
+  }
+
+  if (hasMindMapReadyShape(data)) {
+    return {
+      status: "ready",
+      ...(data as Omit<InsightsMindMapReady, "status">),
+    };
+  }
+
+  if (hasMindMapBuildingShape(data)) {
+    return {
+      status: "building",
+      ...(data as Omit<InsightsMindMapBuilding, "status">),
+    };
+  }
+
+  if (hasMindMapSupportFirstShape(data)) {
+    return {
+      status: "support_first",
+      ...(data as Omit<InsightsMindMapSupportFirst, "status">),
+    };
+  }
+
+  throw new Error("Mind Map response was missing required fields.");
+}
+
 const getInsightsOverview = async () => {
   const response = await request<InsightsOverview>("/insights/overview", {
     method: "GET",
@@ -310,7 +515,24 @@ const getInsightsAiAnalysis = async () => {
   return normalizeInsightsAiAnalysis(response.data);
 };
 
-export { getInsightsOverview, getInsightsAiAnalysis, normalizeInsightsAiAnalysis };
+const getInsightsMindMap = async (range: InsightsMindMapRange) => {
+  const response = await request<InsightsMindMap>(
+    `/insights/mind-map?range=${range}`,
+    {
+      method: "GET",
+    }
+  );
+
+  return normalizeInsightsMindMap(response.data);
+};
+
+export {
+  getInsightsOverview,
+  getInsightsAiAnalysis,
+  getInsightsMindMap,
+  normalizeInsightsAiAnalysis,
+  normalizeInsightsMindMap,
+};
 export type {
   InsightMood,
   InsightTone,
@@ -319,4 +541,13 @@ export type {
   InsightsAiAnalysisCollecting,
   InsightsAiAnalysisInsufficient,
   InsightsAiAnalysisReady,
+  InsightsMindMap,
+  InsightsMindMapBuilding,
+  InsightsMindMapDisclaimer,
+  InsightsMindMapPeriod,
+  InsightsMindMapRange,
+  InsightsMindMapReady,
+  InsightsMindMapRegion,
+  InsightsMindMapSummary,
+  InsightsMindMapSupportFirst,
 };

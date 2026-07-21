@@ -234,11 +234,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   headerCopy: {
+    alignItems: "center",
     flex: 1,
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "400",
+    textAlign: "center",
   },
   headerSpacer: {
     width: 36,

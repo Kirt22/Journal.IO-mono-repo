@@ -36,6 +36,13 @@ test("getLegalPageHtml renders the terms page", () => {
   assert.match(html, /Subscriptions and Billing/);
 });
 
+test("getLegalPageHtml renders the usage policy page", () => {
+  const html = getLegalPageHtml("acceptable-use");
+
+  assert.match(html, /Journal\.IO Usage Policy/);
+  assert.match(html, /What Is Not Allowed/);
+});
+
 test("getLegalPageHtml renders the support page with the Google Form CTA", () => {
   const html = getLegalPageHtml("support");
 
@@ -52,6 +59,7 @@ test("getLegalHubHtml links to every legal route", () => {
   assert.match(html, /Journal\.IO Legal/);
   assert.match(html, /href="\/privacy"/);
   assert.match(html, /href="\/terms"/);
+  assert.match(html, /href="\/acceptable-use"/);
   assert.match(html, /href="\/privacy-choices"/);
   assert.match(html, /href="\/support"/);
 });

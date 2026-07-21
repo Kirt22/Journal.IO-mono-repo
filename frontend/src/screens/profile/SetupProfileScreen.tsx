@@ -350,7 +350,7 @@ export default function SetupProfileScreen({
               </View>
 
               <PrimaryButton
-                label={isSubmitting ? "Creating account..." : "Start Journaling"}
+                label="Start Journaling"
                 onPress={handleSubmit}
                 loading={isSubmitting}
                 disabled={isSubmitting}

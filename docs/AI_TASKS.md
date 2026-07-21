@@ -4,6 +4,12 @@ This roadmap is aligned to the current design flow and MVP priorities.
 
 Implement features sequentially as complete vertical slices.
 
+## Current Revamp Slice
+
+Completed: normalized `open_ended`/`guided` journal modes; authenticated manual Goals CRUD; Pro/AI-opt-in journal-context suggestion retrieval; Home Goals/settings entry points; iOS Mind Map tab; educational Free/AI-off Mind Map state.
+
+Next: reusable entry-type chooser and guided paywall gate, unified post-entry/paywall-resume result shell, explicit AI-goal review, per-entry reflection contexts and entry-detail access, historical backfill and entitlement pause/restore, then full manual iOS verification.
+
 ---
 
 # 1) Onboarding and Trust Setup

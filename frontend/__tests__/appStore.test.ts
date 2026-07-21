@@ -10,6 +10,7 @@ import {
   syncStoredDailyReminderNotifications,
 } from "../src/services/reminderNotificationsService";
 import { syncOnboardingReminderRecordPreference } from "../src/services/remindersService";
+import { completeOnboarding as completeOnboardingRequest } from "../src/services/onboardingService";
 import { navigateRoot, resetRoot } from "../src/navigation/navigation";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
@@ -43,6 +44,26 @@ jest.mock("../src/services/remindersService", () => ({
     streakWarnings: true,
     createdAt: "2026-04-03T10:00:00.000Z",
     updatedAt: "2026-04-03T10:00:00.000Z",
+  })),
+}));
+
+jest.mock("../src/services/onboardingService", () => ({
+  completeOnboarding: jest.fn(async () => ({
+    userId: "user-123",
+    name: "Alex",
+    phoneNumber: null,
+    email: "alex@example.com",
+    isPremium: false,
+    journalingGoals: ["Daily Reflection", "Personal Growth"],
+    avatarColor: "#8E4636",
+    profileSetupCompleted: false,
+    onboardingCompleted: true,
+    onboardingVersion: 2,
+    onboardingCompletedAt: "2026-06-26T10:00:00.000Z",
+    hasJournalEntries: false,
+    journalCount: 0,
+    profilePic: null,
+    aiOptIn: true,
   })),
 }));
 
@@ -80,6 +101,7 @@ describe("appStore", () => {
     (syncOnboardingReminderRecordPreference as jest.Mock).mockClear();
     (syncReminderNotifications as jest.Mock).mockClear();
     (syncStoredDailyReminderNotifications as jest.Mock).mockClear();
+    (completeOnboardingRequest as jest.Mock).mockClear();
     (navigateRoot as jest.Mock).mockClear();
     (resetRoot as jest.Mock).mockClear();
   });
@@ -89,31 +111,136 @@ describe("appStore", () => {
     jest.useRealTimers();
     jest.dontMock("../src/services/authService");
     jest.dontMock("../src/services/userService");
+    jest.dontMock("../src/config/env");
     jest.dontMock("../src/utils/tokenStorage");
     resetAppStore();
   });
 
-  it("preserves onboarding data and advances into auth after the handoff delay", async () => {
+  it("routes unauthenticated onboarding completion back to auth without saving completion", async () => {
     const store = useAppStore;
+
+    await act(async () => {
+      await store.getState().completeOnboarding(onboardingData);
+    });
+
+    expect(store.getState().isCompletingOnboarding).toBe(false);
+    expect(store.getState().stage).toBe("auth");
+    expect(completeOnboardingRequest).not.toHaveBeenCalled();
+    expect(AsyncStorage.setItem).not.toHaveBeenCalledWith(
+      "journalio.onboardingCompleted",
+      "true"
+    );
+    expect(syncOnboardingReminderPreference).not.toHaveBeenCalled();
+  });
+
+  it("completes authenticated onboarding through the backend before post-auth paywall routing", async () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.setState({
+        stage: "onboarding",
+        authSource: "email",
+        pendingEmail: "alex@example.com",
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: false,
+            onboardingVersion: null,
+            hasJournalEntries: false,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
 
     await act(async () => {
       const transition = store.getState().completeOnboarding(onboardingData);
 
       expect(store.getState().isCompletingOnboarding).toBe(true);
       expect(store.getState().onboardingData).toEqual(onboardingData);
-      expect(store.getState().stage).toBe("onboarding");
 
-      jest.advanceTimersByTime(220);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(220);
       await transition;
     });
 
+    expect(completeOnboardingRequest).toHaveBeenCalledWith(onboardingData);
     expect(store.getState().isCompletingOnboarding).toBe(false);
-    expect(store.getState().stage).toBe("auth");
+    expect(store.getState().stage).toBe("paywall");
+    expect(store.getState().paywallReturnStage).toBe("profile");
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
       "journalio.onboardingData",
       JSON.stringify(onboardingData)
     );
     expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
+    expect(syncOnboardingReminderRecordPreference).toHaveBeenCalledWith(
+      "Evening",
+      {
+        enabled: true,
+        timezone: "Asia/Kolkata",
+      }
+    );
+  });
+
+  it("finishes onboarding v2 first reflection without calling onboarding complete or paywall", async () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.setState({
+        stage: "onboarding",
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: false,
+            onboardingVersion: null,
+            hasJournalEntries: false,
+            journalCount: 0,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
+
+    await act(async () => {
+      await store.getState().finishOnboardingV2FirstReflection();
+    });
+
+    expect(completeOnboardingRequest).not.toHaveBeenCalled();
+    expect(store.getState().stage).toBe("main-app");
+    expect(store.getState().session?.user.hasJournalEntries).toBe(true);
+    expect(store.getState().session?.user.journalCount).toBe(1);
+    expect(store.getState().activePaywallPlacementKey).toBeNull();
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      "journalio.onboardingCompleted",
+      "true"
+    );
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      "journalio.postAuthPaywallSeen",
+      "true"
+    );
+    expect(resetRoot).toHaveBeenCalledWith("MainApp", {
+      screen: "Home",
+    });
   });
 
   it("continues from paywall into auth", () => {
@@ -494,13 +621,39 @@ describe("appStore", () => {
   it("clears local reminders when onboarding selects no reminders", async () => {
     const store = useAppStore;
 
+    act(() => {
+      store.setState({
+        stage: "onboarding",
+        session: {
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          user: {
+            userId: "user-123",
+            name: "Alex",
+            phoneNumber: null,
+            email: "alex@example.com",
+            isPremium: false,
+            journalingGoals: [],
+            avatarColor: "#8E4636",
+            profileSetupCompleted: false,
+            onboardingCompleted: false,
+            onboardingVersion: null,
+            hasJournalEntries: false,
+            profilePic: null,
+            aiOptIn: true,
+          },
+        },
+      });
+    });
+
     await act(async () => {
       const transition = store.getState().completeOnboarding({
         ...onboardingData,
         reminderPreference: "none",
       });
 
-      jest.advanceTimersByTime(220);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(220);
       await transition;
     });
 
@@ -685,6 +838,9 @@ describe("appStore", () => {
 
   it("boots into auth on the same install after tokens are gone", async () => {
     jest.resetModules();
+    const storage = require("@react-native-async-storage/async-storage").default;
+    const navigation = require("../src/navigation/navigation");
+
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
       clearPostAuthPaywallSeen: jest.fn(async () => undefined),
@@ -702,12 +858,17 @@ describe("appStore", () => {
 
     const { useAppStore: freshStore } = require("../src/store/appStore");
 
+    expect(freshStore.getState().stage).toBe("auth");
+
     await act(async () => {
       await freshStore.getState().bootstrapAuthGate();
     });
 
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
     expect(freshStore.getState().stage).toBe("auth");
+    expect(freshStore.getState().session).toBeNull();
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
+    expect(navigation.resetRoot).toHaveBeenCalledWith("AuthChoice");
   });
 
   it("restores completed onboarding answers when reopening at auth", async () => {
@@ -847,10 +1008,13 @@ describe("appStore", () => {
 
     const { ApiError } = require("../src/utils/apiClient");
 
+    const getProfile = jest.fn();
+    getProfile.mockRejectedValueOnce(
+      new ApiError("Network unavailable", { isNetworkError: true })
+    );
+
     jest.doMock("../src/services/userService", () => ({
-      getProfile: jest.fn(async () => {
-        throw new ApiError("Network unavailable", { isNetworkError: true });
-      }),
+      getProfile,
       updateProfile: jest.fn(),
     }));
 
@@ -867,6 +1031,168 @@ describe("appStore", () => {
       refreshToken: "refresh-token",
       user: cachedUser,
     });
+    expect(freshStore.getState().sessionValidationState).toBe("cached");
+
+    getProfile.mockResolvedValueOnce({
+      ...cachedUser,
+      name: "Alex Verified",
+    });
+
+    await act(async () => {
+      await freshStore.getState().revalidateCachedSession();
+    });
+
+    expect(freshStore.getState().sessionValidationState).toBe("verified");
+    expect(freshStore.getState().session?.user.name).toBe("Alex Verified");
+  });
+
+  it("keeps bootstrap pending when tokens have no cached profile and the backend is offline", async () => {
+    jest.resetModules();
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+
+    const { ApiError } = require("../src/utils/apiClient");
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => {
+        throw new ApiError("Network unavailable", { isNetworkError: true });
+      }),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(false);
+    expect(freshStore.getState().session).toBeNull();
+    expect(freshStore.getState().stage).toBe("auth");
+  });
+
+  it("removes legacy mock sessions instead of opening the authenticated app", async () => {
+    jest.resetModules();
+
+    const clearTokens = jest.fn(async () => undefined);
+    const getProfile = jest.fn();
+    const storage = require("@react-native-async-storage/async-storage").default;
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens,
+      getAccessToken: jest.fn(async () => "mock-access-alex"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "mock-access-alex",
+        refreshToken: "mock-refresh-alex",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile,
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
+    expect(getProfile).not.toHaveBeenCalled();
+    expect(freshStore.getState().session).toBeNull();
+    expect(freshStore.getState().stage).toBe("auth");
+  });
+
+  it("clears a cached offline session when reconnect validation is unauthorized", async () => {
+    jest.resetModules();
+
+    const clearTokens = jest.fn(async () => undefined);
+    const storage = require("@react-native-async-storage/async-storage").default;
+    const navigation = require("../src/navigation/navigation");
+    const { ApiError } = require("../src/utils/apiClient");
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens,
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => {
+        throw new ApiError("Unauthorized", { status: 401 });
+      }),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+    freshStore.setState({
+      hasBootstrappedAuthGate: true,
+      sessionValidationState: "cached",
+      stage: "main-app",
+      session: {
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        user: {
+          userId: "user-123",
+          name: "Alex",
+          phoneNumber: null,
+          email: "alex@example.com",
+          journalingGoals: [],
+          avatarColor: "#8E4636",
+          profileSetupCompleted: true,
+          onboardingCompleted: true,
+          profilePic: null,
+          aiOptIn: true,
+        },
+      },
+    });
+
+    await act(async () => {
+      await freshStore.getState().revalidateCachedSession();
+    });
+
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
+    expect(freshStore.getState().session).toBeNull();
+    expect(freshStore.getState().sessionValidationState).toBe("none");
+    expect(freshStore.getState().stage).toBe("auth");
+    expect(navigation.resetRoot).toHaveBeenCalledWith("AuthChoice");
   });
 
   it("marks existing installs as already having seen the post-auth paywall", async () => {
@@ -917,7 +1243,7 @@ describe("appStore", () => {
     expect(freshStore.getState().stage).toBe("main-app");
   });
 
-  it("boots into onboarding on a fresh install even if keychain still has a token", async () => {
+  it("does not clear keychain tokens on a fresh install marker without an unauthorized response", async () => {
     jest.resetModules();
 
     const clearTokens = jest.fn(async () => undefined);
@@ -950,9 +1276,9 @@ describe("appStore", () => {
       await freshStore.getState().bootstrapAuthGate();
     });
 
-    expect(clearTokens).toHaveBeenCalled();
+    expect(clearTokens).not.toHaveBeenCalled();
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
-    expect(freshStore.getState().stage).toBe("onboarding");
+    expect(freshStore.getState().stage).toBe("auth");
   });
 
   it("clears invalid persisted tokens and returns to auth on the same install", async () => {
@@ -1113,7 +1439,6 @@ describe("appStore", () => {
     expect(signInWithEmail).toHaveBeenCalledWith({
       email: "alex@example.com",
       password: "password123",
-      onboardingCompleted: true,
     });
     expect(saveOnboardingCompleted).toHaveBeenCalledWith(true);
     expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
@@ -1121,7 +1446,7 @@ describe("appStore", () => {
     expect(freshStore.getState().paywallReturnStage).toBe("main-app");
   });
 
-  it("syncs the onboarding reminder record after sign in", async () => {
+  it("does not overwrite reminders from stale local onboarding data after sign in", async () => {
     jest.resetModules();
 
     const savedReminder = {
@@ -1138,6 +1463,7 @@ describe("appStore", () => {
     };
     const syncReminderRecordMock = jest.fn(async () => savedReminder);
     const syncReminderNotificationsMock = jest.fn(async () => undefined);
+    const syncStoredDailyReminderNotificationsMock = jest.fn(async () => null);
 
     jest.doMock("../src/services/remindersService", () => ({
       syncOnboardingReminderRecordPreference: syncReminderRecordMock,
@@ -1149,7 +1475,7 @@ describe("appStore", () => {
       getReminderPermissionGranted: jest.fn(async () => true),
       syncOnboardingReminderPreference: jest.fn(async () => undefined),
       syncReminderNotifications: syncReminderNotificationsMock,
-      syncStoredDailyReminderNotifications: jest.fn(async () => null),
+      syncStoredDailyReminderNotifications: syncStoredDailyReminderNotificationsMock,
     }));
     jest.doMock("../src/services/authService", () => ({
       resendEmailVerification: jest.fn(),
@@ -1208,11 +1534,9 @@ describe("appStore", () => {
       });
     });
 
-    expect(syncReminderRecordMock).toHaveBeenCalledWith("Evening", {
-      enabled: true,
-      timezone: "Asia/Kolkata",
-    });
-    expect(syncReminderNotificationsMock).toHaveBeenCalledWith(savedReminder);
+    expect(syncReminderRecordMock).not.toHaveBeenCalled();
+    expect(syncReminderNotificationsMock).not.toHaveBeenCalledWith(savedReminder);
+    expect(syncStoredDailyReminderNotificationsMock).toHaveBeenCalledTimes(1);
   });
 
   it("continues with Google using the shared session persistence flow", async () => {
@@ -1284,16 +1608,6 @@ describe("appStore", () => {
     expect(getGoogleIdToken).toHaveBeenCalledTimes(1);
     expect(signInWithGoogle).toHaveBeenCalledWith({
       idToken: "google-id-token",
-      onboardingContext: {
-        ageRange: "25-34",
-        journalingExperience: "Occasional journaler",
-        goals: ["Daily Reflection", "Personal Growth"],
-        supportFocus: ["Stress", "Sleep"],
-        reminderPreference: "Evening",
-        aiOptIn: false,
-        privacyConsentAccepted: true,
-      },
-      onboardingCompleted: true,
     });
     expect(saveTokens).toHaveBeenCalledWith({
       accessToken: "access-token",
@@ -1391,16 +1705,6 @@ describe("appStore", () => {
         familyName: "Appleseed",
         nickname: null,
       },
-      onboardingContext: {
-        ageRange: "25-34",
-        journalingExperience: "Occasional journaler",
-        goals: ["Daily Reflection", "Personal Growth"],
-        supportFocus: ["Stress", "Sleep"],
-        reminderPreference: "Evening",
-        aiOptIn: false,
-        privacyConsentAccepted: true,
-      },
-      onboardingCompleted: true,
     });
     expect(saveTokens).toHaveBeenCalledWith({
       accessToken: "access-token",
@@ -1476,7 +1780,6 @@ describe("appStore", () => {
     expect(signInWithApple).toHaveBeenCalledWith({
       identityToken: "apple-identity-token",
       nonce: "raw-apple-nonce-value",
-      onboardingCompleted: true,
     });
   });
 

@@ -4,8 +4,11 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/app.ts",
+    "dev:simulator": "HOST=127.0.0.1 PORT=3001 nodemon --exec ts-node src/app.ts",
+    "dev:local-test": "HOST=0.0.0.0 PORT=3001 nodemon --exec ts-node src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
+    "start:simulator": "HOST=127.0.0.1 PORT=3001 node dist/app.js",
     "check:production:domains": "node scripts/check-production-domains.mjs",
     "test": "npm run build && node scripts/run-tests.mjs"
   },

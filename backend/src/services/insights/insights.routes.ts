@@ -3,10 +3,12 @@ import { validateRequest } from "../../middleware/validateRequest.middleware";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
   getInsightsAiAnalysisController,
+  getInsightsMindMapController,
   getInsightsOverviewController,
 } from "./insights.controllers";
 import {
   getInsightsAiAnalysisSchema,
+  getInsightsMindMapSchema,
   getInsightsOverviewSchema,
 } from "./insights.validators";
 
@@ -24,6 +26,13 @@ insightsRouter.get(
   verifyJwtToken,
   validateRequest(getInsightsAiAnalysisSchema),
   getInsightsAiAnalysisController
+);
+
+insightsRouter.get(
+  "/mind-map",
+  verifyJwtToken,
+  validateRequest(getInsightsMindMapSchema),
+  getInsightsMindMapController
 );
 
 export default insightsRouter;

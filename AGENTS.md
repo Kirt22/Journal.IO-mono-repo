@@ -135,6 +135,7 @@ When working in this repo, consult these documents when relevant:
 - `docs/AI_INSIGHTS_PIPELINE.md` → AI extraction and aggregation flow
 - `docs/SECURITY_MODEL.md` → privacy and security rules
 - `docs/AI_TASKS.md` → roadmap and feature order
+- `docs/UI_IMPLEMENTATION_STANDARDS.md` → required mobile UI consistency rules
 
 If these docs conflict, use this priority order:
 
@@ -152,6 +153,7 @@ Do not invent requirements that contradict these files.
 ## 6) Tech Stack
 
 ### Frontend
+
 - React Native
 - TypeScript
 - React Navigation
@@ -159,12 +161,14 @@ Do not invent requirements that contradict these files.
 - Zustand
 
 ### Backend
+
 - Node.js
 - Express
 - MongoDB
 - Mongoose
 
 ### AI Layer
+
 - OpenAI API
 - asynchronous background analysis jobs
 
@@ -177,6 +181,7 @@ Do not introduce Redux Toolkit, GraphQL, Next.js, NestJS, Prisma, or relational 
 ## 7) Repository Structure
 
 ### Backend
+
 Expected structure:
 
 - `backend/src/config`
@@ -205,6 +210,7 @@ Each service module should follow this pattern where applicable:
 - `feature.service.ts` if business logic is non-trivial
 
 ### Frontend
+
 Expected structure:
 
 - `frontend/src/screens`
@@ -223,6 +229,7 @@ Do not create duplicate parallel architectures.
 ## 8) Backend Conventions
 
 ### Request Flow
+
 Use this flow:
 
 client request  
@@ -233,6 +240,7 @@ client request
 → response
 
 ### Controllers
+
 Controllers must:
 
 - validate input
@@ -241,6 +249,7 @@ Controllers must:
 - avoid heavy business logic
 
 ### Services
+
 Services should contain:
 
 - core business logic
@@ -249,6 +258,7 @@ Services should contain:
 - AI orchestration where relevant
 
 ### Validation
+
 All incoming request bodies, params, and query strings must be validated.
 
 Use the existing schema validation library already used in the repo.
@@ -256,6 +266,7 @@ Use the existing schema validation library already used in the repo.
 Do not skip validation.
 
 ### Error Format
+
 All errors should follow the standard repo response contract:
 
 ```json
@@ -370,6 +381,13 @@ The app should feel:
 - emotionally safe
 
 Avoid noisy UI, heavy animation, and gamification overload.
+
+### UI Consistency
+
+For every mobile UI change, consult `docs/UI_IMPLEMENTATION_STANDARDS.md`
+before implementation. Reuse its established header, spacing, theme-token,
+icon, haptic, and conditional-action animation patterns rather than creating
+new local variants.
 
 ---
 
@@ -708,3 +726,17 @@ Global skills (fallback/utility):
 - When both local and global skills overlap, prefer project-local skills for Journal.IO tasks.
 - Read only the triggered skill body and any directly needed references.
 - Keep skill usage focused; do not load unrelated skills.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

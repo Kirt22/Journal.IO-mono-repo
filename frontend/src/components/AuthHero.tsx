@@ -1,25 +1,32 @@
-import { useEffect, useRef } from "react";
 import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  AccessibilityInfo,
   Animated,
   Easing,
-  Image,
   StyleSheet,
   Text,
   View,
-} from "react-native";
-import type { ReactNode } from "react";
-import { useTheme } from "../theme/provider";
-
-const mascotImage = require("../assets/png/Masscott.png");
+} from 'react-native';
+import { useTheme } from '../theme/provider';
+import JournalWordmark, {
+  type JournalWordmarkIntroResult,
+} from './JournalWordmark';
 
 type AuthHeroProps = {
   title: string;
   subtitle: string;
-  tone?: "default" | "success";
-  imageSize?: number;
-  shellSize?: number;
   titleSize?: number;
   subtitleMaxWidth?: number;
+  playWordmarkIntro?: boolean;
+  onWordmarkIntroStart?: () => void;
+  onWordmarkMergeComplete?: (result: JournalWordmarkIntroResult) => void;
+  onWordmarkIntroComplete?: (result: JournalWordmarkIntroResult) => void;
   children?: ReactNode;
   badge?: ReactNode;
 };
@@ -27,98 +34,148 @@ type AuthHeroProps = {
 export default function AuthHero({
   title,
   subtitle,
-  tone = "default",
-  imageSize = 100,
-  shellSize,
   titleSize = 28,
   subtitleMaxWidth = 340,
+  playWordmarkIntro = false,
+  onWordmarkIntroStart,
+  onWordmarkMergeComplete,
+  onWordmarkIntroComplete,
   children,
   badge,
 }: AuthHeroProps) {
   const theme = useTheme();
-  const float = useRef(new Animated.Value(0)).current;
-  const resolvedShellSize = shellSize ?? Math.max(imageSize + 28, 104);
-  const resolvedShellRadius = Math.round(resolvedShellSize * 0.27);
-  const glowSize = Math.round(resolvedShellSize * 1.4);
+  const shouldAnimateSubtitle = playWordmarkIntro;
+  const subtitleEntrance = useRef(
+    new Animated.Value(shouldAnimateSubtitle ? 0 : 1),
+  ).current;
+  const subtitleAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const hasCompletedSubtitleRef = useRef(!shouldAnimateSubtitle);
+  const onWordmarkIntroCompleteRef = useRef(onWordmarkIntroComplete);
+  const [isSubtitleAccessible, setIsSubtitleAccessible] = useState(
+    !shouldAnimateSubtitle,
+  );
+  const showsDuplicateBrandTitle = title.trim().toLowerCase() === 'journal.io';
+
+  useEffect(
+    () => () => {
+      subtitleAnimationRef.current?.stop();
+    },
+    [],
+  );
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, {
-          toValue: 1,
-          duration: 2200,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(float, {
-          toValue: 0,
-          duration: 2200,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
+    onWordmarkIntroCompleteRef.current = onWordmarkIntroComplete;
+  }, [onWordmarkIntroComplete]);
+
+  const completeSubtitle = useCallback(
+    (result: JournalWordmarkIntroResult) => {
+      if (hasCompletedSubtitleRef.current) {
+        return;
+      }
+
+      hasCompletedSubtitleRef.current = true;
+      subtitleAnimationRef.current?.stop();
+      subtitleEntrance.setValue(1);
+      setIsSubtitleAccessible(true);
+      onWordmarkIntroCompleteRef.current?.(result);
+    },
+    [subtitleEntrance],
+  );
+
+  useEffect(() => {
+    if (!shouldAnimateSubtitle) {
+      return;
+    }
+
+    let isActive = true;
+    const handleReduceMotion = (enabled: boolean) => {
+      if (isActive && enabled) {
+        completeSubtitle({ animated: false, outcome: 'reduced-motion' });
+      }
+    };
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(handleReduceMotion)
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      handleReduceMotion,
     );
 
-    loop.start();
-
     return () => {
-      loop.stop();
+      isActive = false;
+      subscription.remove();
     };
-  }, [float]);
+  }, [completeSubtitle, shouldAnimateSubtitle]);
 
-  const translateY = float.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -5],
-  });
+  const handleWordmarkMergeComplete = useCallback(
+    (result: JournalWordmarkIntroResult) => {
+      subtitleAnimationRef.current?.stop();
+      onWordmarkMergeComplete?.(result);
+
+      if (result.animated && !hasCompletedSubtitleRef.current) {
+        subtitleAnimationRef.current = Animated.timing(subtitleEntrance, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        });
+        subtitleAnimationRef.current.start(({ finished }) => {
+          if (finished) {
+            completeSubtitle(result);
+          }
+        });
+      } else {
+        completeSubtitle(result);
+      }
+    },
+    [completeSubtitle, onWordmarkMergeComplete, subtitleEntrance],
+  );
+
+  const subtitleEntranceStyle = {
+    opacity: subtitleEntrance,
+    transform: [
+      {
+        translateY: subtitleEntrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [8, 0],
+        }),
+      },
+    ],
+  } as const;
 
   return (
     <View style={styles.container}>
-      <Animated.View
-        style={[
-          styles.mascotShell,
-          {
-            backgroundColor: theme.colors.accent,
-            borderRadius: resolvedShellRadius,
-            height: resolvedShellSize,
-            transform: [{ translateY }],
-            width: resolvedShellSize,
-          },
-          tone === "success" ? { borderColor: theme.colors.success } : null,
-        ]}
-      >
-        <View
+      <JournalWordmark
+        playInkCurrentIntro={playWordmarkIntro}
+        onIntroStart={onWordmarkIntroStart}
+        onIntroMergeComplete={handleWordmarkMergeComplete}
+      />
+      {!showsDuplicateBrandTitle ? (
+        <Text
           style={[
-            styles.glow,
-            {
-              backgroundColor:
-                tone === "success" ? theme.colors.success : theme.colors.primary,
-              borderRadius: glowSize / 2,
-              height: glowSize,
-              width: glowSize,
-            },
+            styles.title,
+            { color: theme.colors.foreground, fontSize: titleSize },
           ]}
-        />
-        <Image
-          source={mascotImage}
-          style={{ width: imageSize, height: imageSize }}
-          resizeMode="contain"
-        />
-
-        {badge ? <View style={styles.badgeWrap}>{badge}</View> : null}
-      </Animated.View>
-
-      <Text style={[styles.title, { color: theme.colors.foreground, fontSize: titleSize }]}>
-        {title}
-      </Text>
-      <Text
+        >
+          {title}
+        </Text>
+      ) : null}
+      <Animated.Text
+        accessibilityElementsHidden={!isSubtitleAccessible}
+        importantForAccessibility={
+          isSubtitleAccessible ? 'auto' : 'no-hide-descendants'
+        }
         style={[
           styles.subtitle,
           { color: theme.colors.mutedForeground, maxWidth: subtitleMaxWidth },
+          subtitleEntranceStyle,
         ]}
       >
         {subtitle}
-      </Text>
+      </Animated.Text>
 
+      {badge ? <View style={styles.badgeWrap}>{badge}</View> : null}
       {children ? <View style={styles.childrenWrap}>{children}</View> : null}
     </View>
   );
@@ -126,39 +183,26 @@ export default function AuthHero({
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: "center",
-  },
-  mascotShell: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
-    overflow: "hidden",
-    position: "relative",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.24)",
-  },
-  glow: {
-    position: "absolute",
-    opacity: 0.08,
+    alignItems: 'center',
   },
   badgeWrap: {
-    position: "absolute",
-    right: 10,
-    top: 10,
+    marginTop: 12,
   },
   title: {
-    fontWeight: "600",
-    textAlign: "center",
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 18,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
-    textAlign: "center",
+    textAlign: 'center',
+    marginTop: 14,
   },
   childrenWrap: {
     marginTop: 16,
-    width: "100%",
-    alignItems: "center",
+    width: '100%',
+    alignItems: 'center',
   },
 });

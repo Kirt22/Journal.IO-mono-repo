@@ -12,6 +12,19 @@ import {
 } from "../src/services/insightsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
+jest.mock("@react-navigation/native", () => ({
+  createNavigationContainerRef: () => ({
+    isReady: () => false,
+    dispatch: jest.fn(),
+    navigate: jest.fn(),
+    canGoBack: () => false,
+    goBack: jest.fn(),
+  }),
+  useNavigation: () => ({
+    navigate: jest.fn(),
+  }),
+}));
+
 const readyAiAnalysis = {
   status: "ready" as const,
   window: {

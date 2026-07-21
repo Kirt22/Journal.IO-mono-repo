@@ -19,4 +19,22 @@ const getInsightsAiAnalysisSchema = z.object({
     .optional(),
 });
 
-export { getInsightsOverviewSchema, getInsightsAiAnalysisSchema };
+const getInsightsMindMapSchema = z.object({
+  body: z.object({}).optional(),
+  query: z.object({
+    range: z.enum(["latest_week", "all_time"]),
+  }),
+  params: z.object({}).optional(),
+  headers: z
+    .object({
+      "x-client-timezone": z.string().trim().min(1).max(128).optional(),
+    })
+    .passthrough()
+    .optional(),
+});
+
+export {
+  getInsightsOverviewSchema,
+  getInsightsAiAnalysisSchema,
+  getInsightsMindMapSchema,
+};

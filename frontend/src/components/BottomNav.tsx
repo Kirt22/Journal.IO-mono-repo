@@ -1,53 +1,100 @@
-import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef } from 'react';
 import {
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import {
+  Brain,
   Calendar,
   Home,
   PlusCircle,
   TrendingUp,
   User,
-} from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "../theme/provider";
+} from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/provider';
 
 type BottomNavItem = {
   icon: typeof Home;
   label: string;
-  key: "home" | "calendar" | "new" | "insights" | "profile";
+  key: 'home' | 'calendar' | 'new' | 'insights' | 'mindmap' | 'profile';
   primary?: boolean;
 };
 
-export type BottomNavKey = BottomNavItem["key"];
+export type BottomNavKey = BottomNavItem['key'];
 
 type BottomNavProps = {
   activeKey?: BottomNavKey;
   onPress?: (key: BottomNavKey) => void;
+  shouldAnimateEntrance?: boolean;
 };
 
+const sharedNavItems: BottomNavItem[] = [
+  { icon: Home, label: 'Home', key: 'home' },
+  { icon: Calendar, label: 'Calendar', key: 'calendar' },
+  { icon: PlusCircle, label: 'New', key: 'new', primary: true },
+  { icon: TrendingUp, label: 'Insights', key: 'insights' },
+];
+
 const navItems: BottomNavItem[] = [
-  { icon: Home, label: "Home", key: "home" },
-  { icon: Calendar, label: "Calendar", key: "calendar" },
-  { icon: PlusCircle, label: "New", key: "new", primary: true },
-  { icon: TrendingUp, label: "Insights", key: "insights" },
-  { icon: User, label: "Profile", key: "profile" },
+  ...sharedNavItems,
+  Platform.OS === 'ios'
+    ? { icon: Brain, label: 'Mind Map', key: 'mindmap' }
+    : { icon: User, label: 'Profile', key: 'profile' },
 ];
 
 export const BOTTOM_NAV_CONTENT_PADDING = 132;
 const NAV_INNER_PADDING_BOTTOM = 0;
 
 export default function BottomNav({
-  activeKey = "home",
+  activeKey = 'home',
   onPress,
+  shouldAnimateEntrance = false,
 }: BottomNavProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const entranceProgress = useRef(
+    new Animated.Value(shouldAnimateEntrance ? 0 : 1),
+  ).current;
+  const hasStartedEntrance = useRef(false);
+
+  useEffect(() => {
+    if (!shouldAnimateEntrance || typeof jest !== 'undefined') {
+      if (!hasStartedEntrance.current) {
+        entranceProgress.setValue(1);
+      }
+      return;
+    }
+
+    hasStartedEntrance.current = true;
+    entranceProgress.setValue(0);
+
+    const animation = Animated.timing(entranceProgress, {
+      toValue: 1,
+      duration: 360,
+      delay: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+    };
+  }, [entranceProgress, shouldAnimateEntrance]);
 
   const barStyle = useMemo(
     () => ({
       backgroundColor: theme.colors.card,
       borderTopColor: theme.colors.border,
     }),
-    [theme.colors.border, theme.colors.card]
+    [theme.colors.border, theme.colors.card],
   );
 
   const handlePress = (key: BottomNavKey) => {
@@ -55,7 +102,23 @@ export default function BottomNav({
   };
 
   return (
-    <View style={styles.wrapper} pointerEvents="box-none">
+    <Animated.View
+      pointerEvents="box-none"
+      style={[
+        styles.wrapper,
+        {
+          opacity: entranceProgress,
+          transform: [
+            {
+              translateY: entranceProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [44, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
       <View style={styles.controlsShell} pointerEvents="box-none">
         <View style={[styles.bar, barStyle]}>
           <View
@@ -113,7 +176,11 @@ export default function BottomNav({
                   ) : null}
                   <Icon
                     size={20}
-                    color={isActive ? theme.colors.primary : theme.colors.mutedForeground}
+                    color={
+                      isActive
+                        ? theme.colors.primary
+                        : theme.colors.mutedForeground
+                    }
                     style={styles.tabIcon}
                   />
                   <Text
@@ -134,53 +201,53 @@ export default function BottomNav({
           </View>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: "absolute",
+    position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     zIndex: 50,
   },
   controlsShell: {
-    position: "absolute",
+    position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    alignItems: "center",
+    alignItems: 'center',
   },
   fade: {
-    width: "100%",
+    width: '100%',
     marginBottom: -1,
   },
   bar: {
     borderTopWidth: 1,
-    width: "100%",
+    width: '100%',
     maxWidth: 430,
-    alignSelf: "center",
+    alignSelf: 'center',
   },
   inner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
     paddingHorizontal: 16,
     paddingTop: 8,
   },
   tabButton: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 2,
     paddingVertical: 6,
     borderRadius: 14,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   activePill: {
-    position: "absolute",
+    position: 'absolute',
     top: 2,
     right: 12,
     bottom: 2,
@@ -188,28 +255,28 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   tabIcon: {
-    position: "relative",
+    position: 'relative',
     zIndex: 1,
   },
   tabLabel: {
     fontSize: 10,
-    position: "relative",
+    position: 'relative',
     zIndex: 1,
   },
   primaryButtonWrap: {
     marginTop: -20,
     width: 56,
     height: 56,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryButton: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.12,
     shadowRadius: 16,

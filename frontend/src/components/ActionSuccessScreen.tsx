@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from 'react';
+import { Text, View } from '../infrastructure/reactNative';
 import {
-  Text,
-  View,
-} from "../infrastructure/reactNative";
-import { Animated, Easing, StyleSheet, useWindowDimensions } from "react-native";
-import { ArrowRight, Check, Sparkles } from "lucide-react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import PrimaryButton from "./PrimaryButton";
-import { useTheme } from "../theme/provider";
+  Animated,
+  Easing,
+  StyleSheet,
+  useWindowDimensions,
+} from 'react-native';
+import { ArrowRight, Check, Sparkles } from 'lucide-react-native';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import PrimaryButton from './PrimaryButton';
+import AuthInkBackdrop from './AuthInkBackdrop';
+import { useTheme } from '../theme/provider';
 
-type ActionSuccessVariant = "payment" | "otp" | "generic";
+type ActionSuccessVariant = 'payment' | 'otp' | 'generic';
 
 type ActionSuccessScreenProps = {
   variant?: ActionSuccessVariant;
@@ -27,19 +33,19 @@ const DEFAULT_COPY: Record<
   payment: {
     title: "You're Premium",
     subtitle:
-      "Welcome to the inner circle. Your journey to a calmer, more mindful life starts now.",
-    buttonLabel: "Start Journaling",
+      'Welcome to the inner circle. Your journey to a calmer, more mindful life starts now.',
+    buttonLabel: 'Start Journaling',
   },
   otp: {
-    title: "Email Verified",
+    title: 'Email Verified',
     subtitle:
       "Your account is now secure and ready. Let's get your profile set up.",
-    buttonLabel: "Continue Setup",
+    buttonLabel: 'Continue Setup',
   },
   generic: {
-    title: "Success!",
+    title: 'Success!',
     subtitle: "Everything looks good. You're all set to continue.",
-    buttonLabel: "Continue",
+    buttonLabel: 'Continue',
   },
 };
 
@@ -49,7 +55,7 @@ const CTA_ENTRANCE_DURATION_MS = 620;
 const ENTRANCE_STAGGER_MS = 260;
 
 export default function ActionSuccessScreen({
-  variant = "generic",
+  variant = 'generic',
   title,
   subtitle,
   buttonLabel,
@@ -69,14 +75,16 @@ export default function ActionSuccessScreen({
       paddingTop: insets.top + (isCompact ? 12 : 18),
       paddingBottom: insets.bottom + (isCompact ? 18 : 24),
     }),
-    [horizontalPadding, insets.bottom, insets.top, isCompact]
+    [horizontalPadding, insets.bottom, insets.top, isCompact],
   );
   const icon = useMemo(() => {
-    if (variant === "otp") {
+    if (variant === 'otp') {
       return <Check size={44} color={theme.colors.primary} strokeWidth={1.8} />;
     }
 
-    return <Sparkles size={44} color={theme.colors.primary} strokeWidth={1.8} />;
+    return (
+      <Sparkles size={44} color={theme.colors.primary} strokeWidth={1.8} />
+    );
   }, [theme.colors.primary, variant]);
 
   const iconEntrance = useRef(new Animated.Value(0)).current;
@@ -126,7 +134,7 @@ export default function ActionSuccessScreen({
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     const outerRingLoop = Animated.loop(
@@ -143,7 +151,7 @@ export default function ActionSuccessScreen({
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     const sparkleLoop = Animated.loop(
@@ -160,13 +168,15 @@ export default function ActionSuccessScreen({
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     entrance.start();
-    ringLoop.start();
-    outerRingLoop.start();
-    sparkleLoop.start();
+    if (variant !== 'otp') {
+      ringLoop.start();
+      outerRingLoop.start();
+      sparkleLoop.start();
+    }
 
     return () => {
       entrance.stop();
@@ -181,6 +191,7 @@ export default function ActionSuccessScreen({
     ringPulse,
     sparkleFloat,
     textEntrance,
+    variant,
   ]);
 
   useEffect(() => {
@@ -238,26 +249,30 @@ export default function ActionSuccessScreen({
       style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
     >
       <View style={styles.container}>
-        <View pointerEvents="none" style={styles.atmosphereLayer}>
-          <View
-            style={[
-              styles.backgroundTint,
-              { backgroundColor: `${theme.colors.primary}08` },
-            ]}
-          />
-          <View
-            style={[
-              styles.backgroundOrbTop,
-              { backgroundColor: `${theme.colors.primary}12` },
-            ]}
-          />
-          <View
-            style={[
-              styles.backgroundOrbBottom,
-              { backgroundColor: `${theme.colors.accent}A6` },
-            ]}
-          />
-        </View>
+        {variant === 'otp' ? (
+          <AuthInkBackdrop />
+        ) : (
+          <View pointerEvents="none" style={styles.atmosphereLayer}>
+            <View
+              style={[
+                styles.backgroundTint,
+                { backgroundColor: `${theme.colors.primary}08` },
+              ]}
+            />
+            <View
+              style={[
+                styles.backgroundOrbTop,
+                { backgroundColor: `${theme.colors.primary}12` },
+              ]}
+            />
+            <View
+              style={[
+                styles.backgroundOrbBottom,
+                { backgroundColor: `${theme.colors.accent}A6` },
+              ]}
+            />
+          </View>
+        )}
 
         <View style={[styles.content, contentPaddingStyle]}>
           <View style={[styles.centerContent, { maxWidth }]}>
@@ -266,7 +281,10 @@ export default function ActionSuccessScreen({
                 styles.iconArea,
                 {
                   opacity: iconEntrance,
-                  transform: [{ translateY: iconTranslate }, { scale: iconEntrance }],
+                  transform: [
+                    { translateY: iconTranslate },
+                    { scale: iconEntrance },
+                  ],
                 },
               ]}
             >
@@ -314,7 +332,11 @@ export default function ActionSuccessScreen({
                   },
                 ]}
               >
-                <Sparkles size={20} color={`${theme.colors.primary}99`} strokeWidth={1.8} />
+                <Sparkles
+                  size={20}
+                  color={`${theme.colors.primary}99`}
+                  strokeWidth={1.8}
+                />
               </Animated.View>
             </Animated.View>
 
@@ -331,7 +353,10 @@ export default function ActionSuccessScreen({
                 {title || copy.title}
               </Text>
               <Text
-                style={[styles.subtitle, { color: theme.colors.mutedForeground }]}
+                style={[
+                  styles.subtitle,
+                  { color: theme.colors.mutedForeground },
+                ]}
               >
                 {subtitle || copy.subtitle}
               </Text>
@@ -352,7 +377,9 @@ export default function ActionSuccessScreen({
               label={buttonLabel || copy.buttonLabel}
               onPress={onPrimaryAction}
               tone="accent"
-              icon={<ArrowRight size={16} color={theme.colors.primaryForeground} />}
+              icon={
+                <ArrowRight size={16} color={theme.colors.primaryForeground} />
+              }
             />
           </Animated.View>
         </View>
@@ -367,8 +394,8 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    position: "relative",
-    overflow: "hidden",
+    position: 'relative',
+    overflow: 'hidden',
   },
   atmosphereLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -377,7 +404,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   backgroundOrbTop: {
-    position: "absolute",
+    position: 'absolute',
     top: -180,
     right: -150,
     width: 420,
@@ -385,7 +412,7 @@ const styles = StyleSheet.create({
     borderRadius: 210,
   },
   backgroundOrbBottom: {
-    position: "absolute",
+    position: 'absolute',
     bottom: -220,
     left: -170,
     width: 440,
@@ -394,24 +421,24 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: "space-between",
-    alignItems: "center",
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   centerContent: {
     flex: 1,
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconArea: {
     width: 144,
     height: 144,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 56,
   },
   iconRing: {
-    position: "absolute",
+    position: 'absolute',
     width: 144,
     height: 144,
     borderRadius: 44,
@@ -425,39 +452,39 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 34,
     borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowOpacity: 0.12,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 14 },
     elevation: 5,
   },
   sparkleWrap: {
-    position: "absolute",
+    position: 'absolute',
     top: 8,
     right: 6,
   },
   copyWrap: {
-    width: "100%",
-    alignItems: "center",
+    width: '100%',
+    alignItems: 'center',
     gap: 18,
   },
   title: {
     fontSize: 38,
     lineHeight: 44,
-    fontWeight: "900",
-    textAlign: "center",
+    fontWeight: '900',
+    textAlign: 'center',
     letterSpacing: -1.1,
   },
   subtitle: {
     fontSize: 18,
     lineHeight: 29,
-    fontWeight: "500",
-    textAlign: "center",
+    fontWeight: '500',
+    textAlign: 'center',
     maxWidth: 340,
   },
   footer: {
-    width: "100%",
-    alignSelf: "center",
+    width: '100%',
+    alignSelf: 'center',
   },
 });

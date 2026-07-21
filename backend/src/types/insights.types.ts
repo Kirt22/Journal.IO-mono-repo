@@ -1,4 +1,8 @@
 import type { MoodValue } from "./mood.types";
+import type {
+  ReflectionRegionId,
+  ReflectionRegionIntensity,
+} from "../helpers/reflectionMap.helpers";
 
 export type InsightTone =
   | "coral"
@@ -174,6 +178,85 @@ export type InsightsAiAnalysisResponse =
   | InsightsAiAnalysisCollectingResponse
   | InsightsAiAnalysisInsufficientResponse
   | InsightsAiAnalysisReadyResponse;
+
+export type InsightsMindMapRange = "latest_week" | "all_time";
+
+export type InsightsMindMapPeriod = {
+  range: InsightsMindMapRange;
+  label: string;
+  startDate: string | null;
+  endDate: string | null;
+  entryCount: number;
+  activeDays: number;
+  clearEntryCount: number;
+  totalWords: number;
+  minimumActiveDays: number;
+  generatedAt: string | null;
+};
+
+export type InsightsMindMapDisclaimer = {
+  title: string;
+  body: string;
+};
+
+export type InsightsMindMapSummary = {
+  headline: string;
+  narrative: string;
+  note: string;
+};
+
+export type InsightsMindMapRegion = {
+  id: ReflectionRegionId;
+  productLabel: string;
+  brainRegionSubtitle: string;
+  signalScore: number;
+  confidence: number;
+  rank: number;
+  intensity: ReflectionRegionIntensity;
+  shortInsight: string;
+  evidenceSnippets: string[];
+};
+
+export type InsightsMindMapReadyResponse = {
+  status: "ready";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  strongestRegionId: ReflectionRegionId;
+  regions: InsightsMindMapRegion[];
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+export type InsightsMindMapBuildingResponse = {
+  status: "building";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  progress: {
+    activeDays: number;
+    minimumActiveDays: number;
+    clearEntryCount: number;
+    entriesNeeded: number;
+    daysRemaining: number | null;
+  };
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+export type InsightsMindMapSupportFirstResponse = {
+  status: "support_first";
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  support: {
+    headline: string;
+    body: string;
+    note: string;
+  };
+  disclaimer: InsightsMindMapDisclaimer;
+};
+
+export type InsightsMindMapResponse =
+  | InsightsMindMapReadyResponse
+  | InsightsMindMapBuildingResponse
+  | InsightsMindMapSupportFirstResponse;
+
 export type InsightsOverviewResponse = {
   stats: {
     totalEntries: number;

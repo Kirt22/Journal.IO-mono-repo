@@ -1,285 +1,620 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Alert,
-  Animated,
-  Easing,
+  Image,
+  type ImageSourcePropType,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
   Text,
   View,
-  type GestureResponderEvent,
-} from "react-native";
+} from 'react-native';
 import {
-  Check,
-  ChevronDown,
-  Download,
+  ChevronRight,
+  Crown,
   Lock,
   LogOut,
-  Moon,
-  Shield,
-  Trash2,
-} from "lucide-react-native";
-import PrimaryButton from "../../components/PrimaryButton";
-import { trackPaywallEvent } from "../../services/paywallService";
-import { deleteAccount, updateAiOptOutPreference } from "../../services/privacyService";
-import { useAppStore } from "../../store/appStore";
-import { useTheme, useThemeTransition } from "../../theme/provider";
-import { showAccountDeletionConfirmation } from "./accountDeletionConfirmation";
-import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
-import type { ThemeMode } from "../../theme/theme";
+} from 'lucide-react-native';
+import { getPrimaryDailyReminder } from '../../services/remindersService';
+import { getReminderPermissionGranted } from '../../services/reminderNotificationsService';
+import { trackPaywallEvent } from '../../services/paywallService';
+import { getBiometricLockLabel } from '../../services/biometricLockService';
+import { updateAiOptOutPreference } from '../../services/privacyService';
+import { triggerHaptic } from '../../services/hapticsService';
+import { useAppStore } from '../../store/appStore';
+import { useTheme } from '../../theme/provider';
+import {
+  LEGAL_URLS,
+  openDeviceBrowserUrl,
+  openExternalUrl,
+} from '../../utils/legalLinks';
+import { ProfileSectionLayout } from './ProfileSectionLayout';
+import ButtonLoadingContent from '../../components/ButtonLoadingContent';
+import {
+  getPersonalizationThemeSummary,
+  type PersonalizationThemePreference,
+} from './personalizationThemes';
+import type { ThemePreference } from '../../theme/theme';
+
+const SETTINGS_ICONS = {
+  aboutMe: require('../../assets/png/settings/icons8-about-me-48.png'),
+  account: require('../../assets/png/settings/icons8-account-48.png'),
+  aiAnalysis: require('../../assets/png/settings/icons8-ai-48.png'),
+  biometricLock: require('../../assets/png/settings/icons8-biometric-lock-64.png'),
+  credits: require('../../assets/png/settings/icons8-giving-48.png'),
+  exportData: require('../../assets/png/settings/icons8-export-64.png'),
+  haptics: require('../../assets/png/settings/icons8-phone-vibration-28.png'),
+  hideEntries: require('../../assets/png/settings/icons8-hide-67.png'),
+  notifications: require('../../assets/png/settings/icons8-notification-64.png'),
+  privacyChoices: require('../../assets/png/settings/icons8-privacy-64.png'),
+  privacyPolicy: require('../../assets/png/settings/icons8-privacy-policy-64.png'),
+  support: require('../../assets/png/settings/icons8-support-100.png'),
+  termsOfService: require('../../assets/png/settings/icons8-terms-and-conditions-64.png'),
+  theme: require('../../assets/png/settings/icons8-theme-48.png'),
+} as const;
 
 type SettingsScreenProps = {
   onBack: () => void;
+  onOpenAboutYou?: () => void;
+  onOpenManageAccount?: () => void;
+  onOpenNotifications?: () => void;
   onOpenPrivacy: () => void;
   onOpenPrivacyModePaywall: () => void;
   onOpenHidePreviewsPaywall: () => void;
+  onOpenBiometricLock: () => void;
+  onOpenSubscription?: () => void;
+  onOpenTheme?: () => void;
   onSignOut: () => Promise<void> | void;
-  currentThemePreference: ThemeMode | "system";
-  onToggleTheme: (nextMode: ThemeMode | null) => void;
+  currentThemePreference: PersonalizationThemePreference;
+  onToggleTheme?: (nextTheme: ThemePreference | null) => void;
 };
 
-const themeOptions: Array<{
-  label: string;
-  value: ThemeMode | "system";
-}> = [
-  { label: "Light", value: "light" },
-  { label: "Dark", value: "dark" },
-  { label: "System", value: "system" },
-];
-
-function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
-
-  if (normalized.length !== 6) {
-    return hex;
-  }
-
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-function SettingRow({
-  label,
-  description,
-  value,
-  onValueChange,
-  disabled = false,
-  locked = false,
-  onLockedPress,
-}: {
-  label: string;
+type SettingsListRowProps = {
+  accessibilityLabel?: string;
   description: string;
-  value: boolean;
-  onValueChange: (nextValue: boolean) => void;
   disabled?: boolean;
-  locked?: boolean;
-  onLockedPress?: () => void;
-}) {
+  icon: ImageSourcePropType | typeof Crown;
+  label: string;
+  onPress?: () => void;
+  right?: ReactNode;
+  showChevron?: boolean;
+};
+
+export type SettingsPersonalizationSectionProps = {
+  currentThemePreference: PersonalizationThemePreference;
+  onOpenAboutYou: () => void;
+  onOpenNotifications: () => void;
+  onOpenTheme: () => void;
+};
+
+export type SettingsAccountSectionProps = {
+  onOpenManageAccount: () => void;
+  onOpenSubscription: () => void;
+};
+
+export type SettingsPrivacyDataSectionProps = {
+  onOpenExport: () => void;
+  onOpenHidePreviewsPaywall: () => void;
+  onOpenBiometricLock: () => void;
+  onOpenPrivacyModePaywall: () => void;
+};
+
+function SettingsListRow({
+  accessibilityLabel,
+  description,
+  disabled = false,
+  icon,
+  label,
+  onPress,
+  right,
+  showChevron = true,
+}: SettingsListRowProps) {
   const theme = useTheme();
-  const rowContent = (
-    <View style={styles.settingRow}>
-      <View style={styles.settingCopy}>
-        <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
+  const LucideIcon = typeof icon === 'function' ? icon : null;
+
+  const content = (
+    <>
+      <View
+        style={[
+          styles.personalizationIcon,
+          { backgroundColor: theme.colors.accent },
+        ]}
+      >
+        {LucideIcon ? (
+          <LucideIcon size={19} color={theme.colors.primary} />
+        ) : (
+          <Image
+            resizeMode="contain"
+            source={icon as ImageSourcePropType}
+            style={styles.rowIcon}
+          />
+        )}
+      </View>
+      <View style={styles.personalizationCopy}>
+        <Text
+          style={[
+            styles.personalizationLabel,
+            { color: theme.colors.foreground },
+          ]}
+        >
           {label}
         </Text>
-        <Text style={[styles.settingDescription, { color: theme.colors.mutedForeground }]}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.personalizationDescription,
+            { color: theme.colors.mutedForeground },
+          ]}
+        >
           {description}
         </Text>
       </View>
-      {locked ? (
-        <View
-          style={[
-            styles.lockBadge,
-            { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-          ]}
-        >
-          <Lock size={13} color={theme.colors.primary} />
-          <Text style={[styles.lockBadgeText, { color: theme.colors.primary }]}>
-            Premium
-          </Text>
-        </View>
-      ) : (
-        <Switch
-          value={value}
-          onValueChange={onValueChange}
-          disabled={disabled}
-          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-          thumbColor={theme.colors.card}
-        />
-      )}
-    </View>
+      {right}
+      {showChevron ? (
+        <ChevronRight size={19} color={theme.colors.mutedForeground} />
+      ) : null}
+    </>
   );
 
-  if (locked && onLockedPress) {
+  if (!onPress) {
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Unlock ${label}`}
-        onPress={onLockedPress}
-        style={({ pressed }) => [pressed && styles.pressed]}
+      <View
+        accessibilityState={disabled ? { disabled: true } : undefined}
+        style={[styles.personalizationRow, disabled && styles.rowDisabled]}
       >
-        {rowContent}
-      </Pressable>
+        {content}
+      </View>
     );
   }
 
-  return rowContent;
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={disabled ? { disabled: true } : undefined}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.personalizationRow,
+        disabled && styles.rowDisabled,
+        pressed && styles.pressed,
+      ]}
+    >
+      {content}
+    </Pressable>
+  );
 }
 
-export default function SettingsScreen({
-  onBack,
-  onOpenPrivacy,
-  onOpenPrivacyModePaywall,
-  onOpenHidePreviewsPaywall,
-  onSignOut,
-  currentThemePreference,
-  onToggleTheme,
-}: SettingsScreenProps) {
+type SettingsToggleProps = {
+  accessibilityLabel?: string;
+  disabled: boolean;
+  onValueChange: (nextValue: boolean) => void | Promise<void>;
+  value: boolean;
+};
+
+function SettingsToggle({
+  accessibilityLabel,
+  disabled,
+  onValueChange,
+  value,
+}: SettingsToggleProps) {
   const theme = useTheme();
-  const startThemeTransition = useThemeTransition();
-  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
-  const isPrivacyModeEnabled = useAppStore(
-    state => state.session?.user.aiOptIn === false
-  );
-  const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
-  const setHideJournalPreviews = useAppStore(
-    state => state.setHideJournalPreviews
-  );
-  const setSessionAiOptIn = useAppStore(state => state.setSessionAiOptIn);
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
-  const [isThemeMenuRendered, setIsThemeMenuRendered] = useState(false);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
-  const [isUpdatingPrivacyMode, setIsUpdatingPrivacyMode] = useState(false);
-  const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] = useState(false);
-  const themeMenuAnimation = useRef(new Animated.Value(0)).current;
-  const privacyDescriptionAnimation = useRef(new Animated.Value(1)).current;
-  const privacyModeDescription = !isPremiumUser
-    ? "Premium unlocks Privacy Mode for AI reflections and weekly analysis."
-    : isPrivacyModeEnabled
-      ? "AI reflections are off. Home and Insights AI surfaces stay hidden for this account."
-      : "Turn off AI reflections and weekly analysis for this account.";
 
-  const themeLabel = useMemo(
-    () =>
-      themeOptions.find(option => option.value === currentThemePreference)?.label ||
-      "System",
-    [currentThemePreference]
+  return (
+    <View style={styles.toggleSlot}>
+      <Switch
+        accessibilityLabel={accessibilityLabel}
+        disabled={disabled}
+        onValueChange={onValueChange}
+        style={styles.toggleControl}
+        thumbColor={theme.colors.card}
+        trackColor={{
+          false: theme.colors.border,
+          true: theme.colors.primary,
+        }}
+        value={value}
+      />
+    </View>
+  );
+}
+
+export function SettingsAccountSection({
+  onOpenManageAccount,
+  onOpenSubscription,
+}: SettingsAccountSectionProps) {
+  const theme = useTheme();
+  const isPremiumUser = useAppStore(state =>
+    Boolean(state.session?.user.isPremium),
   );
 
-  const handleSelectTheme = (
-    nextMode: ThemeMode | "system",
-    event: GestureResponderEvent
-  ) => {
-    if (nextMode === currentThemePreference) {
-      setIsThemeMenuOpen(false);
-      return;
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        Account
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          accessibilityLabel="Open manage account"
+          description="Email, account and deletion"
+          icon={SETTINGS_ICONS.account}
+          label="Manage account"
+          onPress={onOpenManageAccount}
+        />
+        {isPremiumUser ? (
+          <SettingsListRow
+            accessibilityLabel="Open subscription"
+            description="Plan and billing details"
+            icon={Crown}
+            label="Subscription"
+            onPress={onOpenSubscription}
+          />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+export function SettingsPersonalizationSection({
+  currentThemePreference,
+  onOpenAboutYou,
+  onOpenNotifications,
+  onOpenTheme,
+}: SettingsPersonalizationSectionProps) {
+  const theme = useTheme();
+  const userName = useAppStore(
+    state => state.session?.user.name || 'Your profile',
+  );
+  const [notificationStatus, setNotificationStatus] = useState<
+    'checking' | 'off' | 'on'
+  >('checking');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Promise.all([getPrimaryDailyReminder(), getReminderPermissionGranted()])
+      .then(([reminder, hasPermission]) => {
+        if (isMounted) {
+          setNotificationStatus(
+            reminder?.enabled && hasPermission ? 'on' : 'off',
+          );
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setNotificationStatus('off');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const themeSummary = getPersonalizationThemeSummary(
+    currentThemePreference,
+    theme.colors.primary,
+  );
+
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        Personalisation
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          description={userName}
+          icon={SETTINGS_ICONS.aboutMe}
+          label="About me"
+          onPress={onOpenAboutYou}
+        />
+        <SettingsListRow
+          description={themeSummary.description}
+          icon={SETTINGS_ICONS.theme}
+          label="Theme"
+          onPress={onOpenTheme}
+          right={
+            <View style={styles.themeValue}>
+              <View
+                style={[
+                  styles.themeDot,
+                  { backgroundColor: themeSummary.color },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.valueText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                {themeSummary.label}
+              </Text>
+            </View>
+          }
+        />
+        <SettingsListRow
+          description={
+            notificationStatus === 'checking'
+              ? 'Checking device settings'
+              : notificationStatus === 'on'
+              ? 'Daily reminders are enabled'
+              : 'Daily reminders are off'
+          }
+          icon={SETTINGS_ICONS.notifications}
+          label="Notifications"
+          onPress={onOpenNotifications}
+          right={
+            <Text
+              style={[
+                styles.valueText,
+                {
+                  color:
+                    notificationStatus === 'on'
+                      ? theme.colors.primary
+                      : theme.colors.mutedForeground,
+                },
+              ]}
+            >
+              {notificationStatus === 'checking'
+                ? '...'
+                : notificationStatus === 'on'
+                ? 'On'
+                : 'Off'}
+            </Text>
+          }
+        />
+      </View>
+    </View>
+  );
+}
+
+export function SettingsMoreSection() {
+  const theme = useTheme();
+  const hapticsEnabled = useAppStore(state => state.hapticsEnabled);
+  const setHapticsEnabled = useAppStore(state => state.setHapticsEnabled);
+  const [isUpdatingHaptics, setIsUpdatingHaptics] = useState(false);
+
+  const handleHapticsChange = async (nextValue: boolean) => {
+    setIsUpdatingHaptics(true);
+
+    try {
+      await setHapticsEnabled(nextValue);
+
+      if (nextValue) {
+        triggerHaptic('optionSelected').catch(() => undefined);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Haptics',
+        error instanceof Error
+          ? error.message
+          : 'Unable to update your haptics preference right now.',
+      );
+    } finally {
+      setIsUpdatingHaptics(false);
     }
-
-    startThemeTransition({
-      originX: event.nativeEvent.pageX,
-      originY: event.nativeEvent.pageY,
-      nextModeOverride: nextMode === "system" ? null : nextMode,
-    });
-
-    if (nextMode === "system") {
-      onToggleTheme(null);
-    } else {
-      onToggleTheme(nextMode);
-    }
-
-    setIsThemeMenuOpen(false);
   };
 
-  useEffect(() => {
-    if (isThemeMenuOpen) {
-      setIsThemeMenuRendered(true);
-      Animated.timing(themeMenuAnimation, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-      return;
-    }
-
-    Animated.timing(themeMenuAnimation, {
-      toValue: 0,
-      duration: 150,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        setIsThemeMenuRendered(false);
-      }
+  const openDocument = (url: string, title: string) => {
+    openExternalUrl(url, title).catch(error => {
+      Alert.alert(
+        title,
+        error instanceof Error ? error.message : 'Unable to open this page right now.',
+      );
     });
-  }, [isThemeMenuOpen, themeMenuAnimation]);
+  };
 
-  useEffect(() => {
-    privacyDescriptionAnimation.stopAnimation();
-    privacyDescriptionAnimation.setValue(0);
+  const openCredits = () => {
+    triggerHaptic('legal').catch(() => undefined);
+    openDeviceBrowserUrl('https://icons8.com').catch(error => {
+      Alert.alert(
+        'Credits',
+        error instanceof Error ? error.message : 'Unable to open Credits right now.',
+      );
+    });
+  };
 
-    Animated.timing(privacyDescriptionAnimation, {
-      toValue: 1,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [isPrivacyModeEnabled, privacyDescriptionAnimation]);
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        More
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          description="Feel touch feedback for actions"
+          icon={SETTINGS_ICONS.haptics}
+          label="Haptics"
+          right={
+            <SettingsToggle
+              accessibilityLabel="Enable haptics"
+              disabled={isUpdatingHaptics}
+              onValueChange={handleHapticsChange}
+              value={hapticsEnabled}
+            />
+          }
+          showChevron={false}
+        />
+        <SettingsListRow
+          accessibilityLabel="Open privacy policy"
+          description="How we handle your data"
+          icon={SETTINGS_ICONS.privacyPolicy}
+          label="Privacy Policy"
+          onPress={() =>
+            openDocument(LEGAL_URLS.privacyPolicy, 'Privacy Policy')
+          }
+        />
+        <SettingsListRow
+          accessibilityLabel="Open terms of service"
+          description="Rules for using Journal.IO"
+          icon={SETTINGS_ICONS.termsOfService}
+          label="Terms of Service"
+          onPress={() =>
+            openDocument(LEGAL_URLS.termsOfService, 'Terms of Service')
+          }
+        />
+        <SettingsListRow
+          accessibilityLabel="Open privacy choices"
+          description="Manage your privacy preferences"
+          icon={SETTINGS_ICONS.privacyChoices}
+          label="Privacy Choices"
+          onPress={() =>
+            openDocument(LEGAL_URLS.privacyChoices, 'Privacy Choices')
+          }
+        />
+        <SettingsListRow
+          accessibilityLabel="Open Credits"
+          description="People and tools that help shape Journal.IO"
+          icon={SETTINGS_ICONS.credits}
+          label="Credits"
+          onPress={openCredits}
+        />
+      </View>
+    </View>
+  );
+}
 
-  const handleLogout = async () => {
+export function SettingsSupportSection() {
+  const theme = useTheme();
+
+  const openHelpCenter = () => {
+    openExternalUrl(LEGAL_URLS.supportPage, 'Help Center').catch(error => {
+      Alert.alert(
+        'Help Center',
+        error instanceof Error ? error.message : 'Unable to open Help Center right now.',
+      );
+    });
+  };
+
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        Support
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          accessibilityLabel="Open Help Center"
+          description="Find help or raise a support ticket"
+          icon={SETTINGS_ICONS.support}
+          label="Help Center"
+          onPress={openHelpCenter}
+        />
+      </View>
+    </View>
+  );
+}
+
+export function SettingsSignOutSection({
+  onSignOut,
+}: {
+  onSignOut: () => Promise<void> | void;
+}) {
+  const theme = useTheme();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
     setIsSigningOut(true);
 
     try {
       await onSignOut();
     } catch (error) {
       Alert.alert(
-        "Sign out",
-        error instanceof Error ? error.message : "Unable to sign out right now."
+        'Sign out',
+        error instanceof Error
+          ? error.message
+          : 'Unable to sign out right now. Please try again.',
       );
     } finally {
       setIsSigningOut(false);
     }
   };
 
-  const handleExport = () => {
-    onOpenPrivacy();
-  };
+  return (
+    <Pressable
+      accessibilityLabel="Sign out"
+      accessibilityRole="button"
+      accessibilityState={{ busy: isSigningOut, disabled: isSigningOut }}
+      disabled={isSigningOut}
+      onPress={handleSignOut}
+      style={({ pressed }) => [
+        styles.signOutButton,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: `${theme.colors.destructive}33`,
+        },
+        pressed && !isSigningOut && styles.pressed,
+        isSigningOut && styles.rowDisabled,
+      ]}
+    >
+      <ButtonLoadingContent
+        contentStyle={styles.signOutLabel}
+        loaderColor={theme.colors.destructive}
+        loading={isSigningOut}
+      >
+        <LogOut size={18} color={theme.colors.destructive} />
+        <Text style={[styles.signOutText, { color: theme.colors.destructive }]}>
+          Sign out
+        </Text>
+      </ButtonLoadingContent>
+    </Pressable>
+  );
+}
 
-  const handleDeleteAccount = async () => {
-    if (isDeletingAccount) {
-      return;
-    }
-
-    setIsDeletingAccount(true);
-
-    try {
-      const result = await deleteAccount();
-
-      if (!result.deletedAccount) {
-        throw new Error("Unable to delete your account right now.");
-      }
-
-      await onSignOut();
-    } catch (error) {
-      Alert.alert(
-        "Delete account",
-        error instanceof Error ? error.message : "Unable to delete your account right now."
-      );
-    } finally {
-      setIsDeletingAccount(false);
-    }
-  };
+export function SettingsPrivacyDataSection({
+  onOpenExport,
+  onOpenHidePreviewsPaywall,
+  onOpenBiometricLock,
+  onOpenPrivacyModePaywall,
+}: SettingsPrivacyDataSectionProps) {
+  const theme = useTheme();
+  const sessionUser = useAppStore(state => state.session?.user ?? null);
+  const isPremiumUser = Boolean(sessionUser?.isPremium);
+  const isAiAnalysisEnabled = useAppStore(
+    state => state.session?.user.aiOptIn !== false,
+  );
+  const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
+  const setHideJournalPreviews = useAppStore(
+    state => state.setHideJournalPreviews,
+  );
+  const biometricLockEnabled = useAppStore(state => state.biometricLockEnabled);
+  const biometricLockType = useAppStore(state => state.biometricLockType);
+  const setSessionAiOptIn = useAppStore(state => state.setSessionAiOptIn);
+  const [isUpdatingAiAnalysis, setIsUpdatingAiAnalysis] = useState(false);
+  const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] =
+    useState(false);
 
   const handleOpenPrivacyModePaywall = () => {
     trackPaywallEvent({
-      placementKey: "settings_privacy_mode_locked",
-      screenKey: "settings",
-      eventType: "locked_feature_tap",
+      placementKey: 'settings_privacy_mode_locked',
+      screenKey: 'settings',
+      eventType: 'locked_feature_tap',
       wasInterruptive: false,
     }).catch(() => undefined);
     onOpenPrivacyModePaywall();
@@ -287,38 +622,34 @@ export default function SettingsScreen({
 
   const handleOpenHidePreviewsPaywall = () => {
     trackPaywallEvent({
-      placementKey: "settings_hide_previews_locked",
-      screenKey: "settings",
-      eventType: "locked_feature_tap",
+      placementKey: 'settings_hide_previews_locked',
+      screenKey: 'settings',
+      eventType: 'locked_feature_tap',
       wasInterruptive: false,
     }).catch(() => undefined);
     onOpenHidePreviewsPaywall();
   };
 
-  const handlePrivacyModeChange = async (nextValue: boolean) => {
+  const handleAiAnalysisChange = async (nextValue: boolean) => {
     if (!isPremiumUser) {
       handleOpenPrivacyModePaywall();
       return;
     }
 
-    if (isUpdatingPrivacyMode) {
-      return;
-    }
-
-    setIsUpdatingPrivacyMode(true);
+    setIsUpdatingAiAnalysis(true);
 
     try {
-      const result = await updateAiOptOutPreference(nextValue);
+      const result = await updateAiOptOutPreference(!nextValue);
       setSessionAiOptIn(result.aiOptIn);
     } catch (error) {
       Alert.alert(
-        "Privacy mode",
+        'AI analysis',
         error instanceof Error
           ? error.message
-          : "Unable to update your AI privacy preference right now."
+          : 'Unable to update your AI analysis preference right now.',
       );
     } finally {
-      setIsUpdatingPrivacyMode(false);
+      setIsUpdatingAiAnalysis(false);
     }
   };
 
@@ -328,455 +659,266 @@ export default function SettingsScreen({
       return;
     }
 
-    if (isUpdatingPreviewPrivacy) {
-      return;
-    }
-
     setIsUpdatingPreviewPrivacy(true);
 
     try {
       await setHideJournalPreviews(nextValue);
     } catch (error) {
       Alert.alert(
-        "Hide journal previews",
+        'Hide entries',
         error instanceof Error
           ? error.message
-          : "Unable to update this device privacy setting right now."
+          : 'Unable to update this device privacy setting right now.',
       );
     } finally {
       setIsUpdatingPreviewPrivacy(false);
     }
   };
 
-  return (
-    <ProfileSectionLayout
-      title="Settings"
-      onBack={onBack}
-      backgroundTintColor={hexToRgba(theme.colors.primary, 0.022)}
+  const premiumBadge = (
+    <View
+      style={[
+        styles.lockBadge,
+        { backgroundColor: `${theme.colors.primary}1A` },
+      ]}
     >
-      <SectionCard style={styles.dropdownCard}>
-        <View style={styles.sectionHeader}>
-          <Moon size={20} color={theme.colors.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-            Appearance
-          </Text>
-        </View>
-        <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-          Customize how Journal.IO looks
-        </Text>
+      <Lock size={13} color={theme.colors.primary} />
+      <Text style={[styles.lockText, { color: theme.colors.primary }]}>
+        Premium
+      </Text>
+    </View>
+  );
+  const biometricLockLabel = getBiometricLockLabel(biometricLockType);
+  const showBiometricLockRow = Platform.OS === 'ios';
 
-        <View style={styles.selectGroup}>
-          <Text style={[styles.selectLabel, { color: theme.colors.foreground }]}>
-            Theme
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setIsThemeMenuOpen(next => !next)}
-            style={({ pressed }) => [
-              styles.selectTrigger,
-              {
-                backgroundColor: theme.colors.accent,
-                borderColor: theme.colors.border,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.selectTriggerText, { color: theme.colors.foreground }]}>
-              {themeLabel}
-            </Text>
-            <ChevronDown
-              size={16}
-              color={theme.colors.mutedForeground}
-              style={[
-                styles.chevron,
-                isThemeMenuOpen ? styles.chevronOpen : null,
-              ]}
-            />
-          </Pressable>
-
-          {isThemeMenuRendered ? (
-            <Animated.View
-              pointerEvents={isThemeMenuOpen ? "auto" : "none"}
-              style={[
-                styles.selectMenu,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                  opacity: themeMenuAnimation,
-                  transform: [
-                    {
-                      translateY: themeMenuAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-6, 0],
-                      }),
-                    },
-                    {
-                      scale: themeMenuAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.98, 1],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              {themeOptions.map(option => {
-                const isSelected = option.value === currentThemePreference;
-
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="button"
-                    onPress={event => handleSelectTheme(option.value, event)}
-                    style={({ pressed }) => [
-                      styles.selectOption,
-                      {
-                        backgroundColor: isSelected
-                          ? hexToRgba(theme.colors.primary, 0.08)
-                          : "transparent",
-                        borderColor: isSelected
-                          ? theme.colors.primary
-                          : "transparent",
-                      },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.selectOptionText,
-                        {
-                          color: isSelected
-                            ? theme.colors.primary
-                            : theme.colors.foreground,
-                        },
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                    {isSelected ? (
-                      <Check size={16} color={theme.colors.primary} />
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </Animated.View>
-          ) : null}
-        </View>
-      </SectionCard>
-
-      <SectionCard>
-        <View style={styles.sectionHeader}>
-          <Shield size={20} color={theme.colors.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-            Privacy & Security
-          </Text>
-        </View>
-        <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-          Protect your journal
-        </Text>
-
-        <View style={styles.rowStack}>
-          <Pressable
-            accessibilityRole={isPremiumUser ? undefined : "button"}
-            accessibilityLabel={isPremiumUser ? undefined : "Unlock Privacy Mode"}
-            disabled={isPremiumUser}
-            onPress={isPremiumUser ? undefined : handleOpenPrivacyModePaywall}
-            style={({ pressed }) => [pressed && !isPremiumUser && styles.pressed]}
-          >
-            <View style={styles.settingRow}>
-              <View style={styles.settingCopy}>
-                <Text style={[styles.settingLabel, { color: theme.colors.foreground }]}>
-                  Privacy Mode
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        Privacy & Data
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        {showBiometricLockRow ? (
+          <SettingsListRow
+            accessibilityLabel={`Open ${biometricLockLabel}`}
+            description="Keep Journal.IO private"
+            icon={SETTINGS_ICONS.biometricLock}
+            label={biometricLockLabel}
+            onPress={onOpenBiometricLock}
+            right={
+              biometricLockEnabled ? (
+                <Text
+                  style={[styles.valueText, { color: theme.colors.primary }]}
+                >
+                  On
                 </Text>
-                <Animated.Text
-                  style={[
-                    styles.settingDescription,
-                    {
-                      color: theme.colors.mutedForeground,
-                      opacity: privacyDescriptionAnimation,
-                      transform: [
-                        {
-                          translateY: privacyDescriptionAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [6, 0],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
-                  {privacyModeDescription}
-                </Animated.Text>
-              </View>
-              {isPremiumUser ? (
-                <Switch
-                  value={isPrivacyModeEnabled}
-                  onValueChange={handlePrivacyModeChange}
-                  disabled={isUpdatingPrivacyMode}
-                  trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-                  thumbColor={theme.colors.card}
-                />
-              ) : (
-                <View
-                  style={[
-                    styles.lockBadge,
-                    { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
-                  ]}
-                >
-                  <Lock size={13} color={theme.colors.primary} />
-                  <Text style={[styles.lockBadgeText, { color: theme.colors.primary }]}>
-                    Premium
-                  </Text>
-                </View>
-              )}
-            </View>
-          </Pressable>
-          <SettingRow
-            label="Hide Journal Previews"
-            description={
-              isPremiumUser
-                ? "Mask journal titles, text, and tags in entry lists on this device."
-                : "Premium unlocks hidden journal previews across your device."
+              ) : undefined
             }
-            value={hideJournalPreviews}
-            onValueChange={handlePreviewPrivacyChange}
-            disabled={isUpdatingPreviewPrivacy}
-            locked={!isPremiumUser}
-            onLockedPress={handleOpenHidePreviewsPaywall}
           />
-        </View>
-
-        <PrimaryButton
-          label="View Privacy Policy"
-          onPress={onOpenPrivacy}
-          variant="outline"
-          size="sm"
+        ) : null}
+        <SettingsListRow
+          description="Use AI for reflections"
+          icon={SETTINGS_ICONS.aiAnalysis}
+          label="Enable AI analysis"
+          onPress={isPremiumUser ? undefined : handleOpenPrivacyModePaywall}
+          accessibilityLabel={isPremiumUser ? undefined : 'Unlock Privacy Mode'}
+          right={
+            isPremiumUser ? (
+              <SettingsToggle
+                disabled={isUpdatingAiAnalysis}
+                onValueChange={handleAiAnalysisChange}
+                value={isAiAnalysisEnabled}
+              />
+            ) : (
+              premiumBadge
+            )
+          }
+          showChevron={false}
         />
-      </SectionCard>
-
-      <SectionCard>
-        <View style={styles.sectionHeader}>
-          <Download size={20} color={theme.colors.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-            Data Management
-          </Text>
-        </View>
-        <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-          Export or delete your data
-        </Text>
-
-        <View style={styles.buttonStack}>
-          <PrimaryButton
-            label="Export All Entries"
-            onPress={handleExport}
-            variant="outline"
-            icon={<Download size={15} color={theme.colors.primary} />}
-            size="sm"
-          />
-
-          <PrimaryButton
-            label={isDeletingAccount ? "Deleting Account..." : "Delete Account"}
-            onPress={() =>
-              showAccountDeletionConfirmation({
-                isPremiumUser,
-                onConfirmDelete: handleDeleteAccount,
-              })
-            }
-            disabled={isDeletingAccount}
-            variant="outline"
-            icon={<Trash2 size={15} color={theme.colors.destructive} />}
-            size="sm"
-          />
-        </View>
-      </SectionCard>
-
-      <SectionCard>
-        <Text style={[styles.sectionTitle, { color: theme.colors.foreground }]}>
-          Account
-        </Text>
-
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            Alert.alert("Sign out of Journal.IO?", "You can always sign back in at any time.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Sign Out",
-                style: "destructive",
-                onPress: handleLogout,
-              },
-            ]);
-          }}
-          style={({ pressed }) => [
-            styles.signOutButton,
-            {
-              borderColor: theme.colors.border,
-              backgroundColor: theme.colors.card,
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <LogOut size={16} color={theme.colors.destructive} />
-          <Text style={[styles.signOutText, { color: theme.colors.destructive }]}>
-            {isSigningOut ? "Signing Out..." : "Sign Out"}
-          </Text>
-        </Pressable>
-      </SectionCard>
-
-      <View style={styles.appInfo}>
-        <Text style={[styles.appName, { color: theme.colors.foreground }]}>
-          Journal.IO
-        </Text>
-        <Text style={[styles.appVersion, { color: theme.colors.mutedForeground }]}>
-          Version 1.0.0
-        </Text>
+        <SettingsListRow
+          description="Mask journal previews"
+          icon={SETTINGS_ICONS.hideEntries}
+          label="Hide entries"
+          onPress={isPremiumUser ? undefined : handleOpenHidePreviewsPaywall}
+          accessibilityLabel={
+            isPremiumUser ? undefined : 'Unlock Hide Journal Previews'
+          }
+          right={
+            isPremiumUser ? (
+              <SettingsToggle
+                disabled={isUpdatingPreviewPrivacy}
+                onValueChange={handlePreviewPrivacyChange}
+                value={hideJournalPreviews}
+              />
+            ) : (
+              premiumBadge
+            )
+          }
+          showChevron={false}
+        />
+        <SettingsListRow
+          description="Download your journal data"
+          icon={SETTINGS_ICONS.exportData}
+          label="Export data"
+          onPress={onOpenExport}
+        />
       </View>
+    </View>
+  );
+}
+
+export default function SettingsScreen({
+  onBack,
+  onOpenAboutYou = () => undefined,
+  onOpenManageAccount = () => undefined,
+  onOpenNotifications = () => undefined,
+  onOpenPrivacy,
+  onOpenPrivacyModePaywall,
+  onOpenHidePreviewsPaywall,
+  onOpenBiometricLock,
+  onOpenSubscription = () => undefined,
+  onOpenTheme = () => undefined,
+  onSignOut,
+  currentThemePreference,
+}: SettingsScreenProps) {
+  return (
+    <ProfileSectionLayout title="Settings" onBack={onBack}>
+      <SettingsAccountSection
+        onOpenManageAccount={onOpenManageAccount}
+        onOpenSubscription={onOpenSubscription}
+      />
+
+      <SettingsPersonalizationSection
+        currentThemePreference={currentThemePreference}
+        onOpenAboutYou={onOpenAboutYou}
+        onOpenNotifications={onOpenNotifications}
+        onOpenTheme={onOpenTheme}
+      />
+
+      <SettingsPrivacyDataSection
+        onOpenExport={onOpenPrivacy}
+        onOpenHidePreviewsPaywall={onOpenHidePreviewsPaywall}
+        onOpenBiometricLock={onOpenBiometricLock}
+        onOpenPrivacyModePaywall={onOpenPrivacyModePaywall}
+      />
+
+      <SettingsMoreSection />
+
+      <SettingsSupportSection />
+
+      <SettingsSignOutSection onSignOut={onSignOut} />
     </ProfileSectionLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  selectGroup: {
+  personalizationSection: {
     gap: 10,
-    position: "relative",
   },
-  selectLabel: {
+  sectionEyebrow: {
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
-  selectTrigger: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderRadius: 14,
-    minHeight: 48,
-    paddingHorizontal: 14,
+  personalizationList: {
+    borderTopWidth: 1,
   },
-  selectTriggerText: {
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  chevron: {
-    transform: [{ rotate: "0deg" }],
-  },
-  chevronOpen: {
-    transform: [{ rotate: "180deg" }],
-  },
-  selectMenu: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 72,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 8,
-    gap: 8,
-    zIndex: 20,
-    elevation: 6,
-    shadowColor: "#000000",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  selectOption: {
-    minHeight: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  selectOptionText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  rowStack: {
-    gap: 14,
-    marginBottom: 14,
-  },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  personalizationRow: {
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#00000000',
+    flexDirection: 'row',
     gap: 12,
+    minHeight: 74,
   },
-  settingCopy: {
+  rowDisabled: {
+    opacity: 0.66,
+  },
+  personalizationIcon: {
+    alignItems: 'center',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  rowIcon: {
+    height: 30,
+    width: 30,
+  },
+  personalizationCopy: {
     flex: 1,
+    gap: 3,
+    minWidth: 0,
   },
-  settingLabel: {
-    fontSize: 14,
-    fontWeight: "500",
+  personalizationLabel: {
+    fontSize: 16,
+    fontWeight: '600',
   },
-  settingDescription: {
-    marginTop: 4,
+  personalizationDescription: {
     fontSize: 13,
-    lineHeight: 18,
   },
-  buttonStack: {
-    gap: 8,
+  themeValue: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  themeDot: {
+    borderRadius: 6,
+    height: 12,
+    width: 12,
+  },
+  valueText: {
+    fontSize: 14,
+  },
+  toggleSlot: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    height: 40,
+    justifyContent: 'center',
+    width: 48,
+  },
+  toggleControl: {
+    transform: [{ scale: 0.9 }],
   },
   signOutButton: {
-    width: "100%",
-    borderRadius: 14,
+    alignItems: 'center',
+    borderRadius: 16,
     borderWidth: 1,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
+    flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    justifyContent: 'center',
+    minHeight: 52,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  signOutLabel: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
   },
   signOutText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  appInfo: {
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  appName: {
-    fontSize: 14,
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-  appVersion: {
-    fontSize: 12,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  dropdownCard: {
-    zIndex: 20,
-    elevation: 6,
+    fontSize: 15,
+    fontWeight: '600',
   },
   lockBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    alignItems: 'center',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
-  lockBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
+  lockText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });

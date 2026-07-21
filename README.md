@@ -25,6 +25,7 @@ Important docs:
 - `docs/SECURITY_MODEL.md` - privacy and security rules
 - `docs/PUBLISH_READINESS_CHECKLIST.md` - release tracker
 - `docs/backend-deployment.md` - backend production deployment
+- `docs/LOCAL_IOS_ENVIRONMENTS.md` - simulator, physical-device local test, and local production commands
 - `docs/IOS_REVENUECAT_TRIAL_TESTING.md` - iOS subscription testing notes
 
 ## Tech Stack
@@ -86,9 +87,12 @@ Backend:
 
 Frontend:
 
-- `frontend/.env` - normal local development
-- `frontend/.env.local` - local overrides
+- `frontend/.env` - fallback values when no explicit app environment is selected
+- `frontend/.env.simulator` - iOS Simulator with the backend on this Mac
+- `frontend/.env.local` - physical iPhone with the backend on this Mac
 - `frontend/.env.production` - production mobile bundle values
+
+See `docs/LOCAL_IOS_ENVIRONMENTS.md` for the exact commands and URL rules for all three environments.
 
 iOS build environment:
 
@@ -98,7 +102,7 @@ iOS build environment:
 Minimum backend local env:
 
 ```env
-PORT=3000
+PORT=3001
 NODE_ENV=development
 MONGO_STAGE=local
 MONGO_URI=mongodb://localhost:27017/journal_io
@@ -116,7 +120,7 @@ REVENUECAT_ALLOWED_WEBHOOK_ENVIRONMENTS=PRODUCTION,SANDBOX
 Minimum frontend local env:
 
 ```env
-API_BASE_URL=http://localhost:3000/api/v1
+API_BASE_URL=http://127.0.0.1:3001/api/v1
 GOOGLE_WEB_CLIENT_ID=
 GOOGLE_IOS_CLIENT_ID=
 REVENUECAT_IOS_API_KEY=
@@ -124,9 +128,8 @@ REVENUECAT_ANDROID_API_KEY=
 ```
 
 For a physical iPhone on the same Wi-Fi network, the phone cannot use the
-Mac's `localhost`. Start the backend with `HOST=0.0.0.0` and set
-`API_BASE_URL=http://<mac-wifi-ip>:3000/api/v1` in the ignored
-`frontend/.env.local`. Keep production builds on the hosted HTTPS API.
+Mac's `localhost`. The complete setup is documented in
+`docs/LOCAL_IOS_ENVIRONMENTS.md`.
 
 Production mobile builds should use:
 
@@ -186,19 +189,8 @@ The backend exposes:
 - `GET /ready`
 - API routes under `/api/v1`
 
-Frontend Metro:
-
-```bash
-cd frontend
-npm start
-```
-
-iOS simulator:
-
-```bash
-cd frontend
-npm run ios
-```
+Frontend Metro and iOS commands are grouped by environment in
+`docs/LOCAL_IOS_ENVIRONMENTS.md`.
 
 Android emulator:
 
@@ -207,28 +199,11 @@ cd frontend
 npm run android
 ```
 
-## Production-Like iOS Runs
+## iOS Environment Runs
 
-Use a production backend while still running a Debug build with Metro:
-
-```bash
-cd frontend
-npm run start:prod-debug
-```
-
-In another terminal:
-
-```bash
-cd frontend
-npm run ios:prod-debug -- --device "Your iPhone Name"
-```
-
-Create a Release build on a connected iPhone:
-
-```bash
-cd frontend
-npm run ios:release -- --device "Your iPhone Name"
-```
+Use `docs/LOCAL_IOS_ENVIRONMENTS.md` for the exact Simulator, Local Test, and
+Local Prod commands. The Local Prod flow includes both Release-device testing
+and the optional production-API Debug workflow.
 
 For App Store upload, use Xcode:
 
@@ -260,8 +235,9 @@ cd frontend
 npm start
 npm run ios
 npm run android
-npm run ios:prod-debug
-npm run ios:release
+npm run ios:simulator-debug
+npm run ios:local-test
+npm run ios:local-prod
 npm run lint
 npm test
 ```

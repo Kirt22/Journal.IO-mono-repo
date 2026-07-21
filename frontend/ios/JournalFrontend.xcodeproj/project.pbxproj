@@ -7,16 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05821628018620E2E27AE8F0 /* JournalMindMapViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-JournalFrontend.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */; };
 		0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */; };
 		0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		3DD881B1D11F439086A4D4B5 /* JournalMindMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		C6130DAD94EBC3CEE00FCB05 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JournalMindMapViewManager.m; path = JournalFrontend/JournalMindMapViewManager.m; sourceTree = "<group>"; };
 		0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppRatingModule.swift; path = JournalFrontend/AppRatingModule.swift; sourceTree = "<group>"; };
 		0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = AppRatingModule.m; path = JournalFrontend/AppRatingModule.m; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* JournalFrontend.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JournalFrontend.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -24,6 +27,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalFrontend/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = JournalFrontend/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		1E75643E2C9B4F5400AB1A01 /* JournalFrontend.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = JournalFrontend.entitlements; path = JournalFrontend/JournalFrontend.entitlements; sourceTree = "<group>"; };
+		3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalMindMapView.swift; path = JournalFrontend/JournalMindMapView.swift; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-JournalFrontend.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.debug.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.debug.xcconfig"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-JournalFrontend.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.release.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-JournalFrontend.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -50,6 +54,8 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */,
 				0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */,
+				3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */,
+				0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
@@ -204,13 +210,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -247,13 +249,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -269,6 +267,8 @@
 			files = (
 				0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */,
 				0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */,
+				05821628018620E2E27AE8F0 /* JournalMindMapViewManager.m in Sources */,
+				3DD881B1D11F439086A4D4B5 /* JournalMindMapView.swift in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

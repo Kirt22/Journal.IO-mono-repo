@@ -2,34 +2,22 @@
  * @format
  */
 
-import React from "react";
-import ReactTestRenderer from "react-test-renderer";
-import { Alert } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import PrivacyScreen from "../src/screens/profile/PrivacyScreen";
-import { LEGAL_URLS, openExternalUrl } from "../src/utils/legalLinks";
-import { resetAppStore, useAppStore } from "../src/store/appStore";
+import React from 'react';
+import ReactTestRenderer from 'react-test-renderer';
+import { Share } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import PrivacyScreen from '../src/screens/profile/PrivacyScreen';
+import {
+  exportAllEntries,
+  type PrivacyExportResponse,
+} from '../src/services/privacyService';
+import { resetAppStore, useAppStore } from '../src/store/appStore';
 
-jest.mock("../src/utils/legalLinks", () => ({
-  LEGAL_URLS: {
-    privacyPolicy: "https://api.journalio.app/privacy",
-    termsOfService: "https://api.journalio.app/terms",
-    privacyChoices: "https://api.journalio.app/privacy-choices",
-    accountDeletion: "https://api.journalio.app/account-deletion",
-    supportPage: "https://api.journalio.app/support",
-  },
-  openExternalUrl: jest.fn(async () => undefined),
-}));
-
-jest.mock("../src/services/privacyService", () => ({
-  deleteAccount: jest.fn(async () => ({
-    deletedAccount: true,
+jest.mock('../src/services/privacyService', () => ({
+  exportAllEntries: jest.fn(async () => ({
+    account: { userId: 'user-test' },
+    journalEntries: [],
   })),
-  exportAllEntries: jest.fn(async () => ({})),
-}));
-
-jest.mock("../src/services/paywallService", () => ({
-  trackPaywallEvent: jest.fn(async () => undefined),
 }));
 
 const safeAreaMetrics = {
@@ -49,32 +37,32 @@ const safeAreaMetrics = {
 
 function extractText(node: unknown): string {
   if (node == null) {
-    return "";
+    return '';
   }
 
-  if (typeof node === "string" || typeof node === "number") {
+  if (typeof node === 'string' || typeof node === 'number') {
     return String(node);
   }
 
   if (Array.isArray(node)) {
-    return node.map(child => extractText(child)).join("");
+    return node.map(child => extractText(child)).join('');
   }
 
-  if (typeof node === "object" && "children" in node) {
+  if (typeof node === 'object' && 'children' in node) {
     return extractText((node as { children?: unknown }).children);
   }
 
-  return "";
+  return '';
 }
 
 function findPressableByLabel(
   root: ReactTestRenderer.ReactTestRenderer,
-  label: string
+  label: string,
 ) {
   const matches = root.root.findAll(
     node =>
-      typeof node.props?.onPress === "function" &&
-      extractText(node).includes(label)
+      typeof node.props?.onPress === 'function' &&
+      extractText(node).includes(label),
   );
 
   if (!matches.length) {
@@ -91,14 +79,14 @@ beforeEach(() => {
 
     useAppStore.setState({
       session: {
-        accessToken: "test-access",
-        refreshToken: "test-refresh",
+        accessToken: 'test-access',
+        refreshToken: 'test-refresh',
         user: {
-          userId: "user-test",
-          name: "Journal User",
+          userId: 'user-test',
+          name: 'Journal User',
           phoneNumber: null,
-          email: "journal@example.com",
-          isPremium: true,
+          email: 'journal@example.com',
+          isPremium: false,
           journalingGoals: [],
           avatarColor: null,
           profileSetupCompleted: true,
@@ -111,99 +99,73 @@ beforeEach(() => {
   });
 });
 
-test("opens hosted legal pages from the privacy screen", async () => {
+test('shows only the free data export flow', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   await ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <PrivacyScreen
-          onBack={jest.fn()}
-          onOpenExportPaywall={jest.fn()}
-          onSignOut={jest.fn()}
-        />
-      </SafeAreaProvider>
+        <PrivacyScreen onBack={jest.fn()} />
+      </SafeAreaProvider>,
     );
   });
 
-  await ReactTestRenderer.act(async () => {
-    await findPressableByLabel(root!, "Read Full Privacy Policy").props.onPress();
-    await findPressableByLabel(root!, "Read Terms of Service").props.onPress();
-    await findPressableByLabel(root!, "Privacy Choices & Deletion").props.onPress();
-  });
+  const renderedText = extractText(root!.toJSON());
 
-  expect(openExternalUrl).toHaveBeenNthCalledWith(
-    1,
-    LEGAL_URLS.privacyPolicy,
-    "Privacy Policy"
-  );
-  expect(openExternalUrl).toHaveBeenNthCalledWith(
-    2,
-    LEGAL_URLS.termsOfService,
-    "Terms of Service"
-  );
-  expect(openExternalUrl).toHaveBeenNthCalledWith(
-    3,
-    LEGAL_URLS.privacyChoices,
-    "Privacy Choices"
-  );
+  expect(renderedText).toContain('Export data');
+  expect(renderedText).toContain('Export your data');
+  expect(renderedText).toContain('Export all data');
+  expect(renderedText).not.toContain('Premium');
+  expect(renderedText).not.toContain('Privacy & Terms');
+  expect(renderedText).not.toContain('Delete Account');
+  expect(renderedText).not.toContain('Help & Support');
 });
 
-test("opens the support page from the privacy screen", async () => {
+test('exports data for a free user', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  const exportData = {
+    account: { userId: 'user-test' },
+    journalEntries: [],
+  } as unknown as PrivacyExportResponse;
+  let resolveExport: (value: PrivacyExportResponse) => void;
+  const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({
+    action: Share.sharedAction,
+  });
+  (
+    exportAllEntries as jest.MockedFunction<typeof exportAllEntries>
+  ).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        resolveExport = resolve;
+      }),
+  );
 
   await ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <PrivacyScreen
-          onBack={jest.fn()}
-          onOpenExportPaywall={jest.fn()}
-          onSignOut={jest.fn()}
-        />
-      </SafeAreaProvider>
-    );
-  });
-
-  await ReactTestRenderer.act(async () => {
-    await findPressableByLabel(root!, "Open Support Page").props.onPress();
-  });
-
-  expect(openExternalUrl).toHaveBeenCalledWith(
-    LEGAL_URLS.supportPage,
-    "Support"
-  );
-});
-
-test("uses the premium account deletion confirmation from privacy data", async () => {
-  let root: ReactTestRenderer.ReactTestRenderer;
-  const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
-
-  await ReactTestRenderer.act(() => {
-    root = ReactTestRenderer.create(
-      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <PrivacyScreen
-          onBack={jest.fn()}
-          onOpenExportPaywall={jest.fn()}
-          onSignOut={jest.fn()}
-        />
-      </SafeAreaProvider>
+        <PrivacyScreen onBack={jest.fn()} />
+      </SafeAreaProvider>,
     );
   });
 
   ReactTestRenderer.act(() => {
-    findPressableByLabel(root!, "Delete My Account").props.onPress();
+    findPressableByLabel(root!, 'Export all data').props.onPress();
   });
 
-  const actions = alertSpy.mock.calls[0]?.[2] ?? [];
+  expect(exportAllEntries).toHaveBeenCalledTimes(1);
+  expect(
+    root!.root.findByProps({ accessibilityLabel: 'Preparing export' }).props
+      .disabled,
+  ).toBe(true);
 
-  expect(alertSpy.mock.calls[0]?.[1]).toContain(
-    "Deleting your account does not cancel an active App Store subscription."
-  );
-  expect(actions.map(action => action.text)).toEqual([
-    "Cancel",
-    "Manage Subscription",
-    "Delete Account",
-  ]);
+  await ReactTestRenderer.act(async () => {
+    resolveExport(exportData);
+  });
 
-  alertSpy.mockRestore();
+  expect(shareSpy).toHaveBeenCalledWith({
+    title: 'Journal.IO export',
+    message: JSON.stringify(exportData, null, 2),
+  });
+
+  shareSpy.mockRestore();
 });

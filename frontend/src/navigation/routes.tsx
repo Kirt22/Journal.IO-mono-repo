@@ -32,7 +32,7 @@ type AppFlowRoutesProps = {
   session: AuthSession | null;
   initialProfileName: string;
   pendingNewEntryPrompt: string | null;
-  onOnboardingContinue: (data: OnboardingCompletionData) => void;
+  onOnboardingContinue: (data: OnboardingCompletionData) => Promise<void>;
   onContinueFromPaywall: (reason?: "dismiss" | "continue") => void;
   onContinueFromLifetimeOffer: () => void;
   onContinueWithEmail: () => Promise<void>;

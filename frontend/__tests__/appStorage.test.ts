@@ -64,4 +64,35 @@ describe("appStorage", () => {
     expect(keychain.getGenericPassword).not.toHaveBeenCalled();
     expect(keychain.resetGenericPassword).not.toHaveBeenCalled();
   });
+
+  it("defaults haptics to enabled and persists an explicit preference", async () => {
+    const storageState = new Map<string, string>();
+    const asyncStorage = {
+      setItem: jest.fn(async (key: string, value: string) => {
+        storageState.set(key, value);
+      }),
+      getItem: jest.fn(async (key: string) => storageState.get(key) || null),
+      removeItem: jest.fn(async () => undefined),
+    };
+
+    jest.doMock("@react-native-async-storage/async-storage", () => ({
+      __esModule: true,
+      default: asyncStorage,
+    }));
+
+    const {
+      getHapticsEnabled,
+      saveHapticsEnabled,
+    } = require("../src/utils/appStorage");
+
+    await expect(getHapticsEnabled()).resolves.toBe(true);
+
+    await saveHapticsEnabled(false);
+
+    await expect(getHapticsEnabled()).resolves.toBe(false);
+    expect(asyncStorage.setItem).toHaveBeenCalledWith(
+      "journalio.hapticsEnabled",
+      "false",
+    );
+  });
 });

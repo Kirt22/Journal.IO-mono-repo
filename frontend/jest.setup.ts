@@ -1,5 +1,22 @@
 jest.mock("react-native-keychain", () => ({
+  ACCESSIBLE: {
+    WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: "AccessibleWhenPasscodeSetThisDeviceOnly",
+  },
+  ACCESS_CONTROL: {
+    BIOMETRY_ANY_OR_DEVICE_PASSCODE: "BiometryAnyOrDevicePasscode",
+  },
+  AUTHENTICATION_TYPE: {
+    DEVICE_PASSCODE_OR_BIOMETRICS:
+      "AuthenticationWithBiometricsDevicePasscode",
+  },
+  BIOMETRY_TYPE: {
+    FACE_ID: "FaceID",
+    TOUCH_ID: "TouchID",
+  },
+  canImplyAuthentication: jest.fn(async () => false),
   getGenericPassword: jest.fn(async () => false),
+  getSupportedBiometryType: jest.fn(async () => null),
+  hasGenericPassword: jest.fn(async () => false),
   setGenericPassword: jest.fn(async () => true),
   resetGenericPassword: jest.fn(async () => true),
 }));
@@ -19,6 +36,7 @@ jest.mock(
   "@env",
   () => ({
     API_BASE_URL: "",
+    FRONTEND_ENV: "",
     GOOGLE_WEB_CLIENT_ID: "",
     GOOGLE_IOS_CLIENT_ID: "",
     REVENUECAT_IOS_API_KEY: "",

@@ -1,0 +1,5 @@
+export const CURRENT_ONBOARDING_VERSION = 2;
+
+export const ENABLE_ONBOARDING_V2 = __DEV__;
+
+export const REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT = true;

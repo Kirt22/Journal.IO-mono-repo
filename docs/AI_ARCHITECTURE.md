@@ -68,11 +68,12 @@ Controllers remain thin. Services contain domain logic.
 
 Current design flow represented in architecture decisions:
 
-1. Onboarding
-2. Auth (email / Google)
+1. Auth (email / Google / Apple)
+2. Onboarding v2 for authenticated users who have not completed or been migrated
 3. OTP verification
-4. Profile setup
-5. Home dashboard
+4. Post-auth paywall for eligible non-premium users after onboarding is complete
+5. Profile setup where still needed
+6. Home dashboard
 6. Core journaling and insights surfaces
 
 Frontend structure:
@@ -104,7 +105,13 @@ API calls must remain in `frontend/src/services`.
 Low-level shared helpers like API clients and secure token storage belong in `frontend/src/utils`.
 Future global state should live in `frontend/src/store` and be organized by feature slice or flow when introduced.
 Auth tokens are stored in secure device storage on the mobile client and attached to authenticated requests through the service layer.
-The last server-verified user profile is cached separately in AsyncStorage so a signed-in user can enter the app during a temporary network outage. Tokens remain in Keychain, unauthorized profile responses clear both token and profile caches, and reconnect-driven API calls refresh the cached profile.
+The last server-verified user profile is cached separately in AsyncStorage so a signed-in user can enter the app during a temporary network outage. Tokens remain in Keychain, unauthorized profile responses clear both token and profile caches, and reconnect-driven API calls refresh the cached profile. Legacy development-only `mock-*` token records are discarded during bootstrap and can never establish an authenticated route.
+The mobile app owns one backend-readiness state sourced from the root `/ready` endpoint, foreground probes, and request outcomes. Signed-out and pre-main navigation remain behind a full-screen connectivity boundary until the backend is ready. A previously verified authenticated session may keep the mounted shell readable offline; non-idempotent API requests are blocked locally, affected reads refresh after reconnect, and cached-profile sessions revalidate before continuing as verified.
+Offline journal support is intentionally memory-only. The app does not persist journal entry bodies or composer drafts for offline launch, does not queue writes, and does not automatically retry a save after reconnect. Screens distinguish unavailable unhydrated data from a genuinely hydrated empty collection.
+The iOS Premium biometric app lock is a local frontend-only privacy control. The toggle state is stored per device in AsyncStorage, while a separate `react-native-keychain` marker protected by `BIOMETRY_ANY_OR_DEVICE_PASSCODE` confirms Face ID, Touch ID, or device-passcode access without changing the auth-token Keychain entry.
+Launch routing is auth-first: signed-out installs land on Auth, signed-in installs fetch `GET /users/profile`, authenticated users with incomplete onboarding v2 route to onboarding, and users already complete or lazily migrated continue into the existing post-auth/home flow.
+When that local biometric lock is enabled, the authenticated app shell starts in a locked state on cold launch and re-locks on inactive/background transitions. A root overlay above authenticated navigation owns the unlock prompt and recovery states; signed-out/auth screens remain accessible because the lock is never enforced outside an authenticated session.
+The backend profile builder lazily marks clearly existing users as onboarding v2 complete using non-destructive signals such as legacy onboarding state, journal existence metadata, premium state, reminder records, and the configurable onboarding v2 release cutoff.
 For Google mobile sign-in, the device only forwards the Google `idToken`; the backend verifies it with Google and then issues the normal Journal.IO access and refresh tokens.
 For Apple mobile sign-in, the device forwards the Apple `identityToken` plus the raw nonce; the backend verifies the Apple signature, issuer, audience, expiry, and nonce before issuing the normal Journal.IO access and refresh tokens.
 
@@ -119,6 +126,10 @@ Frontend state management split:
 
 - server state: TanStack Query
 - app/client global state: Zustand
+
+Development note:
+
+- `frontend/src/utils/devLaunchConfig.json` may enable `enableBiometricLockForTesting` for local `__DEV__` builds so the iOS biometric lock can be exercised without a verified Premium entitlement; production access still requires the normal Premium check
 
 Redux/Redux Toolkit is not part of the default frontend architecture.
 
@@ -140,9 +151,20 @@ Primary flow must not fail if AI analysis fails.
 
 Onboarding demo exception:
 
-- `POST /onboarding/demo-analysis` is a pre-auth demo endpoint for the onboarding questionnaire only
+- `POST /onboarding/demo-analysis` is a public demo endpoint for the onboarding questionnaire only
 - it returns deterministic, keyword-aware AI-style copy without persisting the submitted text
 - it does not call the stored journal AI analysis pipeline or create journal records
+- `POST /onboarding/complete` is the authenticated onboarding v2 completion endpoint; it stores sanitized onboarding answers on the user profile without touching journals, RevenueCat subscription state, or reminder records
+
+Onboarding first guided reflection exception:
+
+- `POST /guided-reflection/first-summary` and `POST /guided-reflection/go-deeper` are authenticated onboarding-value endpoints used before the first real entry is saved
+- these endpoints are not premium-gated and must not trigger paywall, Mind Map, goals, or reminders
+- they use OpenAI only when configured and the user has not opted out of AI; otherwise they return deterministic, non-clinical Journal.IO reflection copy
+- they do not persist journal records or inferred labels; the mobile app still saves exactly one real journal entry through the existing journal create route after review
+- `POST /guided-reflection/session-analysis` runs after that single entry is saved and always returns `brainSessionMap`, which contains one dominant brain-inspired reflection center, 1-3 secondary centers, and all 8 center scores sorted by signal strength
+- if OpenAI is unavailable, disabled, or returns malformed structured output for session analysis, the backend still returns a valid non-clinical `brainSessionMap` fallback without blocking the saved-entry flow
+- safety-sensitive text returns support-first copy and avoids normal reflective interpretation
 
 ---
 
@@ -206,14 +228,21 @@ Current insights overview architecture:
 
 - the mobile Insights screen reads from `GET /insights/overview`
 - the mobile `AI Analysis` tab reads from `GET /insights/ai-analysis`
+- the iOS-only `Mind Map` is a primary authenticated tab. Premium users with AI enabled read `GET /insights/mind-map`; Free and AI-off users receive an entirely local educational model and do not request derived personal map data
+- Goals use the authenticated `/goals` vertical slice and current user-owned `journalingGoals` persistence. Manual create/list/delete is available to all signed-in users; journal-context suggestions remain Premium plus AI opt-in and require journal ownership
 - the Home AI insight card also reuses `GET /insights/ai-analysis`, but only surfaces short rotating snippets instead of the full weekly card stack
-- the `AI Analysis` tab and Home AI card are gated by the user's stored `aiOptIn` onboarding/privacy preference
+- the `AI Analysis` tab, Home AI card, and Mind Map route are gated by the user's stored `aiOptIn` onboarding/privacy preference
 - backend stores a per-user cached `insights` document for fast read access
 - the cache keeps lightweight aggregate counters and maps derived from:
   - journal entries
   - favorite state
   - journal tags
   - home mood check-ins
+- the same `insights` document now also stores separate Mind Map caches for:
+  - `latest_week`, keyed by closed premium-week window, timezone, scorer version, and response status
+  - `all_time`, keyed by timezone, scorer version, and response status
+- Mind Map scoring is deterministic, reuses the existing 8-region reflection taxonomy, strips prompt carryover, and down-weights low-signal writing instead of issuing a new OpenAI request
+- latest-week Mind Map safety-sensitive windows switch to support-first output without region ranking; all-time Mind Map views exclude safety-sensitive entries and only switch to support-first if no safe writing remains
 - journal and mood write paths incrementally maintain the cache
 - if the cache is missing, the backend rebuilds it from journals and mood check-ins
 - the same `insights` document also stores a weekly AI-analysis cache plus staleness metadata

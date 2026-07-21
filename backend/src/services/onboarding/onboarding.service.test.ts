@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOnboardingDemoAnalysis } from "./onboarding.service";
+import {
+  buildOnboardingDemoAnalysis,
+  sanitizeOnboardingCompletionPayload,
+} from "./onboarding.service";
 
 test("buildOnboardingDemoAnalysis returns a keyword-aware non-clinical demo reflection", () => {
   const analysis = buildOnboardingDemoAnalysis({
@@ -33,4 +36,25 @@ test("buildOnboardingDemoAnalysis falls back to mood when optional fields are em
   assert.equal(analysis.moodTone, "calm and steady");
   assert.ok(analysis.keywords.some(keyword => keyword.label === "Good"));
   assert.match(analysis.prompt, /What is one small, gentle thing/);
+});
+
+test("sanitizeOnboardingCompletionPayload maps current UI answers to onboarding v2 payload", () => {
+  const payload = sanitizeOnboardingCompletionPayload({
+    ageRange: " 25-34 ",
+    journalingExperience: " occasional journaler ",
+    goals: ["Daily Reflection", "Daily Reflection", "Growth"],
+    supportFocusAreas: ["Stress", "Sleep"],
+    reminderPreference: "Evening",
+    aiComfort: true,
+    privacyConsent: true,
+  });
+
+  assert.equal(payload.version, 2);
+  assert.equal(payload.ageRange, "25-34");
+  assert.equal(payload.primaryContext, "occasional journaler");
+  assert.deepEqual(payload.personalGoals, ["Daily Reflection", "Growth"]);
+  assert.deepEqual(payload.supportFocusAreas, ["Stress", "Sleep"]);
+  assert.equal(payload.reminderPreference, "Evening");
+  assert.equal(payload.aiComfort, true);
+  assert.equal(payload.privacyConsent, true);
 });

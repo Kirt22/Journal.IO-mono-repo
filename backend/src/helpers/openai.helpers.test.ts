@@ -92,3 +92,49 @@ test("requestStructuredOpenAi returns null when structured output does not match
 
   assert.equal(result, null);
 });
+
+test("requestStructuredOpenAi sends a feature-level model and high reasoning effort", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          value: "structured result",
+        }),
+      }),
+      { status: 200 }
+    );
+  }) as typeof fetch;
+
+  await requestStructuredOpenAi({
+    feature: "session analysis",
+    schemaName: "session_analysis",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["value"],
+      properties: {
+        value: { type: "string" },
+      },
+    },
+    parser: z.object({
+      value: z.string(),
+    }),
+    messages: [
+      {
+        role: "system",
+        content: "Return structured output.",
+      },
+    ],
+    model: "gpt-5.6-terra",
+    reasoningEffort: "high",
+  });
+
+  const capturedRequestBody = requestBody as Record<string, unknown> | null;
+  assert.ok(capturedRequestBody);
+  assert.equal(capturedRequestBody.model, "gpt-5.6-terra");
+  assert.deepEqual(capturedRequestBody.reasoning, { effort: "high" });
+});

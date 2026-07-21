@@ -3,7 +3,13 @@ import {
   createNavigationContainerRef,
   type NavigatorScreenParams,
   StackActions,
-} from "@react-navigation/native";
+} from '@react-navigation/native';
+import type {
+  FirstReflectionAnalysisPayload,
+  FirstReflectionGoalsPayload,
+  FirstReflectionStreakPayload,
+} from '../screens/onboarding/FirstGuidedReflectionScreen';
+import type { OnboardingV2Draft } from '../types/onboarding';
 
 export type MainAppStackParamList = {
   Home: undefined;
@@ -14,15 +20,36 @@ export type MainAppStackParamList = {
   Reminders: undefined;
   Streaks: undefined;
   Settings: undefined;
+  Account: undefined;
+  BiometricLock: undefined;
+  AboutYou: undefined;
+  ThemeSettings: undefined;
   Privacy: undefined;
   Subscription: undefined;
+  Goals: undefined;
+  MindMap: undefined;
   NewEntry: { initialPrompt?: string | null } | undefined;
   EntryDetail: { entryId?: string | null } | undefined;
   EditEntry: { entryId?: string | null } | undefined;
 };
 
+export type ProfileModalStackParamList = {
+  ProfileHub: undefined;
+  AboutYou: undefined;
+  ManageAccount: undefined;
+  Subscription: undefined;
+  Privacy: undefined;
+  BiometricLock: undefined;
+  Reminders: undefined;
+  Theme: undefined;
+};
+
 export type RootStackParamList = {
   Onboarding: undefined;
+  FirstGuidedReflection: { draft: OnboardingV2Draft };
+  FirstReflectionAnalysis: FirstReflectionAnalysisPayload;
+  FirstReflectionGoals: FirstReflectionGoalsPayload;
+  FirstReflectionStreak: FirstReflectionStreakPayload;
   AuthChoice: undefined;
   SignIn: undefined;
   ForgotPassword: undefined;
@@ -36,13 +63,14 @@ export type RootStackParamList = {
   Complete: undefined;
   MainApp: NavigatorScreenParams<MainAppStackParamList> | undefined;
   LegalBrowserModal: undefined;
+  ProfileModal: undefined;
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export function navigateRoot<RouteName extends keyof RootStackParamList>(
   name: RouteName,
-  params?: RootStackParamList[RouteName]
+  params?: RootStackParamList[RouteName],
 ) {
   if (!navigationRef.isReady()) {
     return;
@@ -52,19 +80,19 @@ export function navigateRoot<RouteName extends keyof RootStackParamList>(
     CommonActions.navigate({
       name: name as string,
       params,
-    })
+    }),
   );
 }
 
 export function navigateMainApp<RouteName extends keyof MainAppStackParamList>(
   name: RouteName,
-  params?: MainAppStackParamList[RouteName]
+  params?: MainAppStackParamList[RouteName],
 ) {
   if (!navigationRef.isReady()) {
     return;
   }
 
-  navigationRef.navigate("MainApp", {
+  navigationRef.navigate('MainApp', {
     screen: name,
     params,
   } as NavigatorScreenParams<MainAppStackParamList>);
@@ -72,7 +100,7 @@ export function navigateMainApp<RouteName extends keyof MainAppStackParamList>(
 
 export function replaceMainApp<RouteName extends keyof MainAppStackParamList>(
   name: RouteName,
-  params?: MainAppStackParamList[RouteName]
+  params?: MainAppStackParamList[RouteName],
 ) {
   if (!navigationRef.isReady()) {
     return;
@@ -83,7 +111,7 @@ export function replaceMainApp<RouteName extends keyof MainAppStackParamList>(
 
 export function resetRoot<RouteName extends keyof RootStackParamList>(
   name: RouteName,
-  params?: RootStackParamList[RouteName]
+  params?: RootStackParamList[RouteName],
 ) {
   if (!navigationRef.isReady()) {
     return;
@@ -98,7 +126,7 @@ export function resetRoot<RouteName extends keyof RootStackParamList>(
           params,
         } as never,
       ],
-    })
+    }),
   );
 }
 

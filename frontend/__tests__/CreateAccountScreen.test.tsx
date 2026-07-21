@@ -2,11 +2,26 @@
  * @format
  */
 
-import React from "react";
-import ReactTestRenderer from "react-test-renderer";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import PrimaryButton from "../src/components/PrimaryButton";
-import CreateAccountScreen from "../src/screens/auth/CreateAccountScreen";
+import React from 'react';
+import ReactTestRenderer from 'react-test-renderer';
+import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import PrimaryButton from '../src/components/PrimaryButton';
+import CreateAccountScreen from '../src/screens/auth/CreateAccountScreen';
+import { ApiError } from '../src/utils/apiClient';
+
+jest.mock('../src/components/AuthInkBackdrop', () => {
+  const ReactModule = require('react');
+  const { View } = require('react-native');
+
+  return {
+    __esModule: true,
+    default: () =>
+      ReactModule.createElement(View, {
+        testID: 'auth-ink-backdrop',
+      }),
+  };
+});
 
 const safeAreaMetrics = {
   frame: {
@@ -23,7 +38,7 @@ const safeAreaMetrics = {
   },
 };
 
-describe("CreateAccountScreen", () => {
+describe('CreateAccountScreen', () => {
   beforeEach(() => {
     jest.useFakeTimers();
   });
@@ -33,7 +48,7 @@ describe("CreateAccountScreen", () => {
     jest.useRealTimers();
   });
 
-  test("shows the password rule bubble on tap and blocks invalid signup submits", async () => {
+  test('shows the password rule bubble on tap and blocks invalid signup submits', async () => {
     const onSubmit = jest.fn(async () => undefined);
     const onSuccess = jest.fn();
 
@@ -48,14 +63,32 @@ describe("CreateAccountScreen", () => {
             onBackToAuth={jest.fn()}
             onGoToSignIn={jest.fn()}
           />
-        </SafeAreaProvider>
+        </SafeAreaProvider>,
       );
     });
 
-    expect(root!.root.findAllByProps({ testID: "password-rule-bubble" })).toHaveLength(0);
+    expect(
+      root!.root.findByProps({ testID: 'auth-ink-backdrop' }),
+    ).toBeTruthy();
+    expect(
+      root!.root.findByProps({ testID: 'auth-create-account-action-icon' }),
+    ).toBeTruthy();
+    expect(
+      root!.root.findByProps({ testID: 'create-account-back-row' }),
+    ).toBeTruthy();
+    expect(
+      StyleSheet.flatten(
+        root!.root.findByProps({
+          testID: 'create-account-centered-scroll',
+        }).props.contentContainerStyle,
+      ).justifyContent,
+    ).toBe('center');
+    expect(
+      root!.root.findAllByProps({ testID: 'password-rule-bubble' }),
+    ).toHaveLength(0);
 
     const passwordRuleButton = root!.root.findByProps({
-      testID: "password-rule-toggle",
+      testID: 'password-rule-toggle',
     });
     const submitButton = root!.root.findByType(PrimaryButton);
 
@@ -63,7 +96,9 @@ describe("CreateAccountScreen", () => {
       passwordRuleButton.props.onPress();
     });
 
-    expect(root!.root.findByProps({ testID: "password-rule-bubble" })).toBeTruthy();
+    expect(
+      root!.root.findByProps({ testID: 'password-rule-bubble' }),
+    ).toBeTruthy();
 
     await ReactTestRenderer.act(async () => {
       await submitButton.props.onPress();
@@ -73,20 +108,25 @@ describe("CreateAccountScreen", () => {
     const bannerTree = JSON.stringify(root!.toJSON());
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(bannerTree).toContain("Email is required.");
-    expect(bannerTree).toContain("Password is required.");
-    expect(bannerTree).toContain("Confirm your password.");
+    expect(bannerTree).toContain('Email is required.');
+    expect(bannerTree).not.toContain('Password is required.');
+    expect(bannerTree).not.toContain('Confirm your password.');
+    expect(bannerTree.match(/create-account-error-notice/g)).toHaveLength(1);
 
-    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
-    const passwordInput = root!.root.findByProps({ placeholder: "Create a password" });
+    const emailInput = root!.root.findByProps({
+      placeholder: 'you@example.com',
+    });
+    const passwordInput = root!.root.findByProps({
+      placeholder: 'Create a password',
+    });
     const confirmPasswordInput = root!.root.findByProps({
-      placeholder: "Re-enter your password",
+      placeholder: 'Re-enter your password',
     });
 
     await ReactTestRenderer.act(async () => {
-      emailInput.props.onChangeText("alex@example.com");
-      passwordInput.props.onChangeText("password123");
-      confirmPasswordInput.props.onChangeText("password123");
+      emailInput.props.onChangeText('alex@example.com');
+      passwordInput.props.onChangeText('password123');
+      confirmPasswordInput.props.onChangeText('password123');
     });
 
     await ReactTestRenderer.act(async () => {
@@ -95,19 +135,24 @@ describe("CreateAccountScreen", () => {
     });
 
     expect(onSubmit).toHaveBeenCalledWith({
-      email: "alex@example.com",
-      password: "password123",
+      email: 'alex@example.com',
+      password: 'password123',
     });
-    expect(JSON.stringify(root!.toJSON())).toContain("Verification code has been sent.");
+    expect(JSON.stringify(root!.toJSON())).toContain(
+      'Verification code has been sent.',
+    );
 
     await ReactTestRenderer.act(async () => {
       jest.advanceTimersByTime(1400);
     });
   });
 
-  test("does not advance when the backend signup call fails", async () => {
+  test('does not advance when the backend signup call fails', async () => {
     const onSubmit = jest.fn(async () => {
-      throw new Error("An account with this email already exists. Please sign in.");
+      throw new ApiError('Raw backend registration copy', {
+        code: 'EMAIL_ALREADY_REGISTERED',
+        status: 409,
+      });
     });
     const onSuccess = jest.fn();
 
@@ -122,21 +167,25 @@ describe("CreateAccountScreen", () => {
             onBackToAuth={jest.fn()}
             onGoToSignIn={jest.fn()}
           />
-        </SafeAreaProvider>
+        </SafeAreaProvider>,
       );
     });
 
-    const emailInput = root!.root.findByProps({ placeholder: "you@example.com" });
-    const passwordInput = root!.root.findByProps({ placeholder: "Create a password" });
+    const emailInput = root!.root.findByProps({
+      placeholder: 'you@example.com',
+    });
+    const passwordInput = root!.root.findByProps({
+      placeholder: 'Create a password',
+    });
     const confirmPasswordInput = root!.root.findByProps({
-      placeholder: "Re-enter your password",
+      placeholder: 'Re-enter your password',
     });
     const submitButton = root!.root.findByType(PrimaryButton);
 
     await ReactTestRenderer.act(async () => {
-      emailInput.props.onChangeText("alex@example.com");
-      passwordInput.props.onChangeText("password123");
-      confirmPasswordInput.props.onChangeText("password123");
+      emailInput.props.onChangeText('alex@example.com');
+      passwordInput.props.onChangeText('password123');
+      confirmPasswordInput.props.onChangeText('password123');
     });
 
     await ReactTestRenderer.act(async () => {
@@ -148,7 +197,10 @@ describe("CreateAccountScreen", () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSuccess).not.toHaveBeenCalled();
-    expect(tree).toContain("An account with this email already exists. Please sign in.");
-    expect(tree).not.toContain("Verification code has been sent.");
+    expect(tree).toContain(
+      'An account already exists for this email. Sign in instead.',
+    );
+    expect(tree).not.toContain('Raw backend registration copy');
+    expect(tree).not.toContain('Verification code has been sent.');
   });
 });

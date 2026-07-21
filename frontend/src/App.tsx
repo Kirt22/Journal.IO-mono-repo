@@ -2,25 +2,86 @@ import { useEffect, useRef } from "react";
 import { AppState, Linking, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppNavigator from "./navigation/AppNavigator";
+import BiometricLockOverlay from "./components/BiometricLockOverlay";
+import {
+  ConnectivityBoundary,
+  ConnectivityMonitor,
+} from "./components/ConnectivityBoundary";
+import HapticInteractionLayer from "./components/HapticInteractionLayer";
 import {
   addRevenueCatCustomerInfoUpdateListener,
   refreshRevenueCatEntitlementState,
   syncRevenueCatIdentity,
 } from "./services/revenueCatService";
 import { syncPaywallEntitlement } from "./services/paywallService";
-import { ThemeProvider } from "./theme/provider";
+import { ThemeProvider, useTheme } from "./theme/provider";
 import { useAppStore } from "./store/appStore";
+import { useConnectivity } from "./hooks/useConnectivity";
 
 function AppBootstrapper() {
   const bootstrapAuthGate = useAppStore(state => state.bootstrapAuthGate);
+  const revalidateCachedSession = useAppStore(
+    state => state.revalidateCachedSession,
+  );
   const session = useAppStore(state => state.session);
   const openLegalBrowser = useAppStore(state => state.openLegalBrowser);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
   const entitlementSyncInFlightRef = useRef(false);
+  const bootstrapInFlightRef = useRef<Promise<void> | null>(null);
+  const revalidationInFlightRef = useRef<Promise<void> | null>(null);
+  const { reconnectVersion, status: connectivityStatus } = useConnectivity();
 
   useEffect(() => {
-    bootstrapAuthGate().catch(() => undefined);
-  }, [bootstrapAuthGate]);
+    let isActive = true;
+
+    const runBootstrap = () => {
+      if (!bootstrapInFlightRef.current) {
+        bootstrapInFlightRef.current = bootstrapAuthGate().finally(() => {
+          bootstrapInFlightRef.current = null;
+        });
+      }
+
+      return bootstrapInFlightRef.current;
+    };
+
+    const reconcileAuth = async () => {
+      await runBootstrap();
+
+      if (!isActive || connectivityStatus !== 'online') {
+        return;
+      }
+
+      if (!useAppStore.getState().hasBootstrappedAuthGate) {
+        await runBootstrap();
+      }
+
+      if (
+        isActive &&
+        useAppStore.getState().sessionValidationState === 'cached'
+      ) {
+        if (!revalidationInFlightRef.current) {
+          revalidationInFlightRef.current = revalidateCachedSession().finally(
+            () => {
+              revalidationInFlightRef.current = null;
+            },
+          );
+        }
+
+        await revalidationInFlightRef.current;
+      }
+    };
+
+    reconcileAuth().catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    bootstrapAuthGate,
+    connectivityStatus,
+    reconnectVersion,
+    revalidateCachedSession,
+  ]);
 
   useEffect(() => {
     const originalOpenURL = Linking.openURL.bind(Linking);
@@ -103,10 +164,7 @@ function App() {
   return (
     <ThemeProvider modeOverride={themeModeOverride}>
       <SafeAreaProvider>
-        <View style={appStyles.appRoot}>
-          <AppBootstrapper />
-          <AppNavigator />
-        </View>
+        <AppShell />
       </SafeAreaProvider>
     </ThemeProvider>
   );
@@ -114,9 +172,30 @@ function App() {
 
 export default App;
 
+function AppShell() {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        appStyles.appRoot,
+        { backgroundColor: theme.colors.background },
+      ]}
+    >
+      <AppBootstrapper />
+      <ConnectivityMonitor />
+      <HapticInteractionLayer>
+        <ConnectivityBoundary>
+          <AppNavigator />
+          <BiometricLockOverlay />
+        </ConnectivityBoundary>
+      </HapticInteractionLayer>
+    </View>
+  );
+}
+
 const appStyles = StyleSheet.create({
   appRoot: {
     flex: 1,
-    backgroundColor: "#FDFCFB",
   },
 });

@@ -13,6 +13,16 @@ import {
   hasJournalSafetySignal,
   type JournalSafetySignal,
 } from "../../helpers/journalSafety.helpers";
+import {
+  buildReflectionRegionScore,
+  extractReflectionEvidenceSnippets,
+  getReflectionRegionKeywordScore,
+  rankReflectionRegionScores,
+  REFLECTION_REGION_DETAILS,
+  REFLECTION_REGION_IDS,
+  type ReflectionRegionId,
+  type ReflectionRegionScore,
+} from "../../helpers/reflectionMap.helpers";
 import type {
   InsightTone,
   InsightsAiAnalysisCollectingResponse,
@@ -20,6 +30,13 @@ import type {
   InsightsAiAnalysisProgress,
   InsightsAiAnalysisReadyResponse,
   InsightsAiAnalysisResponse,
+  InsightsMindMapBuildingResponse,
+  InsightsMindMapPeriod,
+  InsightsMindMapRange,
+  InsightsMindMapReadyResponse,
+  InsightsMindMapResponse,
+  InsightsMindMapSummary,
+  InsightsMindMapSupportFirstResponse,
   InsightsAiAnalysisWindow,
   InsightsOverviewResponse,
 } from "../../types/insights.types";
@@ -48,6 +65,7 @@ type WeeklyJournalSnapshot = {
 };
 
 type AnalyzedWeeklyJournalSnapshot = WeeklyJournalSnapshot & {
+  strippedText: string;
   analysisText: string;
   analysisWordCount: number;
   reliableTags: string[];
@@ -67,6 +85,10 @@ type WeeklyWindowSnapshot = {
   endDateKey: string;
   label: string;
   timeZone: string;
+};
+
+type MindMapJournalSnapshot = AnalyzedWeeklyJournalSnapshot & {
+  sourceText: string;
 };
 
 type ConfidenceLevel = "low" | "medium" | "high";
@@ -117,6 +139,10 @@ const DEFAULT_PROMPTS = [
 ];
 const AI_ANALYSIS_WINDOW_DAYS = 7;
 const AI_ANALYSIS_MIN_ACTIVE_DAYS = 4;
+const MIND_MAP_MIN_ACTIVE_DAYS = 4;
+const MIND_MAP_MIN_CLEAR_ENTRIES = 2;
+const MIND_MAP_MIN_CLEAR_WORDS = 40;
+const MIND_MAP_SCORER_VERSION = "1";
 const isAiAnalysisDevEarlyReadyEnabled = () =>
   process.env.NODE_ENV !== "production" &&
   process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY === "true";
@@ -944,6 +970,7 @@ const analyzeWeeklyJournals = (journals: WeeklyJournalSnapshot[]): AnalyzedWeekl
 
     return {
       ...journal,
+      strippedText: textQuality.strippedText,
       analysisText: textQuality.analysisText,
       analysisWordCount: textQuality.analysisWordCount,
       reliableTags:
@@ -2403,6 +2430,546 @@ const generateAiAnalysisEnhancement = async ({
   });
 };
 
+const MIND_MAP_DISCLAIMER = {
+  title: "Reflection signal, not a medical measure",
+  body:
+    "Brightness and pulse reflect patterns in your writing. This map is not a brain scan, diagnosis, or medical measure.",
+};
+
+const countActiveWritingDays = (
+  journals: Array<{ createdAt: Date }>,
+  timeZone: string
+) =>
+  new Set(journals.map(journal => getLocalDateKey(journal.createdAt, timeZone))).size;
+
+const buildMindMapPeriod = ({
+  range,
+  label,
+  startDate,
+  endDate,
+  journals,
+  clearEntryCount,
+  totalWords,
+  timeZone,
+  generatedAt,
+}: {
+  range: InsightsMindMapRange;
+  label: string;
+  startDate: string | null;
+  endDate: string | null;
+  journals: MindMapJournalSnapshot[];
+  clearEntryCount: number;
+  totalWords: number;
+  timeZone: string;
+  generatedAt: Date | null;
+}): InsightsMindMapPeriod => ({
+  range,
+  label,
+  startDate,
+  endDate,
+  entryCount: journals.length,
+  activeDays: countActiveWritingDays(journals, timeZone),
+  clearEntryCount,
+  totalWords,
+  minimumActiveDays: MIND_MAP_MIN_ACTIVE_DAYS,
+  generatedAt: generatedAt ? generatedAt.toISOString() : null,
+});
+
+const buildMindMapBuildingResponse = ({
+  period,
+  summary,
+  activeDays,
+  clearEntryCount,
+  daysRemaining,
+}: {
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  activeDays: number;
+  clearEntryCount: number;
+  daysRemaining: number | null;
+}): InsightsMindMapBuildingResponse => ({
+  status: "building",
+  period,
+  summary,
+  progress: {
+    activeDays,
+    minimumActiveDays: MIND_MAP_MIN_ACTIVE_DAYS,
+    clearEntryCount,
+    entriesNeeded: Math.max(0, MIND_MAP_MIN_ACTIVE_DAYS - activeDays),
+    daysRemaining,
+  },
+  disclaimer: MIND_MAP_DISCLAIMER,
+});
+
+const buildMindMapSupportFirstResponse = ({
+  period,
+  summary,
+  support,
+}: {
+  period: InsightsMindMapPeriod;
+  summary: InsightsMindMapSummary;
+  support: InsightsMindMapSupportFirstResponse["support"];
+}): InsightsMindMapSupportFirstResponse => ({
+  status: "support_first",
+  period,
+  summary,
+  support,
+  disclaimer: MIND_MAP_DISCLAIMER,
+});
+
+const toMindMapJournalSnapshots = (
+  journals: AnalyzedWeeklyJournalSnapshot[]
+): MindMapJournalSnapshot[] =>
+  journals.map(journal => ({
+    ...journal,
+    sourceText: journal.strippedText.trim() || journal.content.trim(),
+  }));
+
+const getClearMindMapJournals = (journals: MindMapJournalSnapshot[]) =>
+  journals.filter(
+    journal =>
+      !journal.lowSignalDetected &&
+      !hasJournalSafetySignal(journal.safetySignal) &&
+      journal.analysisWordCount >= 4 &&
+      Boolean(journal.sourceText.trim())
+  );
+
+const buildMindMapRegions = ({
+  journals,
+  activeDays,
+}: {
+  journals: MindMapJournalSnapshot[];
+  activeDays: number;
+}) => {
+  const clearJournals = getClearMindMapJournals(journals);
+  const combinedWriting = clearJournals.map(journal => journal.sourceText).join(" ");
+  const evidenceByRegion = new Map<ReflectionRegionId, string[]>(
+    REFLECTION_REGION_IDS.map(id => [id, []])
+  );
+  const rawScoreByRegion = new Map<ReflectionRegionId, number>(
+    REFLECTION_REGION_IDS.map(id => [id, 0])
+  );
+
+  for (const journal of clearJournals) {
+    const journalText = `${journal.sourceText} ${journal.reliableTags.join(" ")}`.trim();
+    const journalWeight = 1 + (journal.isFavorite ? 0.12 : 0);
+
+    for (const regionId of REFLECTION_REGION_IDS) {
+      const keywordScore = getReflectionRegionKeywordScore(regionId, journalText);
+      const nextScore =
+        (rawScoreByRegion.get(regionId) || 0) + keywordScore * journalWeight;
+      rawScoreByRegion.set(regionId, nextScore);
+
+      if (keywordScore <= 0) {
+        continue;
+      }
+
+      const nextEvidence = evidenceByRegion.get(regionId) || [];
+      const evidence = extractReflectionEvidenceSnippets(journal.sourceText, regionId, 1);
+
+      for (const item of evidence) {
+        if (nextEvidence.includes(item) || nextEvidence.length >= 3) {
+          continue;
+        }
+
+        nextEvidence.push(item);
+      }
+
+      evidenceByRegion.set(regionId, nextEvidence);
+    }
+  }
+
+  const highestRawScore = Math.max(
+    ...REFLECTION_REGION_IDS.map(regionId => rawScoreByRegion.get(regionId) || 0),
+    0
+  );
+  const regions = REFLECTION_REGION_IDS.map((regionId, index) => {
+    const rawScore = rawScoreByRegion.get(regionId) || 0;
+    const normalizedScore =
+      highestRawScore > 0
+        ? Math.min(1, Number((rawScore / highestRawScore).toFixed(2)))
+        : REFLECTION_REGION_DETAILS[regionId].lowSignalScore;
+    const evidence = evidenceByRegion.get(regionId) || [];
+    const confidence = Math.min(
+      0.94,
+      0.42 +
+        normalizedScore * 0.28 +
+        Math.min(0.16, evidence.length * 0.07) +
+        Math.min(0.14, activeDays * 0.025)
+    );
+
+    return buildReflectionRegionScore({
+      id: regionId,
+      score: normalizedScore,
+      confidence,
+      rank: index + 1,
+      evidence,
+      userWriting: combinedWriting,
+    });
+  });
+
+  return {
+    clearJournals,
+    combinedWriting,
+    regions: rankReflectionRegionScores(regions),
+  };
+};
+
+const buildMindMapReadyResponse = ({
+  range,
+  period,
+  regions,
+}: {
+  range: InsightsMindMapRange;
+  period: InsightsMindMapPeriod;
+  regions: ReflectionRegionScore[];
+}): InsightsMindMapReadyResponse => {
+  const strongestRegion = regions[0] as ReflectionRegionScore;
+  const periodCopy =
+    range === "all_time"
+      ? "Across your full reflection history"
+      : `Across ${period.label}`;
+
+  return {
+    status: "ready",
+    period,
+    summary: {
+      headline: `${strongestRegion.productName} carried the strongest reflection signal`,
+      narrative:
+        `${periodCopy}, your writing most often returned to ${strongestRegion.productName.toLowerCase()} patterns. Other regions still appear in the map, but this one showed the clearest consistent signal.`,
+      note:
+        "Brightness and pulse reflect recurring patterns in your writing, not literal brain activity.",
+    },
+    strongestRegionId: strongestRegion.id,
+    regions: regions.map(region => ({
+      id: region.id,
+      productLabel: region.productName,
+      brainRegionSubtitle: region.brainRegion,
+      signalScore: region.score,
+      confidence: region.confidence,
+      rank: region.rank,
+      intensity: region.intensity,
+      shortInsight: region.shortInsight,
+      evidenceSnippets: region.evidence,
+    })),
+    disclaimer: MIND_MAP_DISCLAIMER,
+  };
+};
+
+const buildLatestWeekMindMapCacheKey = ({
+  window,
+  timeZone,
+  status,
+}: {
+  window: WeeklyWindowSnapshot;
+  timeZone: string;
+  status: InsightsMindMapResponse["status"];
+}) =>
+  `latest_week:${window.startDateKey}:${window.endDateKey}:${timeZone}:v${MIND_MAP_SCORER_VERSION}:${status}`;
+
+const buildAllTimeMindMapCacheKey = ({
+  timeZone,
+  status,
+}: {
+  timeZone: string;
+  status: InsightsMindMapResponse["status"];
+}) => `all_time:${timeZone}:v${MIND_MAP_SCORER_VERSION}:${status}`;
+
+const refreshLatestWeekMindMapCache = async ({
+  userId,
+  insights,
+  timeZone,
+  today,
+}: {
+  userId: string;
+  insights: IInsights;
+  timeZone: string;
+  today: Date;
+}) => {
+  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  const todayDateKey = getLocalDateKey(today, timeZone);
+  const currentWindowIndex = Math.floor(
+    daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
+  );
+
+  if (currentWindowIndex <= 0) {
+    const currentWindow = resolveWeeklyWindow({
+      anchorDateKey,
+      windowIndex: 0,
+      timeZone,
+    });
+    const currentSnapshots = toMindMapJournalSnapshots(
+      analyzeWeeklyJournals((await loadWindowSnapshots({ userId, window: currentWindow })).journals)
+    );
+    const clearEntryCount = getClearMindMapJournals(currentSnapshots).length;
+    const totalWords = currentSnapshots.reduce(
+      (sum, journal) => sum + journal.analysisWordCount,
+      0
+    );
+    const progress = buildProgressSnapshot({
+      window: buildWindowFromJournals({ journals: currentSnapshots, window: currentWindow }),
+      activeDays: countActiveWritingDays(currentSnapshots, timeZone),
+      entryCount: currentSnapshots.length,
+      todayDateKey,
+      promptState:
+        currentSnapshots.length <= 0
+          ? "zero_entries"
+          : countActiveWritingDays(currentSnapshots, timeZone) >=
+                MIND_MAP_MIN_ACTIVE_DAYS - 1
+            ? "almost_ready"
+            : "building",
+    });
+    const collecting = buildCollectingAiAnalysis({
+      window: buildWindowFromJournals({ journals: currentSnapshots, window: currentWindow }),
+      progress,
+    });
+    const period = buildMindMapPeriod({
+      range: "latest_week",
+      label: currentWindow.label,
+      startDate: currentWindow.startDateKey,
+      endDate: currentWindow.endDateKey,
+      journals: currentSnapshots,
+      clearEntryCount,
+      totalWords,
+      timeZone,
+      generatedAt: null,
+    });
+
+    return buildMindMapBuildingResponse({
+      period,
+      summary: {
+        headline: collecting.summary.headline,
+        narrative: collecting.summary.narrative,
+        note: collecting.summary.highlight,
+      },
+      activeDays: progress.activeDays,
+      clearEntryCount,
+      daysRemaining: progress.daysRemaining,
+    });
+  }
+
+  const closedWindow = resolveWeeklyWindow({
+    anchorDateKey,
+    windowIndex: Math.max(0, currentWindowIndex - 1),
+    timeZone,
+  });
+  const journals = toMindMapJournalSnapshots(
+    analyzeWeeklyJournals((await loadWindowSnapshots({ userId, window: closedWindow })).journals)
+  );
+  const activeDays = countActiveWritingDays(journals, timeZone);
+  const clearJournals = getClearMindMapJournals(journals);
+  const clearEntryCount = clearJournals.length;
+  const totalWords = clearJournals.reduce(
+    (sum, journal) => sum + journal.analysisWordCount,
+    0
+  );
+  const period = buildMindMapPeriod({
+    range: "latest_week",
+    label: closedWindow.label,
+    startDate: closedWindow.startDateKey,
+    endDate: closedWindow.endDateKey,
+    journals,
+    clearEntryCount,
+    totalWords,
+    timeZone,
+    generatedAt: new Date(),
+  });
+
+  let response: InsightsMindMapResponse;
+
+  if (journals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+    response = buildMindMapSupportFirstResponse({
+      period,
+      summary: {
+        headline: "This week needs a support-first read",
+        narrative:
+          "Journal.IO noticed elevated-risk language in the latest closed premium week, so the Mind Map is paused instead of ranking reflection regions.",
+        note: "Support-first handling takes priority over pattern scoring in this view.",
+      },
+      support: {
+        headline: "A calmer next step matters more than a ranked map right now.",
+        body:
+          "If this writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+        note:
+          "Journal.IO hides normal region scoring for safety-sensitive weekly writing.",
+      },
+    });
+  } else if (
+    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+    clearEntryCount < MIND_MAP_MIN_CLEAR_ENTRIES ||
+    totalWords < MIND_MAP_MIN_CLEAR_WORDS
+  ) {
+    const nextWindow = resolveWeeklyWindow({
+      anchorDateKey,
+      windowIndex: currentWindowIndex,
+      timeZone,
+    });
+    const insufficient = buildInsufficientAiAnalysis({
+      window: buildWindowFromJournals({ journals, window: closedWindow }),
+      progress: {
+        ...buildProgressSnapshot({
+          window: buildWindowFromJournals({ journals, window: closedWindow }),
+          activeDays,
+          entryCount: journals.length,
+          todayDateKey: closedWindow.endDateKey,
+          promptState: "missed",
+        }),
+        nextWindowStartDate: nextWindow.startDateKey,
+        nextWindowEndDate: nextWindow.endDateKey,
+        nextWindowLabel: nextWindow.label,
+      },
+    });
+    response = buildMindMapBuildingResponse({
+      period,
+      summary: {
+        headline: insufficient.summary.headline,
+        narrative: insufficient.summary.narrative,
+        note: insufficient.summary.highlight,
+      },
+      activeDays,
+      clearEntryCount,
+      daysRemaining: null,
+    });
+  } else {
+    response = buildMindMapReadyResponse({
+      range: "latest_week",
+      period,
+      regions: buildMindMapRegions({ journals, activeDays }).regions,
+    });
+  }
+
+  insights.mindMapLatestWeek = response;
+  insights.mindMapLatestWeekStale = false;
+  insights.mindMapLatestWeekComputedAt = new Date();
+  insights.mindMapLatestWeekCacheKey = buildLatestWeekMindMapCacheKey({
+    window: closedWindow,
+    timeZone,
+    status: response.status,
+  });
+  await insights.save();
+
+  return {
+    ...response,
+    period: {
+      ...response.period,
+      generatedAt: insights.mindMapLatestWeekComputedAt?.toISOString() || null,
+    },
+  } as InsightsMindMapResponse;
+};
+
+const refreshAllTimeMindMapCache = async ({
+  userId,
+  insights,
+  timeZone,
+}: {
+  userId: string;
+  insights: IInsights;
+  timeZone: string;
+}) => {
+  const journals = toMindMapJournalSnapshots(
+    analyzeWeeklyJournals(
+      (
+        await journalModel
+          .find({ userId })
+          .sort({ createdAt: -1 })
+          .select("content aiPrompt tags isFavorite createdAt")
+          .lean()
+          .exec()
+      ).map(journal => ({
+        content: journal.content || "",
+        aiPrompt: typeof journal.aiPrompt === "string" ? journal.aiPrompt : null,
+        tags: journal.tags || [],
+        isFavorite: Boolean(journal.isFavorite),
+        createdAt: new Date(journal.createdAt),
+      }))
+    )
+  );
+  const safeJournals = journals.filter(
+    journal => !hasJournalSafetySignal(journal.safetySignal)
+  );
+  const clearJournals = getClearMindMapJournals(safeJournals);
+  const totalWords = clearJournals.reduce(
+    (sum, journal) => sum + journal.analysisWordCount,
+    0
+  );
+  const period = buildMindMapPeriod({
+    range: "all_time",
+    label: "All reflections",
+    startDate: safeJournals.length
+      ? safeJournals[safeJournals.length - 1]?.createdAt.toISOString().slice(0, 10) || null
+      : null,
+    endDate: safeJournals[0]?.createdAt.toISOString().slice(0, 10) || null,
+    journals: safeJournals,
+    clearEntryCount: clearJournals.length,
+    totalWords,
+    timeZone,
+    generatedAt: new Date(),
+  });
+  const activeDays = countActiveWritingDays(safeJournals, timeZone);
+  let response: InsightsMindMapResponse;
+
+  if (!safeJournals.length && journals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+    response = buildMindMapSupportFirstResponse({
+      period,
+      summary: {
+        headline: "Your map is paused for support-first handling",
+        narrative:
+          "Journal.IO excluded safety-sensitive writing from the all-reflections map, and there is not enough remaining safe writing to score regions yet.",
+        note:
+          "Support-first handling takes priority over ranking reflection regions.",
+      },
+      support: {
+        headline: "This history needs a support-first response first.",
+        body:
+          "If your recent writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+        note:
+          "Once there is enough safe writing to map, the all-reflections view can return without surfacing sensitive text.",
+      },
+    });
+  } else if (
+    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+    clearJournals.length < MIND_MAP_MIN_CLEAR_ENTRIES ||
+    totalWords < MIND_MAP_MIN_CLEAR_WORDS
+  ) {
+    response = buildMindMapBuildingResponse({
+      period,
+      summary: {
+        headline: "Your Mind Map is still building",
+        narrative:
+          "Journal.IO needs at least 4 active writing days and a little more clear writing before it can rank reflection regions across all reflections.",
+        note:
+          "Keep adding honest entries in your own words and the map will fill in without inventing activity.",
+      },
+      activeDays,
+      clearEntryCount: clearJournals.length,
+      daysRemaining: null,
+    });
+  } else {
+    response = buildMindMapReadyResponse({
+      range: "all_time",
+      period,
+      regions: buildMindMapRegions({ journals: safeJournals, activeDays }).regions,
+    });
+  }
+
+  insights.mindMapAllTime = response;
+  insights.mindMapAllTimeStale = false;
+  insights.mindMapAllTimeComputedAt = new Date();
+  insights.mindMapAllTimeCacheKey = buildAllTimeMindMapCacheKey({
+    timeZone,
+    status: response.status,
+  });
+  await insights.save();
+
+  return {
+    ...response,
+    period: {
+      ...response.period,
+      generatedAt: insights.mindMapAllTimeComputedAt?.toISOString() || null,
+    },
+  } as InsightsMindMapResponse;
+};
+
 const rebuildInsightsCache = async (userId: string) => {
   const [journals, moodCheckIns] = await Promise.all([
     journalModel.find({ userId }).select("content tags isFavorite createdAt").lean().exec(),
@@ -2448,6 +3015,14 @@ const rebuildInsightsCache = async (userId: string) => {
     aiAnalysisComputedAt: null,
     aiAnalysisWindowEndDateKey: null,
     aiAnalysisCacheKey: null,
+    mindMapLatestWeek: null,
+    mindMapLatestWeekStale: true,
+    mindMapLatestWeekComputedAt: null,
+    mindMapLatestWeekCacheKey: null,
+    mindMapAllTime: null,
+    mindMapAllTimeStale: true,
+    mindMapAllTimeComputedAt: null,
+    mindMapAllTimeCacheKey: null,
   };
 
   await insightsModel
@@ -2483,6 +3058,13 @@ const markAiAnalysisStale = (insights: IInsights) => {
   insights.aiAnalysisCacheKey = null;
 };
 
+const markMindMapStale = (insights: IInsights) => {
+  insights.mindMapLatestWeekStale = true;
+  insights.mindMapLatestWeekCacheKey = null;
+  insights.mindMapAllTimeStale = true;
+  insights.mindMapAllTimeCacheKey = null;
+};
+
 const applyInsightsDocument = async (userId: string, updater: (insights: IInsights) => void) => {
   const insights = await insightsModel.findOne({ userId }).exec();
 
@@ -2516,6 +3098,7 @@ const syncJournalCreatedInsights = async (journal: JournalInsightsSnapshot) => {
     insights.tagCounts = tagCounts;
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
+    markMindMapStale(insights);
   });
 };
 
@@ -2556,6 +3139,7 @@ const syncJournalUpdatedInsights = async ({
     insights.tagCounts = tagCounts;
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
+    markMindMapStale(insights);
   });
 };
 
@@ -2582,6 +3166,7 @@ const syncJournalDeletedInsights = async (journal: JournalInsightsSnapshot) => {
     insights.tagCounts = tagCounts;
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
+    markMindMapStale(insights);
   });
 };
 
@@ -2789,12 +3374,90 @@ const getInsightsAiAnalysis = async (
   });
 };
 
+const getInsightsMindMap = async (
+  userId: string,
+  options: {
+    range: InsightsMindMapRange;
+    timeZone?: string;
+    today?: Date;
+  }
+): Promise<InsightsMindMapResponse> => {
+  await ensureAiAnalysisEnabled(userId);
+
+  const insights = await getOrBuildInsightsCache(userId);
+
+  if (!insights) {
+    throw new Error("We couldn't load your Mind Map right now.");
+  }
+
+  const timeZone = normalizeTimeZone(options.timeZone);
+  const today = options.today || new Date();
+
+  if (options.range === "all_time") {
+    const cachedAllTime = insights.mindMapAllTime as InsightsMindMapResponse | null;
+
+    if (
+      cachedAllTime &&
+      !insights.mindMapAllTimeStale &&
+      insights.mindMapAllTimeCacheKey ===
+        buildAllTimeMindMapCacheKey({
+          timeZone,
+          status: cachedAllTime.status,
+        })
+    ) {
+      return cachedAllTime;
+    }
+
+    return refreshAllTimeMindMapCache({
+      userId,
+      insights,
+      timeZone,
+    });
+  }
+
+  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  const todayDateKey = getLocalDateKey(today, timeZone);
+  const currentWindowIndex = Math.floor(
+    daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
+  );
+
+  if (currentWindowIndex > 0) {
+    const closedWindow = resolveWeeklyWindow({
+      anchorDateKey,
+      windowIndex: Math.max(0, currentWindowIndex - 1),
+      timeZone,
+    });
+    const cachedLatestWeek = insights.mindMapLatestWeek as InsightsMindMapResponse | null;
+
+    if (
+      cachedLatestWeek &&
+      !insights.mindMapLatestWeekStale &&
+      insights.mindMapLatestWeekCacheKey ===
+        buildLatestWeekMindMapCacheKey({
+          window: closedWindow,
+          timeZone,
+          status: cachedLatestWeek.status,
+        })
+    ) {
+      return cachedLatestWeek;
+    }
+  }
+
+  return refreshLatestWeekMindMapCache({
+    userId,
+    insights,
+    timeZone,
+    today,
+  });
+};
+
 export {
   AiAnalysisDisabledError,
   PremiumFeatureRequiredError,
   buildWeeklyAiAnalysis,
   getInsightsOverview,
   getInsightsAiAnalysis,
+  getInsightsMindMap,
   mergeAiAnalysisEnhancement,
   rebuildInsightsCache,
   syncJournalCreatedInsights,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,15 +9,25 @@ import {
   Text,
   TextInput,
   View,
-} from "../../infrastructure/reactNative";
-import { ArrowLeft } from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useWindowDimensions } from "react-native";
-import ActionSuccessScreen from "../../components/ActionSuccessScreen";
-import PrimaryButton from "../../components/PrimaryButton";
-import AuthHero from "../../components/AuthHero";
-import { useTheme } from "../../theme/provider";
-import { getAuthLayoutMetrics } from "./authLayout";
+} from '../../infrastructure/reactNative';
+import { ArrowLeft } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useWindowDimensions } from 'react-native';
+import ActionSuccessScreen from '../../components/ActionSuccessScreen';
+import PrimaryButton from '../../components/PrimaryButton';
+import {
+  AuthErrorDialog,
+  AuthErrorNotice,
+} from '../../components/AuthErrorFeedback';
+import AuthHero from '../../components/AuthHero';
+import AuthInkBackdrop from '../../components/AuthInkBackdrop';
+import { useTheme } from '../../theme/provider';
+import { getAuthLayoutMetrics } from './authLayout';
+import {
+  AUTH_VALIDATION_MESSAGES,
+  getAuthErrorPresentation,
+  type AuthErrorPresentation,
+} from './authErrorPresentation';
 
 type VerifyEmailScreenProps = {
   email: string;
@@ -41,10 +51,13 @@ export default function VerifyEmailScreen({
 }: VerifyEmailScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [code, setCode] = useState<string[]>(new Array(OTP_LENGTH).fill(""));
+  const [code, setCode] = useState<string[]>(new Array(OTP_LENGTH).fill(''));
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<AuthErrorPresentation | null>(
+    null,
+  );
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
   const [isResendSubmitting, setIsResendSubmitting] = useState(false);
@@ -54,11 +67,9 @@ export default function VerifyEmailScreen({
   const {
     contentPaddingBottom,
     contentPaddingTop,
-    heroImageSize,
     heroSubtitleMaxWidth,
     heroTitleSize,
     horizontalPadding,
-    isVeryCompact,
     otpGap,
     otpInputSize,
     sheetMaxWidth,
@@ -81,11 +92,11 @@ export default function VerifyEmailScreen({
     inputRefs.current[0]?.focus();
   }, []);
 
-  const verificationCode = code.join("");
+  const verificationCode = code.join('');
 
   const fillCode = (nextValue: string) => {
-    const digits = nextValue.replace(/\D/g, "").slice(0, OTP_LENGTH).split("");
-    const nextCode = new Array(OTP_LENGTH).fill("");
+    const digits = nextValue.replace(/\D/g, '').slice(0, OTP_LENGTH).split('');
+    const nextCode = new Array(OTP_LENGTH).fill('');
 
     digits.forEach((digit, index) => {
       nextCode[index] = digit;
@@ -120,10 +131,10 @@ export default function VerifyEmailScreen({
   };
 
   const handleKeyDown = (index: number, key: string) => {
-    if (key === "Backspace" && !code[index] && index > 0) {
+    if (key === 'Backspace' && !code[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
       const nextCode = [...code];
-      nextCode[index - 1] = "";
+      nextCode[index - 1] = '';
       setCode(nextCode);
     }
   };
@@ -133,8 +144,8 @@ export default function VerifyEmailScreen({
       return;
     }
 
-    if (code.some(digit => digit === "")) {
-      setError("Please enter the full verification code.");
+    if (code.some(digit => digit === '')) {
+      setError(AUTH_VALIDATION_MESSAGES.codeRequired);
       return;
     }
 
@@ -146,17 +157,25 @@ export default function VerifyEmailScreen({
     lastSubmittedCodeRef.current = verificationCode;
     setIsVerifying(true);
     setError(null);
+    setDialogError(null);
     setResendNotice(null);
 
     try {
       await onVerifyEmail(verificationCode);
       setIsVerified(true);
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to verify your email."
+      const presentation = getAuthErrorPresentation(
+        submissionError,
+        'verify-email',
       );
+
+      if (!presentation) {
+        return;
+      } else if (presentation.surface === 'dialog') {
+        setDialogError(presentation);
+      } else {
+        setError(presentation.message);
+      }
       setIsVerified(false);
     } finally {
       isSubmittingRef.current = false;
@@ -166,7 +185,7 @@ export default function VerifyEmailScreen({
 
   useEffect(() => {
     if (
-      code.every(digit => digit !== "") &&
+      code.every(digit => digit !== '') &&
       !isVerifying &&
       !isVerified &&
       !isSubmittingRef.current &&
@@ -183,26 +202,34 @@ export default function VerifyEmailScreen({
 
     setIsResendSubmitting(true);
     setError(null);
+    setDialogError(null);
     setResendNotice(null);
 
     try {
       await onResendCode();
-      setCode(new Array(OTP_LENGTH).fill(""));
+      setCode(new Array(OTP_LENGTH).fill(''));
       setResendTimer(RESEND_COOLDOWN);
       setIsVerified(false);
       setResendNotice(
         __DEV__
-          ? "A fresh code was requested. If local SMTP is off, use the latest code from the backend or Metro logs."
-          : "A fresh code is on the way."
+          ? 'A fresh code was requested. If local SMTP is off, use the latest code from the backend or Metro logs.'
+          : 'A fresh code is on the way.',
       );
       lastSubmittedCodeRef.current = null;
       inputRefs.current[0]?.focus();
     } catch (submissionError) {
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to resend the verification code."
+      const presentation = getAuthErrorPresentation(
+        submissionError,
+        'resend-verification',
       );
+
+      if (!presentation) {
+        return;
+      } else if (presentation.surface === 'dialog') {
+        setDialogError(presentation);
+      } else {
+        setError(presentation.message);
+      }
     } finally {
       setIsResendSubmitting(false);
     }
@@ -219,11 +246,14 @@ export default function VerifyEmailScreen({
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
+      <AuthInkBackdrop />
       <View style={styles.screen}>
         <KeyboardAvoidingView
-          style={[styles.container, { backgroundColor: theme.colors.background }]}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
             contentContainerStyle={[
@@ -237,9 +267,17 @@ export default function VerifyEmailScreen({
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              <Pressable onPress={onBackToCreateAccount} style={styles.backLink}>
+              <Pressable
+                onPress={onBackToCreateAccount}
+                style={styles.backLink}
+              >
                 <ArrowLeft color={theme.colors.mutedForeground} size={18} />
-                <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.backText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
                   Back
                 </Text>
               </Pressable>
@@ -247,10 +285,7 @@ export default function VerifyEmailScreen({
               <AuthHero
                 title="Check your email"
                 subtitle="We sent a 6-digit code to"
-                tone="default"
                 badge={null}
-                imageSize={heroImageSize}
-                shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
                 subtitleMaxWidth={heroSubtitleMaxWidth}
                 titleSize={heroTitleSize}
               >
@@ -266,7 +301,10 @@ export default function VerifyEmailScreen({
                   <Text
                     numberOfLines={1}
                     ellipsizeMode="middle"
-                    style={[styles.emailPillText, { color: theme.colors.foreground }]}
+                    style={[
+                      styles.emailPillText,
+                      { color: theme.colors.foreground },
+                    ]}
                   >
                     {email}
                   </Text>
@@ -274,12 +312,28 @@ export default function VerifyEmailScreen({
               </AuthHero>
 
               <View style={styles.form}>
-                <View style={[styles.instructionCard, { backgroundColor: theme.colors.accent }]}>
-                  <Text style={[styles.instructionTitle, { color: theme.colors.foreground }]}>
+                <View
+                  style={[
+                    styles.instructionCard,
+                    { backgroundColor: theme.colors.accent },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.instructionTitle,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     Enter the verification code
                   </Text>
-                  <Text style={[styles.instructionBody, { color: theme.colors.mutedForeground }]}>
-                    Keep this screen open. The code will complete your account setup once entered.
+                  <Text
+                    style={[
+                      styles.instructionBody,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Keep this screen open. The code will complete your account
+                    setup once entered.
                   </Text>
                 </View>
 
@@ -293,17 +347,30 @@ export default function VerifyEmailScreen({
                       },
                     ]}
                   >
-                    <Text style={[styles.localTestingTitle, { color: theme.colors.foreground }]}>
+                    <Text
+                      style={[
+                        styles.localTestingTitle,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
                       Local testing
                     </Text>
                     <Text
-                      style={[styles.localTestingBody, { color: theme.colors.mutedForeground }]}
+                      style={[
+                        styles.localTestingBody,
+                        { color: theme.colors.mutedForeground },
+                      ]}
                     >
-                      If SMTP is not configured, the latest verification code is printed in the
-                      backend console and app dev logs.
+                      If SMTP is not configured, the latest verification code is
+                      printed in the backend console and app dev logs.
                     </Text>
                   </View>
                 ) : null}
+
+                <AuthErrorNotice
+                  message={error}
+                  testID="verify-email-error-notice"
+                />
 
                 <View style={[styles.codeRow, { gap: otpGap }]}>
                   {code.map((digit, index) => (
@@ -314,9 +381,11 @@ export default function VerifyEmailScreen({
                       }}
                       value={digit}
                       onChangeText={(text: string) => updateCode(index, text)}
-                      onKeyPress={({ nativeEvent }: { nativeEvent: { key: string } }) =>
-                        handleKeyDown(index, nativeEvent.key)
-                      }
+                      onKeyPress={({
+                        nativeEvent,
+                      }: {
+                        nativeEvent: { key: string };
+                      }) => handleKeyDown(index, nativeEvent.key)}
                       keyboardType="number-pad"
                       textContentType="oneTimeCode"
                       maxLength={1}
@@ -329,8 +398,8 @@ export default function VerifyEmailScreen({
                           borderColor: error
                             ? theme.colors.destructive
                             : digit
-                              ? theme.colors.primary
-                              : theme.colors.border,
+                            ? theme.colors.primary
+                            : theme.colors.border,
                           backgroundColor: theme.colors.card,
                           color: theme.colors.foreground,
                         },
@@ -339,43 +408,53 @@ export default function VerifyEmailScreen({
                   ))}
                 </View>
 
-                {error ? (
-                  <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                    {error}
-                  </Text>
-                ) : null}
-
                 {resendNotice ? (
-                  <Text style={[styles.resendNotice, { color: theme.colors.success }]}>
+                  <Text
+                    style={[
+                      styles.resendNotice,
+                      { color: theme.colors.success },
+                    ]}
+                  >
                     {resendNotice}
                   </Text>
                 ) : null}
 
                 <PrimaryButton
-                  label={
-                    isVerifying
-                      ? "Verifying..."
-                      : isVerified
-                        ? "Verified"
-                        : "Verify code"
-                  }
+                  label={isVerified ? 'Verified' : 'Verify code'}
                   onPress={handleVerify}
                   loading={isVerifying}
-                  disabled={isVerifying || isVerified || code.some(digit => digit === "")}
+                  disabled={
+                    isVerifying ||
+                    isVerified ||
+                    code.some(digit => digit === '')
+                  }
                   tone="accent"
                 />
 
                 <View style={styles.resendArea}>
                   {resendTimer > 0 ? (
-                    <Text style={[styles.resendTimer, { color: theme.colors.mutedForeground }]}>
-                      Resend code in{" "}
-                      <Text style={[styles.resendTimerValue, { color: theme.colors.foreground }]}>
-                        0:{resendTimer.toString().padStart(2, "0")}
+                    <Text
+                      style={[
+                        styles.resendTimer,
+                        { color: theme.colors.mutedForeground },
+                      ]}
+                    >
+                      Resend code in{' '}
+                      <Text
+                        style={[
+                          styles.resendTimerValue,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        0:{resendTimer.toString().padStart(2, '0')}
                       </Text>
                     </Text>
                   ) : isResending || isResendSubmitting ? (
                     <View style={styles.resendLoading}>
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <ActivityIndicator
+                        size="small"
+                        color={theme.colors.primary}
+                      />
                       <Text
                         style={[
                           styles.resendLoadingText,
@@ -395,7 +474,7 @@ export default function VerifyEmailScreen({
                         style={[
                           styles.resendLink,
                           { color: theme.colors.primary },
-                          (isResending || isResendSubmitting || isVerified)
+                          isResending || isResendSubmitting || isVerified
                             ? styles.resendLinkDisabled
                             : null,
                         ]}
@@ -410,6 +489,12 @@ export default function VerifyEmailScreen({
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
+      <AuthErrorDialog
+        message={dialogError?.message || ''}
+        onDismiss={() => setDialogError(null)}
+        title={dialogError?.title || 'Something went wrong'}
+        visible={Boolean(dialogError)}
+      />
     </SafeAreaView>
   );
 }
@@ -420,7 +505,7 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    position: "relative",
+    position: 'relative',
   },
   container: {
     flex: 1,
@@ -428,26 +513,26 @@ const styles = StyleSheet.create({
   content: {
     paddingVertical: 20,
     flexGrow: 1,
-    justifyContent: "flex-start",
+    justifyContent: 'flex-start',
   },
   sheet: {
-    width: "100%",
-    alignSelf: "center",
+    width: '100%',
+    alignSelf: 'center',
   },
   backLink: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    alignSelf: "flex-start",
+    alignSelf: 'flex-start',
     marginBottom: 20,
     paddingVertical: 8,
   },
   backText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   form: {
-    width: "100%",
+    width: '100%',
     gap: 16,
     marginTop: 20,
   },
@@ -455,13 +540,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 14,
-    maxWidth: "100%",
+    maxWidth: '100%',
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
   emailPillText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   instructionCard: {
     borderRadius: 14,
@@ -471,7 +556,7 @@ const styles = StyleSheet.create({
   },
   instructionTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   instructionBody: {
     fontSize: 13,
@@ -486,34 +571,30 @@ const styles = StyleSheet.create({
   },
   localTestingTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   localTestingBody: {
     fontSize: 13,
     lineHeight: 19,
   },
   codeRow: {
-    flexDirection: "row",
-    justifyContent: "center",
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   codeInput: {
     borderRadius: 12,
     borderWidth: 1.5,
-    textAlign: "center",
+    textAlign: 'center',
     fontSize: 20,
-    fontWeight: "600",
-  },
-  error: {
-    fontSize: 12,
-    textAlign: "center",
+    fontWeight: '600',
   },
   resendNotice: {
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
+    textAlign: 'center',
   },
   resendArea: {
-    alignItems: "center",
+    alignItems: 'center',
     marginTop: 4,
   },
   resendTimer: {
@@ -521,22 +602,22 @@ const styles = StyleSheet.create({
   },
   resendTimerValue: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   resendLink: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   resendLinkDisabled: {
     opacity: 0.6,
   },
   resendLoading: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   resendLoadingText: {
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: '500',
   },
 });

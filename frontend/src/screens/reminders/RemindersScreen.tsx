@@ -1,38 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Animated,
   Easing,
+  LayoutAnimation,
+  Linking,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
   Text,
+  UIManager,
   View,
-} from "react-native";
-import {
-  Bell,
-  Check,
-  ChevronDown,
-  Clock3,
-  Smartphone,
-} from "lucide-react-native";
-import PrimaryButton from "../../components/PrimaryButton";
-import { useAppStore } from "../../store/appStore";
-import { useTheme } from "../../theme/provider";
+} from 'react-native';
+import { Bell, Check, ChevronDown, Clock3 } from 'lucide-react-native';
+import PrimaryButton from '../../components/PrimaryButton';
+import { triggerHaptic } from '../../services/hapticsService';
+import { useAppStore } from '../../store/appStore';
+import { useTheme } from '../../theme/provider';
 import {
   createReminder,
   getPrimaryDailyReminder,
   updateReminder,
   type Reminder,
-} from "../../services/remindersService";
+} from '../../services/remindersService';
 import {
   cancelReminderNotifications,
   getDefaultReminderTimezone,
+  getReminderPermissionGranted,
   requestReminderPermission,
   syncReminderNotifications,
-} from "../../services/reminderNotificationsService";
-import { ProfileSectionLayout, SectionCard } from "../profile/ProfileSectionLayout";
+} from '../../services/reminderNotificationsService';
+import {
+  ProfileSectionLayout,
+  SectionCard,
+} from '../profile/ProfileSectionLayout';
 
 type RemindersScreenProps = {
   onBack: () => void;
@@ -47,22 +51,22 @@ type ReminderFormState = {
 };
 
 const TIME_OPTIONS = [
-  { label: "8:00 AM", value: "08:00" },
-  { label: "9:00 AM", value: "09:00" },
-  { label: "12:00 PM", value: "12:00" },
-  { label: "6:00 PM", value: "18:00" },
-  { label: "8:00 PM", value: "20:00" },
-  { label: "9:00 PM", value: "21:00" },
+  { label: '8:00 AM', value: '08:00' },
+  { label: '9:00 AM', value: '09:00' },
+  { label: '12:00 PM', value: '12:00' },
+  { label: '6:00 PM', value: '18:00' },
+  { label: '8:00 PM', value: '20:00' },
+  { label: '9:00 PM', value: '21:00' },
 ];
 
 const onboardingReminderToTime: Record<string, string> = {
-  morning: "08:00",
-  afternoon: "14:00",
-  evening: "20:00",
+  morning: '08:00',
+  afternoon: '14:00',
+  evening: '20:00',
 };
 
 function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
+  const normalized = hex.replace('#', '');
 
   if (normalized.length !== 6) {
     return hex;
@@ -91,11 +95,16 @@ function SmartToggleRow({
   return (
     <View style={styles.smartToggleRow}>
       <View style={styles.smartToggleCopy}>
-        <Text style={[styles.smartToggleLabel, { color: theme.colors.foreground }]}>
+        <Text
+          style={[styles.smartToggleLabel, { color: theme.colors.foreground }]}
+        >
           {label}
         </Text>
         <Text
-          style={[styles.smartToggleDescription, { color: theme.colors.mutedForeground }]}
+          style={[
+            styles.smartToggleDescription,
+            { color: theme.colors.mutedForeground },
+          ]}
         >
           {description}
         </Text>
@@ -110,9 +119,11 @@ function SmartToggleRow({
   );
 }
 
-const buildDefaultReminderState = (onboardingPreference?: string | null): ReminderFormState => ({
+const buildDefaultReminderState = (
+  onboardingPreference?: string | null,
+): ReminderFormState => ({
   enabled: false,
-  time: onboardingReminderToTime[onboardingPreference || ""] || "20:00",
+  time: onboardingReminderToTime[onboardingPreference || ''] || '20:00',
   timezone: getDefaultReminderTimezone(),
   skipIfCompletedToday: true,
   includeWeekends: true,
@@ -127,46 +138,95 @@ const toReminderFormState = (reminder: Reminder): ReminderFormState => ({
 });
 
 const getReminderPreviewTime = (time: string) =>
-  TIME_OPTIONS.find(option => option.value === time)?.label || "8:00 PM";
+  TIME_OPTIONS.find(option => option.value === time)?.label || '8:00 PM';
+
+const REMINDER_LAYOUT_ANIMATION = {
+  duration: 230,
+  create: {
+    type: LayoutAnimation.Types.easeOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+};
 
 export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   const theme = useTheme();
   const onboardingReminderPreference = useAppStore(
-    state => state.onboardingData?.reminderPreference
+    state => state.onboardingData?.reminderPreference,
   );
   const [reminderId, setReminderId] = useState<string | null>(null);
   const [formState, setFormState] = useState<ReminderFormState>(
-    buildDefaultReminderState(onboardingReminderPreference)
+    buildDefaultReminderState(onboardingReminderPreference),
   );
   const [savedState, setSavedState] = useState<ReminderFormState>(
-    buildDefaultReminderState(onboardingReminderPreference)
+    buildDefaultReminderState(onboardingReminderPreference),
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState<
+    boolean | null
+  >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
   const [isTimeMenuRendered, setIsTimeMenuRendered] = useState(false);
-  const [isReminderConfigRendered, setIsReminderConfigRendered] = useState(false);
   const [hasAnimatedIn, setHasAnimatedIn] = useState(false);
   const timeMenuAnimation = useRef(new Animated.Value(0)).current;
-  const reminderConfigAnimation = useRef(new Animated.Value(0)).current;
   const entranceAnimation = useRef(new Animated.Value(0)).current;
+  const saveReveal = useRef(new Animated.Value(0)).current;
+  const wasDirty = useRef(false);
 
-  const isDirty = useMemo(
+  const hasUnsavedChanges = useMemo(
     () => JSON.stringify(formState) !== JSON.stringify(savedState),
-    [formState, savedState]
+    [formState, savedState],
   );
+  const isSaveActionVisible = hasUnsavedChanges && !isSaving;
+
+  const refreshNotificationPermission = useCallback(async () => {
+    try {
+      setHasNotificationPermission(await getReminderPermissionGranted());
+    } catch {
+      setHasNotificationPermission(false);
+    }
+  }, []);
+
+  const animateReminderLayout = () => {
+    LayoutAnimation.configureNext(REMINDER_LAYOUT_ANIMATION);
+  };
+
+  const updateFormState = (
+    update: (currentState: ReminderFormState) => ReminderFormState,
+  ) => {
+    animateReminderLayout();
+    setFormState(update);
+  };
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
+  }, []);
 
   const loadReminder = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const reminder = await getPrimaryDailyReminder();
+      const [reminder, permissionGranted] = await Promise.all([
+        getPrimaryDailyReminder(),
+        getReminderPermissionGranted(),
+      ]);
+      setHasNotificationPermission(permissionGranted);
 
       if (!reminder) {
-        const fallbackState = buildDefaultReminderState(onboardingReminderPreference);
+        const fallbackState = buildDefaultReminderState(
+          onboardingReminderPreference,
+        );
         setReminderId(null);
         setFormState(fallbackState);
         setSavedState(fallbackState);
@@ -179,7 +239,9 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
       setSavedState(nextState);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to load reminders right now."
+        error instanceof Error
+          ? error.message
+          : 'Unable to load reminders right now.',
       );
     } finally {
       setIsLoading(false);
@@ -189,11 +251,23 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   useEffect(() => {
     loadReminder().catch(error => {
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to load reminders right now."
+        error instanceof Error
+          ? error.message
+          : 'Unable to load reminders right now.',
       );
       setIsLoading(false);
     });
   }, [loadReminder]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        refreshNotificationPermission().catch(() => undefined);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [refreshNotificationPermission]);
 
   useEffect(() => {
     if (hasAnimatedIn) {
@@ -234,29 +308,32 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   }, [isTimeMenuOpen, timeMenuAnimation]);
 
   useEffect(() => {
-    if (formState.enabled) {
-      setIsReminderConfigRendered(true);
-      Animated.timing(reminderConfigAnimation, {
-        toValue: 1,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+    if (!isSaveActionVisible) {
+      wasDirty.current = false;
+      saveReveal.setValue(0);
       return;
     }
 
-    setIsTimeMenuOpen(false);
-    Animated.timing(reminderConfigAnimation, {
-      toValue: 0,
-      duration: 170,
-      easing: Easing.in(Easing.cubic),
+    if (wasDirty.current) {
+      return;
+    }
+
+    wasDirty.current = true;
+    saveReveal.setValue(0);
+    triggerHaptic('optionSelected').catch(() => undefined);
+
+    const animation = Animated.spring(saveReveal, {
+      toValue: 1,
+      damping: 16,
+      stiffness: 220,
+      mass: 0.85,
       useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        setIsReminderConfigRendered(false);
-      }
     });
-  }, [formState.enabled, reminderConfigAnimation]);
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [isSaveActionVisible, saveReveal]);
 
   const persistReminder = async (nextState: ReminderFormState) => {
     const payload = {
@@ -284,42 +361,47 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   };
 
   const handleToggleEnabled = async (nextValue: boolean) => {
-    setStatusMessage(null);
     const nextState = {
       ...formState,
       enabled: nextValue,
       timezone: getDefaultReminderTimezone(),
     };
     const previousState = formState;
-    setFormState(nextState);
+    animateReminderLayout();
     setIsSaving(true);
 
     try {
       if (nextValue) {
         const permissionGranted = await requestReminderPermission();
+        setHasNotificationPermission(permissionGranted);
 
         if (!permissionGranted) {
           setFormState(previousState);
           Alert.alert(
-            "Notifications disabled",
-            "Allow notifications in system settings to enable daily reminders."
+            'Notifications disabled',
+            'Allow notifications in system settings to enable daily reminders.',
           );
           return;
         }
       }
 
+      animateReminderLayout();
+      setFormState(nextState);
       const savedReminder = await persistReminder(nextState);
       setReminderId(savedReminder.reminderId);
       const normalized = toReminderFormState(savedReminder);
+      animateReminderLayout();
       setFormState(normalized);
       setSavedState(normalized);
       await syncLocalNotifications(savedReminder);
-      setStatusMessage(nextValue ? "Daily reminders enabled." : "Reminders disabled.");
     } catch (error) {
+      animateReminderLayout();
       setFormState(previousState);
       Alert.alert(
-        "Reminder settings",
-        error instanceof Error ? error.message : "Unable to update reminders right now."
+        'Reminder settings',
+        error instanceof Error
+          ? error.message
+          : 'Unable to update reminders right now.',
       );
     } finally {
       setIsSaving(false);
@@ -327,17 +409,18 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
   };
 
   const handleSaveChanges = async () => {
-    setStatusMessage(null);
+    animateReminderLayout();
     setIsSaving(true);
 
     try {
       if (formState.enabled) {
         const permissionGranted = await requestReminderPermission();
+        setHasNotificationPermission(permissionGranted);
 
         if (!permissionGranted) {
           Alert.alert(
-            "Notifications disabled",
-            "Allow notifications in system settings to save an active reminder."
+            'Notifications disabled',
+            'Allow notifications in system settings to save an active reminder.',
           );
           setIsSaving(false);
           return;
@@ -350,17 +433,30 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
       });
       setReminderId(savedReminder.reminderId);
       const normalized = toReminderFormState(savedReminder);
+      animateReminderLayout();
       setFormState(normalized);
       setSavedState(normalized);
       await syncLocalNotifications(savedReminder);
-      setStatusMessage("Reminder settings saved.");
     } catch (error) {
       Alert.alert(
-        "Reminder settings",
-        error instanceof Error ? error.message : "Unable to save your reminder right now."
+        'Reminder settings',
+        error instanceof Error
+          ? error.message
+          : 'Unable to save your reminder right now.',
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleOpenNotificationSettings = async () => {
+    try {
+      await Linking.openSettings();
+    } catch {
+      Alert.alert(
+        'Open device settings',
+        'Open your device settings and allow notifications for Journal.IO.',
+      );
     }
   };
 
@@ -386,7 +482,12 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
         <SectionCard>
           <View style={styles.loadingState}>
             <ActivityIndicator color={theme.colors.primary} />
-            <Text style={[styles.loadingText, { color: theme.colors.mutedForeground }]}>
+            <Text
+              style={[
+                styles.loadingText,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
               Loading your reminder settings...
             </Text>
           </View>
@@ -396,20 +497,82 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
           <Text style={[styles.errorTitle, { color: theme.colors.foreground }]}>
             Unable to load reminders
           </Text>
-          <Text style={[styles.errorBody, { color: theme.colors.mutedForeground }]}>
+          <Text
+            style={[styles.errorBody, { color: theme.colors.mutedForeground }]}
+          >
             {errorMessage}
           </Text>
-          <PrimaryButton label="Try Again" onPress={loadReminder} variant="outline" />
+          <PrimaryButton
+            label="Try Again"
+            onPress={loadReminder}
+            variant="outline"
+          />
         </SectionCard>
       ) : (
         <>
+          {hasNotificationPermission === false ? (
+            <Animated.View style={[buildEntranceStyle(10), styles.baseSection]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open device notification settings"
+                onPress={handleOpenNotificationSettings}
+                style={({ pressed }) => [
+                  styles.permissionCard,
+                  {
+                    backgroundColor: theme.colors.accent,
+                    borderColor: theme.colors.border,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.permissionIcon,
+                    { backgroundColor: `${theme.colors.primary}1A` },
+                  ]}
+                >
+                  <Bell size={20} color={theme.colors.primary} />
+                </View>
+                <View style={styles.permissionCopy}>
+                  <Text
+                    style={[
+                      styles.permissionTitle,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
+                    Notifications are disabled
+                  </Text>
+                  <Text
+                    style={[
+                      styles.permissionBody,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Allow notifications in device settings before enabling
+                    reminders.
+                  </Text>
+                  <Text
+                    style={[
+                      styles.permissionAction,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    Open device settings
+                  </Text>
+                </View>
+              </Pressable>
+            </Animated.View>
+          ) : null}
+
           <Animated.View
             style={[
               buildEntranceStyle(14),
               isTimeMenuRendered ? styles.dropdownSection : styles.baseSection,
             ]}
           >
-            <SectionCard style={isTimeMenuRendered ? styles.dropdownCard : undefined}>
+            <SectionCard
+              style={isTimeMenuRendered ? styles.dropdownCard : undefined}
+            >
               <View style={styles.cardHeader}>
                 <View
                   style={[
@@ -420,11 +583,19 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   <Bell size={20} color={theme.colors.primary} />
                 </View>
                 <View style={styles.cardHeaderCopy}>
-                  <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.cardTitle,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     Daily Reminders
                   </Text>
                   <Text
-                    style={[styles.cardDescription, { color: theme.colors.mutedForeground }]}
+                    style={[
+                      styles.cardDescription,
+                      { color: theme.colors.mutedForeground },
+                    ]}
                   >
                     Get notified to maintain your streak
                   </Text>
@@ -433,11 +604,19 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
 
               <View style={styles.reminderToggleRow}>
                 <View style={styles.reminderToggleCopy}>
-                  <Text style={[styles.toggleLabel, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.toggleLabel,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     Enable reminders
                   </Text>
                   <Text
-                    style={[styles.toggleDescription, { color: theme.colors.mutedForeground }]}
+                    style={[
+                      styles.toggleDescription,
+                      { color: theme.colors.mutedForeground },
+                    ]}
                   >
                     Daily prompts at your chosen time
                   </Text>
@@ -446,37 +625,27 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   value={formState.enabled}
                   onValueChange={handleToggleEnabled}
                   disabled={isSaving}
-                  trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                  trackColor={{
+                    false: theme.colors.border,
+                    true: theme.colors.primary,
+                  }}
                   thumbColor={theme.colors.card}
                 />
               </View>
 
-              {isReminderConfigRendered ? (
-                <Animated.View
+              {formState.enabled ? (
+                <View
                   style={[
                     styles.reminderConfig,
-                    {
-                      borderTopColor: theme.colors.border,
-                      opacity: reminderConfigAnimation,
-                      transform: [
-                        {
-                          translateY: reminderConfigAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [-8, 0],
-                          }),
-                        },
-                        {
-                          scaleY: reminderConfigAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.96, 1],
-                          }),
-                        },
-                      ],
-                    },
+                    { borderTopColor: theme.colors.border },
                   ]}
-                  pointerEvents={formState.enabled ? "auto" : "none"}
                 >
-                  <Text style={[styles.selectLabel, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.selectLabel,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     Reminder Time
                   </Text>
 
@@ -494,9 +663,15 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                       ]}
                     >
                       <View style={styles.selectTriggerContent}>
-                        <Clock3 size={15} color={theme.colors.mutedForeground} />
+                        <Clock3
+                          size={15}
+                          color={theme.colors.mutedForeground}
+                        />
                         <Text
-                          style={[styles.selectTriggerText, { color: theme.colors.foreground }]}
+                          style={[
+                            styles.selectTriggerText,
+                            { color: theme.colors.foreground },
+                          ]}
                         >
                           {getReminderPreviewTime(formState.time)}
                         </Text>
@@ -504,13 +679,16 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                       <ChevronDown
                         size={16}
                         color={theme.colors.mutedForeground}
-                        style={[styles.chevron, isTimeMenuOpen ? styles.chevronOpen : null]}
+                        style={[
+                          styles.chevron,
+                          isTimeMenuOpen ? styles.chevronOpen : null,
+                        ]}
                       />
                     </Pressable>
 
                     {isTimeMenuRendered ? (
                       <Animated.View
-                        pointerEvents={isTimeMenuOpen ? "auto" : "none"}
+                        pointerEvents={isTimeMenuOpen ? 'auto' : 'none'}
                         style={[
                           styles.selectMenu,
                           {
@@ -542,7 +720,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                               key={option.value}
                               accessibilityRole="button"
                               onPress={() => {
-                                setFormState(current => ({
+                                updateFormState(current => ({
                                   ...current,
                                   time: option.value,
                                   timezone: getDefaultReminderTimezone(),
@@ -554,10 +732,10 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                                 {
                                   backgroundColor: isSelected
                                     ? hexToRgba(theme.colors.primary, 0.08)
-                                    : "transparent",
+                                    : 'transparent',
                                   borderColor: isSelected
                                     ? theme.colors.primary
-                                    : "transparent",
+                                    : 'transparent',
                                 },
                                 pressed && styles.pressed,
                               ]}
@@ -584,25 +762,52 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                     ) : null}
                   </View>
 
-                  {isDirty ? (
-                    <PrimaryButton
-                      label="Save Changes"
-                      onPress={handleSaveChanges}
-                      loading={isSaving}
-                      tone="accent"
-                    />
+                  {isSaveActionVisible ? (
+                    <Animated.View
+                      style={{
+                        opacity: saveReveal,
+                        transform: [
+                          {
+                            translateY: saveReveal.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [10, 0],
+                            }),
+                          },
+                          {
+                            scale: saveReveal.interpolate({
+                              inputRange: [0, 0.72, 1],
+                              outputRange: [0.94, 1.035, 1],
+                            }),
+                          },
+                        ],
+                      }}
+                    >
+                      <PrimaryButton
+                        label="Save Changes"
+                        onPress={handleSaveChanges}
+                        loading={isSaving}
+                        tone="accent"
+                      />
+                    </Animated.View>
                   ) : null}
-                </Animated.View>
+                </View>
               ) : null}
             </SectionCard>
           </Animated.View>
 
           <Animated.View style={[buildEntranceStyle(18), styles.baseSection]}>
             <SectionCard>
-              <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              <Text
+                style={[styles.cardTitle, { color: theme.colors.foreground }]}
+              >
                 Notification Style
               </Text>
-              <Text style={[styles.cardDescription, { color: theme.colors.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.cardDescription,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
                 How reminders will appear
               </Text>
 
@@ -624,26 +829,41 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   <Bell size={16} color={theme.colors.primaryForeground} />
                 </View>
                 <View style={styles.previewCopy}>
-                  <Text style={[styles.previewTitle, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.previewTitle,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     {getReminderPreviewTime(formState.time)} reminder
                   </Text>
                   <Text
-                    style={[styles.previewBody, { color: theme.colors.mutedForeground }]}
+                    style={[
+                      styles.previewBody,
+                      { color: theme.colors.mutedForeground },
+                    ]}
                   >
-                    Take a moment to reflect on your day. Keep your streak going!
+                    Take a moment to reflect on your day. Keep your streak
+                    going!
                   </Text>
                 </View>
               </View>
-
             </SectionCard>
           </Animated.View>
 
           <Animated.View style={[buildEntranceStyle(22), styles.baseSection]}>
             <SectionCard>
-              <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+              <Text
+                style={[styles.cardTitle, { color: theme.colors.foreground }]}
+              >
                 Reminder Rules
               </Text>
-              <Text style={[styles.cardDescription, { color: theme.colors.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.cardDescription,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
                 Smart scheduling options
               </Text>
 
@@ -653,7 +873,10 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   description="Don't remind if you've already journaled today"
                   value={formState.skipIfCompletedToday}
                   onValueChange={nextValue =>
-                    setFormState(current => ({ ...current, skipIfCompletedToday: nextValue }))
+                    updateFormState(current => ({
+                      ...current,
+                      skipIfCompletedToday: nextValue,
+                    }))
                   }
                 />
                 <SmartToggleRow
@@ -661,38 +884,15 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   description="Include Saturday and Sunday"
                   value={formState.includeWeekends}
                   onValueChange={nextValue =>
-                    setFormState(current => ({ ...current, includeWeekends: nextValue }))
+                    updateFormState(current => ({
+                      ...current,
+                      includeWeekends: nextValue,
+                    }))
                   }
                 />
               </View>
             </SectionCard>
           </Animated.View>
-
-          <Animated.View style={[buildEntranceStyle(26), styles.baseSection]}>
-            <View
-              style={[
-                styles.infoCard,
-                { backgroundColor: theme.colors.accent },
-              ]}
-            >
-              <Smartphone size={20} color={theme.colors.primary} />
-              <View style={styles.infoCopy}>
-                <Text style={[styles.infoTitle, { color: theme.colors.foreground }]}>
-                  Enable notifications on your device
-                </Text>
-                <Text style={[styles.infoBody, { color: theme.colors.mutedForeground }]}>
-                  Journal.IO schedules reminders locally on this device. You can adjust
-                  permissions later in system settings.
-                </Text>
-              </View>
-            </View>
-          </Animated.View>
-
-          {statusMessage ? (
-            <Text style={[styles.statusMessage, { color: theme.colors.primary }]}>
-              {statusMessage}
-            </Text>
-          ) : null}
         </>
       )}
     </ProfileSectionLayout>
@@ -700,20 +900,52 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  permissionCard: {
+    alignItems: 'flex-start',
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+  },
+  permissionIcon: {
+    alignItems: 'center',
+    borderRadius: 14,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  permissionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  permissionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  permissionBody: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  permissionAction: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+  },
   loadingState: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
     paddingVertical: 24,
   },
   loadingText: {
     fontSize: 14,
     lineHeight: 20,
-    textAlign: "center",
+    textAlign: 'center',
   },
   errorTitle: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 6,
   },
   errorBody: {
@@ -722,8 +954,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 14,
     marginBottom: 18,
   },
@@ -731,15 +963,15 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardHeaderCopy: {
     flex: 1,
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   cardDescription: {
     marginTop: 4,
@@ -747,9 +979,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   reminderToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
   reminderToggleCopy: {
@@ -757,7 +989,7 @@ const styles = StyleSheet.create({
   },
   toggleLabel: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   toggleDescription: {
     marginTop: 3,
@@ -769,14 +1001,14 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     borderTopWidth: 1,
     gap: 14,
-    overflow: "visible",
+    overflow: 'visible',
   },
   selectLabel: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   selectWrapper: {
-    position: "relative",
+    position: 'relative',
     zIndex: 2,
     elevation: 2,
   },
@@ -785,27 +1017,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   selectTriggerContent: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   selectTriggerText: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   chevron: {
-    transform: [{ rotate: "0deg" }],
+    transform: [{ rotate: '0deg' }],
   },
   chevronOpen: {
-    transform: [{ rotate: "180deg" }],
+    transform: [{ rotate: '180deg' }],
   },
   selectMenu: {
-    position: "absolute",
+    position: 'absolute',
     top: 48,
     left: 0,
     right: 0,
@@ -813,7 +1045,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 8,
     zIndex: 20,
-    shadowColor: "#000000",
+    shadowColor: '#000000',
     shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 22,
@@ -824,36 +1056,36 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   selectOptionText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   previewCard: {
     marginTop: 16,
     borderLeftWidth: 4,
     borderRadius: 16,
     padding: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 12,
   },
   previewIconWrap: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewCopy: {
     flex: 1,
   },
   previewTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   previewBody: {
     marginTop: 4,
@@ -865,9 +1097,9 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   smartToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
   smartToggleCopy: {
@@ -875,35 +1107,12 @@ const styles = StyleSheet.create({
   },
   smartToggleLabel: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   smartToggleDescription: {
     marginTop: 3,
     fontSize: 13,
     lineHeight: 18,
-  },
-  infoCard: {
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  infoCopy: {
-    flex: 1,
-  },
-  infoTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  infoBody: {
-    marginTop: 4,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  statusMessage: {
-    fontSize: 13,
-    fontWeight: "600",
   },
   pressed: {
     opacity: 0.82,

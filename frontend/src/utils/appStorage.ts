@@ -5,6 +5,7 @@ const INSTALL_SEEN_KEY = "journalio.installSeen";
 const ONBOARDING_COMPLETED_KEY = "journalio.onboardingCompleted";
 const ONBOARDING_DATA_KEY = "journalio.onboardingData";
 const HIDE_JOURNAL_PREVIEWS_KEY = "journalio.hideJournalPreviews";
+const HAPTICS_ENABLED_KEY = "journalio.hapticsEnabled";
 const POST_AUTH_PAYWALL_SEEN_KEY = "journalio.postAuthPaywallSeen";
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -97,6 +98,17 @@ const saveHideJournalPreviews = async (enabled: boolean) => {
   );
 };
 
+const getHapticsEnabled = async () => {
+  return (await AsyncStorage.getItem(HAPTICS_ENABLED_KEY)) !== "false";
+};
+
+const saveHapticsEnabled = async (enabled: boolean) => {
+  await AsyncStorage.setItem(
+    HAPTICS_ENABLED_KEY,
+    enabled ? "true" : "false"
+  );
+};
+
 const clearOnboardingCompleted = async () => {
   await AsyncStorage.removeItem(ONBOARDING_COMPLETED_KEY);
 };
@@ -113,12 +125,14 @@ export {
   clearOnboardingCompleted,
   clearPostAuthPaywallSeen,
   clearStoredOnboardingData,
+  getHapticsEnabled,
   getHideJournalPreviews,
   getOnboardingCompleted,
   getPostAuthPaywallSeen,
   getStoredOnboardingData,
   hasSeenInstall,
   markInstallSeen,
+  saveHapticsEnabled,
   saveHideJournalPreviews,
   saveOnboardingCompleted,
   savePostAuthPaywallSeen,

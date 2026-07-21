@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -8,34 +7,42 @@ import {
   StyleSheet,
   Text,
   View,
-} from "react-native";
+} from 'react-native';
 import {
   CheckCircle2,
   Crown,
   ExternalLink,
   RefreshCcw,
   Sparkles,
-} from "lucide-react-native";
-import { ProfileSectionLayout, SectionCard } from "./ProfileSectionLayout";
-import { useTheme } from "../../theme/provider";
+} from 'lucide-react-native';
+import { ProfileSectionLayout, SectionCard } from './ProfileSectionLayout';
+import ButtonLoadingContent from '../../components/ButtonLoadingContent';
+import { useTheme } from '../../theme/provider';
 import {
+  findRevenueCatPackageByProductIdentifier,
   getRevenueCatActiveEntitlement,
   getRevenueCatOfferings,
   getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
-} from "../../services/revenueCatService";
-import { cancelFreeTrialEndingReminder } from "../../services/reminderNotificationsService";
-import { syncPaywallPurchase } from "../../services/paywallService";
-import { useAppStore } from "../../store/appStore";
+} from '../../services/revenueCatService';
+import { cancelFreeTrialEndingReminder } from '../../services/reminderNotificationsService';
+import { syncPaywallPurchase } from '../../services/paywallService';
+import { useAppStore } from '../../store/appStore';
 import {
   getPurchaseErrorMessage,
   NO_RESTORED_PURCHASE_MESSAGE,
   NO_RESTORED_PURCHASE_TITLE,
-} from "./paywallShared";
+} from './paywallShared';
 
-type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
+type SubscriptionPlanKey =
+  | 'weekly'
+  | 'monthly'
+  | 'yearly'
+  | 'lifetime'
+  | null
+  | undefined;
 
 type SubscriptionScreenProps = {
   onBack: () => void;
@@ -54,14 +61,14 @@ const formatMembershipDate = (value?: string | null) => {
   }
 
   return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
   }).format(parsed);
 };
 
 function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "");
+  const normalized = hex.replace('#', '');
 
   if (normalized.length !== 6) {
     return hex;
@@ -76,16 +83,16 @@ function hexToRgba(hex: string, alpha: number) {
 
 const getPlanLabel = (planKey?: SubscriptionPlanKey) => {
   switch (planKey) {
-    case "weekly":
-      return "Weekly Premium";
-    case "monthly":
-      return "Monthly Premium";
-    case "yearly":
-      return "Yearly Premium";
-    case "lifetime":
-      return "Lifetime Premium";
+    case 'weekly':
+      return 'Weekly Premium';
+    case 'monthly':
+      return 'Monthly Premium';
+    case 'yearly':
+      return 'Yearly Premium';
+    case 'lifetime':
+      return 'Lifetime Premium';
     default:
-      return "Premium";
+      return 'Premium';
   }
 };
 
@@ -97,7 +104,7 @@ const getRenewalLabel = (options: {
   const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
 
   if (
-    options.planKey !== "lifetime" &&
+    options.planKey !== 'lifetime' &&
     options.premiumWillRenew === false &&
     formattedEndDate
   ) {
@@ -105,30 +112,30 @@ const getRenewalLabel = (options: {
   }
 
   switch (options.planKey) {
-    case "weekly":
-      return "Your membership renews every week unless you cancel it from your subscription settings.";
-    case "monthly":
-      return "Your membership renews every month unless you cancel it from your subscription settings.";
-    case "yearly":
-      return "Your membership renews every year unless you cancel it from your subscription settings.";
-    case "lifetime":
-      return "One-time purchase. No renewal is required.";
+    case 'weekly':
+      return 'Your membership renews every week unless you cancel it from your subscription settings.';
+    case 'monthly':
+      return 'Your membership renews every month unless you cancel it from your subscription settings.';
+    case 'yearly':
+      return 'Your membership renews every year unless you cancel it from your subscription settings.';
+    case 'lifetime':
+      return 'One-time purchase. No renewal is required.';
     default:
-      return "Your membership stays active according to the plan on this account.";
+      return 'Your membership stays active according to the plan on this account.';
   }
 };
 
 const getManageSubscriptionUrl = (planKey?: SubscriptionPlanKey) => {
-  if (planKey === "lifetime") {
+  if (planKey === 'lifetime') {
     return null;
   }
 
-  if (Platform.OS === "ios") {
-    return "https://apps.apple.com/account/subscriptions";
+  if (Platform.OS === 'ios') {
+    return 'https://apps.apple.com/account/subscriptions';
   }
 
-  if (Platform.OS === "android") {
-    return "https://play.google.com/store/account/subscriptions";
+  if (Platform.OS === 'android') {
+    return 'https://play.google.com/store/account/subscriptions';
   }
 
   return null;
@@ -142,7 +149,7 @@ const getHeroText = (options: {
   const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
 
   if (
-    options.planKey !== "lifetime" &&
+    options.planKey !== 'lifetime' &&
     options.premiumWillRenew === false &&
     formattedEndDate
   ) {
@@ -150,16 +157,16 @@ const getHeroText = (options: {
   }
 
   switch (options.planKey) {
-    case "weekly":
-      return "Your weekly membership is active. You have full access to premium journaling and insight tools while this plan stays active.";
-    case "monthly":
-      return "Your monthly membership is active. You can keep using the full premium journaling experience across the app.";
-    case "yearly":
-      return "Your yearly membership is active. You have uninterrupted access to premium journaling, insights, and privacy tools.";
-    case "lifetime":
-      return "Your lifetime membership is active. You have one-time premium access across Journal.IO without any renewal.";
+    case 'weekly':
+      return 'Your weekly membership is active. You have full access to premium journaling and insight tools while this plan stays active.';
+    case 'monthly':
+      return 'Your monthly membership is active. You can keep using the full premium journaling experience across the app.';
+    case 'yearly':
+      return 'Your yearly membership is active. You have uninterrupted access to premium journaling, insights, and privacy tools.';
+    case 'lifetime':
+      return 'Your lifetime membership is active. You have one-time premium access across Journal.IO without any renewal.';
     default:
-      return "Your premium membership is active on this account.";
+      return 'Your premium membership is active on this account.';
   }
 };
 
@@ -169,48 +176,50 @@ const getMembershipHighlights = (options: {
   premiumWillRenew?: boolean | null;
 }) => {
   const formattedEndDate = formatMembershipDate(options.premiumExpiresAt);
-  const renewalByPlan: Record<Exclude<SubscriptionPlanKey, null | undefined>, string> =
-    {
-      weekly:
-        "This plan keeps premium access flexible with a weekly renewal rhythm.",
-      monthly:
-        "This plan keeps premium access steady with a simple month-to-month renewal rhythm.",
-      yearly:
-        "This plan keeps premium access settled for the long term with yearly renewal.",
-      lifetime:
-        "This plan is a one-time unlock, so there is no future renewal to manage.",
-    };
+  const renewalByPlan: Record<
+    Exclude<SubscriptionPlanKey, null | undefined>,
+    string
+  > = {
+    weekly:
+      'This plan keeps premium access flexible with a weekly renewal rhythm.',
+    monthly:
+      'This plan keeps premium access steady with a simple month-to-month renewal rhythm.',
+    yearly:
+      'This plan keeps premium access settled for the long term with yearly renewal.',
+    lifetime:
+      'This plan is a one-time unlock, so there is no future renewal to manage.',
+  };
 
   const planBody =
     options.planKey && renewalByPlan[options.planKey]
       ? renewalByPlan[options.planKey]
-      : "This membership keeps your premium access available on this account.";
+      : 'This membership keeps your premium access available on this account.';
   const renewalBody =
-    options.planKey !== "lifetime" &&
+    options.planKey !== 'lifetime' &&
     options.premiumWillRenew === false &&
     formattedEndDate
       ? `Auto-renewal is off. Premium access remains available through ${formattedEndDate}.`
-      : options.planKey === "lifetime"
-        ? "There is nothing to renew for this plan, so you can simply keep using Journal.IO."
-        : "If you ever need to change or cancel this plan, use the subscription settings linked below.";
+      : options.planKey === 'lifetime'
+      ? 'There is nothing to renew for this plan, so you can simply keep using Journal.IO.'
+      : 'If you ever need to change or cancel this plan, use the subscription settings linked below.';
 
   return [
     {
       icon: Sparkles,
-      title: "Premium tools stay unlocked",
-      body: "AI tagging, quick analysis, deeper insights, and premium privacy controls remain available while this membership is active.",
+      title: 'Premium tools stay unlocked',
+      body: 'AI tagging, quick analysis, deeper insights, and premium privacy controls remain available while this membership is active.',
     },
     {
       icon: CheckCircle2,
-      title: "Your current plan",
+      title: 'Your current plan',
       body: planBody,
     },
     {
       icon: RefreshCcw,
       title:
         options.premiumWillRenew === false
-          ? "Auto-renewal is off"
-          : "Billing help lives in settings",
+          ? 'Auto-renewal is off'
+          : 'Billing help lives in settings',
       body: renewalBody,
     },
   ];
@@ -222,8 +231,12 @@ export default function SubscriptionScreen({
 }: SubscriptionScreenProps) {
   const theme = useTheme();
   const sessionUser = useAppStore(state => state.session?.user ?? null);
-  const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
-  const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+  const sessionUserId = useAppStore(
+    state => state.session?.user.userId ?? null,
+  );
+  const setSessionUserProfile = useAppStore(
+    state => state.setSessionUserProfile,
+  );
   const activePlanLabel = getPlanLabel(currentPlanKey);
   const renewalLabel = getRenewalLabel({
     planKey: currentPlanKey,
@@ -242,15 +255,29 @@ export default function SubscriptionScreen({
   });
   const [isCheckingMembership, setIsCheckingMembership] = useState(true);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [hasActiveEntitlement, setHasActiveEntitlement] = useState<boolean | null>(
-    null
+  const [hasActiveEntitlement, setHasActiveEntitlement] = useState<
+    boolean | null
+  >(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState('Active');
+  const [priceLabel, setPriceLabel] = useState('Loading...');
+  const [activeThroughLabel, setActiveThroughLabel] = useState(
+    currentPlanKey === 'lifetime'
+      ? 'Lifetime'
+      : formatMembershipDate(sessionUser?.premiumExpiresAt) ??
+          'Current billing period',
   );
 
   const manageSubscriptionUrl = useMemo(
     () => getManageSubscriptionUrl(currentPlanKey),
-    [currentPlanKey]
+    [currentPlanKey],
   );
   const managesRenewingSubscription = Boolean(manageSubscriptionUrl);
+  const subscriptionDetails = [
+    { label: 'Status', value: subscriptionStatus },
+    { label: 'Plan', value: activePlanLabel },
+    { label: 'Price', value: priceLabel },
+    { label: 'Active through', value: activeThroughLabel },
+  ];
 
   useEffect(() => {
     let isActive = true;
@@ -260,7 +287,7 @@ export default function SubscriptionScreen({
 
       try {
         const entitlementState = await refreshRevenueCatEntitlementState(
-          sessionUserId
+          sessionUserId,
         );
 
         if (!isActive) {
@@ -268,12 +295,70 @@ export default function SubscriptionScreen({
         }
 
         setHasActiveEntitlement(entitlementState.hasPremiumAccess);
+
+        const activeEntitlement = entitlementState.activeEntitlement;
+        const isTrial = activeEntitlement?.periodType === 'TRIAL';
+        const isCancelling = sessionUser?.premiumWillRenew === false;
+
+        setSubscriptionStatus(
+          isTrial ? 'Trial' : isCancelling ? 'Cancelling' : 'Active',
+        );
+        setActiveThroughLabel(
+          currentPlanKey === 'lifetime'
+            ? 'Lifetime'
+            : formatMembershipDate(
+                sessionUser?.premiumExpiresAt ??
+                  activeEntitlement?.expirationDate,
+              ) ?? 'Current billing period',
+        );
+
+        if (isTrial) {
+          setPriceLabel('Free trial');
+          return;
+        }
+
+        const productIdentifier =
+          activeEntitlement?.productIdentifier ??
+          sessionUser?.premiumProductId ??
+          null;
+
+        if (!productIdentifier) {
+          setPriceLabel(
+            currentPlanKey === 'lifetime'
+              ? 'One-time purchase'
+              : 'App Store price',
+          );
+          return;
+        }
+
+        const offerings = await getRevenueCatOfferings(sessionUserId);
+
+        if (!isActive) {
+          return;
+        }
+
+        const currentPackage = findRevenueCatPackageByProductIdentifier(
+          offerings,
+          productIdentifier,
+        );
+
+        setPriceLabel(
+          currentPackage?.product.priceString ??
+            (currentPlanKey === 'lifetime'
+              ? 'One-time purchase'
+              : 'App Store price'),
+        );
       } catch {
         if (!isActive) {
           return;
         }
 
         setHasActiveEntitlement(null);
+        setPriceLabel(
+          currentPlanKey === 'lifetime'
+            ? 'One-time purchase'
+            : 'App Store price',
+        );
       } finally {
         if (isActive) {
           setIsCheckingMembership(false);
@@ -286,13 +371,19 @@ export default function SubscriptionScreen({
     return () => {
       isActive = false;
     };
-  }, [sessionUserId]);
+  }, [
+    currentPlanKey,
+    sessionUser?.premiumExpiresAt,
+    sessionUser?.premiumProductId,
+    sessionUser?.premiumWillRenew,
+    sessionUserId,
+  ]);
 
   const handleManageSubscription = async () => {
     if (!manageSubscriptionUrl) {
       Alert.alert(
-        "No subscription to manage",
-        "Lifetime access is a one-time purchase, so there is no recurring subscription to manage."
+        'No subscription to manage',
+        'Lifetime access is a one-time purchase, so there is no recurring subscription to manage.',
       );
       return;
     }
@@ -301,8 +392,8 @@ export default function SubscriptionScreen({
       await Linking.openURL(manageSubscriptionUrl);
     } catch {
       Alert.alert(
-        "Open subscription settings",
-        "Open your store subscription settings manually if the direct link is unavailable on this device."
+        'Open subscription settings',
+        'Open your store subscription settings manually if the direct link is unavailable on this device.',
       );
     }
   };
@@ -310,8 +401,8 @@ export default function SubscriptionScreen({
   const handleRestorePurchases = async () => {
     if (hasActiveEntitlement) {
       Alert.alert(
-        "Membership already active",
-        "This membership is already active on your account, so there is nothing to restore right now."
+        'Membership already active',
+        'This membership is already active on your account, so there is nothing to restore right now.',
       );
       return;
     }
@@ -324,10 +415,7 @@ export default function SubscriptionScreen({
       const premiumAccess = hasPremiumAccess(customerInfo);
 
       if (!premiumAccess || !activeEntitlement) {
-        Alert.alert(
-          NO_RESTORED_PURCHASE_TITLE,
-          NO_RESTORED_PURCHASE_MESSAGE
-        );
+        Alert.alert(NO_RESTORED_PURCHASE_TITLE, NO_RESTORED_PURCHASE_MESSAGE);
         return;
       }
 
@@ -339,8 +427,8 @@ export default function SubscriptionScreen({
 
       if (!attribution) {
         Alert.alert(
-          "Restore unavailable",
-          "We could not match this membership to your purchase details right now. Please try again."
+          'Restore unavailable',
+          'We could not match this membership to your purchase details right now. Please try again.',
         );
         return;
       }
@@ -349,7 +437,7 @@ export default function SubscriptionScreen({
         offeringKey: attribution.offeringKey,
         revenueCatOfferingId: attribution.revenueCatOfferingId,
         revenueCatPackageId: attribution.revenueCatPackageId,
-        store: attribution.activeEntitlement.store || "unknown",
+        store: attribution.activeEntitlement.store || 'unknown',
         entitlementId: attribution.activeEntitlement.identifier,
         wasRestore: true,
       });
@@ -359,18 +447,15 @@ export default function SubscriptionScreen({
       setHasActiveEntitlement(true);
 
       Alert.alert(
-        "Purchases restored",
-        "Your premium membership has been refreshed on this account."
+        'Purchases restored',
+        'Your premium membership has been refreshed on this account.',
       );
     } catch (error) {
       if (__DEV__) {
-        console.warn("[RevenueCat] Subscription restore failed.", error);
+        console.warn('[RevenueCat] Subscription restore failed.', error);
       }
 
-      Alert.alert(
-        "Restore failed",
-        getPurchaseErrorMessage(error)
-      );
+      Alert.alert('Restore failed', getPurchaseErrorMessage(error));
     } finally {
       setIsRestoring(false);
     }
@@ -379,21 +464,63 @@ export default function SubscriptionScreen({
   return (
     <ProfileSectionLayout
       title="Subscription"
-      subtitle="Your current premium membership"
       onBack={onBack}
       backgroundTintColor={hexToRgba(theme.colors.primary, 0.025)}
     >
       <View style={styles.hero}>
-        <View style={[styles.heroIcon, { backgroundColor: theme.colors.primary }]}>
+        <View
+          style={[styles.heroIcon, { backgroundColor: theme.colors.primary }]}
+        >
           <Crown size={24} color={theme.colors.primaryForeground} />
         </View>
         <Text style={[styles.heroTitle, { color: theme.colors.foreground }]}>
           {activePlanLabel}
         </Text>
-        <Text style={[styles.heroText, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[styles.heroText, { color: theme.colors.mutedForeground }]}
+        >
           {heroText}
         </Text>
       </View>
+
+      <SectionCard style={styles.detailsCard}>
+        <Text style={[styles.cardTitle, { color: theme.colors.foreground }]}>
+          Subscription details
+        </Text>
+        <View style={styles.detailsList}>
+          {subscriptionDetails.map((detail, index) => (
+            <View
+              key={detail.label}
+              style={[
+                styles.detailsRow,
+                index < subscriptionDetails.length - 1 &&
+                  styles.detailsRowWithDivider,
+                index < subscriptionDetails.length - 1 && {
+                  borderBottomColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.detailsLabel,
+                  { color: theme.colors.foreground },
+                ]}
+              >
+                {detail.label}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.detailsValue,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                {detail.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </SectionCard>
 
       <SectionCard>
         <View style={styles.statusRow}>
@@ -404,7 +531,9 @@ export default function SubscriptionScreen({
             ]}
           >
             <CheckCircle2 size={14} color={theme.colors.primary} />
-            <Text style={[styles.statusPillText, { color: theme.colors.primary }]}>
+            <Text
+              style={[styles.statusPillText, { color: theme.colors.primary }]}
+            >
               Premium active
             </Text>
           </View>
@@ -416,18 +545,22 @@ export default function SubscriptionScreen({
         <Text style={[styles.planValue, { color: theme.colors.foreground }]}>
           {activePlanLabel}
         </Text>
-        <Text style={[styles.planDetail, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[styles.planDetail, { color: theme.colors.mutedForeground }]}
+        >
           {renewalLabel}
         </Text>
-        <Text style={[styles.planMeta, { color: theme.colors.mutedForeground }]}>
-          {currentPlanKey === "lifetime"
-            ? "Your membership is already fully unlocked for this account."
+        <Text
+          style={[styles.planMeta, { color: theme.colors.mutedForeground }]}
+        >
+          {currentPlanKey === 'lifetime'
+            ? 'Your membership is already fully unlocked for this account.'
             : sessionUser?.premiumWillRenew === false &&
-                sessionUser?.premiumExpiresAt
-              ? `Premium access remains active until ${formatMembershipDate(
-                  sessionUser.premiumExpiresAt
-                )}.`
-              : "Your membership remains available as long as this plan stays active."}
+              sessionUser?.premiumExpiresAt
+            ? `Premium access remains active until ${formatMembershipDate(
+                sessionUser.premiumExpiresAt,
+              )}.`
+            : 'Your membership remains available as long as this plan stays active.'}
         </Text>
       </SectionCard>
 
@@ -451,7 +584,12 @@ export default function SubscriptionScreen({
                   <Icon size={16} color={theme.colors.primary} />
                 </View>
                 <View style={styles.highlightCopy}>
-                  <Text style={[styles.highlightTitle, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.highlightTitle,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     {item.title}
                   </Text>
                   <Text
@@ -477,44 +615,66 @@ export default function SubscriptionScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Restore Purchases"
+            accessibilityState={{
+              busy: isRestoring || isCheckingMembership,
+              disabled:
+                isRestoring ||
+                isCheckingMembership ||
+                hasActiveEntitlement === true,
+            }}
             onPress={handleRestorePurchases}
-            disabled={isRestoring || isCheckingMembership || hasActiveEntitlement === true}
+            disabled={
+              isRestoring ||
+              isCheckingMembership ||
+              hasActiveEntitlement === true
+            }
             style={({ pressed }) => [
               styles.actionButton,
               {
                 backgroundColor: theme.colors.card,
                 borderColor: theme.colors.border,
                 opacity:
-                  isRestoring || isCheckingMembership || hasActiveEntitlement === true
+                  isRestoring ||
+                  isCheckingMembership ||
+                  hasActiveEntitlement === true
                     ? 0.6
                     : 1,
               },
               pressed && styles.pressed,
             ]}
           >
+            <ButtonLoadingContent
+              contentStyle={styles.actionButtonContent}
+              loaderColor={theme.colors.primary}
+              loading={isCheckingMembership || isRestoring}
+              style={styles.actionButtonLoadingContent}
+            >
             <View style={styles.actionButtonCopy}>
-              <Text style={[styles.actionButtonTitle, { color: theme.colors.foreground }]}>
-                {isCheckingMembership
-                  ? "Checking membership..."
-                  : isRestoring
-                    ? "Restoring purchases..."
-                    : hasActiveEntitlement
-                      ? "Membership already active"
-                      : "Restore Purchases"}
-              </Text>
               <Text
-                style={[styles.actionButtonText, { color: theme.colors.mutedForeground }]}
+                style={[
+                  styles.actionButtonTitle,
+                  { color: theme.colors.foreground },
+                ]}
               >
                 {hasActiveEntitlement
-                  ? "This account already has active premium access, so restore is not needed right now."
-                  : "Use this if you already paid on this account and premium access has not refreshed yet."}
+                  ? 'Membership already active'
+                  : 'Restore Purchases'}
+              </Text>
+              <Text
+                style={[
+                  styles.actionButtonText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                {hasActiveEntitlement
+                  ? 'This account already has active premium access, so restore is not needed right now.'
+                  : 'Use this if you already paid on this account and premium access has not refreshed yet.'}
               </Text>
             </View>
-            {isCheckingMembership || isRestoring ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
-            ) : (
+            {!isCheckingMembership && !isRestoring ? (
               <RefreshCcw size={18} color={theme.colors.primary} />
-            )}
+            ) : null}
+            </ButtonLoadingContent>
           </Pressable>
 
           <Pressable
@@ -533,22 +693,29 @@ export default function SubscriptionScreen({
             ]}
           >
             <View style={styles.actionButtonCopy}>
-              <Text style={[styles.actionButtonTitle, { color: theme.colors.foreground }]}>
-                {managesRenewingSubscription
-                  ? "Manage Subscription"
-                  : "No recurring subscription"}
-              </Text>
               <Text
-                style={[styles.actionButtonText, { color: theme.colors.mutedForeground }]}
+                style={[
+                  styles.actionButtonTitle,
+                  { color: theme.colors.foreground },
+                ]}
               >
                 {managesRenewingSubscription
-                  ? "Open subscription settings to manage renewal, cancellation, or billing changes."
-                  : "Lifetime access does not require store subscription management."}
+                  ? 'Manage Subscription'
+                  : 'No recurring subscription'}
+              </Text>
+              <Text
+                style={[
+                  styles.actionButtonText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                {managesRenewingSubscription
+                  ? 'Open subscription settings to manage renewal, cancellation, or billing changes.'
+                  : 'Lifetime access does not require store subscription management.'}
               </Text>
             </View>
             <ExternalLink size={18} color={theme.colors.primary} />
           </Pressable>
-
         </View>
       </SectionCard>
     </ProfileSectionLayout>
@@ -557,7 +724,7 @@ export default function SubscriptionScreen({
 
 const styles = StyleSheet.create({
   hero: {
-    alignItems: "center",
+    alignItems: 'center',
     paddingVertical: 6,
     gap: 10,
   },
@@ -565,28 +732,28 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroTitle: {
     fontSize: 26,
-    fontWeight: "600",
-    textAlign: "center",
+    fontWeight: '600',
+    textAlign: 'center',
     letterSpacing: -0.3,
   },
   heroText: {
     fontSize: 14,
     lineHeight: 20,
-    textAlign: "center",
+    textAlign: 'center',
     maxWidth: 320,
   },
   statusRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     marginBottom: 14,
   },
   statusPill: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -594,17 +761,41 @@ const styles = StyleSheet.create({
   },
   statusPillText: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: '700',
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: '600',
+  },
+  detailsCard: {
+    paddingBottom: 0,
+  },
+  detailsList: {
+    marginTop: 8,
+  },
+  detailsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 16,
+    minHeight: 58,
+  },
+  detailsRowWithDivider: {
+    borderBottomWidth: 1,
+  },
+  detailsLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  detailsValue: {
+    flex: 1,
+    fontSize: 15,
+    textAlign: 'right',
   },
   planValue: {
     marginTop: 10,
     fontSize: 28,
     lineHeight: 32,
-    fontWeight: "700",
+    fontWeight: '700',
     letterSpacing: -0.5,
   },
   planDetail: {
@@ -622,23 +813,23 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   highlightRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 12,
   },
   highlightIconWrap: {
     width: 34,
     height: 34,
     borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   highlightCopy: {
     flex: 1,
   },
   highlightTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   highlightBody: {
     marginTop: 4,
@@ -653,16 +844,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 14,
   },
   actionButtonCopy: {
     flex: 1,
   },
+  actionButtonLoadingContent: {
+    alignSelf: 'stretch',
+    flex: 1,
+  },
+  actionButtonContent: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 14,
+  },
   actionButtonTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   actionButtonText: {
     marginTop: 4,

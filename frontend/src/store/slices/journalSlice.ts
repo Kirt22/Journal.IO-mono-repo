@@ -4,6 +4,7 @@ const MAX_RECENT_JOURNAL_ENTRIES = 10;
 
 export type JournalSliceState = {
   recentJournalEntries: JournalEntry[];
+  hasHydratedRecentJournalEntries: boolean;
   addRecentJournalEntry: (entry: JournalEntry) => void;
   updateRecentJournalEntry: (entry: JournalEntry) => void;
   removeRecentJournalEntry: (entryId: string) => void;
@@ -13,7 +14,7 @@ export type JournalSliceState = {
 
 type RecentJournalEntriesState = Pick<
   JournalSliceState,
-  "recentJournalEntries"
+  "hasHydratedRecentJournalEntries" | "recentJournalEntries"
 >;
  
 type JournalSliceSetState = (
@@ -42,7 +43,11 @@ const trimRecentJournalEntries = (entries: JournalEntry[]) =>
 
 const createInitialJournalSliceState = (
   initialEntries: JournalEntry[] = []
-): Pick<JournalSliceState, "recentJournalEntries"> => ({
+): Pick<
+  JournalSliceState,
+  "hasHydratedRecentJournalEntries" | "recentJournalEntries"
+> => ({
+  hasHydratedRecentJournalEntries: initialEntries.length > 0,
   recentJournalEntries: trimRecentJournalEntries(initialEntries),
 });
 
@@ -53,6 +58,7 @@ const createJournalSlice = (
   ...createInitialJournalSliceState(initialEntries),
   addRecentJournalEntry: entry => {
     set(state => ({
+      hasHydratedRecentJournalEntries: true,
       recentJournalEntries: trimRecentJournalEntries([
         entry,
         ...state.recentJournalEntries,
@@ -70,6 +76,7 @@ const createJournalSlice = (
         : [entry, ...state.recentJournalEntries];
 
       return {
+        hasHydratedRecentJournalEntries: true,
         recentJournalEntries: trimRecentJournalEntries(nextEntries),
       };
     });
@@ -83,11 +90,13 @@ const createJournalSlice = (
   },
   setRecentJournalEntries: entries => {
     set({
+      hasHydratedRecentJournalEntries: true,
       recentJournalEntries: trimRecentJournalEntries(entries),
     });
   },
   mergeRecentJournalEntries: entries => {
     set(state => ({
+      hasHydratedRecentJournalEntries: true,
       recentJournalEntries: trimRecentJournalEntries([
         ...entries,
         ...state.recentJournalEntries,

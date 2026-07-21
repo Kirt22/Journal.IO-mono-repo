@@ -19,6 +19,7 @@ import { toCalendarEntries } from "../../models/calendarModels";
 import { toggleJournalFavorite } from "../../services/journalService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import { useConnectivity } from "../../hooks/useConnectivity";
 
 type ViewMode = "list" | "calendar";
 
@@ -178,7 +179,7 @@ function EmptyState({
 }: {
   title: string;
   description: string;
-  onActionPress: () => void;
+  onActionPress?: () => void;
 }) {
   const theme = useTheme();
 
@@ -205,37 +206,44 @@ function EmptyState({
       >
         {description}
       </Text>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Create a new entry"
-        onPress={onActionPress}
-        style={({ pressed }: { pressed: boolean }) => [
-          styles.emptyStateAction,
-          {
-            backgroundColor: theme.colors.primary,
-          },
-          pressed && styles.pressed,
-        ]}
-      >
-        <Text
-          style={[
-            styles.emptyStateActionText,
-            { color: theme.colors.primaryForeground },
+      {onActionPress ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Create a new entry"
+          onPress={onActionPress}
+          style={({ pressed }: { pressed: boolean }) => [
+            styles.emptyStateAction,
+            {
+              backgroundColor: theme.colors.primary,
+            },
+            pressed && styles.pressed,
           ]}
         >
-          Create Entry
-        </Text>
-      </Pressable>
+          <Text
+            style={[
+              styles.emptyStateActionText,
+              { color: theme.colors.primaryForeground },
+            ]}
+          >
+            Create Entry
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 export default function CalendarScreen() {
   const theme = useTheme();
+  const { status: connectivityStatus } = useConnectivity();
+  const isOnline = connectivityStatus === "online";
   const { width } = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
   const recentJournalEntries = useAppStore(
     state => state.recentJournalEntries
+  );
+  const hasHydratedRecentJournalEntries = useAppStore(
+    state => state.hasHydratedRecentJournalEntries
   );
   const openNewEntry = useAppStore(state => state.openNewEntry);
   const openJournalEntry = useAppStore(state => state.openJournalEntry);
@@ -292,7 +300,7 @@ export default function CalendarScreen() {
     entryId: string,
     nextFavorite: boolean
   ) => {
-    if (favoriteUpdatingId === entryId) {
+    if (!isOnline || favoriteUpdatingId === entryId) {
       return;
     }
 
@@ -411,9 +419,21 @@ export default function CalendarScreen() {
         {view === "list" ? (
           totalCount === 0 ? (
             <EmptyState
-              title="No entries yet"
-              description="Start your journaling journey by creating your first entry"
-              onActionPress={openNewEntry}
+              title={
+                !isOnline && !hasHydratedRecentJournalEntries
+                  ? "Calendar unavailable offline"
+                  : "No entries yet"
+              }
+              description={
+                !isOnline && !hasHydratedRecentJournalEntries
+                  ? "Reconnect to load your journal calendar."
+                  : "Start your journaling journey by creating your first entry"
+              }
+              onActionPress={
+                isOnline || hasHydratedRecentJournalEntries
+                  ? openNewEntry
+                  : undefined
+              }
             />
           ) : (
             <Animated.View

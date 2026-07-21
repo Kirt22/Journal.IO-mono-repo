@@ -72,6 +72,14 @@ type PrivacyExportInsights = {
   aiAnalysisStale: boolean;
   aiAnalysisComputedAt: string | null;
   aiAnalysisWindowEndDateKey: string | null;
+  mindMapLatestWeek: unknown;
+  mindMapLatestWeekStale: boolean;
+  mindMapLatestWeekComputedAt: string | null;
+  mindMapLatestWeekCacheKey: string | null;
+  mindMapAllTime: unknown;
+  mindMapAllTimeStale: boolean;
+  mindMapAllTimeComputedAt: string | null;
+  mindMapAllTimeCacheKey: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -271,6 +279,14 @@ const serializeInsights = (insights: IInsights): PrivacyExportInsights => {
     aiAnalysisStale: Boolean(insightsObject.aiAnalysisStale),
     aiAnalysisComputedAt: toIsoOrNull(insightsObject.aiAnalysisComputedAt),
     aiAnalysisWindowEndDateKey: insightsObject.aiAnalysisWindowEndDateKey ?? null,
+    mindMapLatestWeek: insightsObject.mindMapLatestWeek ?? null,
+    mindMapLatestWeekStale: Boolean(insightsObject.mindMapLatestWeekStale),
+    mindMapLatestWeekComputedAt: toIsoOrNull(insightsObject.mindMapLatestWeekComputedAt),
+    mindMapLatestWeekCacheKey: insightsObject.mindMapLatestWeekCacheKey ?? null,
+    mindMapAllTime: insightsObject.mindMapAllTime ?? null,
+    mindMapAllTimeStale: Boolean(insightsObject.mindMapAllTimeStale),
+    mindMapAllTimeComputedAt: toIsoOrNull(insightsObject.mindMapAllTimeComputedAt),
+    mindMapAllTimeCacheKey: insightsObject.mindMapAllTimeCacheKey ?? null,
     createdAt: toIso(insightsObject.createdAt),
     updatedAt: toIso(insightsObject.updatedAt),
   };
@@ -398,6 +414,15 @@ const updatePrivacyAiOptOut = async (
               aiAnalysisStale: true,
               aiAnalysisComputedAt: null,
               aiAnalysisWindowEndDateKey: null,
+              aiAnalysisCacheKey: null,
+              mindMapLatestWeek: null,
+              mindMapLatestWeekStale: true,
+              mindMapLatestWeekComputedAt: null,
+              mindMapLatestWeekCacheKey: null,
+              mindMapAllTime: null,
+              mindMapAllTimeStale: true,
+              mindMapAllTimeComputedAt: null,
+              mindMapAllTimeCacheKey: null,
             },
           }
         )

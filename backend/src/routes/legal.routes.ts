@@ -22,7 +22,12 @@ type LegalPageDocument = {
   privacyNote?: string;
 };
 
-type LegalPageSlug = "privacy" | "terms" | "privacy-choices" | "support";
+type LegalPageSlug =
+  | "privacy"
+  | "terms"
+  | "acceptable-use"
+  | "privacy-choices"
+  | "support";
 
 const LEGAL_BASE_URL = "https://api.journalio.app";
 const LANDING_PAGE_BASE_URL = "https://journalio.app";
@@ -195,6 +200,43 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
         heading: "Contact",
         paragraphs: [
           `Questions about these terms can be submitted through the Journal.IO support page at ${SUPPORT_PAGE_URL}.`,
+        ],
+      },
+    ],
+  },
+  "acceptable-use": {
+    pageLabel: "Usage Policy",
+    title: "Journal.IO Usage Policy",
+    description:
+      "Guidelines for using Journal.IO safely, respectfully, and in line with the Terms of Service.",
+    effectiveDate: EFFECTIVE_DATE,
+    sections: [
+      {
+        heading: "Use Journal.IO Responsibly",
+        paragraphs: [
+          "Journal.IO is a private space for reflection, mood tracking, and supportive habit-building. Use it only in compliance with applicable law and these guidelines.",
+        ],
+      },
+      {
+        heading: "What Is Not Allowed",
+        bullets: [
+          "Do not use Journal.IO to violate law, infringe another person's rights, harass others, or abuse the service.",
+          "Do not access another person's account or data, attempt to bypass security controls, or impersonate another person or organization.",
+          "Do not interfere with normal service operation or use automation that creates unreasonable load or security risk.",
+          "Do not reverse engineer, scrape, or misuse Journal.IO except where applicable law allows it.",
+        ],
+      },
+      {
+        heading: "Support and Safety",
+        paragraphs: [
+          "Journal.IO is not a medical, psychiatric, therapy, or crisis-response service. Its AI-supported features are intended to be supportive, non-clinical, and uncertainty-aware.",
+          "If you need help with your account or the app, submit a request through the Journal.IO support page. For immediate safety concerns, contact local emergency services or a trusted support person.",
+        ],
+      },
+      {
+        heading: "Related Terms",
+        paragraphs: [
+          "This Usage Policy supplements the Journal.IO Terms of Service. If there is a conflict, the Terms of Service control.",
         ],
       },
     ],
@@ -1291,6 +1333,10 @@ export const getLegalHubHtml = (): string =>
           <h2>Terms of Service</h2>
           <p>The rules, billing terms, and important disclaimers for using Journal.IO.</p>
         </a>
+        <a class="card" href="/acceptable-use">
+          <h2>Usage Policy</h2>
+          <p>Guidelines for using Journal.IO safely and responsibly.</p>
+        </a>
         <a class="card" href="/privacy-choices">
           <h2>Privacy Choices</h2>
           <p>How to delete an account, export data, and manage privacy controls.</p>
@@ -1331,6 +1377,10 @@ export const registerLegalRoutes = (app: Express): void => {
 
   app.get("/terms", (_req: Request, res: Response) => {
     sendHtml(res, getLegalPageHtml("terms"));
+  });
+
+  app.get("/acceptable-use", (_req: Request, res: Response) => {
+    sendHtml(res, getLegalPageHtml("acceptable-use"));
   });
 
   app.get("/privacy-choices", (_req: Request, res: Response) => {

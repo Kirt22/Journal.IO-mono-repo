@@ -6,7 +6,7 @@ export interface IJournal extends Document {
   _id: mongoose.Types.ObjectId;
   content: string;
   userId: mongoose.Types.ObjectId;
-  type: string;
+  type: "open_ended" | "guided";
   title: string;
   aiPrompt: string | null;
   tags: string[];
@@ -24,7 +24,12 @@ const journalSchema = new mongoose.Schema<IJournal>(
       required: true,
     },
     content: { type: String, required: true },
-    type: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ["open_ended", "guided"],
+      default: "open_ended",
+      required: true,
+    },
     title: { type: String, default: "Untitled", required: true },
     aiPrompt: { type: String, default: null },
     tags: { type: [String], default: [] },

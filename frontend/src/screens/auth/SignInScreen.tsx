@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -8,14 +8,25 @@ import {
   Text,
   TextInput,
   View,
-} from "../../infrastructure/reactNative";
-import { ArrowLeft, Eye, EyeOff, Loader2, Mail } from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useWindowDimensions } from "react-native";
-import PrimaryButton from "../../components/PrimaryButton";
-import AuthHero from "../../components/AuthHero";
-import { useTheme } from "../../theme/provider";
-import { getAuthLayoutMetrics } from "./authLayout";
+} from '../../infrastructure/reactNative';
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useWindowDimensions } from 'react-native';
+import PrimaryButton from '../../components/PrimaryButton';
+import {
+  AuthErrorDialog,
+  AuthErrorNotice,
+} from '../../components/AuthErrorFeedback';
+import AuthHero from '../../components/AuthHero';
+import AuthInkBackdrop from '../../components/AuthInkBackdrop';
+import WavingHandIcon from '../../components/WavingHandIcon';
+import { useTheme } from '../../theme/provider';
+import { getAuthLayoutMetrics } from './authLayout';
+import {
+  AUTH_VALIDATION_MESSAGES,
+  getAuthErrorPresentation,
+  type AuthErrorPresentation,
+} from './authErrorPresentation';
 
 type SignInScreenProps = {
   onSubmit: (payload: { email: string; password: string }) => Promise<void>;
@@ -24,7 +35,8 @@ type SignInScreenProps = {
   onForgotPassword: () => void;
 };
 
-const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const validateEmail = (email: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 export default function SignInScreen({
   onSubmit,
@@ -34,19 +46,24 @@ export default function SignInScreen({
 }: SignInScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{
+    email?: string;
+    form?: string;
+    password?: string;
+  }>({});
+  const [dialogError, setDialogError] = useState<AuthErrorPresentation | null>(
+    null,
+  );
   const {
     contentPaddingBottom,
     contentPaddingTop,
-    heroImageSize,
     heroSubtitleMaxWidth,
     heroTitleSize,
     horizontalPadding,
-    isVeryCompact,
     sheetMaxWidth,
   } = getAuthLayoutMetrics(width);
 
@@ -54,13 +71,13 @@ export default function SignInScreen({
     const nextErrors: typeof errors = {};
 
     if (!email.trim()) {
-      nextErrors.email = "Email is required.";
+      nextErrors.email = AUTH_VALIDATION_MESSAGES.emailRequired;
     } else if (!validateEmail(email)) {
-      nextErrors.email = "Enter a valid email address.";
+      nextErrors.email = AUTH_VALIDATION_MESSAGES.emailInvalid;
     }
 
     if (!password) {
-      nextErrors.password = "Password is required.";
+      nextErrors.password = AUTH_VALIDATION_MESSAGES.passwordRequired;
     }
 
     setErrors(nextErrors);
@@ -73,175 +90,232 @@ export default function SignInScreen({
     }
 
     setIsSubmitting(true);
+    setDialogError(null);
     try {
       await onSubmit({
         email: email.trim(),
         password,
       });
     } catch (submissionError) {
-      setErrors({
-        password:
-          submissionError instanceof Error
-            ? submissionError.message
-            : "Unable to sign in right now.",
-      });
+      const presentation = getAuthErrorPresentation(submissionError, 'sign-in');
+
+      if (!presentation) {
+        return;
+      } else if (presentation.surface === 'dialog') {
+        setDialogError(presentation);
+      } else if (presentation.field === 'email') {
+        setErrors({ email: presentation.message });
+      } else if (presentation.field === 'password') {
+        setErrors({ password: presentation.message });
+      } else {
+        setErrors({ form: presentation.message });
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
-      <KeyboardAvoidingView
-        style={[styles.container, { backgroundColor: theme.colors.background }]}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingBottom: contentPaddingBottom,
-              paddingHorizontal: horizontalPadding,
-              paddingTop: contentPaddingTop,
-            },
-          ]}
-          keyboardShouldPersistTaps="handled"
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+    >
+      <AuthInkBackdrop />
+      <View style={styles.screen}>
+        <View
+          testID="sign-in-back-row"
+          style={[styles.header, { paddingHorizontal: horizontalPadding }]}
         >
-          <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-            <Pressable onPress={onBackToAuth} style={styles.backLink}>
+          <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
+            <Pressable
+              accessibilityLabel="Back to authentication options"
+              accessibilityRole="button"
+              onPress={onBackToAuth}
+              style={styles.backLink}
+            >
               <ArrowLeft color={theme.colors.mutedForeground} size={18} />
-              <Text style={[styles.backText, { color: theme.colors.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.backText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
                 Back
               </Text>
             </Pressable>
+          </View>
+        </View>
 
-            <AuthHero
-              title="Welcome back"
-              subtitle="Sign in to continue your journaling journey."
-              imageSize={heroImageSize}
-              shellSize={heroImageSize + (isVeryCompact ? 24 : 28)}
-              subtitleMaxWidth={heroSubtitleMaxWidth}
-              titleSize={heroTitleSize}
-            />
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            testID="sign-in-centered-scroll"
+            contentContainerStyle={[
+              styles.content,
+              {
+                paddingBottom: contentPaddingBottom,
+                paddingHorizontal: horizontalPadding,
+                paddingTop: contentPaddingTop,
+              },
+            ]}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
+              <AuthHero
+                title="Welcome back"
+                subtitle="Sign in to continue your journaling journey."
+                subtitleMaxWidth={heroSubtitleMaxWidth}
+                titleSize={heroTitleSize}
+              />
 
-            <View style={styles.form}>
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: theme.colors.foreground }]}>
-                  Email address
-                </Text>
-                <TextInput
-                  value={email}
-                  onChangeText={(value: string) => {
-                    setEmail(value);
-                    if (errors.email) {
-                      setErrors(previous => ({ ...previous, email: undefined }));
-                    }
-                  }}
-                  placeholder="you@example.com"
-                  placeholderTextColor={theme.colors.mutedForeground}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                  editable={!isSubmitting}
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: errors.email ? theme.colors.destructive : theme.colors.border,
-                      backgroundColor: theme.colors.inputBackground,
-                      color: theme.colors.foreground,
-                    },
-                  ]}
+              <View style={styles.form}>
+                <AuthErrorNotice
+                  message={errors.email || errors.password || errors.form}
+                  testID="sign-in-error-notice"
                 />
-                {errors.email ? (
-                  <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                    {errors.email}
+                <View style={styles.field}>
+                  <Text
+                    style={[styles.label, { color: theme.colors.foreground }]}
+                  >
+                    Email address
                   </Text>
-                ) : null}
-              </View>
-
-              <View style={styles.field}>
-                <Text style={[styles.label, { color: theme.colors.foreground }]}>
-                  Password
-                </Text>
-                <View style={styles.passwordRow}>
                   <TextInput
-                    value={password}
+                    value={email}
                     onChangeText={(value: string) => {
-                      setPassword(value);
-                      if (errors.password) {
-                        setErrors(previous => ({ ...previous, password: undefined }));
+                      setEmail(value);
+                      if (errors.email || errors.form) {
+                        setErrors(previous => ({
+                          ...previous,
+                          email: undefined,
+                          form: undefined,
+                        }));
                       }
                     }}
-                    placeholder="Enter your password"
+                    placeholder="you@example.com"
                     placeholderTextColor={theme.colors.mutedForeground}
-                    secureTextEntry={!showPassword}
-                    textContentType="password"
-                    autoComplete="password"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    textContentType="emailAddress"
+                    autoComplete="email"
                     editable={!isSubmitting}
                     style={[
                       styles.input,
-                      styles.passwordInput,
                       {
-                        borderColor: errors.password ? theme.colors.destructive : theme.colors.border,
+                        borderColor: errors.email
+                          ? theme.colors.destructive
+                          : theme.colors.border,
                         backgroundColor: theme.colors.inputBackground,
                         color: theme.colors.foreground,
                       },
                     ]}
                   />
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setShowPassword(previous => !previous)}
-                    style={styles.visibilityButton}
+                </View>
+
+                <View style={styles.field}>
+                  <Text
+                    style={[styles.label, { color: theme.colors.foreground }]}
                   >
-                    {showPassword ? (
-                      <EyeOff color={theme.colors.mutedForeground} size={18} />
-                    ) : (
-                      <Eye color={theme.colors.mutedForeground} size={18} />
-                    )}
+                    Password
+                  </Text>
+                  <View style={styles.passwordRow}>
+                    <TextInput
+                      value={password}
+                      onChangeText={(value: string) => {
+                        setPassword(value);
+                        if (errors.password || errors.form) {
+                          setErrors(previous => ({
+                            ...previous,
+                            form: undefined,
+                            password: undefined,
+                          }));
+                        }
+                      }}
+                      placeholder="Enter your password"
+                      placeholderTextColor={theme.colors.mutedForeground}
+                      secureTextEntry={!showPassword}
+                      textContentType="password"
+                      autoComplete="password"
+                      editable={!isSubmitting}
+                      style={[
+                        styles.input,
+                        styles.passwordInput,
+                        {
+                          borderColor: errors.password
+                            ? theme.colors.destructive
+                            : theme.colors.border,
+                          backgroundColor: theme.colors.inputBackground,
+                          color: theme.colors.foreground,
+                        },
+                      ]}
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setShowPassword(previous => !previous)}
+                      style={styles.visibilityButton}
+                    >
+                      {showPassword ? (
+                        <EyeOff
+                          color={theme.colors.mutedForeground}
+                          size={18}
+                        />
+                      ) : (
+                        <Eye color={theme.colors.mutedForeground} size={18} />
+                      )}
+                    </Pressable>
+                  </View>
+                  <Pressable
+                    onPress={onForgotPassword}
+                    style={styles.forgotLinkRow}
+                  >
+                    <Text
+                      style={[styles.linkText, { color: theme.colors.primary }]}
+                    >
+                      Forgot password?
+                    </Text>
                   </Pressable>
                 </View>
-                {errors.password ? (
-                  <Text style={[styles.error, { color: theme.colors.destructive }]}>
-                    {errors.password}
-                  </Text>
-                ) : null}
-                <Pressable onPress={onForgotPassword} style={styles.forgotLinkRow}>
-                  <Text style={[styles.linkText, { color: theme.colors.primary }]}>
-                    Forgot password?
-                  </Text>
-                </Pressable>
-              </View>
 
-              <PrimaryButton
-                label={isSubmitting ? "Signing in..." : "Sign In"}
-                onPress={handleSubmit}
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                icon={
-                  isSubmitting ? (
-                    <Loader2 color="#FFFFFF" size={16} />
-                  ) : (
-                    <Mail color="#FFFFFF" size={16} strokeWidth={2} />
-                  )
-                }
-                tone="accent"
-              />
+                <PrimaryButton
+                  label="Sign In"
+                  onPress={handleSubmit}
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                  icon={<WavingHandIcon size={22} testID="sign-in-waving-hand-icon" />}
+                  tone="accent"
+                />
 
-              <View style={styles.footerRow}>
-                <Text style={[styles.footerText, { color: theme.colors.mutedForeground }]}>
-                  Need an account?
-                </Text>
-                <Pressable onPress={onGoToCreateAccount} style={styles.linkButton}>
-                  <Text style={[styles.linkText, { color: theme.colors.primary }]}>
-                    Create one
+                <View style={styles.footerRow}>
+                  <Text
+                    style={[
+                      styles.footerText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    Need an account?
                   </Text>
-                </Pressable>
+                  <Pressable
+                    onPress={onGoToCreateAccount}
+                    style={styles.linkButton}
+                  >
+                    <Text
+                      style={[styles.linkText, { color: theme.colors.primary }]}
+                    >
+                      Create one
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+      <AuthErrorDialog
+        message={dialogError?.message || ''}
+        onDismiss={() => setDialogError(null)}
+        title={dialogError?.title || 'Something went wrong'}
+        visible={Boolean(dialogError)}
+      />
     </SafeAreaView>
   );
 }
@@ -250,6 +324,17 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  screen: {
+    flex: 1,
+  },
+  header: {
+    width: '100%',
+    paddingTop: 4,
+  },
+  headerInner: {
+    width: '100%',
+    alignSelf: 'center',
+  },
   container: {
     flex: 1,
   },
@@ -257,26 +342,25 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
     flexGrow: 1,
-    justifyContent: "flex-start",
+    justifyContent: 'center',
   },
   sheet: {
-    width: "100%",
-    alignSelf: "center",
+    width: '100%',
+    alignSelf: 'center',
   },
   backLink: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    alignSelf: "flex-start",
-    marginBottom: 20,
+    alignSelf: 'flex-start',
     paddingVertical: 8,
   },
   backText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   form: {
-    width: "100%",
+    width: '100%',
     gap: 18,
     marginTop: 28,
   },
@@ -285,7 +369,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   input: {
     minHeight: 52,
@@ -295,32 +379,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   passwordRow: {
-    position: "relative",
-    justifyContent: "center",
+    position: 'relative',
+    justifyContent: 'center',
   },
   passwordInput: {
     paddingRight: 48,
   },
   visibilityButton: {
-    position: "absolute",
+    position: 'absolute',
     right: 14,
     height: 52,
-    justifyContent: "center",
-  },
-  error: {
-    fontSize: 12,
-    lineHeight: 18,
+    justifyContent: 'center',
   },
   forgotLinkRow: {
-    alignSelf: "flex-end",
+    alignSelf: 'flex-end',
     marginTop: 6,
     paddingVertical: 2,
   },
   footerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 6,
     marginTop: 4,
   },
@@ -332,6 +412,6 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: '600',
   },
 });

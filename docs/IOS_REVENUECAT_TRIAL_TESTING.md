@@ -12,20 +12,21 @@ Use this checklist when validating the Journal.IO iOS paywall free-trial flow.
   - `app.journalio.premium.yearly`
   - `app.journalio.premium.yearly.exit`
   - `app.journalio.premium.lifetime`
-- The shared Xcode Debug Run action uses `APP_ENV=local` and
-  `BABEL_ENV=development`, so Metro loads `frontend/.env.local`.
-  - iOS Simulator: use `API_BASE_URL=http://localhost:3000/api/v1`.
-  - Physical iPhone: use `API_BASE_URL=http://<mac-wifi-ip>:3000/api/v1`,
-    keep the Mac and iPhone on the same Wi-Fi, and start the backend with
-    `HOST=0.0.0.0`.
-  - `0.0.0.0` is only the backend listen address; never use it as the client URL.
+- Use `LOCAL_IOS_ENVIRONMENTS.md` for the matching backend, Metro, and app
+  commands. Direct Xcode Debug simulator launches default to `APP_ENV=simulator`;
+  CLI builds preserve the explicitly selected simulator or physical-device
+  profile.
+- Simulator API requests use `http://127.0.0.1:3001/api/v1`. Physical iPhone
+  requests use `http://<mac-wifi-ip>:3001/api/v1` while the local backend listens
+  on `0.0.0.0:3001`.
 - On first physical-device access, allow Journal.IO's local-network permission.
   If it was denied, enable it under iPhone Settings > Privacy & Security >
   Local Network.
 - If Xcode does not pick up the file, open `Product > Scheme > Edit Scheme > Run > Options` and confirm `StoreKit Configuration` is set to `JournalIO.storekit`.
-- Start Metro with `npm run start:local` before pressing Xcode's Run button. If
-  Metro was previously started with production settings, stop it and restart it
-  with `--reset-cache` via `npm run start:local-debug`.
+- For the simulator, start Metro with `npm run start:simulator` before pressing
+  Xcode's Run button. For a physical iPhone against the local backend, use
+  `npm run start:local-test` and the matching CLI device command from the local
+  iOS environment guide.
 
 ## Backend Verification Environments
 

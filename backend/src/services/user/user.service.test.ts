@@ -29,7 +29,7 @@ afterEach(() => {
 
 test("buildUserProfilePayload includes premiumActivatedAt as an ISO string", () => {
   const premiumActivatedAt = new Date("2026-04-16T09:30:00.000Z");
-  const premiumExpiresAt = new Date("2026-04-23T09:30:00.000Z");
+  const premiumExpiresAt = new Date("2099-04-23T09:30:00.000Z");
 
   const payload = buildUserProfilePayload({
     _id: {

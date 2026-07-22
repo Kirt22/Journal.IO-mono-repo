@@ -10,6 +10,7 @@ import cors from "cors";
 import "dotenv/config";
 import { passwordResetPageController } from "./services/auth/auth.controllers";
 import { assertRevenueCatProductionConfiguration } from "./config/revenueCat.config";
+import { startRevenueCatEntitlementReconciliationJob } from "./services/revenuecat/revenuecat.service";
 
 const DEFAULT_PORT = 3000;
 
@@ -74,6 +75,8 @@ export const startServer = async (): Promise<void> => {
 
     server.on("error", reject);
   });
+
+  startRevenueCatEntitlementReconciliationJob();
 };
 
 if (require.main === module) {

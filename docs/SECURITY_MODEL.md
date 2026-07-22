@@ -41,6 +41,7 @@ Minimum requirements:
 - password reset tokens must be random, hashed before storage, time-limited, one-time use, and cleared after a successful reset
 - successful password reset must invalidate the stored refresh token so existing sessions cannot continue silently with an old password
 - RevenueCat webhooks must require a configured authorization header and must not trust unauthenticated purchase lifecycle requests
+- premium authorization must not trust `isPremium` alone; time-limited access requires a server-verified RevenueCat source and an unexpired timestamp, with periodic reconciliation covering inactive and legacy users
 
 ---
 

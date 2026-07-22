@@ -5,6 +5,7 @@ import {
   isAllowedRevenueCatWebhookEnvironment,
   isAuthorizedRevenueCatWebhookRequest,
   mapRevenueCatSubscriberState,
+  reconcileInactiveRevenueCatEntitlements,
   syncAuthenticatedRevenueCatPurchase,
 } from "./revenuecat.service";
 
@@ -298,4 +299,40 @@ test("syncAuthenticatedRevenueCatPurchase returns a retryable error instead of a
       return true;
     }
   );
+});
+
+test("reconcileInactiveRevenueCatEntitlements repairs inactive legacy users", async () => {
+  const reconciledUserIds: string[] = [];
+  const now = new Date("2026-07-22T12:00:00.000Z");
+
+  const result = await reconcileInactiveRevenueCatEntitlements({
+    now,
+    expireKnownEntitlements: async receivedNow => {
+      assert.equal(receivedNow, now);
+      return 2;
+    },
+    findLegacyUserIds: async () => ["legacy-1", "legacy-2"],
+    reconcile: async userId => {
+      reconciledUserIds.push(userId);
+
+      if (userId === "legacy-2") {
+        throw new Error("Temporary RevenueCat failure");
+      }
+
+      return {
+        profile: { userId, isPremium: false } as any,
+        requestDate: now,
+        isPremium: false,
+        isStale: false,
+      };
+    },
+  });
+
+  assert.deepEqual(reconciledUserIds, ["legacy-1", "legacy-2"]);
+  assert.deepEqual(result, {
+    expiredCount: 2,
+    legacyAttemptedCount: 2,
+    legacyFailedCount: 1,
+    legacyReconciledCount: 1,
+  });
 });

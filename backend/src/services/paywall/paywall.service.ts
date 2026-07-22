@@ -1,4 +1,5 @@
 import { buildUserProfilePayload } from "../user/user.service";
+import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
 import {
   paywallConfigModel,
   type IPaywallConfig,
@@ -1237,7 +1238,7 @@ const getPaywallConfig = async (
     };
   }
 
-  if (user.isPremium) {
+  if (hasActivePremiumEntitlement(user)) {
     return {
       shouldShow: false,
       placementKey: input.placementKey,

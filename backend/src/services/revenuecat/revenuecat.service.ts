@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import https from "node:https";
 import { URL } from "node:url";
 import mongoose from "mongoose";
+import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
 import {
   REVENUECAT_ENTITLEMENT_ID,
   getRevenueCatAllowedWebhookEnvironments,
@@ -91,6 +92,20 @@ type ProcessRevenueCatWebhookResult = {
   kind: "processed" | "duplicate";
   eventKey: string;
   userIds: string[];
+};
+
+type RevenueCatReconciliationOptions = {
+  expireKnownEntitlements?: (now: Date) => Promise<number>;
+  findLegacyUserIds?: () => Promise<string[]>;
+  now?: Date;
+  reconcile?: (userId: string) => Promise<RevenueCatSyncResult>;
+};
+
+type RevenueCatReconciliationResult = {
+  expiredCount: number;
+  legacyAttemptedCount: number;
+  legacyFailedCount: number;
+  legacyReconciledCount: number;
 };
 
 type RevenueCatErrorCode =
@@ -425,6 +440,56 @@ const buildPremiumUpdateFilter = (userId: string, requestDate: Date) => ({
   ],
 });
 
+const expireKnownPremiumEntitlements = async (now: Date) => {
+  const result = await userModel.updateMany(
+    {
+      isPremium: true,
+      premiumPlanKey: { $in: ["weekly", "monthly", "yearly"] },
+      premiumExpiresAt: { $lte: now },
+    },
+    {
+      $set: {
+        isPremium: false,
+        premiumPlanKey: null,
+        premiumActivatedAt: null,
+        premiumProductId: null,
+        premiumExpiresAt: null,
+        premiumWillRenew: null,
+      },
+    }
+  );
+
+  return result.modifiedCount;
+};
+
+const findLegacyPremiumUserIds = async () => {
+  const users = await userModel
+    .find(
+      {
+        isPremium: true,
+        $or: [
+          { premiumSource: { $ne: "revenuecat_verified" } },
+          { premiumVerifiedAt: { $exists: false } },
+          { premiumVerifiedAt: null },
+          { premiumRevenueCatRequestDate: { $exists: false } },
+          { premiumRevenueCatRequestDate: null },
+          { revenueCatAppUserId: { $exists: false } },
+          { revenueCatAppUserId: null },
+          {
+            premiumPlanKey: { $in: ["weekly", "monthly", "yearly"] },
+            premiumExpiresAt: null,
+          },
+        ],
+      },
+      { _id: 1 }
+    )
+    .limit(100)
+    .lean()
+    .exec();
+
+  return users.map(user => user._id.toString());
+};
+
 const resolveExistingUserIds = async (candidateIds: string[]) => {
   const canonicalIds = Array.from(
     new Set(candidateIds.map(identifier => identifier.trim()).filter(isCanonicalObjectId))
@@ -542,7 +607,7 @@ const reconcileRevenueCatSubscriberForUser = async (
     return {
       profile: await buildAuthenticatedUserProfilePayload(currentUser),
       requestDate: mappedState.requestDate,
-      isPremium: Boolean(currentUser.isPremium),
+      isPremium: hasActivePremiumEntitlement(currentUser),
       isStale: true,
     };
   }
@@ -732,6 +797,70 @@ const syncAuthenticatedRevenueCatEntitlement = async (userId: string) => {
   return result.profile;
 };
 
+const reconcileInactiveRevenueCatEntitlements = async (
+  options: RevenueCatReconciliationOptions = {}
+): Promise<RevenueCatReconciliationResult> => {
+  const now = options.now || new Date();
+  const expireKnown =
+    options.expireKnownEntitlements || expireKnownPremiumEntitlements;
+  const findLegacy = options.findLegacyUserIds || findLegacyPremiumUserIds;
+  const reconcile = options.reconcile || reconcileRevenueCatSubscriberForUser;
+  const expiredCount = await expireKnown(now);
+  const legacyUserIds = await findLegacy();
+  let legacyFailedCount = 0;
+  let legacyReconciledCount = 0;
+
+  for (const userId of legacyUserIds) {
+    try {
+      await reconcile(userId);
+      legacyReconciledCount += 1;
+    } catch {
+      legacyFailedCount += 1;
+    }
+  }
+
+  return {
+    expiredCount,
+    legacyAttemptedCount: legacyUserIds.length,
+    legacyFailedCount,
+    legacyReconciledCount,
+  };
+};
+
+const REVENUECAT_RECONCILIATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let revenueCatReconciliationTimer: NodeJS.Timeout | null = null;
+let revenueCatReconciliationInFlight = false;
+
+const runRevenueCatEntitlementReconciliation = async () => {
+  if (revenueCatReconciliationInFlight) {
+    return;
+  }
+
+  revenueCatReconciliationInFlight = true;
+
+  try {
+    const result = await reconcileInactiveRevenueCatEntitlements();
+    console.info("RevenueCat entitlement reconciliation completed.", result);
+  } catch (error) {
+    console.error("RevenueCat entitlement reconciliation failed:", error);
+  } finally {
+    revenueCatReconciliationInFlight = false;
+  }
+};
+
+const startRevenueCatEntitlementReconciliationJob = () => {
+  if (process.env.NODE_ENV !== "production" || revenueCatReconciliationTimer) {
+    return;
+  }
+
+  void runRevenueCatEntitlementReconciliation();
+  revenueCatReconciliationTimer = setInterval(
+    () => void runRevenueCatEntitlementReconciliation(),
+    REVENUECAT_RECONCILIATION_INTERVAL_MS
+  );
+  revenueCatReconciliationTimer.unref();
+};
+
 type RevenueCatPurchaseVerificationOptions = {
   retryDelaysMs?: number[];
   reconcile?: (userId: string) => Promise<RevenueCatSyncResult>;
@@ -785,8 +914,10 @@ export {
   isRevenueCatServiceError,
   mapRevenueCatSubscriberState,
   processRevenueCatWebhook,
+  reconcileInactiveRevenueCatEntitlements,
   reconcileRevenueCatSubscriberForUser,
   resolveRevenueCatEventUserIds,
   syncAuthenticatedRevenueCatEntitlement,
   syncAuthenticatedRevenueCatPurchase,
+  startRevenueCatEntitlementReconciliationJob,
 };

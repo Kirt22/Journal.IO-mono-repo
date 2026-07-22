@@ -135,6 +135,9 @@ test("createGoalSuggestions rejects opted-out users", async () => {
       lean: () => ({
         exec: async () => ({
           isPremium: true,
+          premiumPlanKey: "yearly",
+          premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+          premiumSource: "revenuecat_verified",
           onboardingContext: { aiOptIn: false },
         }),
       }),
@@ -157,6 +160,9 @@ test("createGoalSuggestions falls back to safe practical suggestions from the en
       lean: () => ({
         exec: async () => ({
           isPremium: true,
+          premiumPlanKey: "yearly",
+          premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+          premiumSource: "revenuecat_verified",
           onboardingContext: { aiOptIn: true },
         }),
       }),

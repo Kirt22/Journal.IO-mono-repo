@@ -84,6 +84,13 @@ const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
       lean: () => ({
         exec: async () => ({
           isPremium,
+          ...(isPremium
+            ? {
+                premiumPlanKey: "yearly",
+                premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+                premiumSource: "revenuecat_verified",
+              }
+            : {}),
           onboardingContext: {
             aiOptIn,
           },

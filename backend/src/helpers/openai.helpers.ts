@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { userModel } from "../schema/user.schema";
+import { hasActivePremiumEntitlement } from "./premiumEntitlement.helpers";
 
 type OpenAiInputMessage = {
   role: "system" | "user";
@@ -49,12 +50,14 @@ type UserAiAccessState = {
 const getUserAiAccessState = async (userId: string): Promise<UserAiAccessState> => {
   const user = await userModel
     .findById(userId)
-    .select("isPremium onboardingContext.aiOptIn")
+    .select(
+      "isPremium premiumPlanKey premiumExpiresAt premiumSource onboardingContext.aiOptIn"
+    )
     .lean()
     .exec();
 
   return {
-    isPremium: Boolean(user?.isPremium),
+    isPremium: hasActivePremiumEntitlement(user),
     aiOptIn:
       typeof user?.onboardingContext?.aiOptIn === "boolean"
         ? user.onboardingContext.aiOptIn

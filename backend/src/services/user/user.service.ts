@@ -2,6 +2,7 @@ import {
   CURRENT_ONBOARDING_VERSION,
   getOnboardingV2ReleaseCutoffDate,
 } from "../../config/onboarding.config";
+import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
 import { journalModel } from "../../schema/journal.schema";
 import { reminderModel } from "../../schema/reminder.schema";
 import { IUser, userModel } from "../../schema/user.schema";
@@ -252,7 +253,7 @@ const buildUserProfilePayload = (
     phoneNumber: user.phoneNumber || null,
     email: user.email || null,
     createdAt: toIsoString(user.createdAt),
-    isPremium: Boolean(user.isPremium),
+    isPremium: hasActivePremiumEntitlement(user),
     premiumPlanKey: user.premiumPlanKey || null,
     premiumActivatedAt: user.premiumActivatedAt?.toISOString() || null,
     premiumProductId: user.premiumProductId || null,

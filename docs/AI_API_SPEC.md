@@ -339,6 +339,8 @@ Behavior notes:
 - returns the authenticated user's safe onboarding-selection summary for profile personalisation; it excludes journal content and safety data
 - lazily marks clearly existing users as onboarding v2 complete so app updates do not force legacy users through new onboarding
 - existing-user signals include legacy onboarding completion/context, journal entries, premium state, reminder records, and users created before the onboarding v2 release cutoff
+- `isPremium` is an effective entitlement result, not a direct echo of the stored boolean: time-limited access requires `premiumSource = revenuecat_verified` and a future `premiumExpiresAt`; verified lifetime access does not expire
+- legacy `revenuecat_client_sync` rows are returned as non-premium until the backend has reconciled them with RevenueCat
 
 ### `PATCH /users/profile`
 
@@ -682,6 +684,7 @@ Behavior notes:
 - stores a minimal idempotency ledger keyed by RevenueCat `event.id` or a derived legacy hash; full payloads are not persisted
 - webhook processing re-fetches the current subscriber state from RevenueCat instead of translating event types directly
 - transfer events reconcile both the `transferred_from` and `transferred_to` App User ID lists when they map cleanly to Journal.IO MongoDB `_id` values
+- as a missed-webhook fallback, the production backend clears locally known expirations and re-verifies a bounded batch of legacy/unverified premium rows on startup and every six hours, without requiring the user to reopen the app
 
 ---
 

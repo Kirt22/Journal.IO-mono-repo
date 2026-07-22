@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requestStructuredOpenAi } from "../../helpers/openai.helpers";
+import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
 import { journalModel } from "../../schema/journal.schema";
 import { userModel } from "../../schema/user.schema";
 import type {
@@ -208,11 +209,13 @@ const createGoalSuggestions = async (
 ): Promise<GoalSuggestionsResponse> => {
   const user = await userModel
     .findById(input.userId)
-    .select("isPremium onboardingContext.aiOptIn")
+    .select(
+      "isPremium premiumPlanKey premiumExpiresAt premiumSource onboardingContext.aiOptIn"
+    )
     .lean()
     .exec();
 
-  if (!user?.isPremium) {
+  if (!user || !hasActivePremiumEntitlement(user)) {
     throw new GoalSuggestionsPremiumRequiredError();
   }
 

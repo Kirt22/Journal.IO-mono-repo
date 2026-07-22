@@ -67,6 +67,12 @@ const originalAiInsightsDevEarlyReady =
   process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY;
 const originalAiInsightsExperimentalEarlyReady =
   process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
+const VERIFIED_PREMIUM_ACCESS = {
+  isPremium: true,
+  premiumPlanKey: "yearly",
+  premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+  premiumSource: "revenuecat_verified",
+};
 
 afterEach(() => {
   userTarget.findById = originalFindById;
@@ -97,7 +103,7 @@ test("getInsightsAiAnalysis blocks opted-out users before loading AI analysis", 
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: false,
           },
@@ -151,7 +157,7 @@ test("getInsightsAiAnalysis returns a collecting payload during the first premiu
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -239,7 +245,7 @@ test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 acti
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -332,7 +338,7 @@ test("getInsightsAiAnalysis ignores the old dev-preview flag in release-safe mod
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -414,7 +420,7 @@ test("getInsightsAiAnalysis recomputes cached dev-preview reports in release mod
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -513,7 +519,7 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -605,7 +611,7 @@ test("getInsightsAiAnalysis uses support-first weekly copy for safety-sensitive 
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -716,7 +722,7 @@ test("getInsightsMindMap returns a ready latest-week map with exactly 8 ranked r
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -844,7 +850,7 @@ test("getInsightsMindMap returns support-first for safety-sensitive latest-week 
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -954,7 +960,7 @@ test("getInsightsMindMap excludes safety-sensitive entries from all-time aggrega
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },
@@ -1077,7 +1083,7 @@ test("getInsightsMindMap reuses a cached all-time map when the cache key matches
     select: () => ({
       lean: () => ({
         exec: async () => ({
-          isPremium: true,
+          ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
             aiOptIn: true,
           },

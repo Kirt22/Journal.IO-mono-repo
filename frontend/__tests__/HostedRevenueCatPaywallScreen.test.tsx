@@ -235,7 +235,7 @@ describe("HostedRevenueCatPaywallScreen", () => {
         activePaywallPlacementKey: "post_auth",
         activePaywallScreenKey: "verify-email",
         activePaywallTriggerMode: "contextual",
-        paywallReturnStage: "profile",
+        paywallReturnStage: "main-app",
         session: {
           accessToken: "test-access",
           refreshToken: "test-refresh",
@@ -252,7 +252,6 @@ describe("HostedRevenueCatPaywallScreen", () => {
             profileSetupCompleted: true,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });

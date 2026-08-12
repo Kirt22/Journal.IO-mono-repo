@@ -12,16 +12,7 @@ const deletePrivacyAccountSchema = z.object({
   params: z.object({}).optional(),
 });
 
-const updateAiOptOutSchema = z.object({
-  body: z.object({
-    aiOptOut: z.boolean(),
-  }),
-  query: z.object({}).optional(),
-  params: z.object({}).optional(),
-});
-
 export {
   deletePrivacyAccountSchema,
   exportPrivacyDataSchema,
-  updateAiOptOutSchema,
 };

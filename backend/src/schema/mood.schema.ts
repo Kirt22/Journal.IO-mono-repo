@@ -8,6 +8,7 @@ export interface IMoodCheckIn extends Document {
   userId: mongoose.Types.ObjectId;
   mood: MoodValue;
   moodDateKey: string;
+  moodDateKeyVersion?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +29,11 @@ const moodCheckInSchema = new mongoose.Schema<IMoodCheckIn>(
       type: String,
       required: true,
       trim: true,
+    },
+    moodDateKeyVersion: {
+      type: Number,
+      enum: [1],
+      default: undefined,
     },
   },
   { timestamps: true }

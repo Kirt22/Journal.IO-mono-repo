@@ -18,7 +18,7 @@ This spec reflects the compact Phase 2.2 onboarding v2 shell. It does not define
 | 6 | What are you dealing with lately? | `primarySupportFocus`, `supportFocusAreas: string[]` |
 | 7 | Theme selector | `preferredTheme` |
 | 8 | Reflection ready screen | none |
-| 9 | AI/privacy bottom sheet | `privacyConsent`, `aiComfort` |
+| 9 | AI/privacy bottom sheet | `privacyConsent` |
 | 10 | First reflection placeholder | none |
 
 Removed screens:

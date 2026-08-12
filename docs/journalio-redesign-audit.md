@@ -148,8 +148,8 @@ Types and services:
 
 Step count and constants:
 
-- `TOTAL_STEPS = 12` at `frontend/src/screens/onboarding/OnboardingScreen.tsx:58`.
-- Privacy step is `8`, journal demo is `9`, AI reflection is `10`, breathing pause is `11`, rating step is `12` at `frontend/src/screens/onboarding/OnboardingScreen.tsx:59`.
+- `TOTAL_STEPS = 11` in `frontend/src/screens/onboarding/OnboardingScreen.tsx`.
+- Privacy step is `7`, journal demo is `8`, AI reflection is `9`, breathing pause is `10`, and rating is `11`.
 
 Current step order:
 
@@ -159,27 +159,26 @@ Current step order:
 - Step 4: journaling goals, `OnboardingScreen.tsx:1042`.
 - Step 5: support focus areas, `OnboardingScreen.tsx:1119`.
 - Step 6: reminder preference, `OnboardingScreen.tsx:1191`.
-- Step 7: AI comfort, `OnboardingScreen.tsx:1267`.
-- Step 12: excitement/rating, `OnboardingScreen.tsx:1399`.
-- Step 8: privacy consent, `OnboardingScreen.tsx:1566`.
-- Step 9: journal demo, `OnboardingScreen.tsx:1701`.
-- Step 10: demo AI reflection, `OnboardingScreen.tsx:1861`.
-- Step 11: breathing pause, `OnboardingScreen.tsx:1964`.
+- Step 7: privacy consent.
+- Step 8: journal demo.
+- Step 9: demo AI reflection.
+- Step 10: breathing pause.
+- Step 11: excitement/rating.
 
 Validation rules:
 
 - `canProceed` is defined at `frontend/src/screens/onboarding/OnboardingScreen.tsx:432`.
 - Age range is required on step 2.
 - Journaling experience is required on step 3.
-- Privacy consent is required on step 8.
-- Journal demo mood and thoughts are required on step 9.
-- AI reflection waits for a minimum display timer on step 10.
-- Breathing pause waits for a minimum display timer on step 11.
-- Goals, support focus, reminder, AI comfort, and rating are not hard-required beyond defaults.
+- Privacy consent is required on step 7.
+- Journal demo mood and thoughts are required on step 8.
+- AI reflection waits for a minimum display timer on step 9.
+- Breathing pause waits for a minimum display timer on step 10.
+- Goals, support focus, reminder, and rating are not hard-required beyond defaults.
 
 Current payload:
 
-- `OnboardingCompletionData` at `frontend/src/types/onboarding.ts:1` has `ageRange`, `journalingExperience`, `goals`, `supportFocusAreas`, `reminderPreference`, `aiComfort`, and `privacyConsent`.
+- `OnboardingCompletionData` includes `ageRange`, `journalingExperience`, `goals`, `supportFocusAreas`, `reminderPreference`, and `privacyConsent`.
 - `buildOnboardingContext(data)` maps this to backend `AuthOnboardingContext` in `frontend/src/store/appStore.ts:162`.
 
 Local storage:
@@ -277,7 +276,7 @@ User profile fields:
 
 - Frontend `AuthUser` type is in `frontend/src/services/authService.ts:3`.
 - Backend user payload is built in `buildUserPayload()` at `backend/src/services/auth/auth.service.ts:620` and `buildUserProfilePayload()` at `backend/src/services/user/user.service.ts:36`.
-- Profile includes `onboardingCompleted`, `isPremium`, subscription metadata, `revenueCatAppUserId`, `profileSetupCompleted`, `journalingGoals`, `avatarColor`, `profilePic`, and `aiOptIn`.
+- Profile includes `onboardingCompleted`, `isPremium`, subscription metadata, `revenueCatAppUserId`, `profileSetupCompleted`, `journalingGoals`, `avatarColor`, and `profilePic`.
 - Profile payload does not currently include `createdAt`, `journalCount`, or derived journal-entry existence.
 
 ## 5. Backend User Model And Auth Routes
@@ -322,7 +321,7 @@ Current user fields relevant to redesign:
 - Premium/subscription: `isPremium`, `premiumPlanKey`, `premiumActivatedAt`, `premiumProductId`, `premiumExpiresAt`, `premiumWillRenew`, `premiumVerifiedAt`, `premiumRevenueCatRequestDate`, `premiumSource`.
 - RevenueCat customer ID: `revenueCatAppUserId`.
 - Reminder preference: only inside `onboardingContext.reminderPreference`; real reminders are in the `reminders` collection.
-- Privacy/AI consent: `aiOptIn` and `onboardingContext.privacyConsentAccepted`.
+- Privacy consent: `onboardingContext.privacyConsentAccepted`.
 - Created timestamp: schema uses `{ timestamps: true }` at `user.schema.ts:135`.
 - Deleted/account deletion: no `deletedAt` on user schema; privacy deletion likely hard-deletes or is handled elsewhere.
 
@@ -442,15 +441,15 @@ Current prompts:
 Current fallback behavior:
 
 - OpenAI unavailable or ineligible users return deterministic fallback for writing prompts and tag suggestions.
-- Journal quick analysis requires premium and AI opt-in, then can combine heuristic baseline with optional OpenAI enhancement.
+- Journal quick analysis requires Premium, then can combine a heuristic baseline with optional OpenAI enhancement.
 - Onboarding demo analysis is deterministic and should remain available without premium.
 - OpenAI helper parses strict JSON schema and logs errors; debug raw output logging is controlled by `OPENAI_DEBUG_LOGS` and `NODE_ENV` in `openai.helpers.ts:37`, which should be reviewed before redesign because raw AI output can contain sensitive journal-derived text.
 
 Premium gating:
 
-- `canUseOpenAiForUser()` requires OpenAI configured, `user.isPremium`, and `user.aiOptIn !== false` in `backend/src/helpers/openai.helpers.ts:63`.
+- `canUseOpenAiForUser()` requires OpenAI configuration and active Premium entitlement.
 - Tag suggestions require premium in `suggestJournalTags()` at `backend/src/services/journal/journal.service.ts:1214`.
-- Quick analysis requires premium and AI opt-in in `ensureQuickAnalysisAccess()` at `journal.service.ts:545`.
+- Quick analysis requires Premium in `ensureQuickAnalysisAccess()`.
 - Weekly AI analysis has premium checks in `backend/src/services/insights/insights.service.ts`.
 
 Support for requested AI functions:
@@ -936,7 +935,7 @@ Backend validation/auth:
 
 Subscription/premium gating:
 
-- Backend gate uses `user.isPremium` and `user.aiOptIn` via `backend/src/helpers/openai.helpers.ts`.
+- Backend gate uses active Premium entitlement via `backend/src/helpers/openai.helpers.ts`.
 - Frontend local gate uses `session.user.isPremium` before showing paywall or locked cards.
 
 Mongo/Mongoose:
@@ -966,7 +965,7 @@ Phase 2: replace onboarding with personalized setup
 - Backend: add `POST /onboarding/complete`.
 - Frontend: new auth-first onboarding state and screens; keep old local payload readable.
 - Migration risk: medium-high.
-- Test checklist: required/optional fields, reminder, privacy consent, AI opt-out, back navigation, cold launch resume.
+- Test checklist: required/optional fields, reminder, privacy consent, back navigation, cold launch resume.
 
 Phase 3: first guided reflection inside onboarding
 
@@ -974,7 +973,7 @@ Phase 3: first guided reflection inside onboarding
 - Backend: add reflection follow-up/title/mood endpoints and journal create extensions.
 - Frontend: guided reflection state machine and save-first-entry behavior.
 - Migration risk: medium.
-- Test checklist: empty/short input, AI unavailable fallback, AI opt-out, premium decision, firstReflectionId link.
+- Test checklist: empty/short input, AI unavailable fallback, Premium decision, firstReflectionId link.
 
 Phase 4: Reflect/Mirror entry screen
 
@@ -982,7 +981,7 @@ Phase 4: Reflect/Mirror entry screen
 - Backend: persist analysis/mirror or separate entry analysis records.
 - Frontend: tab UI, guided AI reflection, Open Write, mood tracking, text-only entry generation.
 - Migration risk: medium.
-- Test checklist: Reflect tab, Mirror tab, manual write, save, edit, delete, AI fail, premium/AI opt-in gates.
+- Test checklist: Reflect tab, Mirror tab, manual write, save, edit, delete, AI fail, and Premium gates.
 
 Phase 5: Mind Map preview in onboarding
 
@@ -990,7 +989,7 @@ Phase 5: Mind Map preview in onboarding
 - Backend: generate/store preview from setup plus first reflection.
 - Frontend: preview UI and fallback empty state.
 - Migration risk: medium.
-- Test checklist: no entry, AI opt-out, low-signal reflection, privacy copy, preview regeneration.
+- Test checklist: no entry, low-signal reflection, privacy copy, preview regeneration.
 
 Phase 6: real Mind Map v1
 

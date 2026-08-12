@@ -59,7 +59,7 @@ Last updated: `2026-04-16`
 
 ## 3) Privacy, Data, and Account Controls
 
-- `[x]` Privacy Mode premium gating
+- `[x]` Biometric app-lock premium gating
 - `[x]` Hide Journal Previews premium gating
 - `[x]` Export data premium gating
 - `[x]` Data export flow for premium users

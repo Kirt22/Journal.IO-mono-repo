@@ -40,6 +40,14 @@ Error:
 - Refresh tokens used for access-token renewal
 - Protected endpoints must enforce user ownership
 
+## 2.1 AI interpretation balance
+
+- OpenAI-backed reflection, analysis, extraction, memory, writing-prompt, Mind Map, and goal-generation features use an evidence-led, challenge-forward balance.
+- When both difficult and positive material are present, prompts target roughly 55% interpretive attention on supported friction, setbacks, contradictions, avoidance, risks, or unmet needs and 45% on supported strengths, progress, resources, or protective factors.
+- The ratio is not a sentiment quota: models must not invent or exaggerate negative material, and low-signal or clearly one-sided writing must not be distorted to satisfy it.
+- User-facing language remains warm, constructive, non-clinical, uncertainty-aware, and agency-focused without using reassurance to erase unresolved difficulty.
+- Structured mood fields continue to reflect the writing itself; they are never forced to a positive value to make the response sound supportive.
+
 ---
 
 # 3) Implemented Endpoints (Current Backend)
@@ -67,7 +75,6 @@ Request:
   "onboardingContext": {
     "goals": ["Daily Reflection"],
     "reminderPreference": "Evening",
-    "aiOptIn": false,
     "privacyConsentAccepted": true
   },
   "onboardingCompleted": true
@@ -97,8 +104,7 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": "https://...",
-    "aiOptIn": false
+    "profilePic": "https://..."
   }
 }
 ```
@@ -121,7 +127,6 @@ Request:
   "onboardingContext": {
     "goals": ["Daily Reflection"],
     "reminderPreference": "Evening",
-    "aiOptIn": false,
     "privacyConsentAccepted": true
   },
   "onboardingCompleted": true
@@ -170,8 +175,7 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": "https://...",
-    "aiOptIn": true
+    "profilePic": "https://..."
   }
 }
 ```
@@ -226,8 +230,8 @@ Request:
   "goals": ["Daily Reflection"],
   "supportFocusAreas": ["Stress", "Sleep"],
   "reminderPreference": "Evening",
-  "aiComfort": true,
-  "privacyConsent": true
+  "privacyConsent": true,
+  "commitmentSignedAt": "2026-08-09T10:15:00.000Z"
 }
 ```
 
@@ -238,6 +242,7 @@ Behavior notes:
 - stores a sanitized `onboardingPayload` and preserves legacy `onboardingContext` compatibility
 - does not create, delete, or update journals, subscriptions, RevenueCat fields, or reminder records
 - reminder preference may be stored in `onboardingPayload`; reminder record sync remains handled by the existing reminders flow
+- `commitmentSignedAt` is optional, must be an ISO 8601 datetime, and is stored on `onboardingPayload` as a `Date`; anything unparseable is dropped rather than persisted
 
 Success `data` uses the same safe profile payload shape as `GET /users/profile`.
 
@@ -321,7 +326,6 @@ Success `data`:
   "hasJournalEntries": true,
   "journalCount": 12,
   "profilePic": null,
-  "aiOptIn": true,
   "onboardingPreferences": {
     "ageRange": "25-34",
     "journalingExperience": "New to journaling",
@@ -370,8 +374,7 @@ Success `data`:
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
   "onboardingCompleted": true,
-  "profilePic": null,
-  "aiOptIn": true
+  "profilePic": null
 }
 ```
 
@@ -421,8 +424,7 @@ Success `data`:
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
   "onboardingCompleted": true,
-  "profilePic": null,
-  "aiOptIn": true
+  "profilePic": null
 }
 ```
 
@@ -631,8 +633,7 @@ Success `data`:
   "journalingGoals": ["Daily Reflection", "Personal Growth"],
   "profileSetupCompleted": true,
   "onboardingCompleted": true,
-  "profilePic": null,
-  "aiOptIn": true
+  "profilePic": null
 }
 ```
 
@@ -692,6 +693,8 @@ Behavior notes:
 
 The mood tracker is separate from journal entries. It stores only the authenticated user, the mood value, and the day-specific check-in record.
 
+Both mood routes accept the optional `X-Client-Timezone` header. A valid IANA timezone makes "today" use the user's local calendar date; missing or invalid values fall back to UTC. Unversioned legacy UTC-keyed records created inside the current local-day window are still recognized, so this change does not require a bulk migration. When a legacy record is matched, API responses expose the effective requested local-day key rather than its historical stored UTC key. Newly written versioned date keys are matched exactly and are not reinterpreted after travel or a timezone change.
+
 ### `GET /mood/today`
 
 Get the authenticated user's mood check-in for today.
@@ -744,13 +747,115 @@ If a check-in already exists for the current day, the backend returns the existi
 
 Both routes require authentication.
 
+## 3.3.1 Home Screen Widgets Module (`/widgets`)
+
+The Premium iOS Home Screen mood widget uses a separate, least-privilege credential. A widget token can call only the widget mood route; it cannot read journals, profile data, insights, or other authenticated APIs. Quick Thought and Streak do not use these endpoints: Quick Thought opens the authenticated in-app composer, while Streak renders from an App Group snapshot written by the app.
+
+### `POST /widgets/session`
+
+Create or rotate the current installation's widget credential. Requires normal JWT authentication and an active server-verified Premium entitlement.
+
+Request:
+
+```json
+{
+  "platform": "ios",
+  "installationId": "device-generated-uuid"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "widgetToken": "one-time-opaque-token",
+  "expiresAt": "2026-08-21T12:00:00.000Z"
+}
+```
+
+Returns `201` when the session is created or rotated. A signed-in user without active Premium access receives `403` in the standard error envelope. The raw token is returned only in this response; the backend stores only its hash. Sessions expire after 30 days and the mobile app rotates them before expiry. Both widget-session routes compare the access token's widget-session version with the current user record, so an access token issued before logout or password reset cannot reconnect a revoked widget.
+
+### `DELETE /widgets/session`
+
+Revoke the current installation's widget credential. Requires normal JWT authentication.
+
+Request:
+
+```json
+{
+  "platform": "ios",
+  "installationId": "device-generated-uuid"
+}
+```
+
+Success `data` is an empty object. Logout, successful password reset, and account deletion also revoke affected widget sessions.
+
+### `POST /widgets/mood/check_in`
+
+Create today's mood check-in from the iOS widget without launching the app.
+
+Request headers:
+
+```text
+Authorization: Widget <opaque-widget-token>
+X-Client-Timezone: Asia/Kolkata
+```
+
+Request:
+
+```json
+{
+  "mood": "good"
+}
+```
+
+Success uses a privacy-minimized response. It returns the effective mood so the extension can retain the selected icon until local midnight, but never returns a mood-record identifier:
+
+```json
+{
+  "success": true,
+  "message": "Your check-in has been saved.",
+  "data": {
+    "saved": true,
+    "mood": "good",
+    "moodDateKey": "2026-03-30",
+    "alreadyCheckedIn": false
+  }
+}
+```
+
+If today's check-in already exists, the route returns the existing effective mood with `alreadyCheckedIn: true` and does not replace or duplicate the record. Missing, malformed, expired, revoked, or session-version-invalid widget credentials return `401` in the standard error envelope. A valid widget session whose owner no longer has active Premium access is revoked and returns `403`.
+
 ## 3.4 Goals Module (`/goals`)
 
-All Goals routes require authentication. Goals are active, user-owned titles stored separately from journal metadata; no endpoint automatically creates a goal.
+All Goals routes require authentication. Goals are user-owned records stored on the user (`goals[]`) separately from `journalingGoals` (onboarding preferences) and journal metadata; no endpoint automatically creates a goal.
+
+**Goals are recurring.** Completion is not a status — it is derived per period from `frequency` plus `lastCompletedLocalDate`, so a `daily` goal reappears the next local day and a `weekly` goal resets at the start of each Sunday-start week. `as_needed` completes permanently.
+
+Each goal has:
+
+| Field | Notes |
+| --- | --- |
+| `id` | Stable generated id, independent of the title so it survives edits |
+| `title` | Trimmed, ≤120 chars |
+| `description` | Trimmed, ≤200 chars, or `null` |
+| `icon` | Curated key (e.g. `journal`, `gym`, `peach`) from the shared goal-icon library, never an emoji |
+| `iconSource` | `automatic \| fixed`; automatic icons follow title edits, while fixed icons preserve the user's explicit picker choice |
+| `frequency` | `daily \| weekly \| as_needed` |
+| `status` | `active \| archived` |
+| `reminderEnabled` | Whether a local reminder is armed |
+| `reminderTime` | `HH:mm` (24h) or `null` |
+| `lastCompletedLocalDate` | The **client's** local `YYYY-MM-DD` of the last completion, or `null` |
+| `isCompletedForPeriod` | Server-derived against the request's `today` |
+| `createdAt` / `updatedAt` | ISO timestamps |
+
+**Why a local date and not a timestamp:** the server has no reliable user timezone (the only one stored is scoped to the single `daily_journal` reminder and may be stale), so the client sends its own local date key and the server never does timezone math. Both the raw fields *and* the derived boolean are returned, because the client's reminder scheduler must evaluate "would this be done on date D" for future dates, which a single boolean cannot express.
+
+Legacy accounts self-heal on the next write: `journalingGoals` titles seed as `active` goals with an automatic keyword-matched icon, a missing source is inferred as `automatic` for missing/placeholder icons and `fixed` for prior explicit icons, `status: "completed"` becomes an `as_needed` goal already completed, and `status: "dismissed"` becomes `archived`.
 
 ### `GET /goals`
 
-Returns the authenticated user's normalized active goals.
+Query: `?today=YYYY-MM-DD` (optional; the server falls back to its own UTC date). Returns the authenticated user's goals, newest first, across all statuses.
 
 ```json
 {
@@ -758,7 +863,21 @@ Returns the authenticated user's normalized active goals.
   "message": "Your goals are ready.",
   "data": {
     "goals": [
-      { "id": "write-one-honest-line", "title": "Write one honest line" }
+      {
+        "id": "b1c2…",
+        "title": "Write one honest line",
+        "description": null,
+        "icon": "journal",
+        "iconSource": "automatic",
+        "frequency": "daily",
+        "status": "active",
+        "reminderEnabled": true,
+        "reminderTime": "21:00",
+        "lastCompletedLocalDate": null,
+        "isCompletedForPeriod": false,
+        "createdAt": "2026-08-04T18:00:00.000Z",
+        "updatedAt": "2026-08-04T18:00:00.000Z"
+      }
     ]
   }
 }
@@ -766,21 +885,38 @@ Returns the authenticated user's normalized active goals.
 
 ### `POST /goals`
 
-Request: `{ "title": "Write one honest line" }`. The title is required, trimmed, capped at 120 characters, and deduplicated for the account. The response returns the saved `{ id, title }` record.
+Request: `{ "title", "description"?, "icon"?, "iconSource"?, "frequency"?, "reminderEnabled"?, "reminderTime"?, "today"? }`. Title required, trimmed, ≤120 chars. Omitting `icon` creates an `automatic` icon resolved from the title without an AI call. `iconSource: "fixed"` requires `icon`; legacy clients that send `icon` without a source are treated as fixed. Returns `201` with the saved record.
+
+A duplicate case-insensitive title among `active` goals **merges** the incoming payload into the existing goal rather than ignoring it — silently discarding the payload would lose a caller's reminder or frequency.
+
+### `PATCH /goals/{goalId}`
+
+Partial update; every field optional but at least one required. Untouched fields are preserved. Renaming an automatic goal recalculates its icon while renaming a fixed goal preserves the chosen icon. Returns the updated record, or `404` when the account does not own the goal.
+
+### `PATCH /goals/{goalId}/completion`
+
+Marks a goal done or not-done for the current period. Request: `{ "completed": boolean, "localDate"?: "YYYY-MM-DD", "today"? }` — `localDate` is required when `completed` is `true`. One endpoint both ways because both directions write the same single field. Returns the updated record, or `404`.
+
+### `PATCH /goals/{goalId}/status`
+
+Archive / unarchive. Request: `{ "status": "active" | "archived" }`. `reminderEnabled` is deliberately preserved, so unarchiving restores the reminder. Returns the updated record, or `404`.
 
 ### `DELETE /goals/{goalId}`
 
-Removes the authenticated user's goal by its stable title-derived id. Returns `404` when that account does not own the goal.
+Removes a goal by its stable id. **Only permitted on an archived goal** — returns `409` with `GOAL_NOT_ARCHIVED` otherwise, so a UI slip can never hard-delete user data. Returns `404` when that account does not own the goal.
 
 ### `POST /goals/suggestions`
 
 Request: `{ "journalId": "string" }`.
 
-- requires active Premium and AI opt-in
+- requires active Premium
 - confirms journal ownership before using it as context
-- returns 2-4 supportive suggestions only; it never creates a goal
-- returns `403` with `PREMIUM_REQUIRED` or `AI_DISABLED` when unavailable
+- returns 0-4 supportive suggestions only; an empty array is valid when the user's saved goals already cover the entry, and the endpoint never creates a goal
+- returns `403` with `PREMIUM_REQUIRED` when unavailable
 - does not log raw journal text
+- compares candidates with active and archived goals plus earlier candidates, first through deterministic intent normalization and then through one best-effort batch embedding request at cosine similarity `>= 0.84`; embedding failure falls back to the deterministic result
+- changed duration, cadence, meal, time, or trigger does not make an otherwise repeated core action novel
+- each suggestion carries `icon`, `iconSource: "automatic"`, and `frequency`; automatic icons avoid the user's other goal icons when the catalog has an alternative
 
 Response `data`:
 
@@ -790,7 +926,10 @@ Response `data`:
   "suggestions": [
     {
       "title": "Write tomorrow's first step",
-      "description": "Name one small action tonight so tomorrow starts with less friction."
+      "description": "Name one small action tonight so tomorrow starts with less friction.",
+      "icon": "plan",
+      "iconSource": "automatic",
+      "frequency": "daily"
     }
   ]
 }
@@ -800,32 +939,60 @@ Response `data`:
 
 ### `GET /journal/get_journals`
 
-Get authenticated user journals.
+Get authenticated user journals using stable newest-first cursor pagination.
+
+Query parameters:
+
+- `limit`: optional integer from `1..50`; defaults to the backend page size
+- `cursor`: optional opaque cursor returned by the preceding page
+- `from`: optional ISO timestamp, inclusive
+- `to`: optional ISO timestamp, exclusive; must be later than `from`
 
 Response `data`:
 
 ```json
-[
-  {
-    "_id": "string",
-    "title": "string",
-    "content": "string",
-    "type": "open_ended",
-    "aiPrompt": "string",
-    "tags": ["string"],
-    "images": ["string"],
-    "isFavorite": false,
-    "createdAt": "2026-03-30T12:00:00.000Z",
-    "updatedAt": "2026-03-30T12:00:00.000Z"
+{
+  "entries": [
+    {
+      "_id": "string",
+      "title": "string",
+      "content": "string",
+      "type": "open_ended",
+      "entryKind": "journal",
+      "aiPrompt": "string",
+      "tags": ["string"],
+      "detectedTopics": ["focus", "work"],
+      "detectedMood": "good",
+      "images": ["string"],
+      "isFavorite": false,
+      "createdAt": "2026-03-30T12:00:00.000Z",
+      "updatedAt": "2026-03-30T12:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "nextCursor": "opaque-string-or-null",
+    "hasMore": true,
+    "matchingCount": 42
+  },
+  "summary": {
+    "totalEntries": 42,
+    "favoriteEntries": 8
   }
-]
+}
 ```
+
+Entries are ordered by `createdAt DESC, _id DESC`. `matchingCount` reflects the
+optional date range, while `summary` always reflects the user's complete journal.
+Invalid cursors return `400` with `INVALID_JOURNAL_CURSOR`. List responses do not
+include the heavier per-entry session-analysis snapshot.
 
 ### `POST /journal/create_journal`
 
 Create journal entry.
 
 `type` must be `open_ended` or `guided`. Legacy stored entry types serialize as `open_ended`.
+`entryKind` is optional on create, accepts `journal` or `quick_thought`, defaults to
+`journal`, and remains immutable after creation.
 
 Request:
 
@@ -834,6 +1001,7 @@ Request:
   "title": "Morning note",
   "content": "Today felt steady and clear.",
   "type": "open_ended",
+  "entryKind": "journal",
   "aiPrompt": "What are you grateful for today?",
   "images": [],
   "tags": ["reflection"],
@@ -849,8 +1017,11 @@ Success `data`:
   "title": "Morning note",
   "content": "Today felt steady and clear.",
   "type": "open_ended",
+  "entryKind": "journal",
   "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection"],
+  "detectedTopics": ["gratitude", "calm"],
+  "detectedMood": "good",
   "images": [],
   "isFavorite": false,
   "createdAt": "2026-03-30T12:00:00.000Z",
@@ -884,7 +1055,7 @@ Notes:
 
 - protected route
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
-- when the authenticated user is premium, has AI enabled, and the backend is configured with OpenAI, tag suggestions are chosen through OpenAI against Journal.IO's allowed tag set
+- when the authenticated user is Premium and the backend is configured with OpenAI, tag suggestions are chosen through OpenAI against Journal.IO's allowed tag set
 - if a premium user has opted out of AI or OpenAI is unavailable, the backend falls back to deterministic keyword and mood-aware tag scoring
 - positive prompt words inside negated or distressed phrasing should not force a positive tag
 
@@ -975,15 +1146,17 @@ Success `data`:
     "description": "Next time, note one small thing that helped you feel safer, steadier, or more supported so the pattern is easier to reuse.",
     "focus": "Support"
   },
+  "connection": "This is the second time this week a work deadline showed up right before you felt this way.",
   "generatedAt": "2026-04-06T09:20:00.000Z"
 }
 ```
+
+`connection` is an optional, best-effort line (`string | null`) drawn from the user's long-term memory; it appears only when today genuinely echoes a specific past thread, and is `null` otherwise.
 
 Notes:
 
 - protected route
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
-- returns `403` with error code `QUICK_ANALYSIS_DISABLED` when the authenticated user has AI turned off
 - reads one saved journal only; it does not depend on the weekly analysis cache
 - the response is visual-first and signal-first for the entry-detail screen: summary, compact scorecard, pattern tags, three signal cards, and one grounded next step
 - the backend strips any saved `aiPrompt` text from the journal before reading it so the prompt itself is not mistaken for the user's reflection
@@ -992,14 +1165,43 @@ Notes:
 - when OpenAI is available for an eligible user, the backend refines the single-entry reflection with OpenAI
 - if OpenAI is unavailable, the backend falls back to a deterministic, non-clinical quick reflection
 
-### `POST /guided-reflection/first-summary`
+### `POST /journal/session_analysis`
 
-Generate the first short Journal.IO reflection used inside onboarding v2 after the user answers the three required daily prompts. This route is authenticated but intentionally not premium-gated so the first onboarding value moment does not open paywall.
+Generate the shared post-save session analysis for one user-owned open-ended journal. The route is protected and Premium-only.
 
 Request:
 
 ```json
 {
+  "journalId": "string"
+}
+```
+
+Success `data` uses the same structured shape as `POST /guided-reflection/session-analysis`, including `analysis`, `majorInsight`, `observedTrends`, `detectedTopics`, `detectedMood`, `brainSessionMap`, and `hasEnoughSignal`.
+
+Notes:
+
+- confirms journal ownership before reading the entry
+- returns `403` with `PREMIUM_REQUIRED` for Free users
+- returns `422` with `SESSION_ANALYSIS_NOT_AVAILABLE` for Quick Notes
+- replays the journal's stored session-analysis snapshot when one exists; it does not regenerate on subsequent detail opens
+- the one exception is a stale snapshot — one whose analysis carries `isFallback: true`, or a legacy (`version: 1`) snapshot holding the old open-ended fallback boilerplate. Those regenerate on the next open and overwrite in place, so an entry analysed during an AI outage repairs itself instead of keeping generic copy forever
+- eligible legacy journal entries generate once on first detail open and atomically persist the validated full response, source, schema version, and generated timestamp
+- persists normalized `detectedTopics` and `detectedMood` on the journal without overwriting user-authored `tags`
+- editing an entry preserves its original session-analysis snapshot; no automatic re-analysis occurs after edits
+- the Free iOS preview is local-only and must not call this endpoint
+
+### `POST /guided-reflection/first-summary`
+
+Generate a concise, therapeutically informed but non-clinical reflection after the user answers the three required daily prompts. The response keeps the practical reflection separate from one short `followUpQuestion`.
+
+**Premium gating:** guided reflection is a premium experience. The AI path requires an active premium entitlement (`canUseGuidedReflectionAi`). Set `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` to bypass the premium check in development/testing while still requiring OpenAI configuration. When the gate fails, the route still returns deterministic, non-clinical fallback copy (including a `followUpQuestion`) — it never opens a paywall or errors.
+
+Request:
+
+```json
+{
+  "journalId": "saved-guided-journal-id",
   "promptAnswers": [
     {
       "questionId": "good_exciting",
@@ -1032,7 +1234,8 @@ Success `data`:
 
 ```json
 {
-  "reflection": "Today seems to hold both a small win and something that felt difficult. The useful part is that you noticed both instead of letting one cancel out the other. For tomorrow, keep the focus simple: carry one small action or mindset forward.",
+  "reflection": "Your early start appears to have created useful momentum, while the old habit added friction later. Noticing both keeps one difficult moment from defining the whole day. Tomorrow, protect one small aligned action with a clear time or trigger, then treat completing it as information rather than a test of your worth.",
+  "followUpQuestion": "What feeling was strongest when the old habit appeared?",
   "takeaway": "Hold the full picture, then choose one small next step."
 }
 ```
@@ -1040,11 +1243,15 @@ Success `data`:
 Notes:
 
 - protected route
-- not premium-gated and must not trigger paywall
-- uses OpenAI when the backend is configured and the user has not opted out of AI
-- if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy
+- **premium-gated** (`canUseGuidedReflectionAi`); `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` bypasses in dev. Fallback copy is returned on gate failure — never a paywall or error.
+- runs at high reasoning effort (`OPENAI_GUIDED_REFLECTION_REASONING_EFFORT`, default `high`) for genuine depth
+- injected with cross-session **long-term memory** (rolling narrative + semantically-relevant past entries + recurring themes) for premium users; the current session is embedded to pull the most relevant history
+- `reflection` is 45-70 words and remains practical, grounded, supportive, and uncertainty-aware
+- `followUpQuestion` is always present, 6-14 words, and at most 100 characters; the mobile client renders it outside the response card as the next composer prompt
+- if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy (still with a `followUpQuestion`)
 - does not save journal content; the mobile app still saves exactly one entry later through `POST /journal/create_journal`
 - safety-sensitive text returns support-first copy and skips normal reflective interpretation
+- when an owned `journalId` is supplied, the full validated response is atomically stored as that journal's session-analysis snapshot and reused by later entry-detail reads
 
 ### `POST /guided-reflection/go-deeper`
 
@@ -1084,7 +1291,8 @@ Request:
     {
       "role": "assistant",
       "kind": "assistant_reflection",
-      "text": "Another way to see this is that the pressure did not erase the steadiness you practiced."
+      "text": "Another way to see this is that the pressure did not erase the steadiness you practiced.",
+      "promptQuestion": "What part of that steadiness can you repeat tomorrow?"
     }
   ],
   "currentText": "I think I need to protect my morning better.",
@@ -1099,18 +1307,22 @@ Success `data`:
 
 ```json
 {
-  "reflection": "This added note gives the reflection more shape: protecting your morning seems connected to the focused hour you want tomorrow. Keep the next step gentle and specific.",
-  "followUpPrompt": "What would make that first focused hour easier to protect?"
+  "reflection": "Protecting your morning seems tied to the focused hour you keep reaching for — it sounds less like time management and more like guarding something that matters to you.",
+  "nextQuestion": "What tends to get in the way of that first hour before it even starts?",
+  "canGoDeeper": true
 }
 ```
 
 Notes:
 
 - protected route
-- not premium-gated and must not trigger paywall
+- **premium-gated** (`canUseGuidedReflectionAi`); `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` bypasses in dev. Falls back to deterministic copy on gate failure.
 - accepts the original onboarding prompt answers, the first summary, previous deeper reflections, optional thread messages, the current optional text, and an optional suggestion action
-- `suggestionAction` may be `gentle_prompt`, `go_deeper`, `another_perspective`, `small_next_step`, or `summarize`
-- the client caps repeated deeper calls in the onboarding UI to avoid runaway cost and UI bloat
+- this is an adaptive, user-paced deepening turn: it returns a 45-70 word grounded `reflection`, one separate 6-14 word `nextQuestion`, and `canGoDeeper` (false once the reflection reaches a natural stopping point)
+- when the user references something heavy, the response acknowledges it without diagnosing, claiming professional authority, or pushing the user deeper
+- runs on the latest model tier (`OPENAI_GUIDED_REFLECTION_MODEL`) at high reasoning effort (`OPENAI_GUIDED_REFLECTION_REASONING_EFFORT`, default `high`), injected with cross-session **long-term memory** (rolling narrative + semantic recall + recurring themes) so it can gently check in on ongoing threads from past sessions.
+- `suggestionAction` may be `gentle_prompt`, `go_deeper`, `another_perspective`, `small_next_step`, or `summarize` (still accepted for compatibility)
+- the client applies a soft cap (~6 turns) so deepening cannot run forever; the backend's `canGoDeeper` drives the natural stopping point
 
 ### `POST /guided-reflection/session-analysis`
 
@@ -1166,7 +1378,9 @@ Success `data`:
   "analysis": "This session suggests a useful contrast between discipline and the discomfort of feeling judged. The strongest signal is that the user is trying to keep discipline connected to steadiness rather than pressure. The entry also shows a tomorrow-oriented anchor, which can make the reflection practical instead of only emotional. A broader pattern may be emerging around noticing outside judgment, returning to personal alignment, and choosing one grounded action.",
   "majorInsight": "Major insight: the clearest signal is the move from external pressure toward one self-directed choice.",
   "observedTrends": ["Discipline", "Pressure", "Family", "Tomorrow"],
-  "topicsObserved": ["Discipline", "Pressure", "Family", "Tomorrow"],
+  "topicsObserved": ["discipline", "stress", "family"],
+  "detectedTopics": ["discipline", "stress", "family"],
+  "detectedMood": "bad",
   "brainSessionMap": {
     "dominantCenterId": "planning_self_control",
     "dominantCenter": {
@@ -1293,7 +1507,8 @@ Success `data`:
     "mostNoticedText": "The strongest center in this session was Planning & Self-Control, because your writing kept returning to discipline, direction, and what you want to carry into tomorrow.",
     "mindMapSeedText": "Your first reflection has added its first signal to your Mind Map."
   },
-  "hasEnoughSignal": true
+  "hasEnoughSignal": true,
+  "isFallback": false
 }
 ```
 
@@ -1536,15 +1751,19 @@ Notes:
 - used only after the mobile app has saved the first real onboarding journal entry
 - reads the full in-session context sent by the client: prompt answers, first AI summary, optional user requests, and assistant deeper responses
 - detects sparse/noisy/gibberish sessions before calling AI and returns an explicit low-signal analysis instead of inventing insight
+- `hasEnoughSignal` is part of the model contract, not only a server heuristic: it is a required property of the strict `json_schema` and the model sets it to `false` when the writing is too sparse, vague, or unreadable to support a real pattern. When it comes back `false`, the server substitutes the canonical low-signal `analysis`, `majorInsight`, and `observedTrends` copy — the schema's `minLength: 120` would otherwise force the model to pad — while keeping the model's `brainSessionMap` so the analysis screen still renders its cards
+- `detectedTopics` carries at least one taxonomy entry whenever `hasEnoughSignal` is true: the prompt requires one, and if the model still returns none the server falls back to `detectEntryMetadataHeuristically`. It never invents a tag, so the Topics Detected card keeps an empty state for the rare case where neither finds anything
+- responses built from the deterministic fallback carry `isFallback: true`. This is provenance for the snapshot layer, not user-facing copy — see the regeneration note under `POST /journal/session_analysis`. Open-ended entries arrive as a single `open_ended_entry` prompt answer, so the fallback derives its sentences from the user's own writing rather than the three guided question ids
+- when `journalId` is supplied this route replays the stored snapshot, and applies the same staleness check as `POST /journal/session_analysis`: a stale snapshot is regenerated and overwritten instead of replayed, so both entry points into the same snapshot behave identically
 - output must remain non-clinical, behavior-focused, uncertainty-aware, and must not claim diagnosis or therapy
-- `brainSessionMap` is required even when OpenAI is unavailable, malformed, disabled by opt-out, or the session is low-signal
+- `brainSessionMap` is required even when OpenAI is unavailable, returns malformed output, or the session is low-signal
 - clear non-AI fallback sessions may use deterministic local center scoring from the user's writing; low-signal or no-reliable-map fallback responses use Self-Reflection & Identity as dominant with non-flat low/neutral scores across the remaining centers
-- if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy
+- if OpenAI is unavailable, returns deterministic, non-clinical Journal.IO reflection copy
 - safety-sensitive text returns support-first copy and skips normal reflective interpretation
 
 ### `POST /guided-reflection/goal-suggestions`
 
-Generate one to four local onboarding goal suggestions after the first entry has been saved and the session analysis has been shown. Each suggestion must be a concrete, low-effort action tied to the user's writing, with a clear trigger, time limit, quantity, or first step. This endpoint returns suggestions only; it does not create goals, persist selected goals, schedule reminders, update streaks, or complete onboarding.
+Generate up to four local onboarding goal suggestions after the first entry has been saved and the session analysis has been shown. Each suggestion must be a concrete, low-effort action tied to the user's writing or a plausible broadly useful contextual experiment, without presenting a speculative cause as fact. This endpoint returns suggestions only; it does not create goals, persist selected goals, schedule reminders, update streaks, or complete onboarding.
 
 Request:
 
@@ -1657,7 +1876,8 @@ Notes:
 - not premium-gated and must not trigger paywall
 - generation-only for the Phase 3C onboarding value chain
 - does not save a selected suggestion, schedule reminders, or update streak state; separate authenticated manual Goals CRUD is available through `/goals`
-- returns 1-4 compact goals with `daily`, `weekly`, or `as_needed` frequency; the response must not pad to a fixed count. Titles are capped at 30 characters and descriptions at 96 characters.
+- returns 0-4 compact goals with `daily`, `weekly`, or `as_needed` frequency after filtering against active and archived saved goals; an empty array is valid when no genuinely new action remains, and the response must not pad to a fixed count. Titles are capped at 30 characters and descriptions at 96 characters.
+- deterministic intent normalization treats changed duration, cadence, meal, time, or trigger as the same core action; eligible AI responses also receive one best-effort batch semantic comparison at cosine similarity `>= 0.84`
 - categories are limited to `journaling_habit`, `stress`, `mood`, `relationships`, `self_awareness`, `sleep`, `focus`, `confidence`, and `general`
 - output must stay small, direct, specific, actionable, non-clinical, and tied to a concrete detail in the user's written session when enough signal exists; generic prompts such as `reflect more` or `notice a pattern` require a concrete cue and action before they are valid
 - sparse/noisy/gibberish sessions return safe starter goals and `hasEnoughSignal: false`
@@ -1684,14 +1904,22 @@ Success `data`:
   "title": "string",
   "content": "string",
   "type": "guided",
+  "entryKind": "journal",
   "aiPrompt": "string",
   "tags": ["string"],
+  "detectedTopics": ["anxiety", "loneliness"],
+  "detectedMood": "bad",
   "images": ["string"],
   "isFavorite": false,
   "createdAt": "2026-03-30T12:00:00.000Z",
   "updatedAt": "2026-03-30T12:00:00.000Z"
 }
 ```
+
+`tags` remains user-authored metadata. Reserved `onboarding:` markers are
+discarded from new writes and omitted from journal responses. AI-derived
+topics remain separate in `detectedTopics`; clients must not copy them into
+`tags` when editing an entry.
 
 ### `POST /journal/edit_journal`
 
@@ -1712,6 +1940,10 @@ Request:
 }
 ```
 
+`entryKind` is returned by edit responses but is not editable. Legacy records
+without the field normalize to `quick_thought` only when their stored title is
+exactly `Quick Thought`; all other legacy records normalize to `journal`.
+
 Success `data`:
 
 ```json
@@ -1720,8 +1952,11 @@ Success `data`:
   "title": "Updated title",
   "content": "Updated content",
   "type": "guided",
+  "entryKind": "journal",
   "aiPrompt": "What are you grateful for today?",
   "tags": ["reflection", "growth"],
+  "detectedTopics": ["anxiety", "loneliness"],
+  "detectedMood": "bad",
   "images": [],
   "isFavorite": true,
   "createdAt": "2026-03-30T12:00:00.000Z",
@@ -1750,6 +1985,7 @@ Success `data`:
   "title": "Updated title",
   "content": "Updated content",
   "type": "guided",
+  "entryKind": "journal",
   "tags": ["reflection", "growth"],
   "images": [],
   "isFavorite": true,
@@ -1771,6 +2007,125 @@ Request:
 ```
 
 All journal module routes require authentication.
+
+---
+
+## 3.45 Ask Jade Module (`/ask-jade`)
+
+Jade is the conversational surface of the same reflection companion used by guided reflection, reading the user's pattern graph and long-term memory. It is a support partner for the user's own patterns, not a general-purpose assistant, and it never receives raw journal text — only distilled patterns, context summaries, and the user's own quoted sentences.
+
+Every route in this module is Premium-only and returns `403` with `PREMIUM_REQUIRED` for Free users, including the session list, so the client's locked state needs no special case.
+
+### `GET /ask-jade/sessions`
+
+List the user's Ask Jade conversations, newest first, for the previous-chats panel.
+
+Request:
+
+- optional query param: `limit` (1-30, default 20)
+- optional query param: `cursor` (opaque, from a previous response)
+
+Success `data`:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "string",
+      "title": "Why do I keep overeating at night",
+      "lastMessagePreview": "Your entries suggest those two often show up together.",
+      "messageCount": 6,
+      "lastMessageAt": "2026-08-11T10:04:00.000Z"
+    }
+  ],
+  "pagination": { "nextCursor": "string | null", "hasMore": true }
+}
+```
+
+Notes:
+
+- cursor-based keyset pagination on `{ lastMessageAt, _id }`, matching `GET /journal/get_journals`; there is no offset paging
+- an invalid or tampered cursor returns `400` with `INVALID_JADE_CURSOR`
+- reading this list also sweeps the user's idle conversations for pattern mining, so a chat the user walked away from is still folded into the graph on their next visit
+
+### `GET /ask-jade/sessions/:sessionId`
+
+Load one conversation's transcript, newest turns first, for rendering and for scroll-up history.
+
+Request:
+
+- optional query param: `limit` (1-50, default 30)
+- optional query param: `cursor` (opaque, from a previous response)
+
+Success `data`:
+
+```json
+{
+  "session": { "id": "string", "title": "string", "lastMessagePreview": "string", "messageCount": 6, "lastMessageAt": "2026-08-11T10:04:00.000Z" },
+  "messages": [
+    {
+      "id": "string",
+      "seq": 1,
+      "role": "user",
+      "text": "Why do I keep overeating at night?",
+      "status": "ok",
+      "createdAt": "2026-08-11T10:03:00.000Z"
+    }
+  ],
+  "pagination": { "nextCursor": "string | null", "hasMore": false }
+}
+```
+
+Notes:
+
+- ownership is confirmed before reading; a conversation belonging to another user returns `404`
+- this list paginates **backwards**: the newest `limit` turns are returned in ascending `seq` order, and `nextCursor` walks into older history as the user scrolls up. The session list paginates forwards. Both are keyset
+- `status` is `ok`, `fallback` (the model was unreachable), or `support_first` (a safety signal was detected)
+
+### `POST /ask-jade/messages`
+
+Send one message to Jade and receive the reply. Omitting `sessionId` opens a new conversation, so no separate create call is needed and an abandoned "New chat" tap never leaves an empty session.
+
+Request:
+
+```json
+{
+  "sessionId": "string (optional)",
+  "text": "Why do I keep overeating at night?"
+}
+```
+
+Success `data`:
+
+```json
+{
+  "sessionId": "string",
+  "title": "Why do I keep overeating at night",
+  "userMessage": { "id": "string", "seq": 1, "role": "user", "text": "string", "status": "ok", "createdAt": "2026-08-11T10:03:00.000Z" },
+  "reply": { "id": "string", "seq": 2, "role": "assistant", "text": "string", "status": "ok", "createdAt": "2026-08-11T10:04:00.000Z" },
+  "limits": { "turnsUsedToday": 3, "turnsPerDay": 40, "resetAt": null }
+}
+```
+
+Notes:
+
+- `text` is required, trimmed, and capped at 2000 characters
+- returns `403` with `PREMIUM_REQUIRED` for Free users
+- returns `429` with `JADE_TURN_LIMIT` once the per-user allowance is spent (`JADE_TURNS_PER_DAY`, default 40; `JADE_TURNS_PER_HOUR`, default 15). `data.resetAt` carries the ISO time the allowance frees up. Limits are counted from the user's own stored messages rather than by request-level rate limiting
+- **a model failure still returns `200`.** The reply is persisted with `status: "fallback"` and calm non-technical copy, so the transcript stays a real conversation and the client can offer a retry on that bubble rather than stranding the user's message with no response
+- when the message trips the shared safety detection, a deterministic support-first reply is stored with `status: "support_first"` and **no model request is made**. The client renders that message without the typewriter reveal
+- `limits` is returned on every send so the client can warn before the wall rather than after it
+- sequence numbers are allocated atomically, so two concurrent sends cannot collide
+- after the reply is delivered, the conversation is summarized and mined into the pattern graph as fire-and-forget work; neither can delay or fail the reply
+
+### `DELETE /ask-jade/sessions/:sessionId`
+
+Delete one conversation and all of its messages.
+
+Notes:
+
+- ownership is confirmed first; another user's conversation returns `404`
+- deletion is immediate and permanent; account deletion removes all conversations regardless
 
 ---
 
@@ -1809,7 +2164,7 @@ Success `data`:
 Notes:
 
 - prompts are personalized from the authenticated user's stored journaling patterns, mood trends, and recurring topics
-- when the user is premium, has AI enabled, and the backend has OpenAI configured, the prompt list is freshly generated through OpenAI from recent writing patterns and recent entry excerpts
+- when the user is Premium and the backend has OpenAI configured, the prompt list is freshly generated through OpenAI from recent writing patterns and recent entry excerpts
 - if the user is free, has opted out of AI, or OpenAI is unavailable, the backend falls back to the cached insights-derived prompt set
 - `featuredPrompt` is stable for the current day and is intended for the Home `Today's Prompt` card
 - `prompts` is intended for surfaces like New Entry that need the full personalized list
@@ -1843,7 +2198,6 @@ Request:
     "goals": ["Daily Reflection", "Personal Growth"],
     "supportFocus": ["Managing Stress", "Better Sleep"],
     "reminderPreference": "evening",
-    "aiOptIn": true,
     "privacyConsentAccepted": true
   }
 }
@@ -1910,8 +2264,7 @@ Success `data`:
     "avatarColor": null,
     "profileSetupCompleted": false,
     "onboardingCompleted": true,
-    "profilePic": null,
-    "aiOptIn": true
+    "profilePic": null
   },
   "isNewUser": true
 }
@@ -1930,7 +2283,6 @@ Request:
   "onboardingContext": {
     "goals": ["Daily Reflection"],
     "reminderPreference": "Evening",
-    "aiOptIn": false,
     "privacyConsentAccepted": true
   },
   "onboardingCompleted": true
@@ -1957,8 +2309,7 @@ Success `data`:
     "avatarColor": "#8E4636",
     "profileSetupCompleted": true,
     "onboardingCompleted": true,
-    "profilePic": null,
-    "aiOptIn": true
+    "profilePic": null
   }
 }
 ```
@@ -2045,6 +2396,7 @@ The mobile client obtains an Apple `identityToken`, posts it with the raw nonce 
 - `GET /insights/overview`
 - `GET /insights/ai-analysis`
 - `GET /insights/mind-map`
+- `GET /mind-map/entry/:journalId`
 - `GET /insights/trends`
 - `GET /insights/patterns`
 - `GET /insights/traits`
@@ -2127,8 +2479,7 @@ Behavior:
 
 - protected route
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
-- returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
-- overview insights remain available even when AI analysis is disabled
+- overview insights remain available to every authenticated user
 - request header `X-Client-Timezone` is accepted and used to anchor the premium-week window in the user’s local timezone; invalid or missing values fall back to `UTC`
 - weekly windows are anchored to `premiumActivatedAt`, not account creation time
 - example: if premium starts on `2026-04-11` in the user’s local timezone, the first analysis week is `2026-04-11` through `2026-04-17`, and the first closed-week result becomes available on `2026-04-18`
@@ -2143,6 +2494,7 @@ Behavior:
 - before weekly synthesis, the backend strips prompt carryover from saved journal content and down-weights low-signal entries such as filler or obvious gibberish so those entries lower confidence and appear as a clarity signal instead of dominating the topic read
 - self-harm, suicide-risk, or harm-to-others wording is kept out of normal weekly trait/pattern scoring; the weekly payload switches to support-first summary/action copy and skips OpenAI refinement for that window
 - development early-ready reports are disabled unless `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY=true` is explicitly set outside production
+- the mobile `AI Analysis` tab renders a minimal 4-card layout from the `ready` payload: a narrative card (`summary.headline` + `summary.narrative` only — no `highlight`), a topic bar chart (`themeBreakdown.items`), a patterns card (`patterns`, capped at 3), and an actionable-steps card (`actionPlan.steps`, fixed at 2). `scoreboard`, `emotionTrend`, and `signals` are still returned (used internally and by the OpenAI enhancement prompt) but are not rendered by these cards.
 
 Collecting response:
 
@@ -2240,8 +2592,7 @@ Ready response:
     },
     "summary": {
       "headline": "Morning Routines kept shaping your week",
-      "narrative": "string",
-      "highlight": "string"
+      "narrative": "string"
     },
     "patternTags": [
       {
@@ -2317,25 +2668,13 @@ Ready response:
         }
       ]
     },
-    "bigFive": [
+    "patterns": [
       {
-        "trait": "conscientiousness",
-        "label": "Conscientiousness",
-        "score": 74,
-        "band": "pronounced",
-        "description": "string",
-        "evidenceTags": ["4-day streak", "Routine"]
-      }
-    ],
-    "darkTriad": [
-      {
-        "trait": "machiavellianism",
-        "label": "Machiavellianism",
-        "supportiveLabel": "Control-seeking signal",
-        "score": 42,
-        "band": "watch",
-        "description": "string",
-        "supportTip": "string"
+        "label": "Late-night spiral",
+        "insight": "The behaviour and the trigger/feeling it connects to, in the user's own terms.",
+        "evidence": ["11:40pm entry", "work deadline"],
+        "nudge": "One gentle, practical, non-judgmental thing to try.",
+        "tone": "coral"
       }
     ],
     "actionPlan": {
@@ -2367,15 +2706,15 @@ Returns the premium Mind Map payload used by the iOS-only `Mind Map` screen reac
 
 Request:
 
-- required query param: `range=latest_week|all_time`
+- required query param: `range=latest_week|monthly|all_time`
 - optional header: `X-Client-Timezone`
 
 Behavior:
 
 - protected route
 - returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
-- returns `403` with error code `AI_ANALYSIS_DISABLED` when the authenticated user has `onboardingContext.aiOptIn === false`
 - `latest_week` uses the latest closed premium-week window in the user's local timezone; if no eligible closed window exists yet, the route returns `building`
+- `monthly` aggregates the rolling **last 30 days** of safe writing; like the other windows it requires at least 4 active writing days plus enough clear writing before it returns `ready`, and its cache recomputes per day
 - `all_time` aggregates the user's full safe writing history, including pre-premium entries
 - `all_time` requires at least 4 active writing days plus enough clear writing before it returns `ready`
 - the payload always uses the same 8 reflection regions and stable ids:
@@ -2387,7 +2726,11 @@ Behavior:
   - `motivation_reward`
   - `relationships_perspective`
   - `self_reflection_identity`
-- the scorer is deterministic and reuses stored journal content only; this route does not make a new OpenAI request
+- region scores are aggregated from **persisted per-entry scores** (see `GET /mind-map/entry/:journalId`): each entry is AI-scored across the 8 regions in the background at save time (falling back to a deterministic keyword score), and this route averages those stored per-entry scores across the window's clear entries. Entries with no stored row yet fall back to per-entry keyword scoring. This route itself does not make a new OpenAI request.
+- each region also carries a neutral emphasis `trend` (`rising` | `steady` | `easing`) with a non-clinical `trendLabel`, computed by comparing the recent half of the user's clear scored entries against the earlier half. Trends never imply improvement or decline.
+- each region additionally carries a `tier` band (`low` | `balanced` | `high` | `very_high`) with a human-readable `tierLabel`, and the ready payload carries a top-level `overallTier` (`{ tier, label, blurb }`, e.g. `Emerging Reflector` / `Balanced Reflector` / `Deeply Reflective` / `Highly Attuned`). Tiers describe how strongly the region shows up **versus a typical reflector** using fixed baseline thresholds — deterministic, band-only, never a number, percentile, or clinical judgement. They are computed from the region's pre-normalization weighted mean, so they read against the baseline rather than against the user's own strongest region. Older cached payloads without tiers normalize to the neutral `low` / `emerging` defaults client-side.
+- the ready payload includes a top-level `focus` object (`headline`, `body`, `regionId`) with a supportive, non-clinical reflection prompt keyed off the most-rising region (or the strongest region when nothing is rising)
+- the ready payload also includes an ordered `patterns` array of the **most recurring themes** across the window, aggregated from persisted per-entry insights (`entry_insights`). Each pattern is `{ id, label, rationale, evidenceQuote, occurrences, confidence }` — a therapist-style theme, the reason it was concluded, and the user's own supporting sentence. Patterns are ordered most-recurring first and are meant to render **after** the strongest region and **before** the remaining region scores. `evidenceQuote` is masked client-side when journal previews are hidden. Older cached payloads without `patterns` normalize to an empty list.
 - before scoring, the backend strips prompt carryover, down-weights low-signal writing, and filters safety-sensitive text out of normal region ranking
 - latest-week safety-sensitive windows return `support_first` without ranked regions
 - all-history aggregation excludes safety-sensitive entries; it returns `support_first` only when no safe writing remains to map
@@ -2419,6 +2762,16 @@ Ready response:
       "note": "Brightness and pulse reflect recurring patterns in your writing, not literal brain activity."
     },
     "strongestRegionId": "planning_self_control",
+    "patterns": [
+      {
+        "id": "protects-morning-focus",
+        "label": "Protects morning focus",
+        "rationale": "You keep returning to guarding your mornings for the work that matters.",
+        "evidenceQuote": "I need to protect my morning better",
+        "occurrences": 3,
+        "confidence": 0.8
+      }
+    ],
     "regions": [
       {
         "id": "planning_self_control",
@@ -2429,10 +2782,15 @@ Ready response:
         "rank": 1,
         "intensity": "high",
         "shortInsight": "Your writing kept returning to structure, next steps, and follow-through.",
+        "actionStep": "Try picking one small next step tonight and writing down the very first move it needs.",
         "evidenceSnippets": [
           "I stuck to the plan",
           "I want to keep this routine tomorrow"
-        ]
+        ],
+        "trend": "rising",
+        "trendLabel": "Planning & Self-Control has been showing up more in your recent writing.",
+        "tier": "very_high",
+        "tierLabel": "Very High"
       },
       {
         "id": "relationships_perspective",
@@ -2443,9 +2801,24 @@ Ready response:
         "rank": 2,
         "intensity": "moderate",
         "shortInsight": "Other people and social interpretation still showed up often in the week.",
-        "evidenceSnippets": ["I kept replaying that conversation"]
+        "actionStep": "Before your next hard conversation, try noting what you felt separately from what you assumed the other person thought.",
+        "evidenceSnippets": ["I kept replaying that conversation"],
+        "trend": "steady",
+        "trendLabel": "Relationships & Perspective has stayed steady in your recent writing.",
+        "tier": "balanced",
+        "tierLabel": "Balanced"
       }
     ],
+    "focus": {
+      "headline": "What to focus on",
+      "body": "You often write toward what's next. Noticing one small, kind next step can make the plan feel lighter.",
+      "regionId": "planning_self_control"
+    },
+    "overallTier": {
+      "tier": "deeply_reflective",
+      "label": "Deeply Reflective",
+      "blurb": "You go deeper than most journalers in a few areas, returning to them with real consistency."
+    },
     "disclaimer": {
       "title": "Reflection signal only",
       "body": "This map reflects patterns in your writing, not a medical or brain-activity measurement."
@@ -2454,7 +2827,116 @@ Ready response:
 }
 ```
 
-Production responses include all 8 regions sorted by `rank`; the sample above is shortened for readability.
+Production responses include all 8 regions sorted by `rank`, each with `trend`/`trendLabel`/`tier`/`tierLabel`; the sample above is shortened for readability.
+
+### `GET /insights/mind-map/region/:regionId/series`
+
+Returns the **development graph** for a single reflection region across a window, used by the region detail modal on the iOS Mind Map screen. Reads persisted per-entry scores directly and makes no OpenAI request.
+
+Request:
+
+- protected route; path param `regionId` (one of the 8 stable region ids)
+- required query param: `range=latest_week|monthly|all_time`
+- optional header: `X-Client-Timezone`
+
+Behavior:
+
+- same Premium gate as the global map: `403 PREMIUM_REQUIRED`
+- returns `400` when `regionId` is not one of the 8 known regions
+- averages the region's per-entry `score` across the window's clear entries, bucketed by **day** for `latest_week` / `monthly` and by **week** (UTC, Monday-anchored) for `all_time`, so the line stays readable at any range
+- sparse or empty windows return a short (or empty) `points` list; the client renders a flat/placeholder line
+
+Ready response:
+
+```json
+{
+  "success": true,
+  "message": "Region development series is ready.",
+  "data": {
+    "regionId": "planning_self_control",
+    "productLabel": "Planning & Self-Control",
+    "brainRegionSubtitle": "Prefrontal Cortex",
+    "range": "monthly",
+    "bucket": "day",
+    "startDate": "2026-06-11",
+    "endDate": "2026-07-10",
+    "points": [
+      { "dateKey": "2026-06-14", "label": "Jun 14", "value": 0.42 },
+      { "dateKey": "2026-06-21", "label": "Jun 21", "value": 0.66 }
+    ]
+  }
+}
+```
+
+### `GET /mind-map/entry/:journalId`
+
+Returns the per-entry Mind Map for a single journal entry, used by the iOS `EntryMindMapScreen` shown right after saving an entry (and reachable for any owned entry).
+
+Request:
+
+- protected route; path param `journalId`
+- optional header: `X-Client-Timezone` (not required)
+
+Behavior:
+
+- same Premium gate as the global map: `403 PREMIUM_REQUIRED`
+- returns `404` when the entry is not found for the authenticated user (ownership enforced)
+- each journal entry is scored across the 8 regions at save time: a deterministic heuristic row is written synchronously (so the map is instantly available), then a background AI pass upgrades it. This route reads the persisted score, computing + persisting a heuristic row on the fly if none exists yet.
+- `ready` responses include `source` (`ai` | `heuristic`) and `refining` (`true` while still heuristic-only). The client refetches once quietly to pick up the AI upgrade.
+- safety-sensitive entries return `support_first` without ranked regions.
+
+Ready response `data`:
+
+```json
+{
+  "status": "ready",
+  "journalId": "664f...",
+  "entryType": "open_ended",
+  "source": "ai",
+  "refining": false,
+  "strongestRegionId": "emotional_intensity",
+  "patterns": [
+    {
+      "id": "overwhelm-under-deadlines",
+      "label": "Overwhelm under deadlines",
+      "rationale": "Pressure spikes when work stacks up faster than you can clear it.",
+      "evidenceQuote": "felt overwhelmed by everything due",
+      "confidence": 0.6
+    }
+  ],
+  "regions": [
+    {
+      "id": "emotional_intensity",
+      "productLabel": "Emotional Intensity",
+      "brainRegionSubtitle": "Amygdala",
+      "signalScore": 0.82,
+      "confidence": 0.64,
+      "rank": 1,
+      "intensity": "high",
+      "shortInsight": "This region picked up emotional charge around \"felt overwhelmed\".",
+      "evidenceSnippets": ["felt overwhelmed today"],
+      "tier": "very_high",
+      "tierLabel": "Very High"
+    }
+  ],
+  "overallTier": {
+    "tier": "deeply_reflective",
+    "label": "Deeply Reflective",
+    "blurb": "You go deeper than most journalers in a few areas, returning to them with real consistency."
+  },
+  "summary": {
+    "headline": "Emotional Intensity carried the strongest signal in this entry",
+    "narrative": "This entry leaned most into emotional intensity patterns. Every region still adds to your Mind Map as you keep writing.",
+    "seedText": "This reflection has added its signal to your Mind Map."
+  },
+  "disclaimer": {
+    "title": "Reflection signal only",
+    "body": "This map reflects patterns in your writing, not a medical or brain-activity measurement."
+  }
+}
+```
+
+Production responses include all 8 regions sorted by `rank`, each with a `tier`/`tierLabel` band, plus a top-level `overallTier`; the sample above is shortened. Per-entry tiers are computed the same way as the aggregate map, banded against the fixed baseline (for a single entry, off that entry's region score). The mobile clients render tiers but no longer render the `disclaimer` block.
 
 Building response:
 
@@ -2540,8 +3022,8 @@ Behavior:
 - reads from the same per-user cached `insights` document as the overview route
 - cache is marked stale by journal create/edit/delete/favorite changes and mood check-ins
 - if the AI-analysis cache is stale or missing, the backend recomputes it from the relevant premium-week window’s journal content, tags, and mood check-ins, then stores the result back on the `insights` document
-- the primary mobile surface is signal-first and visual-first: summary, scoreboard, emotion trend, theme breakdown, signals, action plan, and app support
-- legacy `bigFive` and `darkTriad` fields may still be present for continuity, but they are no longer the primary mobile framing
+- the primary mobile surface is signal-first and visual-first: summary, scoreboard, emotion trend, theme breakdown, signals, behavioural `patterns`, action plan, and app support
+- the `patterns` array (behaviour↔trigger patterns with the user's own evidence and one gentle nudge, capped at 1-3) **replaces** the former `bigFive` and `darkTriad` personality-trait fields, which are no longer generated or returned. The weekly enhancement grounds `patterns` in persisted `entry_insights` themes, recurrence-ranked patterns, rolling long-term memory, mood-by-day, and per-entry hour/weekday; safety-sensitive weeks return an empty `patterns` array. `actionPlan.steps` is fixed at exactly 2. The response cache key is versioned (`WEEKLY_AI_ANALYSIS_VERSION`, currently `3`)
 - output language must remain supportive, uncertainty-aware, non-clinical, and grounded in what the user actually wrote that week
 
 ## 4.5 Plans and Reminders
@@ -2706,6 +3188,8 @@ Response:
     "bestStreak": 18,
     "thisMonthEntries": 9,
     "totalEntries": 54,
+    "lastEntryDateKey": "2026-07-24",
+    "hasEntryToday": true,
     "achievements": [
       {
         "key": "first-entry",
@@ -2732,6 +3216,8 @@ Behavior:
 - `bestStreak` is the longest historical consecutive run of journal-entry days
 - `thisMonthEntries` counts all entries written in the current UTC calendar month
 - `totalEntries` counts all journal entries for the user
+- `lastEntryDateKey` is the UTC date key (`YYYY-MM-DD`) of the most recent journal entry, or `null` when the user has no entries; the Streaks home-screen widget uses it to self-correct a lapsed streak across midnight without a network call
+- `hasEntryToday` is `true` when at least one entry exists for today's UTC date key
 - achievements are backend-derived milestone unlocks so the mobile screen can stay presentation-only
 
 `GET /streaks/history?days=30`
@@ -2769,6 +3255,11 @@ Behavior:
 
 Export the authenticated user's account data, journal entries, mood check-ins, and derived profile records.
 
+Each exported journal keeps user-authored `tags` separate from the AI-derived
+`detectedTopics` and `detectedMood` fields and includes the normalized immutable
+`entryKind` value. Eligible journals also include their versioned
+`sessionAnalysisSnapshot` when one has been generated.
+
 Requires `Authorization` header.
 
 Returns:
@@ -2798,6 +3289,8 @@ Behavior:
 
 - the exported `insights` object may include cached weekly AI-analysis data plus cached Mind Map payloads under `mindMapLatestWeek` and `mindMapAllTime`
 - Mind Map export fields also include each cache's stale flag, computed timestamp, and cache key
+- the export also includes a `mindMapEntryScores` array — the persisted per-entry Mind Map scores (region scores, dominant region, source, scorer version, timestamps) used to build the global map
+- each journal export includes its full `sessionAnalysisSnapshot` (`analysis`, `source`, `version`, and `generatedAt`) when present
 
 ### `POST /privacy/delete-request`
 
@@ -2822,38 +3315,6 @@ Returns:
   }
 }
 ```
-
-### `PATCH /privacy/ai-opt-out`
-
-Update the authenticated user's AI usage preference.
-
-Request:
-
-```json
-{
-  "aiOptOut": true
-}
-```
-
-Returns:
-
-```json
-{
-  "success": true,
-  "message": "AI preference updated",
-  "data": {
-    "aiOptIn": false
-  }
-}
-```
-
-Behavior:
-
-- returns `403` with error code `PREMIUM_REQUIRED` when the authenticated user is not premium
-- sets `onboardingContext.aiOptIn` for the authenticated user
-- when opt-out is enabled, clears any cached weekly AI analysis and cached Mind Map payloads from the `insights` document
-
----
 
 # 5) Behavioral Data Shapes (Contract Guidance)
 

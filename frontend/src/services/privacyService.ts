@@ -1,4 +1,4 @@
-import { request } from "../utils/apiClient";
+import { request } from '../utils/apiClient';
 
 type PrivacyExportOnboardingContext = {
   ageRange: string | null;
@@ -6,7 +6,6 @@ type PrivacyExportOnboardingContext = {
   goals: string[];
   supportFocus: string[];
   reminderPreference: string | null;
-  aiOptIn: boolean | null;
   privacyConsentAccepted: boolean | null;
 };
 
@@ -34,8 +33,17 @@ type PrivacyExportJournalEntry = {
   title: string;
   content: string;
   type: string;
+  entryKind: 'journal' | 'quick_thought';
   aiPrompt: string | null;
   tags: string[];
+  detectedTopics: string[];
+  detectedMood: 'amazing' | 'good' | 'okay' | 'bad' | 'terrible' | null;
+  sessionAnalysisSnapshot: {
+    analysis: unknown;
+    source: string;
+    version: number;
+    generatedAt: string;
+  } | null;
   images: string[];
   isFavorite: boolean;
   createdAt: string;
@@ -44,7 +52,7 @@ type PrivacyExportJournalEntry = {
 
 type PrivacyExportMoodEntry = {
   _id: string;
-  mood: "amazing" | "good" | "okay" | "bad" | "terrible";
+  mood: 'amazing' | 'good' | 'okay' | 'bad' | 'terrible';
   moodDateKey: string;
   createdAt: string;
   updatedAt: string;
@@ -101,13 +109,9 @@ type DeleteAccountResponse = {
   deletedStats: number;
 };
 
-type UpdateAiOptOutResponse = {
-  aiOptIn: boolean;
-};
-
 const exportAllEntries = async () => {
-  const response = await request<PrivacyExportResponse>("/privacy/export", {
-    method: "POST",
+  const response = await request<PrivacyExportResponse>('/privacy/export', {
+    method: 'POST',
   });
 
   return response.data;
@@ -115,32 +119,16 @@ const exportAllEntries = async () => {
 
 const deleteAccount = async () => {
   const response = await request<DeleteAccountResponse>(
-    "/privacy/delete-request",
+    '/privacy/delete-request',
     {
-      method: "POST",
-    }
+      method: 'POST',
+    },
   );
 
   return response.data;
 };
 
-const updateAiOptOutPreference = async (aiOptOut: boolean) => {
-  const response = await request<UpdateAiOptOutResponse>(
-    "/privacy/ai-opt-out",
-    {
-      method: "PATCH",
-      body: JSON.stringify({ aiOptOut }),
-    }
-  );
-
-  return response.data;
-};
-
-export {
-  deleteAccount,
-  exportAllEntries,
-  updateAiOptOutPreference,
-};
+export { deleteAccount, exportAllEntries };
 export type {
   DeleteAccountResponse,
   PrivacyExportAccount,
@@ -151,5 +139,4 @@ export type {
   PrivacyExportResponse,
   PrivacyExportStats,
   PrivacyExportStreak,
-  UpdateAiOptOutResponse,
 };

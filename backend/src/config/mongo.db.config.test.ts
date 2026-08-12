@@ -44,7 +44,7 @@ test("getMongoUriForLogging redacts credentials by default", () => {
   assert.equal(mongoUri, "mongodb+srv://***:***@cluster.example.com/app-db");
 });
 
-test("getMongoUriForLogging returns the full uri when explicitly enabled", () => {
+test("getMongoUriForLogging still redacts credentials when full-uri logging is requested", () => {
   const mongoUri = getMongoUriForLogging({
     MONGO_URI: "mongodb+srv://journalio:super-secret@cluster.example.com/app-db",
     LOG_FULL_MONGO_URI: "true",
@@ -52,6 +52,6 @@ test("getMongoUriForLogging returns the full uri when explicitly enabled", () =>
 
   assert.equal(
     mongoUri,
-    "mongodb+srv://journalio:super-secret@cluster.example.com/app-db"
+    "mongodb+srv://***:***@cluster.example.com/app-db"
   );
 });

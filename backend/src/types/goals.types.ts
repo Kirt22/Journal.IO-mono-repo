@@ -1,15 +1,80 @@
+import type { GoalIconKey } from "../helpers/goalIcons.helpers";
+import type { GoalFrequency } from "../helpers/goalPeriod.helpers";
+
+export type { GoalFrequency, GoalIconKey };
+
+/** API-facing status. Completion is derived per period, not stored as a status. */
+export type GoalStatus = "active" | "archived";
+export type GoalIconSource = "automatic" | "fixed";
+
 export type GoalRecord = {
   id: string;
   title: string;
+  description: string | null;
+  icon: GoalIconKey;
+  iconSource: GoalIconSource;
+  frequency: GoalFrequency;
+  status: GoalStatus;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
+  /**
+   * Raw fields are returned alongside the derived boolean on purpose: the
+   * client's notification scheduler must evaluate "would this be done on date D"
+   * for *future* dates, which `isCompletedForPeriod` cannot express.
+   */
+  lastCompletedLocalDate: string | null;
+  /** Derived against the request's `today` key. */
+  isCompletedForPeriod: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type GoalsListResponse = {
   goals: GoalRecord[];
 };
 
-export type CreateGoalInput = {
+/** The mutable shape of a goal, shared by create and update. */
+export type GoalDraftInput = {
+  title?: string | undefined;
+  description?: string | null | undefined;
+  icon?: GoalIconKey | undefined;
+  iconSource?: GoalIconSource | undefined;
+  frequency?: GoalFrequency | undefined;
+  reminderEnabled?: boolean | undefined;
+  reminderTime?: string | null | undefined;
+};
+
+export type GetGoalsInput = {
+  userId: string;
+  today?: string | undefined;
+};
+
+export type CreateGoalInput = GoalDraftInput & {
   userId: string;
   title: string;
+  today?: string | undefined;
+};
+
+export type UpdateGoalInput = GoalDraftInput & {
+  userId: string;
+  goalId: string;
+  today?: string | undefined;
+};
+
+export type SetGoalCompletionInput = {
+  userId: string;
+  goalId: string;
+  completed: boolean;
+  /** Required when `completed` is true; the client's local date key. */
+  localDate?: string | undefined;
+  today?: string | undefined;
+};
+
+export type SetGoalStatusInput = {
+  userId: string;
+  goalId: string;
+  status: GoalStatus;
+  today?: string | undefined;
 };
 
 export type DeleteGoalInput = {
@@ -20,6 +85,9 @@ export type DeleteGoalInput = {
 export type GoalSuggestion = {
   title: string;
   description: string;
+  icon: GoalIconKey;
+  iconSource: "automatic";
+  frequency: GoalFrequency;
 };
 
 export type GoalSuggestionsInput = {

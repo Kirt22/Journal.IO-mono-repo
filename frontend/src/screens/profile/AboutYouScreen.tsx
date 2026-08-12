@@ -3,10 +3,9 @@ import {
   Alert,
   Animated,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from '../../infrastructure/reactNative';
 import PrimaryButton from '../../components/PrimaryButton';
 import { triggerHaptic } from '../../services/hapticsService';
 import { updateProfile } from '../../services/userService';

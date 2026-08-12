@@ -264,6 +264,13 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
     camera.fieldOfView = 42
     camera.zNear = 0.01
     camera.zFar = 100
+    // HDR + a gentle bloom give the glowing, premium look without new assets.
+    // Emissive regions bleed a soft halo; the threshold keeps dim regions calm.
+    camera.wantsHDR = true
+    camera.wantsExposureAdaptation = false
+    camera.bloomIntensity = 0.85
+    camera.bloomThreshold = 0.55
+    camera.bloomBlurRadius = 14
     cameraNode.camera = camera
     scene.rootNode.addChildNode(cameraNode)
     updateCameraPosition()
@@ -273,16 +280,28 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
   private func setupLights() {
     let ambientLight = SCNLight()
     ambientLight.type = .ambient
-    ambientLight.intensity = 580
+    ambientLight.intensity = 620
     fillLightNode.light = ambientLight
     scene.rootNode.addChildNode(fillLightNode)
 
     let keyLight = SCNLight()
     keyLight.type = .omni
-    keyLight.intensity = 920
+    keyLight.intensity = 980
+    keyLight.temperature = 6200
     keyLightNode.light = keyLight
     keyLightNode.position = SCNVector3(4.2, 4.8, 5.8)
     scene.rootNode.addChildNode(keyLightNode)
+
+    // Rim light from behind gives the regions a dimensional edge highlight so
+    // the specular material reads as glass rather than a flat card.
+    let rimLight = SCNLight()
+    rimLight.type = .omni
+    rimLight.intensity = 640
+    rimLight.temperature = 7200
+    let rimLightNode = SCNNode()
+    rimLightNode.light = rimLight
+    rimLightNode.position = SCNVector3(-5.0, 2.4, -5.6)
+    scene.rootNode.addChildNode(rimLightNode)
   }
 
   private func setupGestures() {
@@ -356,7 +375,7 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
 
   private func buildShell() {
     let shellGeometry = SCNSphere(radius: 1.16)
-    shellGeometry.segmentCount = 10
+    shellGeometry.segmentCount = 24
     shellGeometry.materials = [
       material(
         color: palette.outline.withAlphaComponent(0.16),
@@ -371,7 +390,7 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
     shellNode.addChildNode(node)
 
     let lowerShell = SCNSphere(radius: 0.42)
-    lowerShell.segmentCount = 8
+    lowerShell.segmentCount = 16
     lowerShell.materials = [
       material(
         color: palette.outline.withAlphaComponent(0.14),
@@ -418,11 +437,12 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
         width: 0.82,
         height: 0.82,
         length: 0.82,
-        chamferRadius: 0.02
+        chamferRadius: 0.16
       )
-      geometry.widthSegmentCount = 1
-      geometry.heightSegmentCount = 1
-      geometry.lengthSegmentCount = 1
+      geometry.chamferSegmentCount = 6
+      geometry.widthSegmentCount = 2
+      geometry.heightSegmentCount = 2
+      geometry.lengthSegmentCount = 2
 
       let node = SCNNode(geometry: geometry)
       node.name = "mind-region:\(record.id)"
@@ -436,8 +456,9 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
         width: 0.86,
         height: 0.86,
         length: 0.86,
-        chamferRadius: 0.02
+        chamferRadius: 0.17
       )
+      outlineBox.chamferSegmentCount = 6
       outlineBox.materials = [
         material(
           color: palette.outline.withAlphaComponent(0.16),
@@ -460,8 +481,8 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
       }
 
       if record.isStrongest && !reduceMotionEnabled {
-        let pulseUp = SCNAction.scale(to: 1.03, duration: 1.4)
-        let pulseDown = SCNAction.scale(to: 1.0, duration: 1.4)
+        let pulseUp = SCNAction.scale(to: 1.025, duration: 1.6)
+        let pulseDown = SCNAction.scale(to: 1.0, duration: 1.6)
         pulseUp.timingMode = .easeInEaseOut
         pulseDown.timingMode = .easeInEaseOut
         node.runAction(.repeatForever(.sequence([pulseUp, pulseDown])), forKey: "pulse")
@@ -488,13 +509,21 @@ class JournalMindMapView: UIView, UIGestureRecognizerDelegate {
   private func material(for record: MindMapRegionRecord, selected: Bool) -> SCNMaterial {
     let baseColor = colorForRegion(record, selected: selected)
     let opacity = regionOpacity(for: record)
-    let emissionStrength: CGFloat = selected ? 0.84 : (record.isStrongest ? 0.66 : 0.42)
+    let emissionStrength: CGFloat = selected ? 0.9 : (record.isStrongest ? 0.72 : 0.46)
 
-    return material(
-      color: baseColor.withAlphaComponent(opacity),
-      emission: baseColor.withAlphaComponent(emissionStrength),
-      transparency: opacity
-    )
+    // Lit (blinn) instead of flat (.constant) so the key/rim lights carve a
+    // specular highlight across each region — reads as a glowing glass gem
+    // rather than a flat card. Emission keeps the signal-driven glow + bloom.
+    let material = SCNMaterial()
+    material.lightingModel = .blinn
+    material.diffuse.contents = baseColor.withAlphaComponent(opacity)
+    material.emission.contents = baseColor.withAlphaComponent(emissionStrength)
+    material.specular.contents = UIColor.white.withAlphaComponent(selected ? 0.75 : 0.5)
+    material.shininess = 0.32
+    material.transparency = opacity
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = opacity > 0.72
+    return material
   }
 
   private func updateSelectionStyles(animated: Bool) {

@@ -3,7 +3,7 @@ This document is the approved revamp journey and an honest implementation tracke
 
 ## Access Matrix
 
-| Area | Free | Pro with AI enabled |
+| Area | Free | Pro |
 | --- | --- | --- |
 | Open-ended journal | Available | Available |
 | Guided reflection after onboarding | Locked | Available |
@@ -11,8 +11,6 @@ This document is the approved revamp journey and an honest implementation tracke
 | Entry-context goal suggestions | Unavailable | Available, never auto-saved |
 | Personal entry analysis and map | Generic preview only | Personal result after safe processing |
 | Main Mind Map tab | Educational eight-region model | Educational model plus personal cumulative map |
-
-AI opt-out always keeps journaling, manual goals, Calendar, Home, reminders, account settings, privacy, support, and sign-out available. It removes personal AI analysis and personal Mind Map data.
 
 ## Approved Journey
 
@@ -37,16 +35,16 @@ Goals are a user-owned list, separate from journal metadata. The first Goals scr
 
 The Mind Map describes patterns in writing, not literal brain activity or a medical measure. Educational mode always contains all eight tappable regions and never contains personal scores, rank, evidence, pulse, activity claims, or inferred results. Personal Pro mode defaults to `All reflections`, also offers `Latest week`, masks evidence when Hide Journal Previews is on, and uses building or support-first states rather than invented activity.
 
-AI opt-out must clear stored derived personal map contexts. Premium expiry pauses personal processing and returns to educational mode; resubscription may restore securely paused data. Entry edits, deletes, favorites, and eligible historic backfill must invalidate/rebuild derived contexts safely.
+Premium expiry pauses personal processing and returns to educational mode; resubscription may restore securely paused data. Entry edits, deletes, favorites, and eligible historic backfill must invalidate/rebuild derived contexts safely.
 
 ## Screen Action Map
 
 | Screen | Key actions | Required return states |
 | --- | --- | --- |
 | Auth and recovery | create, sign in, verify, reset, recover | auth errors keep entered context where safe |
-| Onboarding | personalize, consent, reminders, guided reflection | AI decline stays usable without personal AI results |
+| Onboarding | personalize, consent, reminders, guided reflection | incomplete consent remains on onboarding |
 | Home | open entry chooser, Goals, settings, Calendar, Insights, Mind Map | returns to the active tab |
-| Entry chooser | write freely, guided reflection | Free guided opens paywall before draft; dismissal returns to chooser |
+| Entry chooser | write freely, guided reflection | Free guided closes the native chooser before opening paywall; dismissal returns to the originating tab with no draft created |
 | Journal editor | save immediately | entry remains saved on AI/payment/map/streak failure |
 | Post-entry result | retry, create goals, continue, upgrade | preserves entry ID and route through payment |
 | Goals | create, accept, edit, dismiss, remove | only explicit active goals persist |
@@ -62,12 +60,12 @@ Implemented in this slice:
 - authenticated manual Goals list/create/delete endpoints and a Home-linked Goals screen
 - authenticated Pro-and-AI-opt-in journal-context suggestion endpoint; suggestions are not auto-saved
 - iOS has the primary Mind Map tab; Home exposes account settings; Android keeps Profile tab
-- Free and AI-off iOS Mind Map rendering is educational and does not call the personal map API
+- Free iOS Mind Map rendering is educational and does not call the personal map API
 - personal Mind Map remains the existing cached cumulative endpoint, with `All reflections` selected by default
+- the shared entry-type chooser gates Guided Reflection for Free users and waits for native dismissal before presenting its contextual paywall
 
 Still target work:
 
-- reusable entry-type chooser and paid guided-entry gate
 - unified post-entry result/paywall-resume shell
 - one-to-one per-entry derived reflection contexts, entry detail map access, and resumable historical backfill
 - free generic blurred post-entry previews that are separate from personal data

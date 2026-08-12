@@ -14,6 +14,14 @@ import {
   buildAuthenticatedUserProfilePayload,
   type UserProfilePayload,
 } from "../user/user.service";
+import {
+  normalizeWidgetSessionVersion,
+  revokeAllWidgetSessions,
+} from "../widgets/widgets.service";
+import {
+  computeLookupHash,
+  getFieldEncryptionMode,
+} from "../../helpers/fieldEncryption.helpers";
 
 const OTP_LENGTH = 6;
 const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
@@ -78,7 +86,6 @@ type EmailOnboardingContextInput = {
   goals?: string[];
   supportFocus?: string[];
   reminderPreference?: string;
-  aiOptIn?: boolean;
   privacyConsentAccepted?: boolean;
 };
 
@@ -224,6 +231,85 @@ const getPasswordResetExpiryMs = () => {
 
 const normalizeEmail = (email: string) => {
   return email.trim().toLowerCase();
+};
+
+const buildEmailLookupHash = (email: string) =>
+  computeLookupHash({
+    value: normalizeEmail(email),
+    path: "users.email",
+  });
+
+const buildPhoneLookupHash = (phoneNumber?: string | null) =>
+  computeLookupHash({
+    value: normalizeOptionalString(phoneNumber),
+    path: "users.phoneNumber",
+  });
+
+const buildGoogleLookupHash = (googleSub?: string | null) =>
+  computeLookupHash({
+    value: normalizeOptionalString(googleSub),
+    path: "users.googleUserId",
+  });
+
+const buildAppleLookupHash = (appleSub?: string | null) =>
+  computeLookupHash({
+    value: normalizeOptionalString(appleSub),
+    path: "users.appleUserId",
+  });
+
+const buildLookupQuery = ({
+  hashField,
+  plainField,
+  value,
+  hash,
+}: {
+  hashField: string;
+  plainField: string;
+  value: string;
+  hash: string | null;
+}) => {
+  if (!hash) {
+    return { [plainField]: value };
+  }
+
+  if (getFieldEncryptionMode() === "migration") {
+    return {
+      $or: [{ [hashField]: hash }, { [plainField]: value }],
+    };
+  }
+
+  return { [hashField]: hash };
+};
+
+const buildEmailLookupQuery = (email: string) =>
+  buildLookupQuery({
+    hashField: "emailLookupHash",
+    plainField: "email",
+    value: email,
+    hash: buildEmailLookupHash(email),
+  });
+
+const buildGoogleLookupQuery = (googleSub: string) =>
+  buildLookupQuery({
+    hashField: "googleUserIdLookupHash",
+    plainField: "googleUserId",
+    value: googleSub,
+    hash: buildGoogleLookupHash(googleSub),
+  });
+
+const buildAppleLookupQuery = (appleSub: string) =>
+  buildLookupQuery({
+    hashField: "appleUserIdLookupHash",
+    plainField: "appleUserId",
+    value: appleSub,
+    hash: buildAppleLookupHash(appleSub),
+  });
+
+const syncUserLookupHashes = (user: IUser) => {
+  user.emailLookupHash = user.email ? buildEmailLookupHash(user.email) : null;
+  user.phoneNumberLookupHash = buildPhoneLookupHash(user.phoneNumber);
+  user.googleUserIdLookupHash = buildGoogleLookupHash(user.googleUserId);
+  user.appleUserIdLookupHash = buildAppleLookupHash(user.appleUserId);
 };
 
 const maskEmailForLogs = (email: string) => {
@@ -458,10 +544,6 @@ const sanitizeOnboardingContext = (
     reminderPreference: normalizeOptionalString(
       onboardingContext.reminderPreference
     ),
-    aiOptIn:
-      typeof onboardingContext.aiOptIn === "boolean"
-        ? onboardingContext.aiOptIn
-        : null,
     privacyConsentAccepted:
       typeof onboardingContext.privacyConsentAccepted === "boolean"
         ? onboardingContext.privacyConsentAccepted
@@ -675,7 +757,6 @@ const setPendingEmailVerification = (
 ) => {
   user.emailVerified = false;
   user.emailVerifiedAt = null;
-  user.emailVerificationCode = verificationCode;
   user.emailVerificationCodeHash = hashEmailVerificationCode(
     email,
     verificationCode
@@ -696,9 +777,9 @@ const issueTokens = async (user: IUser): Promise<AuthTokens> => {
   const accessToken = jwt.sign(
     {
       sub: user._id.toString(),
-      phoneNumber: user.phoneNumber || null,
-      email: user.email || null,
-      name: user.name,
+      widgetSessionVersion: normalizeWidgetSessionVersion(
+        user.widgetSessionVersion
+      ),
     },
     accessSecret,
     { expiresIn: getAccessTokenExpiry() }
@@ -739,7 +820,11 @@ const createGoogleUser = async ({
   return userModel.create({
     name: googleProfile.name || fallbackName,
     email: googleProfile.email,
+    emailLookupHash: googleProfile.email
+      ? buildEmailLookupHash(googleProfile.email)
+      : null,
     googleUserId: googleProfile.googleSub,
+    googleUserIdLookupHash: buildGoogleLookupHash(googleProfile.googleSub),
     profilePic: googleProfile.picture,
     authProviders: ["google"],
     profileSetupCompleted: false,
@@ -768,7 +853,11 @@ const createAppleUser = async ({
   return userModel.create({
     name: appleProfile.name || fallbackName,
     email: appleProfile.email,
+    emailLookupHash: appleProfile.email
+      ? buildEmailLookupHash(appleProfile.email)
+      : null,
     appleUserId: appleProfile.appleSub,
+    appleUserIdLookupHash: buildAppleLookupHash(appleProfile.appleSub),
     authProviders: ["apple"],
     profileSetupCompleted: false,
     onboardingCompleted: Boolean(onboardingCompleted),
@@ -795,7 +884,7 @@ const signUpWithEmail = async ({
   const onboardingGoals = normalizedOnboardingContext?.goals || [];
   const displayName = deriveDisplayNameFromEmail(normalizedEmail);
 
-  let user = await userModel.findOne({ email: normalizedEmail });
+  let user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
 
   if (user && isEmailVerified(user)) {
     return {
@@ -819,10 +908,10 @@ const signUpWithEmail = async ({
       onboardingCompleted: Boolean(onboardingCompleted),
       emailVerified: false,
       emailVerifiedAt: null,
-      emailVerificationCode: null,
       emailVerificationCodeHash: null,
       emailVerificationExpiresAt: null,
       emailVerificationAttempts: 0,
+      emailLookupHash: buildEmailLookupHash(normalizedEmail),
     });
   } else {
     user.name = user.name || displayName;
@@ -840,6 +929,7 @@ const signUpWithEmail = async ({
     }
   }
 
+  syncUserLookupHashes(user);
   setPendingEmailVerification(user, normalizedEmail, verificationCode);
   await user.save();
 
@@ -861,7 +951,7 @@ const resendEmailVerification = async ({
   | AuthFailure
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
+  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
 
   if (!user || !getStoredPasswordHash(user)) {
     return {
@@ -883,6 +973,7 @@ const resendEmailVerification = async ({
 
   const verificationCode = generateOtp();
 
+  syncUserLookupHashes(user);
   setPendingEmailVerification(user, normalizedEmail, verificationCode);
   await user.save();
 
@@ -910,7 +1001,7 @@ const verifyEmail = async ({
   | AuthFailure
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
+  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
 
   if (!user || !getStoredPasswordHash(user)) {
     return {
@@ -940,7 +1031,6 @@ const verifyEmail = async ({
   }
 
   if (Date.now() > user.emailVerificationExpiresAt.getTime()) {
-    user.emailVerificationCode = null;
     user.emailVerificationCodeHash = null;
     user.emailVerificationExpiresAt = null;
     user.emailVerificationAttempts = 0;
@@ -954,19 +1044,15 @@ const verifyEmail = async ({
     };
   }
 
-  const codeMatchesPlaintext =
-    typeof user.emailVerificationCode === "string" &&
-    user.emailVerificationCode === code;
   const codeMatchesHash =
     typeof user.emailVerificationCodeHash === "string" &&
     user.emailVerificationCodeHash ===
       hashEmailVerificationCode(normalizedEmail, code);
 
-  if (!codeMatchesPlaintext && !codeMatchesHash) {
+  if (!codeMatchesHash) {
     user.emailVerificationAttempts += 1;
 
     if (user.emailVerificationAttempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
-      user.emailVerificationCode = null;
       user.emailVerificationCodeHash = null;
       user.emailVerificationExpiresAt = null;
       user.emailVerificationAttempts = 0;
@@ -994,7 +1080,6 @@ const verifyEmail = async ({
 
   user.emailVerified = true;
   user.emailVerifiedAt = new Date();
-  user.emailVerificationCode = null;
   user.emailVerificationCodeHash = null;
   user.emailVerificationExpiresAt = null;
   user.emailVerificationAttempts = 0;
@@ -1007,6 +1092,7 @@ const verifyEmail = async ({
     user.onboardingCompleted = onboardingCompleted;
   }
 
+  syncUserLookupHashes(user);
   await user.save();
 
   const tokens = await issueTokens(user);
@@ -1034,7 +1120,7 @@ const signInWithEmail = async ({
   const normalizedEmail = normalizeEmail(email);
   const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
   const onboardingGoals = normalizedOnboardingContext?.goals || [];
-  const user = await userModel.findOne({ email: normalizedEmail });
+  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
   const storedPasswordHash = user ? getStoredPasswordHash(user) : null;
 
   if (!user || !storedPasswordHash || !verifyPasswordHash(password, storedPasswordHash)) {
@@ -1071,6 +1157,7 @@ const signInWithEmail = async ({
     user.onboardingCompleted = true;
   }
 
+  syncUserLookupHashes(user);
   await user.save();
 
   const tokens = await issueTokens(user);
@@ -1088,7 +1175,7 @@ const requestPasswordReset = async ({
   AuthSuccess<{ challenge: PasswordResetChallenge }>
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne({ email: normalizedEmail });
+  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
   const hasStoredPassword = Boolean(user && getStoredPasswordHash(user));
   const emailVerified = Boolean(user && isEmailVerified(user));
 
@@ -1119,6 +1206,7 @@ const requestPasswordReset = async ({
   user.passwordResetTokenHash = hashPasswordResetToken(resetToken);
   user.passwordResetExpiresAt = new Date(Date.now() + getPasswordResetExpiryMs());
   user.passwordResetRequestedAt = new Date();
+  syncUserLookupHashes(user);
   await user.save();
 
   console.info("[Auth][password_reset] delivery_attempt", {
@@ -1166,11 +1254,15 @@ const resetPassword = async ({
   user.passwordResetRequestedAt = null;
   user.refreshTokenHash = null;
   user.refreshTokenExpiresAt = null;
+  user.widgetSessionVersion =
+    normalizeWidgetSessionVersion(user.widgetSessionVersion) + 1;
 
   if (!user.authProviders.includes("email")) {
     user.authProviders = [...user.authProviders, "email"];
   }
 
+  await revokeAllWidgetSessions(user._id.toString());
+  syncUserLookupHashes(user);
   await user.save();
 
   return {
@@ -1221,10 +1313,12 @@ const signInWithGoogle = async (
     email: normalizedEmail,
   };
 
-  let user = await userModel.findOne({ googleUserId: googleProfile.googleSub });
+  let user = await userModel.findOne(
+    buildGoogleLookupQuery(googleProfile.googleSub)
+  );
 
   if (!user && normalizedEmail) {
-    user = await userModel.findOne({ email: normalizedEmail });
+    user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
 
     if (
       user &&
@@ -1285,6 +1379,7 @@ const signInWithGoogle = async (
       user.onboardingCompleted = true;
     }
 
+    syncUserLookupHashes(user);
     await user.save();
   }
 
@@ -1347,10 +1442,12 @@ const signInWithApple = async (
     email: normalizedEmail,
   };
 
-  let user = await userModel.findOne({ appleUserId: appleProfile.appleSub });
+  let user = await userModel.findOne(
+    buildAppleLookupQuery(appleProfile.appleSub)
+  );
 
   if (!user && normalizedEmail) {
-    user = await userModel.findOne({ email: normalizedEmail });
+    user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
 
     if (
       user &&
@@ -1410,6 +1507,7 @@ const signInWithApple = async (
       user.onboardingCompleted = true;
     }
 
+    syncUserLookupHashes(user);
     await user.save();
   }
 
@@ -1444,9 +1542,9 @@ const refreshAccessToken = async (
   const accessToken = jwt.sign(
     {
       sub: user._id.toString(),
-      phoneNumber: user.phoneNumber || null,
-      email: user.email || null,
-      name: user.name,
+      widgetSessionVersion: normalizeWidgetSessionVersion(
+        user.widgetSessionVersion
+      ),
     },
     accessSecret,
     { expiresIn: getAccessTokenExpiry() }
@@ -1462,6 +1560,9 @@ const invalidateRefreshToken = async (userId: string) => {
       $set: {
         refreshTokenHash: null,
         refreshTokenExpiresAt: null,
+      },
+      $inc: {
+        widgetSessionVersion: 1,
       },
     }
   );

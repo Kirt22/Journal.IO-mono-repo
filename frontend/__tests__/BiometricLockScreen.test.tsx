@@ -62,7 +62,6 @@ function setSession(isPremium: boolean, overrides = {}) {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       },
     },
     biometricLockEnabled: false,

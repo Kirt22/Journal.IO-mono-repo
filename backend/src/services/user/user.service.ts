@@ -3,6 +3,7 @@ import {
   getOnboardingV2ReleaseCutoffDate,
 } from "../../config/onboarding.config";
 import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
+import { invalidateUserPersonalizationCache } from "../../helpers/userPersonalization.helpers";
 import { journalModel } from "../../schema/journal.schema";
 import { reminderModel } from "../../schema/reminder.schema";
 import { IUser, userModel } from "../../schema/user.schema";
@@ -32,7 +33,6 @@ type UserProfilePayload = {
   hasJournalEntries: boolean;
   journalCount?: number;
   profilePic: string | null;
-  aiOptIn: boolean | null;
   onboardingPreferences: {
     ageRange: string | null;
     journalingExperience: string | null;
@@ -108,7 +108,6 @@ const hasLegacyOnboardingContext = (user: IUser) => {
       (context.ageRange ||
         context.journalingExperience ||
         context.reminderPreference ||
-        typeof context.aiOptIn === "boolean" ||
         typeof context.privacyConsentAccepted === "boolean" ||
         context.goals?.length ||
         context.supportFocus?.length)
@@ -279,10 +278,6 @@ const buildUserProfilePayload = (
       ? { journalCount: journalMetadata.journalCount }
       : {}),
     profilePic: user.profilePic || null,
-    aiOptIn:
-      typeof user.onboardingContext?.aiOptIn === "boolean"
-        ? user.onboardingContext.aiOptIn
-        : null,
     onboardingPreferences: getOnboardingPreferences(user),
   };
 };
@@ -331,6 +326,7 @@ const updateProfile = async (
   user.onboardingCompleted = true;
 
   await user.save();
+  invalidateUserPersonalizationCache(userId);
 
   return buildAuthenticatedUserProfilePayload(user);
 };

@@ -20,9 +20,6 @@ jest.mock('../src/services/privacyService', () => ({
   deleteAccount: jest.fn(async () => ({
     deletedAccount: true,
   })),
-  updateAiOptOutPreference: jest.fn(async () => ({
-    aiOptIn: false,
-  })),
 }));
 
 jest.mock('../src/services/paywallService', () => ({
@@ -103,8 +100,10 @@ afterEach(() => {
   });
 });
 
-test('shows the biometric lock detail entry for free users when the dev testing override is enabled', async () => {
+test('keeps biometric lock Premium-only even when stale dev config enables testing', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
+  const onOpenBiometricLock = jest.fn();
+  const onOpenBiometricLockPaywall = jest.fn();
 
   ReactTestRenderer.act(() => {
     useAppStore.setState({
@@ -122,7 +121,6 @@ test('shows the biometric lock detail entry for free users when the dev testing 
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         },
       },
       biometricLockEnabled: false,
@@ -150,9 +148,9 @@ test('shows the biometric lock detail entry for free users when the dev testing 
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
-          onOpenBiometricLock={jest.fn()}
+          onOpenBiometricLock={onOpenBiometricLock}
+          onOpenBiometricLockPaywall={onOpenBiometricLockPaywall}
           onSignOut={jest.fn()}
           currentThemePreference="system"
           onToggleTheme={jest.fn()}
@@ -166,6 +164,13 @@ test('shows the biometric lock detail entry for free users when the dev testing 
   expect(
     root!.root.findByProps({ accessibilityLabel: 'Enable haptics' }),
   ).toBeTruthy();
+  ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: 'Unlock Face ID lock' })
+      .props.onPress();
+  });
+  expect(onOpenBiometricLockPaywall).toHaveBeenCalledTimes(1);
+  expect(onOpenBiometricLock).not.toHaveBeenCalled();
 
   await ReactTestRenderer.act(async () => {
     root = ReactTestRenderer.create(
@@ -175,5 +180,7 @@ test('shows the biometric lock detail entry for free users when the dev testing 
     );
   });
 
+  expect(extractText(root!.toJSON())).toContain('Premium privacy');
   expect(root!.root.findAllByType(Switch)).toHaveLength(1);
+  expect(root!.root.findByType(Switch).props.disabled).toBe(true);
 });

@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
@@ -6,15 +11,20 @@ import {
   Animated,
   Easing,
   Image,
-  Pressable,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
-  Text,
-  TextInput,
+  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
   type GestureResponderEvent,
   type ImageSourcePropType,
 } from 'react-native';
+import {
+  Text,
+  TextInput,
+} from '../../infrastructure/reactNative';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import OnboardingBottomSheet from '../../components/OnboardingBottomSheet';
@@ -23,7 +33,11 @@ import OnboardingOptionCard from '../../components/OnboardingOptionCard';
 import OnboardingProgressDots from '../../components/OnboardingProgressDots';
 import ThemePreviewCard from '../../components/ThemePreviewCard';
 import WavingHandIcon from '../../components/WavingHandIcon';
-import { REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT } from '../../config/onboarding';
+import {
+  ENABLE_ONBOARDING_DEV_SHORTCUTS,
+  REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT,
+} from '../../config/onboarding';
+import { buildDevFirstReflectionStreakPayload } from './devOnboardingFixtures';
 import { useOnboardingV2State } from '../../hooks/useOnboardingV2State';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useAppStore } from '../../store/appStore';
@@ -45,6 +59,7 @@ import {
 
 type OnboardingV2Step =
   | 'intro'
+  | 'name'
   | 'referral'
   | 'age'
   | 'occupation'
@@ -63,6 +78,7 @@ type AutoAdvanceKey =
 
 const steps: OnboardingV2Step[] = [
   'intro',
+  'name',
   'referral',
   'age',
   'occupation',
@@ -86,11 +102,11 @@ const disclaimerPoints = [
   'Journal.IO supports reflection, but does not diagnose or replace professional care.',
 ];
 
-const readyCelebrationIcon = require('../../assets/png/ready-congratulations.png');
+const readyCelebrationIcon = require('../../assets/png/onboarding/ready-congratulations.png');
 const readyFeatureIcons = [
-  require('../../assets/png/ready-question.png'),
-  require('../../assets/png/ready-privacy.png'),
-  require('../../assets/png/ready-growth.png'),
+  require('../../assets/png/onboarding/ready-question.png'),
+  require('../../assets/png/onboarding/ready-privacy.png'),
+  require('../../assets/png/onboarding/ready-growth.png'),
 ] satisfies ImageSourcePropType[];
 
 const hexToRgba = (hex: string, alpha: number) => {
@@ -137,13 +153,13 @@ const getFirstName = (name?: string | null) => {
 };
 
 const referralAssetById = {
-  app_store: require('../../assets/png/referral-app-store.png'),
-  friend_family: require('../../assets/png/referral-friend-family.png'),
-  instagram: require('../../assets/png/referral-instagram.png'),
-  other: require('../../assets/png/referral-other.png'),
-  reddit_community: require('../../assets/png/referral-reddit.png'),
-  tiktok: require('../../assets/png/referral-tiktok.png'),
-  x_twitter: require('../../assets/png/referral-x.png'),
+  app_store: require('../../assets/png/onboarding/referral-app-store.png'),
+  friend_family: require('../../assets/png/onboarding/referral-friend-family.png'),
+  instagram: require('../../assets/png/onboarding/referral-instagram.png'),
+  other: require('../../assets/png/onboarding/referral-other.png'),
+  reddit_community: require('../../assets/png/onboarding/referral-reddit.png'),
+  tiktok: require('../../assets/png/onboarding/referral-tiktok.png'),
+  x_twitter: require('../../assets/png/onboarding/referral-x.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 type ReferralAssetId = keyof typeof referralAssetById;
@@ -152,12 +168,12 @@ const hasReferralAsset = (id: string): id is ReferralAssetId =>
   id in referralAssetById;
 
 const occupationAssetById = {
-  creative_work: require('../../assets/png/occupation-creative-work.png'),
-  founder_builder: require('../../assets/png/occupation-founder-builder.png'),
-  looking_for_work: require('../../assets/png/occupation-looking-for-work.png'),
-  other_prefer_not: require('../../assets/png/occupation-other.png'),
-  student: require('../../assets/png/occupation-student.png'),
-  working_professional: require('../../assets/png/occupation-working-professional.png'),
+  creative_work: require('../../assets/png/onboarding/occupation-creative-work.png'),
+  founder_builder: require('../../assets/png/onboarding/occupation-founder-builder.png'),
+  looking_for_work: require('../../assets/png/onboarding/occupation-looking-for-work.png'),
+  other_prefer_not: require('../../assets/png/onboarding/occupation-other.png'),
+  student: require('../../assets/png/onboarding/occupation-student.png'),
+  working_professional: require('../../assets/png/onboarding/occupation-working-professional.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 type OccupationAssetId = keyof typeof occupationAssetById;
@@ -166,11 +182,11 @@ const hasOccupationAsset = (id: string): id is OccupationAssetId =>
   id in occupationAssetById;
 
 const toneAssetById = {
-  deep: require('../../assets/png/tone-deep.png'),
-  direct: require('../../assets/png/tone-direct.png'),
-  gentle: require('../../assets/png/tone-gentle.png'),
-  motivating: require('../../assets/png/tone-motivating.png'),
-  neutral: require('../../assets/png/tone-neutral.png'),
+  deep: require('../../assets/png/onboarding/tone-deep.png'),
+  direct: require('../../assets/png/onboarding/tone-direct.png'),
+  gentle: require('../../assets/png/onboarding/tone-gentle.png'),
+  motivating: require('../../assets/png/onboarding/tone-motivating.png'),
+  neutral: require('../../assets/png/onboarding/tone-neutral.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 type ToneAssetId = keyof typeof toneAssetById;
@@ -178,12 +194,12 @@ type ToneAssetId = keyof typeof toneAssetById;
 const hasToneAsset = (id: string): id is ToneAssetId => id in toneAssetById;
 
 const supportAssetById = {
-  anger: require('../../assets/png/support-anger.png'),
-  focus: require('../../assets/png/support-focus.png'),
-  loneliness: require('../../assets/png/support-loneliness.png'),
-  low_mood: require('../../assets/png/support-low-mood.png'),
-  overthinking: require('../../assets/png/support-overthinking.png'),
-  stress: require('../../assets/png/support-stress.png'),
+  anger: require('../../assets/png/onboarding/support-anger.png'),
+  focus: require('../../assets/png/onboarding/support-focus.png'),
+  loneliness: require('../../assets/png/onboarding/support-loneliness.png'),
+  low_mood: require('../../assets/png/onboarding/support-low-mood.png'),
+  overthinking: require('../../assets/png/onboarding/support-overthinking.png'),
+  stress: require('../../assets/png/onboarding/support-stress.png'),
 } satisfies Record<string, ImageSourcePropType>;
 
 type SupportAssetId = keyof typeof supportAssetById;
@@ -208,12 +224,15 @@ export default function OnboardingV2Screen() {
   const [isAutoAdvancing, setIsAutoAdvancing] = useState(false);
   const [isReadyCtaEnabled, setIsReadyCtaEnabled] = useState(false);
   const [otherReferralInput, setOtherReferralInput] = useState('');
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const firstReflectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const displayNameInputRef = useRef<TextInput>(null);
   const featureRevealValues = useRef(
     READY_FEATURE_CARDS.map(() => new Animated.Value(0)),
   ).current;
@@ -230,12 +249,24 @@ export default function OnboardingV2Screen() {
   const readyButtonPulse = useRef(new Animated.Value(0)).current;
   const previousSupportSelectionCountRef = useRef(0);
   const hasPlayedInitialTransitionRef = useRef(false);
+  const hasPrefilledDisplayNameRef = useRef(false);
   const navigationDirectionRef = useRef<'forward' | 'back'>('forward');
   const step = steps[stepIndex];
-  const firstName = getFirstName(sessionName);
+  const displayName = draft.displayName ?? sessionName ?? '';
+  const firstName = getFirstName(draft.displayName || sessionName);
   const isCompact = width < 360;
   const contentMaxWidth = Math.min(width - (isCompact ? 24 : 32), 410);
   const showBack = stepIndex > 0;
+  const displayNameInputStyle = useMemo(
+    () => ({
+      backgroundColor: 'transparent',
+      borderColor: displayNameError
+        ? theme.colors.destructive
+        : 'transparent',
+      color: theme.colors.foreground,
+    }),
+    [displayNameError, theme.colors.destructive, theme.colors.foreground],
+  );
   const selectedTheme = useMemo(
     () => THEME_OPTIONS.find(item => item.id === draft.preferredTheme),
     [draft.preferredTheme],
@@ -248,6 +279,33 @@ export default function OnboardingV2Screen() {
       : theme.colors.primary;
   const progressTotal = steps.length;
   const progressIndex = Math.min(stepIndex, progressTotal - 1);
+
+  useEffect(() => {
+    if (hasPrefilledDisplayNameRef.current) {
+      return;
+    }
+
+    hasPrefilledDisplayNameRef.current = true;
+    if (!draft.displayName && sessionName?.trim()) {
+      setDraftValue('displayName', sessionName.trim().slice(0, 60));
+    }
+  }, [draft.displayName, sessionName, setDraftValue]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, () =>
+      setIsKeyboardVisible(true),
+    );
+    const hideSubscription = Keyboard.addListener(hideEvent, () =>
+      setIsKeyboardVisible(false),
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (step !== 'theme' || draft.preferredTheme) {
@@ -535,6 +593,9 @@ export default function OnboardingV2Screen() {
   const goToStep = (nextIndex: number) => {
     const direction = nextIndex < stepIndex ? 'back' : 'forward';
 
+    Keyboard.dismiss();
+    setIsKeyboardVisible(false);
+
     navigationDirectionRef.current = direction;
     if (direction === 'back') {
       cardRevealValues.forEach(value => value.setValue(1));
@@ -547,6 +608,18 @@ export default function OnboardingV2Screen() {
 
   const goNext = () => {
     clearAutoAdvanceTimer();
+
+    if (step === 'name') {
+      const trimmedDisplayName = displayName.trim();
+
+      if (!trimmedDisplayName) {
+        setDisplayNameError('Please add the name you would like us to use.');
+        return;
+      }
+
+      setDraftValue('displayName', trimmedDisplayName);
+      setDisplayNameError(null);
+    }
 
     triggerHaptic('primaryAction').catch(() => undefined);
 
@@ -667,8 +740,6 @@ export default function OnboardingV2Screen() {
       return;
     }
 
-    const firstReflectionDraft = { ...draft, aiComfort: true };
-    setDraftValue('aiComfort', true);
     setIsStartingFirstReflection(true);
 
     firstReflectionTimerRef.current = setTimeout(() => {
@@ -678,10 +749,31 @@ export default function OnboardingV2Screen() {
       setTimeout(() => {
         setIsStartingFirstReflection(false);
         navigation.navigate('FirstGuidedReflection', {
-          draft: firstReflectionDraft,
+          draft,
         });
       }, BOTTOM_SHEET_CLOSE_DURATION_MS);
     }, FIRST_REFLECTION_START_DELAY_MS);
+  };
+
+  /**
+   * Jumps past the guided reflection, its session analysis, and goal
+   * generation, landing on the rating step with a fabricated payload.
+   *
+   * Uses `navigate` rather than `replace` so the stack ends up the same depth
+   * as the real path. Nothing is persisted — no entry is written and no goals
+   * are saved — so the streak and Mind Map steps after this render from the
+   * fixture rather than from anything the account actually has.
+   */
+  const skipToRatingForDev = () => {
+    if (!ENABLE_ONBOARDING_DEV_SHORTCUTS) {
+      return;
+    }
+
+    setIsDisclaimerVisible(false);
+    navigation.navigate(
+      'FirstReflectionRating',
+      buildDevFirstReflectionStreakPayload(draft),
+    );
   };
 
   const continueFromOtherReferral = () => {
@@ -886,7 +978,7 @@ export default function OnboardingV2Screen() {
     animatedStyle?: object,
   ) => (
     <Animated.View style={[styles.inlineButtonWrap, animatedStyle]}>
-      <Pressable
+      <HapticPressable
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [
@@ -903,12 +995,12 @@ export default function OnboardingV2Screen() {
         >
           {label}
         </Text>
-      </Pressable>
+      </HapticPressable>
     </Animated.View>
   );
 
   const renderSkipAction = () => (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       onPress={skipCurrentStep}
       style={({ pressed }) => [
@@ -924,7 +1016,7 @@ export default function OnboardingV2Screen() {
       >
         Skip
       </Text>
-    </Pressable>
+    </HapticPressable>
   );
 
   const renderSkipOnlyActions = () => (
@@ -1078,13 +1170,83 @@ export default function OnboardingV2Screen() {
             </Text>
           </View>
         );
+      case 'name':
+        return (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={24}
+            style={styles.nameKeyboardArea}
+          >
+            <TouchableWithoutFeedback
+              accessible={false}
+              onPress={Keyboard.dismiss}
+            >
+              <View style={styles.nameStepCopy}>
+                <Text
+                  style={[
+                    styles.title,
+                    {
+                      color: theme.colors.foreground,
+                      fontSize: isCompact ? 28 : 31,
+                    },
+                  ]}
+                >
+                  Hey! What do we call you?
+                </Text>
+                <Text
+                  style={[styles.body, { color: theme.colors.mutedForeground }]}
+                >
+                  Use the name that feels right for your reflection space.
+                </Text>
+                <View style={styles.displayNameFieldWrap}>
+                  <TextInput
+                    ref={displayNameInputRef}
+                    accessibilityLabel="What should Journal.IO call you?"
+                    autoCapitalize="words"
+                    editable={!isAutoAdvancing}
+                    maxLength={60}
+                    onBlur={() => setIsKeyboardVisible(false)}
+                    onChangeText={value => {
+                      setDraftValue('displayName', value);
+                      if (displayNameError) {
+                        setDisplayNameError(null);
+                      }
+                    }}
+                    onSubmitEditing={() => {
+                      displayNameInputRef.current?.blur();
+                      Keyboard.dismiss();
+                    }}
+                    onFocus={() => setIsKeyboardVisible(true)}
+                    placeholder="Your name"
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    returnKeyType="done"
+                    style={[styles.displayNameInput, displayNameInputStyle]}
+                    textContentType="name"
+                    value={displayName}
+                  />
+                  {displayNameError ? (
+                    <Text
+                      accessibilityLiveRegion="polite"
+                      style={[
+                        styles.displayNameError,
+                        { color: theme.colors.destructive },
+                      ]}
+                    >
+                      {displayNameError}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+        );
       case 'referral':
         return (
           <View style={styles.stepCopy}>
             <Text
               style={[styles.sectionTitle, { color: theme.colors.foreground }]}
             >
-              How did you hear about us?
+              {firstName || 'There'}, how did you hear about us?
             </Text>
             <Text
               style={[
@@ -1140,7 +1302,7 @@ export default function OnboardingV2Screen() {
                   ]}
                   value={otherReferralInput}
                 />
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   disabled={!otherReferralInput.trim() || isAutoAdvancing}
                   onPress={continueFromOtherReferral}
@@ -1166,7 +1328,7 @@ export default function OnboardingV2Screen() {
                   >
                     Continue
                   </Text>
-                </Pressable>
+                </HapticPressable>
               </Animated.View>
             ) : null}
           </View>
@@ -1411,7 +1573,7 @@ export default function OnboardingV2Screen() {
       <View style={[styles.shell, { maxWidth: contentMaxWidth }]}>
         <View style={styles.topBar}>
           {showBack ? (
-            <Pressable
+            <HapticPressable
               accessibilityLabel="Go back"
               accessibilityRole="button"
               onPress={goBack}
@@ -1425,7 +1587,7 @@ export default function OnboardingV2Screen() {
                 size={20}
                 strokeWidth={1.9}
               />
-            </Pressable>
+            </HapticPressable>
           ) : (
             <View style={styles.backButtonSpacer} />
           )}
@@ -1435,6 +1597,34 @@ export default function OnboardingV2Screen() {
             total={progressTotal}
           />
           <View style={styles.backButtonSpacer} />
+
+          {/* Debug builds only — `__DEV__` compiles this out of release
+              bundles. It sits absolutely over the empty right-hand spacer, so
+              the progress dots stay centred, and it lives inside the top bar
+              rather than the screen root so the safe-area inset keeps it clear
+              of the status bar. */}
+          {ENABLE_ONBOARDING_DEV_SHORTCUTS ? (
+            <HapticPressable
+              accessibilityLabel="Dev: skip to the rating step"
+              accessibilityRole="button"
+              hitSlop={12}
+              onPress={skipToRatingForDev}
+              style={({ pressed }) => [
+                styles.devSkipButton,
+                {
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.warning,
+                },
+                pressed && styles.devSkipButtonPressed,
+              ]}
+            >
+              <Text
+                style={[styles.devSkipText, { color: theme.colors.warning }]}
+              >
+                DEV SKIP
+              </Text>
+            </HapticPressable>
+          ) : null}
         </View>
         <Animated.View
           style={[
@@ -1447,9 +1637,11 @@ export default function OnboardingV2Screen() {
         >
           <View style={styles.contentWrap}>{renderStepContent()}</View>
         </Animated.View>
-        {step === 'intro' || step === 'ready' ? (
+        {step === 'intro' ||
+        (step === 'name' && !isKeyboardVisible) ||
+        step === 'ready' ? (
           <View style={styles.footer}>
-            {step === 'intro' || step === 'ready' ? (
+            {step === 'intro' || step === 'name' || step === 'ready' ? (
               <Animated.View
                 pointerEvents={
                   step === 'ready' && !isReadyCtaEnabled ? 'none' : 'auto'
@@ -1488,10 +1680,11 @@ export default function OnboardingV2Screen() {
                     ]}
                   />
                 ) : null}
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   disabled={step === 'ready' && !isReadyCtaEnabled}
                   onPress={goNext}
+                  testID="onboarding-primary-action"
                   style={({ pressed }) => [
                     styles.primaryButton,
                     { backgroundColor: accentColor },
@@ -1510,7 +1703,7 @@ export default function OnboardingV2Screen() {
                       ? 'Continue'
                       : 'Continue'}
                   </Text>
-                </Pressable>
+                </HapticPressable>
               </Animated.View>
             ) : null}
           </View>
@@ -1551,9 +1744,31 @@ export default function OnboardingV2Screen() {
 }
 
 const styles = StyleSheet.create({
+  devSkipButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    // Dashed so it never reads as shippable UI.
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 26,
+    paddingHorizontal: 10,
+    position: 'absolute',
+    right: 0,
+    top: 4,
+    zIndex: 20,
+  },
+  devSkipButtonPressed: {
+    opacity: 0.6,
+  },
+  devSkipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
   ageEyebrowText: {
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.45,
     lineHeight: 26,
     maxWidth: 330,
@@ -1573,7 +1788,7 @@ const styles = StyleSheet.create({
   },
   ageQuestionTitle: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: -0.25,
     lineHeight: 25,
   },
@@ -1624,6 +1839,40 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     textAlign: 'center',
   },
+  displayNameError: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 7,
+    textAlign: 'center',
+  },
+  displayNameFieldWrap: {
+    marginTop: 6,
+    maxWidth: 320,
+    width: '100%',
+  },
+  displayNameInput: {
+    borderWidth: 0,
+    fontSize: 23,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    minHeight: 52,
+    paddingHorizontal: 0,
+    textAlign: 'center',
+  },
+  nameKeyboardArea: {
+    flex: 1,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  nameStepCopy: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    paddingBottom: 20,
+    width: '100%',
+  },
   buttonPressed: {
     opacity: 0.88,
     transform: [{ scale: 0.99 }],
@@ -1642,7 +1891,7 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 0.6,
     textAlign: 'center',
     textTransform: 'uppercase',
@@ -1676,7 +1925,7 @@ const styles = StyleSheet.create({
   featureText: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     lineHeight: 18,
   },
   footer: {
@@ -1706,7 +1955,7 @@ const styles = StyleSheet.create({
   },
   footerSecondaryText: {
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '600',
     lineHeight: 18,
   },
   inlineActionArea: {
@@ -1742,7 +1991,7 @@ const styles = StyleSheet.create({
   },
   otherReferralButtonText: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   otherReferralInput: {
     borderRadius: 15,
@@ -1785,7 +2034,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '600',
   },
   readyBody: {
     fontSize: 15,
@@ -1820,7 +2069,7 @@ const styles = StyleSheet.create({
   },
   readyTitle: {
     fontSize: 24,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.45,
     lineHeight: 30,
     maxWidth: 350,
@@ -1835,7 +2084,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 25,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.35,
     lineHeight: 30,
   },
@@ -1877,11 +2126,11 @@ const styles = StyleSheet.create({
   },
   greetingText: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.2,
   },
   title: {
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: -0.65,
     lineHeight: 37,
     maxWidth: 360,
@@ -1889,10 +2138,10 @@ const styles = StyleSheet.create({
   },
   titleCompact: {
     fontSize: 28,
-  },
+    letterSpacing: -0.6,  },
   titleRegular: {
     fontSize: 31,
-  },
+    letterSpacing: -0.7,  },
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',

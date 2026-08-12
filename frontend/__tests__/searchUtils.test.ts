@@ -21,7 +21,8 @@ describe("searchUtils", () => {
       type: "journal",
       aiPrompt: null,
       images: [],
-      tags: ["gratitude", "morning"],
+      tags: ["onboarding:first-reflection", "legacy-user-tag"],
+      detectedTopics: ["gratitude", "morning"],
       isFavorite: true,
       createdAt: "2026-04-02T08:00:00.000Z",
       updatedAt: "2026-04-02T08:00:00.000Z",
@@ -53,5 +54,7 @@ describe("searchUtils", () => {
     expect(tags).toContain("morning");
     expect(tags).toContain("work");
     expect(tags.filter(tag => tag === "gratitude")).toHaveLength(1);
+    expect(tags).not.toContain("onboarding:first-reflection");
+    expect(tags).not.toContain("legacy-user-tag");
   });
 });

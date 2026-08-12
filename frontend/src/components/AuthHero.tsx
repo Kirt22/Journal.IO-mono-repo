@@ -10,9 +10,9 @@ import {
   Animated,
   Easing,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from '../infrastructure/reactNative';
 import { useTheme } from '../theme/provider';
 import JournalWordmark, {
   type JournalWordmarkIntroResult,

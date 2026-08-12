@@ -45,7 +45,6 @@ test("sanitizeOnboardingCompletionPayload maps current UI answers to onboarding 
     goals: ["Daily Reflection", "Daily Reflection", "Growth"],
     supportFocusAreas: ["Stress", "Sleep"],
     reminderPreference: "Evening",
-    aiComfort: true,
     privacyConsent: true,
   });
 
@@ -55,6 +54,48 @@ test("sanitizeOnboardingCompletionPayload maps current UI answers to onboarding 
   assert.deepEqual(payload.personalGoals, ["Daily Reflection", "Growth"]);
   assert.deepEqual(payload.supportFocusAreas, ["Stress", "Sleep"]);
   assert.equal(payload.reminderPreference, "Evening");
-  assert.equal(payload.aiComfort, true);
   assert.equal(payload.privacyConsent, true);
+});
+
+test("sanitizeOnboardingCompletionPayload persists the onboarding v2 answer set", () => {
+  const payload = sanitizeOnboardingCompletionPayload({
+    ageRange: "25_34",
+    primaryContext: "founder_builder",
+    reflectionTone: ["direct"],
+    supportFocusAreas: ["overthinking", " focus ", "overthinking"],
+    preferredTheme: "midnight_calm",
+    privacyConsent: true,
+    referralSource: " tiktok ",
+    referralSourceOther: "  ",
+  });
+
+  assert.equal(payload.ageRange, "25_34");
+  assert.equal(payload.primaryContext, "founder_builder");
+  assert.deepEqual(payload.reflectionTone, ["direct"]);
+  assert.deepEqual(payload.supportFocusAreas, ["overthinking", "focus"]);
+  assert.equal(payload.preferredTheme, "midnight_calm");
+  assert.equal(payload.referralSource, "tiktok");
+  assert.equal(payload.referralSourceOther, undefined);
+});
+
+test("sanitizeOnboardingCompletionPayload stores a signed commitment as a Date", () => {
+  const payload = sanitizeOnboardingCompletionPayload({
+    ageRange: "25_34",
+    commitmentSignedAt: "2026-08-09T10:15:00.000Z",
+  });
+
+  assert.ok(payload.commitmentSignedAt instanceof Date);
+  assert.equal(
+    payload.commitmentSignedAt?.toISOString(),
+    "2026-08-09T10:15:00.000Z"
+  );
+});
+
+test("sanitizeOnboardingCompletionPayload drops an unparseable commitment timestamp", () => {
+  const payload = sanitizeOnboardingCompletionPayload({
+    ageRange: "25_34",
+    commitmentSignedAt: "not-a-timestamp",
+  });
+
+  assert.equal(payload.commitmentSignedAt, undefined);
 });

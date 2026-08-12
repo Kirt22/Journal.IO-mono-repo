@@ -6,6 +6,11 @@ import {
   createGuidedReflectionGoalSuggestions,
   createGuidedReflectionSessionAnalysis,
 } from "./guided-reflection.service";
+import {
+  getJournalSessionAnalysisSnapshot,
+  isStaleSessionAnalysisSnapshot,
+  persistJournalSessionAnalysisSnapshot,
+} from "../journal/journalMetadata.service";
 
 const createFirstReflectionSummaryController = async (
   req: Request & { user?: { _id?: string } },
@@ -75,13 +80,49 @@ const createGuidedReflectionSessionAnalysisController = async (
       return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
-    const analysis = await createGuidedReflectionSessionAnalysis({
+    const storedAnalysis = req.body.journalId
+      ? await getJournalSessionAnalysisSnapshot({
+          userId,
+          journalId: req.body.journalId,
+        })
+      : null;
+
+    // A stored fallback is regenerated rather than replayed, matching
+    // POST /journal/session_analysis. Without this the guided path would keep
+    // serving generic copy from a transient AI outage forever.
+    const isStale = isStaleSessionAnalysisSnapshot(
+      storedAnalysis ? { analysis: storedAnalysis } : null
+    );
+    const replayableAnalysis = isStale ? null : storedAnalysis;
+
+    const analysis = replayableAnalysis || await createGuidedReflectionSessionAnalysis({
       userId,
+      journalId: req.body.journalId,
       promptAnswers: req.body.promptAnswers,
       aiSummary: req.body.aiSummary,
       threadMessages: req.body.threadMessages,
       onboardingContext: req.body.onboardingContext,
     });
+
+    if (req.body.journalId && !replayableAnalysis) {
+      const persistedAnalysis = await persistJournalSessionAnalysisSnapshot({
+        userId,
+        journalId: req.body.journalId,
+        analysis,
+        source: "guided",
+        replaceExisting: isStale,
+      });
+
+      if (!persistedAnalysis) {
+        return res
+          .status(404)
+          .json(apiResponse(false, "Entry not found.", {}));
+      }
+
+      return res
+        .status(200)
+        .json(apiResponse(true, "Your session analysis is ready.", persistedAnalysis));
+    }
 
     return res
       .status(200)

@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +19,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-} from 'lucide-react-native';
+  } from 'lucide-react-native';
 import {
   AccessibilityInfo,
   Animated,
@@ -358,7 +362,7 @@ export default function ResetPasswordScreen({
           },
         ]}
       />
-      <Pressable
+      <HapticPressable
         accessibilityRole="button"
         onPress={() => setShowPassword(previous => !previous)}
         style={styles.visibilityButton}
@@ -368,7 +372,7 @@ export default function ResetPasswordScreen({
         ) : (
           <Eye color={theme.colors.mutedForeground} size={18} />
         )}
-      </Pressable>
+      </HapticPressable>
     </View>
   );
 
@@ -383,7 +387,7 @@ export default function ResetPasswordScreen({
           style={[styles.header, { paddingHorizontal: horizontalPadding }]}
         >
           <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityLabel="Back to sign in"
               accessibilityRole="button"
               onPress={navigateToSignIn}
@@ -398,7 +402,7 @@ export default function ResetPasswordScreen({
               >
                 Back to sign in
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </View>
 

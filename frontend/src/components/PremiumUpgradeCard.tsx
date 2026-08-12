@@ -1,4 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import HapticPressable from './HapticPressable';
+import {
+  StyleSheet,
+  View,
+} from 'react-native';
+import {
+  Text,
+} from '../infrastructure/reactNative';
 import { Crown } from 'lucide-react-native';
 import { useTheme } from '../theme/provider';
 
@@ -49,7 +56,7 @@ export default function PremiumUpgradeCard({
           </Text>
         </View>
       </View>
-      <Pressable
+      <HapticPressable
         accessibilityLabel={accessibilityLabel}
         accessibilityRole="button"
         onPress={onPress}
@@ -64,7 +71,7 @@ export default function PremiumUpgradeCard({
         >
           {actionLabel}
         </Text>
-      </Pressable>
+      </HapticPressable>
     </View>
   );
 }

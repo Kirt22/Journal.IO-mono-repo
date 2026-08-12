@@ -70,7 +70,6 @@ beforeEach(() => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       },
     },
   });

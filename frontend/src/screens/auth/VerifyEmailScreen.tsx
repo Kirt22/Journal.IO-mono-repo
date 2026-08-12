@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
 import {
-  ActivityIndicator,
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from 'react';
+import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from '../../infrastructure/reactNative';
-import { ArrowLeft } from 'lucide-react-native';
+import {
+  ArrowLeft } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useWindowDimensions } from 'react-native';
+import { useWindowDimensions,
+} from 'react-native';
 import ActionSuccessScreen from '../../components/ActionSuccessScreen';
+import JournalLoader from '../../components/JournalLoader';
 import PrimaryButton from '../../components/PrimaryButton';
 import {
   AuthErrorDialog,
@@ -267,7 +273,7 @@ export default function VerifyEmailScreen({
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              <Pressable
+              <HapticPressable
                 onPress={onBackToCreateAccount}
                 style={styles.backLink}
               >
@@ -280,7 +286,7 @@ export default function VerifyEmailScreen({
                 >
                   Back
                 </Text>
-              </Pressable>
+              </HapticPressable>
 
               <AuthHero
                 title="Check your email"
@@ -451,7 +457,7 @@ export default function VerifyEmailScreen({
                     </Text>
                   ) : isResending || isResendSubmitting ? (
                     <View style={styles.resendLoading}>
-                      <ActivityIndicator
+                      <JournalLoader
                         size="small"
                         color={theme.colors.primary}
                       />
@@ -465,7 +471,7 @@ export default function VerifyEmailScreen({
                       </Text>
                     </View>
                   ) : (
-                    <Pressable
+                    <HapticPressable
                       accessibilityRole="button"
                       onPress={handleResend}
                       disabled={isResending || isResendSubmitting || isVerified}
@@ -481,7 +487,7 @@ export default function VerifyEmailScreen({
                       >
                         Didn't receive the code? Resend
                       </Text>
-                    </Pressable>
+                    </HapticPressable>
                   )}
                 </View>
               </View>

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useRef,
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,10 +18,14 @@ import {
   CircleQuestionMark,
   Eye,
   EyeOff,
-} from 'lucide-react-native';
-import { Animated, Easing } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useWindowDimensions } from 'react-native';
+  } from 'lucide-react-native';
+import { Animated,
+  Easing,
+} from 'react-native';
+import {
+  SafeAreaView } from 'react-native-safe-area-context';
+import { useWindowDimensions,
+} from 'react-native';
 import PrimaryButton from '../../components/PrimaryButton';
 import AuthActionIcon from '../../components/AuthActionIcon';
 import {
@@ -239,7 +246,7 @@ export default function CreateAccountScreen({
           style={[styles.header, { paddingHorizontal: horizontalPadding }]}
         >
           <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityLabel="Back to authentication options"
               accessibilityRole="button"
               onPress={onBackToAuth}
@@ -254,7 +261,7 @@ export default function CreateAccountScreen({
               >
                 Back
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </View>
 
@@ -332,7 +339,7 @@ export default function CreateAccountScreen({
 
                 <View style={styles.field}>
                   <View style={styles.passwordSection}>
-                    <Pressable
+                    <HapticPressable
                       accessibilityRole="button"
                       accessibilityLabel="Password rule toggle"
                       testID="password-rule-toggle"
@@ -355,7 +362,7 @@ export default function CreateAccountScreen({
                           size={16}
                         />
                       </View>
-                    </Pressable>
+                    </HapticPressable>
                     {isPasswordRuleOpen ? (
                       <View
                         testID="password-rule-bubble"
@@ -445,7 +452,7 @@ export default function CreateAccountScreen({
                           },
                         ]}
                       />
-                      <Pressable
+                      <HapticPressable
                         accessibilityRole="button"
                         onPress={() => setShowPassword(previous => !previous)}
                         style={styles.visibilityButton}
@@ -458,7 +465,7 @@ export default function CreateAccountScreen({
                         ) : (
                           <Eye color={theme.colors.mutedForeground} size={18} />
                         )}
-                      </Pressable>
+                      </HapticPressable>
                     </View>
                   </View>
                 </View>
@@ -503,7 +510,7 @@ export default function CreateAccountScreen({
                         },
                       ]}
                     />
-                    <Pressable
+                    <HapticPressable
                       accessibilityRole="button"
                       onPress={() =>
                         setShowConfirmPassword(previous => !previous)
@@ -518,7 +525,7 @@ export default function CreateAccountScreen({
                       ) : (
                         <Eye color={theme.colors.mutedForeground} size={18} />
                       )}
-                    </Pressable>
+                    </HapticPressable>
                   </View>
                 </View>
 
@@ -541,13 +548,13 @@ export default function CreateAccountScreen({
                 >
                   Already have an account?
                 </Text>
-                <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
+                <HapticPressable onPress={onGoToSignIn} style={styles.linkButton}>
                   <Text
                     style={[styles.linkText, { color: theme.colors.primary }]}
                   >
                     Sign in
                   </Text>
-                </Pressable>
+                </HapticPressable>
               </View>
             </View>
           </ScrollView>

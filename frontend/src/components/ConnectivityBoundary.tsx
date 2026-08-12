@@ -1,11 +1,11 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   StyleSheet,
   View,
 } from 'react-native';
 import AuthInkBackdrop from './AuthInkBackdrop';
+import JournalLoader from './JournalLoader';
 import { useConnectivity } from '../hooks/useConnectivity';
 import {
   getConnectivitySnapshot,
@@ -110,7 +110,7 @@ function ConnectivityGate({ overlay = false }: { overlay?: boolean }) {
       ]}
     >
       <AuthInkBackdrop />
-      <ActivityIndicator
+      <JournalLoader
         color={theme.colors.primary}
         size="large"
         testID="connectivity-loader"

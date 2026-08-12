@@ -1,17 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useRef,
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from '../../infrastructure/reactNative';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  CheckCircle2 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Animated, Easing, Linking, useWindowDimensions } from 'react-native';
+import { Animated,
+  Easing,
+  Linking,
+  useWindowDimensions,
+} from 'react-native';
 import AuthHero from '../../components/AuthHero';
 import AuthActionIcon from '../../components/AuthActionIcon';
 import {
@@ -170,7 +179,7 @@ export default function ForgotPasswordScreen({
           style={[styles.header, { paddingHorizontal: horizontalPadding }]}
         >
           <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityLabel="Back to sign in"
               accessibilityRole="button"
               onPress={onBackToSignIn}
@@ -185,7 +194,7 @@ export default function ForgotPasswordScreen({
               >
                 Back to sign in
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </View>
 
@@ -482,6 +491,7 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontSize: 22,
+    letterSpacing: -0.5,
     fontWeight: '700',
     lineHeight: 28,
   },

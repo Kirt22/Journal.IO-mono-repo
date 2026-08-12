@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type ReflectionRegionId =
   | "emotional_intensity"
   | "planning_self_control"
@@ -8,7 +10,25 @@ export type ReflectionRegionId =
   | "relationships_perspective"
   | "self_reflection_identity";
 
+export type ReflectionRegionTrend = "rising" | "steady" | "easing";
+
 export type ReflectionRegionIntensity = "low" | "moderate" | "high";
+
+// How strongly a region shows up compared with a typical reflector. Bands only
+// — never a number, percentile, or clinical judgement.
+export type ReflectionRegionTier = "low" | "balanced" | "high" | "very_high";
+
+export type OverallReflectionTierId =
+  | "emerging"
+  | "balanced"
+  | "deeply_reflective"
+  | "highly_attuned";
+
+export type OverallReflectionTier = {
+  tier: OverallReflectionTierId;
+  label: string;
+  blurb: string;
+};
 
 export type ReflectionRegionNuancedDetails = {
   emotionalTone?: string | undefined;
@@ -35,6 +55,9 @@ export type ReflectionRegionScore = {
   intensity: ReflectionRegionIntensity;
   evidence: string[];
   shortInsight: string;
+  // A single practical, non-clinical next step for this region. Personalised by
+  // AI when available, otherwise the deterministic REFLECTION_REGION_FOCUS_TIPS.
+  actionStep: string;
   nuancedDetails: ReflectionRegionNuancedDetails;
 };
 
@@ -449,6 +472,7 @@ export const buildReflectionRegionScore = ({
   evidence,
   userWriting,
   shortInsight,
+  actionStep,
   nuancedDetails,
 }: {
   id: ReflectionRegionId;
@@ -458,6 +482,7 @@ export const buildReflectionRegionScore = ({
   evidence: string[];
   userWriting: string;
   shortInsight?: string | undefined;
+  actionStep?: string | undefined;
   nuancedDetails?: ReflectionRegionNuancedDetails | undefined;
 }): ReflectionRegionScore => {
   const safeScore = clampSignal(score, REFLECTION_REGION_DETAILS[id].lowSignalScore);
@@ -475,6 +500,9 @@ export const buildReflectionRegionScore = ({
     shortInsight: shortInsight?.trim()
       ? normalizeReflectionMapText(shortInsight, 260)
       : buildShortInsight(id, safeScore, safeEvidence),
+    actionStep: actionStep?.trim()
+      ? normalizeReflectionMapText(actionStep, 260)
+      : REFLECTION_REGION_FOCUS_TIPS[id],
     nuancedDetails: {
       ...buildNuancedDetails(id, userWriting, safeEvidence),
       ...(nuancedDetails || {}),
@@ -519,3 +547,417 @@ export const getReflectionRegionKeywordScore = (
     return matched ? total + rule.weight : total;
   }, 0);
 };
+
+// --- Neutral emphasis trends -------------------------------------------------
+// Trends describe how much a theme is *showing up* in recent writing versus
+// earlier writing. They carry no good/bad valence — the app stays non-clinical
+// and never frames a region as improving or declining.
+
+export const getReflectionRegionTrend = (
+  recentMean: number,
+  earlierMean: number,
+  threshold = 0.08
+): ReflectionRegionTrend => {
+  const delta = recentMean - earlierMean;
+
+  if (delta >= threshold) {
+    return "rising";
+  }
+
+  if (delta <= -threshold) {
+    return "easing";
+  }
+
+  return "steady";
+};
+
+export const getReflectionRegionTrendLabel = (
+  id: ReflectionRegionId,
+  trend: ReflectionRegionTrend
+) => {
+  const name = REFLECTION_REGION_DETAILS[id].productName;
+
+  if (trend === "rising") {
+    return `${name} has been showing up more in your recent writing.`;
+  }
+
+  if (trend === "easing") {
+    return `${name} has been showing up less in your recent writing.`;
+  }
+
+  return `${name} has stayed steady in your recent writing.`;
+};
+
+// --- Reflection tier scoring -------------------------------------------------
+// A deterministic read of how strongly each region shows up in a person's
+// writing compared with a typical reflector. Bands only — never a number,
+// percentile, or clinical judgement. The thresholds are calibration constants
+// (the "typical reflector" reference) and are expected to be tuned once real
+// aggregate data is eyeballed.
+
+export const REFLECTION_REGION_BASELINE: Record<
+  ReflectionRegionId,
+  { balanced: number; high: number; veryHigh: number }
+> = {
+  emotional_intensity: { balanced: 0.28, high: 0.46, veryHigh: 0.64 },
+  planning_self_control: { balanced: 0.38, high: 0.55, veryHigh: 0.72 },
+  memory_meaning: { balanced: 0.33, high: 0.5, veryHigh: 0.68 },
+  body_inner_signals: { balanced: 0.24, high: 0.4, veryHigh: 0.58 },
+  conflict_attention: { balanced: 0.26, high: 0.44, veryHigh: 0.62 },
+  motivation_reward: { balanced: 0.26, high: 0.44, veryHigh: 0.62 },
+  relationships_perspective: { balanced: 0.3, high: 0.48, veryHigh: 0.66 },
+  self_reflection_identity: { balanced: 0.45, high: 0.62, veryHigh: 0.78 },
+};
+
+const REFLECTION_REGION_TIER_LABELS: Record<ReflectionRegionTier, string> = {
+  low: "Low",
+  balanced: "Balanced",
+  high: "High",
+  very_high: "Very High",
+};
+
+const REFLECTION_TIER_RANK: Record<ReflectionRegionTier, number> = {
+  low: 0,
+  balanced: 1,
+  high: 2,
+  very_high: 3,
+};
+
+// Band a region's absolute engagement (its pre-normalization weighted mean for
+// aggregates, or a single entry's region score) against the baseline table.
+export const getReflectionRegionTier = (
+  id: ReflectionRegionId,
+  meanSignal: number
+): ReflectionRegionTier => {
+  const baseline = REFLECTION_REGION_BASELINE[id];
+  const value = Number.isFinite(meanSignal) ? meanSignal : 0;
+
+  if (value >= baseline.veryHigh) {
+    return "very_high";
+  }
+  if (value >= baseline.high) {
+    return "high";
+  }
+  if (value >= baseline.balanced) {
+    return "balanced";
+  }
+  return "low";
+};
+
+export const getReflectionRegionTierLabel = (tier: ReflectionRegionTier) =>
+  REFLECTION_REGION_TIER_LABELS[tier];
+
+// Overall reflective style from the breadth (how many regions are engaged) and
+// depth (how many show up strongly) of the region tiers. Comparative in tone
+// ("more than most journalers") but never numeric or diagnostic.
+export const getOverallReflectionTier = (
+  regionTiers: ReflectionRegionTier[]
+): OverallReflectionTier => {
+  const engagedCount = regionTiers.filter(
+    tier => REFLECTION_TIER_RANK[tier] >= REFLECTION_TIER_RANK.balanced
+  ).length;
+  const strongCount = regionTiers.filter(
+    tier => REFLECTION_TIER_RANK[tier] >= REFLECTION_TIER_RANK.high
+  ).length;
+
+  if (engagedCount >= 6 && strongCount >= 3) {
+    return {
+      tier: "highly_attuned",
+      label: "Highly Attuned",
+      blurb:
+        "You reflect both broadly and deeply — a wide-ranging, self-aware style few journalers reach.",
+    };
+  }
+
+  if (strongCount >= 2 || engagedCount >= 5) {
+    return {
+      tier: "deeply_reflective",
+      label: "Deeply Reflective",
+      blurb:
+        "You go deeper than most journalers in a few areas, returning to them with real consistency.",
+    };
+  }
+
+  if (engagedCount >= 3) {
+    return {
+      tier: "balanced",
+      label: "Balanced Reflector",
+      blurb:
+        "You reflect fairly evenly across several areas — a well-rounded reflective style.",
+    };
+  }
+
+  return {
+    tier: "emerging",
+    label: "Emerging Reflector",
+    blurb:
+      "Your reflections are still taking shape. A few more entries will bring the fuller picture into focus.",
+  };
+};
+
+// --- Supportive, non-clinical focus prompts ---------------------------------
+// One gentle reflection prompt per region. Never advice, never diagnostic —
+// just an invitation to notice, framed around the user's own writing.
+
+export const REFLECTION_REGION_FOCUS_TIPS: Record<ReflectionRegionId, string> = {
+  emotional_intensity:
+    "When strong feelings show up, it can help to name them on the page before deciding what they mean.",
+  planning_self_control:
+    "You often write toward what's next. Noticing one small, kind next step can make the plan feel lighter.",
+  memory_meaning:
+    "Your writing connects the present to the past. It can be worth asking what a memory is trying to remind you of.",
+  body_inner_signals:
+    "Your entries notice the body — energy, rest, tension. Checking in with those signals can add useful context.",
+  conflict_attention:
+    "Mixed or competing feelings show up here. Writing both sides out, without resolving them yet, can ease the tension.",
+  motivation_reward:
+    "You track effort and momentum. Naming what actually felt worth it can help you notice your own progress.",
+  relationships_perspective:
+    "Other people appear often in your reflections. It can help to separate what you felt from what you imagined they thought.",
+  self_reflection_identity:
+    "You return to who you're becoming. Gentle, honest self-talk on the page tends to matter more than getting it right.",
+};
+
+// --- AI per-entry region scoring schema -------------------------------------
+// Paired Zod + JSON Schema for the OpenAI Responses API structured output.
+// The model returns a raw 0-1 signal per region; deterministic post-processing
+// (ranking, evidence sanitising, intensity) happens in the scorer service.
+
+export const reflectionRegionIdSchema = z.enum([
+  "emotional_intensity",
+  "planning_self_control",
+  "memory_meaning",
+  "body_inner_signals",
+  "conflict_attention",
+  "motivation_reward",
+  "relationships_perspective",
+  "self_reflection_identity",
+]);
+
+const ENTRY_REGION_EVIDENCE_MAX_LENGTH = 60;
+
+export const entryRegionAiScoreSchema = z.object({
+  id: reflectionRegionIdSchema,
+  score: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  evidence: z
+    .array(z.string().trim().min(1).max(ENTRY_REGION_EVIDENCE_MAX_LENGTH))
+    .max(3),
+});
+
+export const entryRegionScoresSchema = z.object({
+  regions: z.array(entryRegionAiScoreSchema).length(8),
+  dominantRegionId: reflectionRegionIdSchema,
+});
+
+export type EntryRegionAiScores = z.infer<typeof entryRegionScoresSchema>;
+
+const entryRegionAiScoreJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    id: { type: "string", enum: REFLECTION_REGION_IDS },
+    score: { type: "number", minimum: 0, maximum: 1 },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    evidence: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: ENTRY_REGION_EVIDENCE_MAX_LENGTH,
+      },
+    },
+  },
+  required: ["id", "score", "confidence", "evidence"],
+};
+
+export const entryRegionScoresJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    regions: {
+      type: "array",
+      minItems: 8,
+      maxItems: 8,
+      items: entryRegionAiScoreJsonSchema,
+    },
+    dominantRegionId: { type: "string", enum: REFLECTION_REGION_IDS },
+  },
+  required: ["regions", "dominantRegionId"],
+} satisfies Record<string, unknown>;
+
+// --- Mind Map action steps schema -------------------------------------------
+// One structured call turns the user's own writing into a single practical,
+// supportive next step per region. Steps stay non-clinical and uncertainty-aware
+// (a suggestion to try, never a directive or diagnosis). Deterministic fallback
+// is REFLECTION_REGION_FOCUS_TIPS when the model returns null or omits a region.
+
+const MIND_MAP_ACTION_STEP_MAX_LENGTH = 220;
+
+export const mindMapActionStepAiSchema = z.object({
+  regionId: reflectionRegionIdSchema,
+  actionStep: z.string().trim().min(1).max(MIND_MAP_ACTION_STEP_MAX_LENGTH),
+});
+
+export const mindMapActionStepsSchema = z.object({
+  steps: z.array(mindMapActionStepAiSchema).min(1).max(8),
+});
+
+export type MindMapActionSteps = z.infer<typeof mindMapActionStepsSchema>;
+
+export const mindMapActionStepsJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    steps: {
+      type: "array",
+      minItems: 8,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          regionId: { type: "string", enum: REFLECTION_REGION_IDS },
+          actionStep: {
+            type: "string",
+            minLength: 1,
+            maxLength: MIND_MAP_ACTION_STEP_MAX_LENGTH,
+          },
+        },
+        required: ["regionId", "actionStep"],
+      },
+    },
+  },
+  required: ["steps"],
+} satisfies Record<string, unknown>;
+
+// --- Per-entry insight extraction (regions + therapist-style themes) ---------
+// One structured call produces both the 8-region signal AND the persisted
+// "key insight" for cross-session memory and the Mind Map's recurring patterns.
+// A theme is a recurring behavioural/emotional dynamic a thoughtful therapist
+// would notice — named directly, never as a clinical diagnosis or condition.
+
+export type EntryInsightTheme = {
+  label: string;
+  rationale: string;
+  evidenceQuote: string;
+  confidence: number;
+};
+
+const ENTRY_THEME_LABEL_MAX = 64;
+const ENTRY_THEME_RATIONALE_MAX = 220;
+const ENTRY_THEME_EVIDENCE_MAX = 180;
+const ENTRY_CONTEXT_SUMMARY_MAX = 400;
+const ENTRY_EMOTIONAL_TONE_MAX = 80;
+
+export const entryInsightThemeAiSchema = z.object({
+  label: z.string().trim().min(1).max(ENTRY_THEME_LABEL_MAX),
+  rationale: z.string().trim().min(1).max(ENTRY_THEME_RATIONALE_MAX),
+  evidenceQuote: z.string().trim().min(1).max(ENTRY_THEME_EVIDENCE_MAX),
+  confidence: z.number().min(0).max(1),
+});
+
+export const entryInsightExtractionSchema = z.object({
+  regions: z.array(entryRegionAiScoreSchema).length(8),
+  dominantRegionId: reflectionRegionIdSchema,
+  contextSummary: z.string().trim().min(1).max(ENTRY_CONTEXT_SUMMARY_MAX),
+  emotionalTone: z.string().trim().min(1).max(ENTRY_EMOTIONAL_TONE_MAX),
+  themes: z.array(entryInsightThemeAiSchema).max(4),
+});
+
+export type EntryInsightExtraction = z.infer<typeof entryInsightExtractionSchema>;
+
+const entryInsightThemeJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    label: { type: "string", minLength: 1, maxLength: ENTRY_THEME_LABEL_MAX },
+    rationale: {
+      type: "string",
+      minLength: 1,
+      maxLength: ENTRY_THEME_RATIONALE_MAX,
+    },
+    evidenceQuote: {
+      type: "string",
+      minLength: 1,
+      maxLength: ENTRY_THEME_EVIDENCE_MAX,
+    },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+  },
+  required: ["label", "rationale", "evidenceQuote", "confidence"],
+};
+
+export const entryInsightExtractionJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    regions: {
+      type: "array",
+      minItems: 8,
+      maxItems: 8,
+      items: entryRegionAiScoreJsonSchema,
+    },
+    dominantRegionId: { type: "string", enum: REFLECTION_REGION_IDS },
+    contextSummary: {
+      type: "string",
+      minLength: 1,
+      maxLength: ENTRY_CONTEXT_SUMMARY_MAX,
+    },
+    emotionalTone: {
+      type: "string",
+      minLength: 1,
+      maxLength: ENTRY_EMOTIONAL_TONE_MAX,
+    },
+    themes: {
+      type: "array",
+      maxItems: 4,
+      items: entryInsightThemeJsonSchema,
+    },
+  },
+  required: [
+    "regions",
+    "dominantRegionId",
+    "contextSummary",
+    "emotionalTone",
+    "themes",
+  ],
+} satisfies Record<string, unknown>;
+
+/**
+ * Deterministic themes derived from the ranked regions when AI is unavailable.
+ * Approximates therapist-observed themes using the strongest regions that have
+ * concrete evidence in the user's own words. Always safe / non-diagnostic.
+ */
+export const buildHeuristicEntryThemes = (
+  ranked: ReflectionRegionScore[]
+): EntryInsightTheme[] =>
+  ranked
+    .filter(region => region.score >= 0.34 && region.evidence.length > 0)
+    .slice(0, 3)
+    .map(region => ({
+      label: region.productName,
+      rationale: region.shortInsight,
+      evidenceQuote: region.evidence[0] ?? "",
+      confidence: region.confidence,
+    }))
+    .filter(theme => theme.evidenceQuote.trim().length > 0);
+
+/** Deterministic fallback context recap for cross-session memory. */
+export const buildHeuristicEntryContextSummary = (
+  ranked: ReflectionRegionScore[]
+): string => {
+  const strongest = ranked[0];
+  if (!strongest) {
+    return "A brief reflection was recorded.";
+  }
+  return `This entry leaned most into ${strongest.productName.toLowerCase()} patterns${
+    strongest.evidence[0] ? `, around "${strongest.evidence[0]}"` : ""
+  }.`;
+};
+
+export const buildHeuristicEntryEmotionalTone = (
+  ranked: ReflectionRegionScore[]
+): string =>
+  ranked[0]?.nuancedDetails.emotionalTone?.trim() ||
+  "A reflective, even tone.";

@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from "react-native";
+import { Text } from "../../infrastructure/reactNative";
 import {
   PACKAGE_TYPE,
   type CustomerInfo,
@@ -23,6 +22,7 @@ import RevenueCatUI, {
 import { ShieldCheck, Sparkles } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
+import JournalLoader from '../../components/JournalLoader';
 import {
   REVENUECAT_OFFERINGS,
   REVENUECAT_PRODUCTS,
@@ -763,7 +763,7 @@ export default function HostedRevenueCatPaywallScreen() {
                 },
               ]}
             >
-              <ActivityIndicator color={theme.colors.primary} />
+              <JournalLoader color={theme.colors.primary} />
               <Text
                 style={[styles.progressText, { color: theme.colors.foreground }]}
               >
@@ -815,7 +815,7 @@ export default function HostedRevenueCatPaywallScreen() {
                   },
                 ]}
               >
-                <ActivityIndicator color={theme.colors.primary} />
+                <JournalLoader color={theme.colors.primary} />
                 <Text
                   style={[
                     styles.processingTitle,
@@ -869,6 +869,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
+    letterSpacing: -0.6,
     lineHeight: 34,
     fontWeight: "700",
     textAlign: "center",

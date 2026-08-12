@@ -7,9 +7,19 @@ type AuthTokens = {
 
 const KEYCHAIN_SERVICE = "journalio.auth.tokens";
 const KEYCHAIN_USERNAME = "token";
+const DEVICE_ONLY_KEYCHAIN_USERNAME = "secure";
+const AUTH_USER_CACHE_SERVICE = "journalio.auth.user.secure";
+const ONBOARDING_CACHE_SERVICE = "journalio.onboardingData.secure";
 
 const getKeychainOptions = () => ({
   service: KEYCHAIN_SERVICE,
+});
+
+const getDeviceOnlyOptions = (service: string) => ({
+  accessible:
+    Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY ||
+    Keychain.ACCESSIBLE.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
+  service,
 });
 
 const saveTokens = async (tokens: AuthTokens) => {
@@ -55,5 +65,39 @@ const clearTokens = async () => {
   await Keychain.resetGenericPassword(getKeychainOptions());
 };
 
-export { clearTokens, getAccessToken, getTokens, saveTokens };
+const saveDeviceOnlyValue = async (service: string, value: string) => {
+  await Keychain.setGenericPassword(
+    DEVICE_ONLY_KEYCHAIN_USERNAME,
+    value,
+    getDeviceOnlyOptions(service)
+  );
+};
+
+const getDeviceOnlyValue = async (service: string): Promise<string | null> => {
+  const credentials = await Keychain.getGenericPassword(
+    getDeviceOnlyOptions(service)
+  );
+
+  if (!credentials) {
+    return null;
+  }
+
+  return credentials.password;
+};
+
+const clearDeviceOnlyValue = async (service: string) => {
+  await Keychain.resetGenericPassword(getDeviceOnlyOptions(service));
+};
+
+export {
+  AUTH_USER_CACHE_SERVICE,
+  ONBOARDING_CACHE_SERVICE,
+  clearDeviceOnlyValue,
+  clearTokens,
+  getAccessToken,
+  getDeviceOnlyValue,
+  getTokens,
+  saveDeviceOnlyValue,
+  saveTokens,
+};
 export type { AuthTokens };

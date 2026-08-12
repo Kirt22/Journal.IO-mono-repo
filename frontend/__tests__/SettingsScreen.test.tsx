@@ -8,10 +8,7 @@ import { Alert, AppState, Platform, Switch } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AccountScreen from '../src/screens/profile/AccountScreen';
 import SettingsScreen from '../src/screens/profile/SettingsScreen';
-import {
-  deleteAccount,
-  updateAiOptOutPreference,
-} from '../src/services/privacyService';
+import { deleteAccount } from '../src/services/privacyService';
 import { triggerHaptic } from '../src/services/hapticsService';
 import { resetAppStore, useAppStore } from '../src/store/appStore';
 import {
@@ -30,9 +27,6 @@ jest.mock('../src/utils/devLaunchConfig.json', () => ({
 jest.mock('../src/services/privacyService', () => ({
   deleteAccount: jest.fn(async () => ({
     deletedAccount: true,
-  })),
-  updateAiOptOutPreference: jest.fn(async () => ({
-    aiOptIn: false,
   })),
 }));
 
@@ -144,7 +138,6 @@ const setSession = (
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       },
     },
     biometricLockEnabled: options.biometricLockEnabled ?? false,
@@ -186,6 +179,7 @@ afterEach(() => {
 test('locks premium privacy controls for free users', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   const onOpenPaywall = jest.fn();
+  const onOpenBiometricLock = jest.fn();
 
   ReactTestRenderer.act(() => {
     setSession(false);
@@ -197,9 +191,9 @@ test('locks premium privacy controls for free users', async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={onOpenPaywall}
           onOpenHidePreviewsPaywall={onOpenPaywall}
-          onOpenBiometricLock={onOpenPaywall}
+          onOpenBiometricLock={onOpenBiometricLock}
+          onOpenBiometricLockPaywall={onOpenPaywall}
           onSignOut={jest.fn()}
           currentThemePreference="system"
           onToggleTheme={jest.fn()}
@@ -212,7 +206,9 @@ test('locks premium privacy controls for free users', async () => {
 
   expect(renderedText).toContain('Privacy & Data');
   expect(renderedText).toContain('More');
+  expect(renderedText).toContain('Widgets');
   expect(renderedText).toContain('Haptics');
+  expect(renderedText).toContain('About & Legal');
   expect(renderedText).toContain('Privacy Policy');
   expect(renderedText).toContain('Terms of Service');
   expect(renderedText).toContain('Privacy Choices');
@@ -226,16 +222,11 @@ test('locks premium privacy controls for free users', async () => {
     renderedText.indexOf('Personalisation'),
   );
   expect(renderedText).toContain('Export data');
-  expect(renderedText).toContain('Enable AI analysis');
   expect(renderedText).toContain('Hide entries');
   expect(renderedText).toContain('Face ID lock');
   expect(renderedText).toContain('Keep Journal.IO private');
-  expect(renderedText).toContain('Use AI for reflections');
   expect(renderedText).toContain('Mask journal previews');
   expect(renderedText.indexOf('Face ID lock')).toBeLessThan(
-    renderedText.indexOf('Enable AI analysis'),
-  );
-  expect(renderedText.indexOf('Enable AI analysis')).toBeLessThan(
     renderedText.indexOf('Hide entries'),
   );
   expect(renderedText.indexOf('Hide entries')).toBeLessThan(
@@ -244,18 +235,15 @@ test('locks premium privacy controls for free users', async () => {
 
   ReactTestRenderer.act(() => {
     root!.root
-      .findByProps({ accessibilityLabel: 'Unlock Privacy Mode' })
-      .props.onPress();
-    root!.root
       .findByProps({ accessibilityLabel: 'Unlock Hide Journal Previews' })
       .props.onPress();
     root!.root
-      .findByProps({ accessibilityLabel: 'Open Face ID lock' })
+      .findByProps({ accessibilityLabel: 'Unlock Face ID lock' })
       .props.onPress();
   });
 
-  expect(onOpenPaywall).toHaveBeenCalledTimes(3);
-  expect(updateAiOptOutPreference).not.toHaveBeenCalled();
+  expect(onOpenPaywall).toHaveBeenCalledTimes(2);
+  expect(onOpenBiometricLock).not.toHaveBeenCalled();
 });
 
 test('opens the Face ID detail screen for premium iPhone users', async () => {
@@ -276,7 +264,6 @@ test('opens the Face ID detail screen for premium iPhone users', async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
           onOpenBiometricLock={onOpenBiometricLock}
           onOpenSubscription={onOpenSubscription}
@@ -290,7 +277,7 @@ test('opens the Face ID detail screen for premium iPhone users', async () => {
 
   expect(extractText(root!.toJSON())).toContain('Face ID lock');
   expect(extractText(root!.toJSON())).toContain('Subscription');
-  expect(root!.root.findAllByType(Switch)).toHaveLength(3);
+  expect(root!.root.findAllByType(Switch)).toHaveLength(2);
 
   ReactTestRenderer.act(() => {
     root!.root
@@ -308,6 +295,7 @@ test('opens the Face ID detail screen for premium iPhone users', async () => {
 test('updates haptics and opens policy and support pages', async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
   const onSignOut = jest.fn(async () => undefined);
+  const onOpenWidgets = jest.fn();
 
   ReactTestRenderer.act(() => {
     setSession(true);
@@ -319,9 +307,9 @@ test('updates haptics and opens policy and support pages', async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
           onOpenBiometricLock={jest.fn()}
+          onOpenWidgets={onOpenWidgets}
           onSignOut={onSignOut}
           currentThemePreference="system"
           onToggleTheme={jest.fn()}
@@ -340,6 +328,7 @@ test('updates haptics and opens policy and support pages', async () => {
   expect(triggerHaptic).not.toHaveBeenCalled();
 
   ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: 'Open widgets' }).props.onPress();
     root!.root
       .findByProps({ accessibilityLabel: 'Open privacy policy' })
       .props.onPress();
@@ -356,6 +345,8 @@ test('updates haptics and opens policy and support pages', async () => {
       .findByProps({ accessibilityLabel: 'Open Help Center' })
       .props.onPress();
   });
+
+  expect(onOpenWidgets).toHaveBeenCalledTimes(1);
 
   expect(openExternalUrl).toHaveBeenNthCalledWith(
     1,
@@ -403,7 +394,6 @@ test('shows a Touch ID label on supported Touch ID devices', async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
           onOpenBiometricLock={jest.fn()}
           onSignOut={jest.fn()}
@@ -434,7 +424,6 @@ test('keeps the biometric detail entry available on unsupported iPhones', async 
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
           onOpenBiometricLock={jest.fn()}
           onSignOut={jest.fn()}
@@ -449,7 +438,7 @@ test('keeps the biometric detail entry available on unsupported iPhones', async 
 
   expect(renderedText).toContain('Biometric lock');
   expect(renderedText).toContain('Keep Journal.IO private');
-  expect(root!.root.findAllByType(Switch)).toHaveLength(3);
+  expect(root!.root.findAllByType(Switch)).toHaveLength(2);
 });
 
 test('hides the biometric row on Android', async () => {
@@ -473,7 +462,6 @@ test('hides the biometric row on Android', async () => {
         <SettingsScreen
           onBack={jest.fn()}
           onOpenPrivacy={jest.fn()}
-          onOpenPrivacyModePaywall={jest.fn()}
           onOpenHidePreviewsPaywall={jest.fn()}
           onOpenBiometricLock={jest.fn()}
           onSignOut={jest.fn()}

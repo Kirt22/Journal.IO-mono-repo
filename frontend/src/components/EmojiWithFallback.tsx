@@ -2,12 +2,12 @@ import { useEffect, useState, type ComponentType } from "react";
 import {
   Platform,
   StyleSheet,
-  Text,
   View,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { Text } from "../infrastructure/reactNative";
 
 type EmojiWithFallbackProps = {
   emoji: string;

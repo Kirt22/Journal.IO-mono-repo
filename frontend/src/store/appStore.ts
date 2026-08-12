@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { BottomNavKey } from '../components/BottomNav';
 import type { AuthEntrySource, FlowStage } from '../navigation/appFlow';
 import type { PaywallTriggerMode } from '../services/paywallService';
+import type { WidgetDeepLinkAction } from '../navigation/widgetDeepLinks';
 import {
   resendEmailVerification,
   logout,
@@ -31,9 +32,15 @@ import {
 } from '../services/reminderNotificationsService';
 import { syncOnboardingReminderRecordPreference } from '../services/remindersService';
 import type { ThemePreference } from '../theme/theme';
-import { ApiError } from '../utils/apiClient';
+import {
+  ApiError,
+  registerSessionInvalidationHandler,
+} from '../utils/apiClient';
 import { CURRENT_ONBOARDING_VERSION } from '../config/onboarding';
-import { completeOnboarding as completeOnboardingRequest } from '../services/onboardingService';
+import {
+  completeOnboarding as completeOnboardingRequest,
+  type CompleteOnboardingPayload,
+} from '../services/onboardingService';
 import {
   clearTokens,
   getOnboardingCompleted,
@@ -53,7 +60,10 @@ import {
   saveHideJournalPreviews,
   saveStoredOnboardingData,
 } from '../utils/appStorage';
-import type { OnboardingCompletionData } from '../types/onboarding';
+import type {
+  OnboardingCompletionData,
+  OnboardingV2Draft,
+} from '../types/onboarding';
 import {
   clearCachedAuthUser,
   getCachedAuthUser,
@@ -73,6 +83,7 @@ import {
 } from '../services/biometricLockService';
 import devLaunchConfig from '../utils/devLaunchConfig.json';
 import {
+  getCurrentRootRouteName,
   goBackOrFallback,
   navigateMainApp,
   navigateRoot,
@@ -84,6 +95,18 @@ import {
   createJournalSlice,
   type JournalSliceState,
 } from './slices/journalSlice';
+import {
+  createGoalsSlice,
+  createInitialGoalsSliceState,
+  type GoalsSliceState,
+} from './slices/goalsSlice';
+import {
+  createAskJadeSlice,
+  createInitialAskJadeSliceState,
+  type AskJadeSliceState,
+} from './slices/askJadeSlice';
+import { cancelAllGoalReminders } from '../services/goalRemindersService';
+import { clearMoodWidgetSessionLocal } from '../services/widgetService';
 
 const ONBOARDING_EXIT_DELAY_MS = 220;
 type SessionValidationState = 'none' | 'verified' | 'cached';
@@ -92,10 +115,54 @@ type BiometricAppLockFailureReason = Exclude<
   'success'
 >;
 
+type PendingWidgetAction = {
+  action: WidgetDeepLinkAction;
+  isReadyForHome: boolean;
+  requestId: number;
+};
+
+let widgetActionRequestId = 0;
+
+const isSameWidgetAction = (
+  left: WidgetDeepLinkAction,
+  right: WidgetDeepLinkAction,
+) => {
+  if (left.type !== right.type) {
+    return false;
+  }
+
+  if (left.type === 'mood' && right.type === 'mood') {
+    return left.mood === right.mood;
+  }
+
+  return true;
+};
+
 const wait = (ms: number) =>
   new Promise<void>(resolve => {
     setTimeout(resolve, ms);
   });
+
+const clearFreshInstallCredentials = async () => {
+  // iOS Keychain entries can remain after the app container is deleted. Never
+  // allow those residual credentials to restore a newly installed app.
+  const cleanupResults = await Promise.allSettled([
+    clearTokens(),
+    clearCachedAuthUser(),
+    clearStoredOnboardingData(),
+    clearMoodWidgetSessionLocal(),
+    disableBiometricLockService(),
+  ]);
+
+  if (cleanupResults[0]?.status === 'fulfilled') {
+    await markInstallSeen().catch(() => undefined);
+  }
+
+  await Promise.all([
+    saveOnboardingCompleted(false).catch(() => undefined),
+    savePostAuthPaywallSeen(false).catch(() => undefined),
+  ]);
+};
 
 const isFlowStage = (value: string): value is FlowStage =>
   value === 'onboarding' ||
@@ -108,7 +175,6 @@ const isFlowStage = (value: string): value is FlowStage =>
   value === 'reset-password' ||
   value === 'create-account' ||
   value === 'verify-email' ||
-  value === 'profile' ||
   value === 'main-app' ||
   value === 'new-entry' ||
   value === 'journal-detail' ||
@@ -196,6 +262,27 @@ const logReminderSyncWarning = (error: unknown) => {
   );
 };
 
+/**
+ * The V2 flow answers a different set of questions than V1 and does not collect
+ * a reminder preference (reminders are their own step, saved to the reminders
+ * collection). `primarySupportFocus` is omitted because it is always
+ * `supportFocusAreas[0]`, and the array already preserves that ordering.
+ */
+const mapOnboardingV2DraftToCompletion = (
+  draft: OnboardingV2Draft,
+): CompleteOnboardingPayload => ({
+  ageRange: draft.ageRange,
+  primaryContext: draft.primaryContext,
+  reflectionTone: draft.reflectionTone,
+  supportFocusAreas: draft.supportFocusAreas,
+  whatBringsYouHere: draft.whatBringsYouHere,
+  preferredTheme: draft.preferredTheme,
+  privacyConsent: draft.privacyConsent,
+  referralSource: draft.referralSource,
+  referralSourceOther: draft.referralSourceOther,
+  commitmentSignedAt: draft.commitmentSignedAt,
+});
+
 const syncReminderStateAfterAuth = async (
   onboardingData: OnboardingCompletionData | null,
 ) => {
@@ -244,6 +331,23 @@ const readBiometricLockSnapshot = async () => {
   };
 };
 
+/** A square orb frame in window coordinates. */
+export type OrbHandoffRect = {
+  x: number;
+  y: number;
+  size: number;
+};
+
+/**
+ * Hands the root paywall's ambient orb over to the Home hero orb so the orb
+ * stays continuous across the root reset that dismissing the paywall performs.
+ * `to` is null until Home mounts and measures where its own orb landed.
+ */
+export type OrbHandoffState = {
+  from: OrbHandoffRect;
+  to: OrbHandoffRect | null;
+};
+
 type AppStoreState = {
   stage: FlowStage;
   paywallReturnStage: PaywallExitStage | null;
@@ -252,6 +356,13 @@ type AppStoreState = {
   activePaywallTriggerMode: PaywallTriggerMode;
   activeHostedPaywallTarget: HostedPaywallTarget | null;
   postAuthPaywallStepOverride: PostAuthPaywallStep | null;
+  /**
+   * True while the paywall is stacked on top of the screen that opened it,
+   * rather than having replaced the navigation root. Auth/onboarding gates
+   * still replace the root — there is nothing underneath them to return to.
+   */
+  isPaywallOverlay: boolean;
+  isNewEntryChoiceVisible: boolean;
   activeTab: BottomNavKey;
   preferredInsightsTab: 'overview' | 'analysis' | null;
   isCompletingOnboarding: boolean;
@@ -266,6 +377,7 @@ type AppStoreState = {
   pendingNewEntryPrompt: string | null;
   pendingPremiumActivation: boolean;
   hasSeenHomeEntrance: boolean;
+  orbHandoff: OrbHandoffState | null;
   hasBootstrappedAuthGate: boolean;
   hapticsEnabled: boolean;
   hideJournalPreviews: boolean;
@@ -279,16 +391,23 @@ type AppStoreState = {
   biometricLockFailureMessage: string | null;
   legalBrowserUrl: string | null;
   legalBrowserTitle: string | null;
-} & JournalSliceState & {
+  pendingWidgetAction: PendingWidgetAction | null;
+} & JournalSliceState &
+  GoalsSliceState &
+  AskJadeSliceState & {
     bootstrapAuthGate: () => Promise<void>;
     revalidateCachedSession: () => Promise<void>;
     completeOnboarding: (data: OnboardingCompletionData) => Promise<void>;
-    finishOnboardingV2FirstReflection: () => Promise<void>;
+    finishOnboardingV2Journey: (
+      displayName?: string,
+      draft?: OnboardingV2Draft,
+    ) => Promise<void>;
     continueFromPaywall: (reason?: 'dismiss' | 'continue') => void;
     openHostedPaywall: (target: HostedPaywallTarget) => void;
     continueFromHostedPaywall: (reason?: 'dismiss' | 'continue') => void;
     fallbackFromHostedPaywall: () => void;
     continueFromLifetimeOffer: () => void;
+    fallbackFromLifetimeOffer: () => void;
     openLifetimeOffer: (options?: {
       returnStage?: FlowStage;
       screenKey?: string | null;
@@ -333,12 +452,19 @@ type AppStoreState = {
     skipProfileSetup: () => Promise<void>;
     restartFlow: () => void;
     markHomeEntranceSeen: () => void;
+    beginOrbHandoff: (from: OrbHandoffRect) => void;
+    reportOrbHandoffTarget: (to: OrbHandoffRect) => void;
+    completeOrbHandoff: () => void;
     setActiveTabState: (nextTab: BottomNavKey) => void;
     setActiveTab: (nextTab: BottomNavKey) => void;
     openInsightsTab: (nextTab?: 'overview' | 'analysis') => void;
     clearPreferredInsightsTab: () => void;
     openNewEntry: (options?: { initialPrompt?: string | null }) => void;
     closeNewEntry: () => void;
+    openAskJade: () => void;
+    closeAskJade: () => void;
+    openNewEntryChoice: () => void;
+    closeNewEntryChoice: () => void;
     openJournalEntry: (entryId: string) => void;
     openJournalEditor: (entryId: string) => void;
     closeJournalEntry: () => void;
@@ -356,7 +482,9 @@ type AppStoreState = {
     clearBiometricAppLockError: () => void;
     openLegalBrowser: (payload: { url: string; title?: string | null }) => void;
     closeLegalBrowser: () => void;
-    setSessionAiOptIn: (nextValue: boolean) => void;
+    queueWidgetAction: (action: WidgetDeepLinkAction) => void;
+    preparePendingWidgetActionForHome: () => void;
+    consumePendingWidgetAction: (requestId: number) => void;
     setSessionPremiumStatus: (nextValue: boolean) => Promise<void>;
     setSessionUserProfile: (nextProfile: AuthSession['user']) => void;
   };
@@ -370,6 +498,8 @@ type AppStoreSnapshot = Pick<
   | 'activePaywallTriggerMode'
   | 'activeHostedPaywallTarget'
   | 'postAuthPaywallStepOverride'
+  | 'isPaywallOverlay'
+  | 'isNewEntryChoiceVisible'
   | 'activeTab'
   | 'preferredInsightsTab'
   | 'isCompletingOnboarding'
@@ -384,6 +514,7 @@ type AppStoreSnapshot = Pick<
   | 'pendingNewEntryPrompt'
   | 'pendingPremiumActivation'
   | 'hasSeenHomeEntrance'
+  | 'orbHandoff'
   | 'hasBootstrappedAuthGate'
   | 'hapticsEnabled'
   | 'hideJournalPreviews'
@@ -397,6 +528,7 @@ type AppStoreSnapshot = Pick<
   | 'biometricLockFailureMessage'
   | 'legalBrowserUrl'
   | 'legalBrowserTitle'
+  | 'pendingWidgetAction'
   | 'hasHydratedRecentJournalEntries'
   | 'recentJournalEntries'
 >;
@@ -409,15 +541,14 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   activePaywallTriggerMode: 'contextual',
   activeHostedPaywallTarget: null,
   postAuthPaywallStepOverride: null,
+  isPaywallOverlay: false,
+  isNewEntryChoiceVisible: false,
   activeTab: getInitialTab(),
   preferredInsightsTab: null,
   isCompletingOnboarding: false,
   onboardingData: null,
-  pendingEmail:
-    __DEV__ && devLaunchConfig.stage === 'profile'
-      ? devLaunchConfig.email || 'debug@example.com'
-      : '',
-  authSource: __DEV__ && devLaunchConfig.stage === 'profile' ? 'email' : null,
+  pendingEmail: '',
+  authSource: null,
   session: null,
   sessionValidationState: 'none',
   initialProfileName: '',
@@ -426,6 +557,7 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   pendingNewEntryPrompt: null,
   pendingPremiumActivation: false,
   hasSeenHomeEntrance: false,
+  orbHandoff: null,
   hasBootstrappedAuthGate: false,
   hapticsEnabled: true,
   hideJournalPreviews: false,
@@ -439,7 +571,10 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   biometricLockFailureMessage: null,
   legalBrowserUrl: null,
   legalBrowserTitle: null,
+  pendingWidgetAction: null,
   ...createInitialJournalSliceState(),
+  ...createInitialGoalsSliceState(),
+  ...createInitialAskJadeSliceState(),
 });
 
 const enterHomeWithProfile = (
@@ -486,7 +621,8 @@ const isAuthenticatedAppStage = (stage: FlowStage) =>
   stage === 'main-app' ||
   stage === 'new-entry' ||
   stage === 'journal-detail' ||
-  stage === 'journal-edit';
+  stage === 'journal-edit' ||
+  stage === 'ask-jade';
 
 const syncPendingPremiumIfNeeded = async (
   session: AuthSession,
@@ -511,7 +647,7 @@ const getPostAuthDestinationStage = (
     return 'auth';
   }
 
-  return session.user.profileSetupCompleted ? 'main-app' : 'profile';
+  return 'main-app';
 };
 
 const shouldShowPostAuthPaywall = (session: AuthSession | null) =>
@@ -629,9 +765,6 @@ const navigateToResolvedStage = (
     case 'verify-email':
       resetRoot('VerifyEmail');
       return;
-    case 'profile':
-      resetToProfileSetup();
-      return;
     case 'new-entry':
       resetRoot('MainApp', {
         screen: 'NewEntry',
@@ -664,10 +797,10 @@ type PaywallExitStage = Exclude<
 type HostedPaywallTarget = 'main' | 'exit';
 type PostAuthPaywallStep = 'trial' | 'reminder' | 'purchase';
 
-const shouldUseHostedPaywallForPlacement = (placementKey: string) =>
-  placementKey !== 'profile_upgrade_banner' &&
-  placementKey !== 'post_auth' &&
-  placementKey !== 'post_auth_exit_offer';
+// All in-app premium gates now open the custom P1 paywall (with per-feature
+// copy). The exit offer still uses the hosted RevenueCat surface, but it's
+// opened directly via openHostedPaywall('exit'), not through this helper.
+const shouldUseHostedPaywallForPlacement = (_placementKey: string) => false;
 
 const getMainAppRouteForTab = (tab: BottomNavKey) => {
   switch (tab) {
@@ -706,10 +839,6 @@ const resetToOnboarding = () => {
   resetRoot('Onboarding');
 };
 
-const resetToProfileSetup = () => {
-  resetRoot('SetupProfile');
-};
-
 const navigateAuthenticatedRoute = (
   resolution: ReturnType<typeof resolveAuthenticatedRoute>,
 ) => {
@@ -720,11 +849,6 @@ const navigateAuthenticatedRoute = (
 
   if (resolution.showPaywall) {
     resetRoot('Paywall');
-    return;
-  }
-
-  if (resolution.nextStage === 'profile') {
-    resetToProfileSetup();
     return;
   }
 
@@ -789,9 +913,28 @@ const persistAndRouteAuthenticatedSession = async ({
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...createInitialSnapshot(),
   ...createJournalSlice(set as Parameters<typeof createJournalSlice>[0]),
+  ...createGoalsSlice(
+    set as Parameters<typeof createGoalsSlice>[0],
+    get as Parameters<typeof createGoalsSlice>[1],
+  ),
+  ...createAskJadeSlice(
+    set as Parameters<typeof createAskJadeSlice>[0],
+    get as Parameters<typeof createAskJadeSlice>[1],
+  ),
   bootstrapAuthGate: async () => {
     if (get().hasBootstrappedAuthGate) {
       return;
+    }
+
+    if (shouldBypassAuthGateForDevLaunch()) {
+      set({ hasBootstrappedAuthGate: true });
+      return;
+    }
+
+    const isFreshInstall = !(await hasSeenInstall());
+
+    if (isFreshInstall) {
+      await clearFreshInstallCredentials();
     }
 
     const [hapticsEnabled, hideJournalPreviews, biometricLockSnapshot] = await Promise.all([
@@ -812,23 +955,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       isBiometricAppLocked: biometricLockSnapshot.biometricLockEnabled,
     });
 
-    if (shouldBypassAuthGateForDevLaunch()) {
-      set({ hasBootstrappedAuthGate: true });
-      return;
-    }
-
-    const installSeen = await hasSeenInstall();
-
-    if (!installSeen) {
-      await markInstallSeen();
-      await saveOnboardingCompleted(false);
-      await savePostAuthPaywallSeen(false);
-    }
-
-    let tokens = await getTokens();
+    let tokens = isFreshInstall ? null : await getTokens();
 
     if (tokens && isLegacyMockSession(tokens)) {
-      await Promise.all([clearTokens(), clearCachedAuthUser()]);
+      await Promise.all([
+        clearTokens(),
+        clearCachedAuthUser(),
+        clearMoodWidgetSessionLocal(),
+      ]);
       tokens = null;
     }
 
@@ -878,8 +1012,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         return;
       } catch (error) {
         if (isUnauthorizedProfileError(error)) {
-          await clearTokens();
-          await clearCachedAuthUser();
+          await Promise.all([
+            clearTokens(),
+            clearCachedAuthUser(),
+            clearMoodWidgetSessionLocal('reconnectRequired'),
+          ]);
         } else if (error instanceof ApiError && error.isNetworkError) {
           const cachedUser = await getCachedAuthUser();
 
@@ -915,9 +1052,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
               stage: isOnboardingCompleteForCurrentVersion(cachedUser, {
                 allowLegacyCacheFallback: true,
               })
-                ? cachedUser.profileSetupCompleted
-                  ? 'main-app'
-                  : 'profile'
+                ? 'main-app'
                 : 'onboarding',
             });
             return;
@@ -961,6 +1096,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ? await getStoredOnboardingData()
       : null;
 
+    await clearMoodWidgetSessionLocal();
+
     set({
       hasBootstrappedAuthGate: true,
       session: null,
@@ -1001,9 +1138,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         isOnboardingCompleteForCurrentVersion(profile);
       const nextStage: FlowStage = !onboardingComplete
         ? 'onboarding'
-        : profile.profileSetupCompleted
-        ? 'main-app'
-        : 'profile';
+        : 'main-app';
       const latestStage = get().stage;
       const shouldKeepAuthenticatedRoute =
         nextStage === 'main-app' && isAuthenticatedAppStage(latestStage);
@@ -1031,8 +1166,6 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
       if (nextStage === 'onboarding') {
         resetToOnboarding();
-      } else if (nextStage === 'profile') {
-        resetToProfileSetup();
       } else {
         resetRoot('MainApp', { screen: 'Home' });
       }
@@ -1041,7 +1174,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         return;
       }
 
-      await Promise.all([clearTokens(), clearCachedAuthUser()]);
+      await Promise.all([
+        clearTokens(),
+        clearCachedAuthUser(),
+        clearMoodWidgetSessionLocal('reconnectRequired'),
+      ]);
       set({
         session: null,
         sessionValidationState: 'none',
@@ -1109,7 +1246,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       throw error;
     }
   },
-  finishOnboardingV2FirstReflection: async () => {
+  finishOnboardingV2Journey: async (displayName, draft) => {
     const currentSession = get().session;
 
     if (!currentSession) {
@@ -1122,12 +1259,38 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
+    // Persist the onboarding answers before the profile update. Without this the
+    // whole V2 questionnaire is discarded, and the server-side AI
+    // personalization has nothing to read. It runs first so `updateProfile`
+    // still lands even if the completion call fails, and the failure is
+    // swallowed: the user's reflection is already saved and stranding them on
+    // the last onboarding screen would be worse than losing the preferences.
+    if (draft) {
+      try {
+        await completeOnboardingRequest(mapOnboardingV2DraftToCompletion(draft));
+      } catch (error) {
+        console.warn(
+          `[Onboarding] Unable to persist onboarding preferences ${
+            error instanceof Error ? error.message : 'Unknown failure'
+          }`,
+        );
+      }
+    }
+
+    const fallbackName =
+      displayName?.trim() || currentSession.user.name?.trim() || 'Journal User';
+    const fallbackAvatarColor = currentSession.user.avatarColor || '#8E4636';
+    const updatedProfile = await updateProfile({
+      name: fallbackName,
+      avatarColor: fallbackAvatarColor,
+    });
     const currentJournalCount = currentSession.user.journalCount || 0;
     const nextProfile: AuthUser = {
-      ...currentSession.user,
+      ...updatedProfile,
       hasJournalEntries: true,
-      journalCount: Math.max(currentJournalCount + 1, 1),
+      journalCount: Math.max(updatedProfile.journalCount || 0, currentJournalCount + 1, 1),
     };
+    const shouldShowPaywall = !nextProfile.isPremium;
 
     await Promise.all([
       saveOnboardingCompleted(true),
@@ -1142,25 +1305,53 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       },
       initialProfileName: nextProfile.name,
       activeTab: 'home',
-      paywallReturnStage: null,
-      activePaywallPlacementKey: null,
-      activePaywallScreenKey: null,
+      paywallReturnStage: shouldShowPaywall ? 'main-app' : null,
+      activePaywallPlacementKey: shouldShowPaywall ? 'post_auth' : null,
+      activePaywallScreenKey: shouldShowPaywall ? 'onboarding' : null,
       activePaywallTriggerMode: 'contextual',
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      stage: 'main-app',
+      // An auth gate has no caller to return to, so it keeps replacing the root.
+      isPaywallOverlay: false,
+      stage: shouldShowPaywall ? 'paywall' : 'main-app',
       isBiometricAppLocked:
         get().biometricLockEnabled && canAccessBiometricLock(nextProfile),
       biometricLockFailureReason: null,
       biometricLockFailureMessage: null,
     });
 
-    resetRoot('MainApp', {
-      screen: 'Home',
-    });
+    if (shouldShowPaywall) {
+      resetRoot('Paywall');
+      return;
+    }
+
+    resetRoot('MainApp', { screen: 'Home' });
   },
   continueFromPaywall: () => {
     const state = get();
+
+    if (state.isPaywallOverlay) {
+      // The caller is still mounted underneath, so popping returns the user to
+      // exactly the screen they were on — with the refreshed premium session if
+      // they purchased. `stage` was never moved, so it needs no restoring.
+      set({
+        paywallReturnStage: null,
+        activePaywallPlacementKey: null,
+        activePaywallScreenKey: null,
+        activePaywallTriggerMode: 'contextual',
+        activeHostedPaywallTarget: null,
+        postAuthPaywallStepOverride: null,
+        isPaywallOverlay: false,
+      });
+
+      goBackOrFallback(() =>
+        navigateToResolvedStage({
+          ...state,
+          setActiveTabState: get().setActiveTabState,
+        }),
+      );
+      return;
+    }
 
     set(currentState => ({
       paywallReturnStage: null,
@@ -1169,6 +1360,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       activePaywallTriggerMode: 'contextual',
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
+      isPaywallOverlay: false,
       stage: resolvePaywallExitStage(currentState),
     }));
 
@@ -1237,6 +1429,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: 'purchase' as PostAuthPaywallStep,
+      isPaywallOverlay: false,
       stage: 'paywall' as FlowStage,
     });
 
@@ -1259,6 +1452,21 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       ...state,
       setActiveTabState: get().setActiveTabState,
     });
+  },
+  fallbackFromLifetimeOffer: () => {
+    // Lifetime is a capped offer, so the server stops returning it once the
+    // seats are gone. Hand the user to the standard paywall rather than back to
+    // where they came from: they tapped upgrade, so they still get an offer —
+    // the placement key is left in place so the paywall renders the fallback
+    // template the server already picked for it.
+    set({
+      activeHostedPaywallTarget: null,
+      postAuthPaywallStepOverride: null,
+      isPaywallOverlay: false,
+      stage: 'paywall' as FlowStage,
+    });
+
+    resetRoot('Paywall');
   },
   openLifetimeOffer: ({
     returnStage,
@@ -1343,17 +1551,45 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         ? (returnStage as PaywallExitStage)
         : fallbackStage;
 
+    if (shouldUseHostedPaywall) {
+      set({
+        paywallReturnStage: nextReturnStage,
+        activePaywallPlacementKey: placementKey,
+        activePaywallScreenKey: screenKey,
+        activePaywallTriggerMode: triggerMode,
+        activeHostedPaywallTarget: 'main',
+        postAuthPaywallStepOverride: null,
+        isPaywallOverlay: false,
+        stage: 'hosted-paywall',
+      });
+
+      resetRoot('HostedPaywall');
+      return;
+    }
+
+    // Contextual paywalls stack on top of the screen that opened it rather than
+    // replacing the navigation root. Resetting used to unmount MainAppShell and
+    // every screen inside it, so dismissing dropped the user on their active tab
+    // instead of back where they were — and it tore the owner out from under any
+    // modal that raised the paywall while it was still dismissing.
+    // `stage` deliberately stays on the underlying screen so a cold start
+    // restores that, not the paywall.
     set({
       paywallReturnStage: nextReturnStage,
       activePaywallPlacementKey: placementKey,
       activePaywallScreenKey: screenKey,
       activePaywallTriggerMode: triggerMode,
-      activeHostedPaywallTarget: shouldUseHostedPaywall ? 'main' : null,
+      activeHostedPaywallTarget: null,
       postAuthPaywallStepOverride: null,
-      stage: shouldUseHostedPaywall ? 'hosted-paywall' : 'paywall',
+      isPaywallOverlay: true,
     });
 
-    resetRoot(shouldUseHostedPaywall ? 'HostedPaywall' : 'Paywall');
+    // Re-entering while it is already up would stack a second copy.
+    if (getCurrentRootRouteName() === 'Paywall') {
+      return;
+    }
+
+    navigateRoot('Paywall');
   },
   setPaywallContext: ({
     placementKey,
@@ -1619,12 +1855,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }
 
     await cancelFreeTrialEndingReminder().catch(() => undefined);
+    // These local notifications name the user's goals by title — they must never
+    // survive a sign-out.
+    await cancelAllGoalReminders().catch(() => undefined);
     await clearTokens();
     await clearCachedAuthUser();
     await clearStoredOnboardingData();
+    await clearMoodWidgetSessionLocal();
 
     set({
       ...createInitialJournalSliceState(),
+      ...createInitialGoalsSliceState(),
+      // Conversations are personal; signing out must not leave them in memory.
+      ...createInitialAskJadeSliceState(),
       stage: 'auth',
       activeTab: 'home',
       paywallReturnStage: null,
@@ -1648,6 +1891,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       isBiometricAuthenticating: false,
       biometricLockFailureReason: null,
       biometricLockFailureMessage: null,
+      pendingWidgetAction: null,
     });
 
     resetRoot('AuthChoice');
@@ -1689,6 +1933,27 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   markHomeEntranceSeen: () => {
     set({ hasSeenHomeEntrance: true });
   },
+  beginOrbHandoff: from => {
+    set({ orbHandoff: { from, to: null } });
+  },
+  reportOrbHandoffTarget: to => {
+    const handoff = get().orbHandoff;
+
+    // Home re-measures on every layout pass; only the first report starts the
+    // travel, or a keyboard/rotation layout mid-flight would restart it.
+    if (!handoff || handoff.to) {
+      return;
+    }
+
+    set({ orbHandoff: { ...handoff, to } });
+  },
+  completeOrbHandoff: () => {
+    if (!get().orbHandoff) {
+      return;
+    }
+
+    set({ orbHandoff: null });
+  },
   setActiveTabState: nextTab => {
     set({
       activeTab: nextTab,
@@ -1717,9 +1982,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   clearPreferredInsightsTab: () => {
     set({ preferredInsightsTab: null });
   },
+  // The Guided / Open-ended chooser lives in the tab frame but is raised from
+  // both the bottom nav and the Home streak nudge, so its visibility is shared
+  // rather than local to the frame.
+  openNewEntryChoice: () => {
+    set({ isNewEntryChoiceVisible: true });
+  },
+  closeNewEntryChoice: () => {
+    set({ isNewEntryChoiceVisible: false });
+  },
   openNewEntry: options => {
     set({
       stage: 'new-entry',
+      isNewEntryChoiceVisible: false,
       pendingNewEntryPrompt: normalizeNewEntryPrompt(options?.initialPrompt),
     });
 
@@ -1729,6 +2004,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   closeNewEntry: () => {
     set({ stage: 'main-app', pendingNewEntryPrompt: null });
+
+    goBackOrFallback(() =>
+      resetRoot('MainApp', {
+        screen: getMainAppRouteForTab(get().activeTab),
+      }),
+    );
+  },
+  openAskJade: () => {
+    set({ stage: 'ask-jade' });
+    navigateMainApp('AskJade', undefined);
+  },
+  closeAskJade: () => {
+    set({ stage: 'main-app' });
 
     goBackOrFallback(() =>
       resetRoot('MainApp', {
@@ -1829,8 +2117,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
   setBiometricLockEnabled: async nextValue => {
     const result = nextValue
-      ? await enableBiometricLockService()
+      ? await enableBiometricLockService(get().session?.user)
       : await disableBiometricLockService();
+
+    if (result.status === 'premium_required') {
+      return result;
+    }
 
     set({
       biometricLockEnabled: result.status === 'enabled',
@@ -1918,26 +2210,51 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     goBackOrFallback(() => undefined);
   },
-  setSessionAiOptIn: nextValue => {
-    const currentSession = get().session;
+  queueWidgetAction: action => {
+    const pendingWidgetAction = get().pendingWidgetAction;
 
-    if (!currentSession) {
+    // A single widget tap can reach us from more than one delivery path. Re-queueing an
+    // action that is still pending would rewind isReadyForHome and reset the navigation
+    // root again, undoing the screen the first delivery already opened.
+    if (
+      pendingWidgetAction &&
+      isSameWidgetAction(pendingWidgetAction.action, action)
+    ) {
       return;
     }
 
-    const nextProfile = {
-      ...currentSession.user,
-      aiOptIn: nextValue,
-    };
-
-    saveCachedAuthUser(nextProfile).catch(() => undefined);
-
+    widgetActionRequestId += 1;
     set({
-      session: {
-        ...currentSession,
-        user: nextProfile,
+      pendingWidgetAction: {
+        action,
+        isReadyForHome: false,
+        requestId: widgetActionRequestId,
       },
     });
+  },
+  preparePendingWidgetActionForHome: () => {
+    const pendingWidgetAction = get().pendingWidgetAction;
+
+    if (!pendingWidgetAction || pendingWidgetAction.isReadyForHome) {
+      return;
+    }
+
+    set({
+      activeTab: 'home',
+      preferredInsightsTab: null,
+      stage: 'main-app',
+      pendingWidgetAction: {
+        ...pendingWidgetAction,
+        isReadyForHome: true,
+      },
+    });
+
+    resetRoot('MainApp', { screen: 'Home' });
+  },
+  consumePendingWidgetAction: requestId => {
+    if (get().pendingWidgetAction?.requestId === requestId) {
+      set({ pendingWidgetAction: null });
+    }
   },
   setSessionPremiumStatus: async nextValue => {
     const currentSession = get().session;
@@ -2010,3 +2327,40 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 export const resetAppStore = () => {
   useAppStore.setState(createInitialSnapshot());
 };
+
+registerSessionInvalidationHandler(async () => {
+  await Promise.all([
+    clearCachedAuthUser().catch(() => undefined),
+    clearMoodWidgetSessionLocal('reconnectRequired').catch(() => undefined),
+  ]);
+
+  useAppStore.setState(state => ({
+    ...state,
+    ...createInitialJournalSliceState(),
+    ...createInitialGoalsSliceState(),
+    ...createInitialAskJadeSliceState(),
+    stage: 'auth',
+    session: null,
+    sessionValidationState: 'none',
+    initialProfileName: '',
+    pendingEmail: '',
+    authSource: null,
+    pendingPremiumActivation: false,
+    selectedJournalEntryId: null,
+    pendingNewEntryPrompt: null,
+    paywallReturnStage: null,
+    activePaywallPlacementKey: null,
+    activePaywallScreenKey: null,
+    activePaywallTriggerMode: 'contextual',
+    activeHostedPaywallTarget: null,
+    postAuthPaywallStepOverride: null,
+    preferredInsightsTab: null,
+    pendingWidgetAction: null,
+    isBiometricAppLocked: false,
+    isBiometricAuthenticating: false,
+    biometricLockFailureReason: null,
+    biometricLockFailureMessage: null,
+  }));
+
+  resetRoot('AuthChoice');
+});

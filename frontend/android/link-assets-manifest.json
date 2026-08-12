@@ -1,0 +1,41 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/BricolageGrotesque-Bold.ttf",
+      "sha1": "81fd8d09b0f80fff90858f10331b2f5faa273ec8"
+    },
+    {
+      "path": "src/assets/fonts/BricolageGrotesque-SemiBold.ttf",
+      "sha1": "904c123869bdc07751df2373e04e9cb8d65cc9aa"
+    },
+    {
+      "path": "src/assets/fonts/OFL-BricolageGrotesque.txt",
+      "sha1": "f63c11ad3638f6ccc44b188755fea3db7ad4405a"
+    },
+    {
+      "path": "src/assets/fonts/OFL-SchibstedGrotesk.txt",
+      "sha1": "7beccaf8bc6a3184cd14185ceb409f70498a528f"
+    },
+    {
+      "path": "src/assets/fonts/SchibstedGrotesk-Bold.ttf",
+      "sha1": "9b0cf199b1ee2cb610f07a6905b14ee1cee274a2"
+    },
+    {
+      "path": "src/assets/fonts/SchibstedGrotesk-Italic.ttf",
+      "sha1": "d153f354bec169aaa72f1c2c9794456cd1ff4f50"
+    },
+    {
+      "path": "src/assets/fonts/SchibstedGrotesk-Medium.ttf",
+      "sha1": "4cd6dfb0366bc2cad4c488ad714619bff8d84b32"
+    },
+    {
+      "path": "src/assets/fonts/SchibstedGrotesk-Regular.ttf",
+      "sha1": "c17f2fa6b501d479efafeb256853a28ab879327a"
+    },
+    {
+      "path": "src/assets/fonts/SchibstedGrotesk-SemiBold.ttf",
+      "sha1": "4ec3ed248791b6ac7c40c41b1efbbae9c88781e2"
+    }
+  ]
+}

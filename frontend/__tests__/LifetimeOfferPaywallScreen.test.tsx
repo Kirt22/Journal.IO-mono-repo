@@ -7,6 +7,7 @@ import ReactTestRenderer from "react-test-renderer";
 import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import LifetimeOfferPaywallScreen from "../src/screens/profile/LifetimeOfferPaywallScreen";
+import { PREMIUM_FEATURES } from "../src/screens/profile/paywallContent";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import {
   getRevenueCatOfferings,
@@ -158,7 +159,6 @@ jest.mock("../src/services/paywallService", () => ({
     profileSetupCompleted: true,
     onboardingCompleted: true,
     profilePic: null,
-    aiOptIn: true,
   })),
   trackPaywallEvent: jest.fn(async () => ({
     eventId: "event-test",
@@ -229,7 +229,6 @@ describe("LifetimeOfferPaywallScreen", () => {
             profileSetupCompleted: true,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -263,9 +262,11 @@ describe("LifetimeOfferPaywallScreen", () => {
     expect(text).toContain(
       "One payment. No subscriptions. No renewals. Yours for life."
     );
-    expect(text).toContain("Unlimited AI insights & personalised prompts");
-    expect(text).toContain("Advanced analytics & emotion tracking");
-    expect(text).toContain("Securely export all your entries");
+    // Same product, so the same feature list as the subscription paywall — a
+    // shorter one here read as the cheaper deal.
+    PREMIUM_FEATURES.forEach(feature => {
+      expect(text).toContain(feature.text);
+    });
     expect(text).toContain("$149.99");
     expect(text).toContain("87/100 claimed");
     expect(text).toContain("Unlock Lifetime Premium");
@@ -303,6 +304,79 @@ describe("LifetimeOfferPaywallScreen", () => {
     expect(extractText(renderer!.toJSON())).toContain(
       "Lifetime access is active."
     );
+  });
+
+  it("hands off to the standard paywall once the lifetime seats are gone", async () => {
+    // At the cap the server keeps shouldShow:true and falls the placement back
+    // to the subscription template, so the sold-out signal is the lifetime
+    // offering being absent. Reading it wrong sells seat 101 under "0/100
+    // claimed", because the screen would substitute its placeholder offering.
+    const fallbackFromLifetimeOffer = jest.fn();
+
+    ReactTestRenderer.act(() => {
+      useAppStore.setState({ fallbackFromLifetimeOffer });
+    });
+
+    (getPaywallConfig as jest.Mock).mockResolvedValueOnce({
+      shouldShow: true,
+      placementKey: "profile_upgrade_banner",
+      screenKey: "profile",
+      triggerMode: "contextual",
+      wasInterruptive: false,
+      reason: "ready",
+      template: {
+        key: "weekly-standard",
+        title: "Premium",
+        headline: "Unlock Journal.IO Premium",
+        subheadline: null,
+        heroBadgeLabel: null,
+        purchaseChipTitle: null,
+        purchaseChipBody: null,
+        featureCarouselTitle: null,
+        socialProofLine: null,
+        footerLegal: null,
+        featureList: [],
+        primaryOfferingKey: "weekly",
+        secondaryOfferingKeys: ["yearly"],
+        visibleOfferingKeys: ["weekly", "yearly"],
+      },
+      offerings: [
+        {
+          key: "weekly",
+          title: "WEEKLY",
+          price: null,
+          priceSuffix: "per week",
+          subtitle: "Flexible access",
+          badge: null,
+          highlight: null,
+          sortOrder: 1,
+          revenueCatOfferingId: "journalio_offering_other_screens_standard",
+          revenueCatPackageId: "$rc_weekly",
+          purchasedUsersCount: 0,
+          purchaseLimit: null,
+        },
+      ],
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ThemeProvider modeOverride="dark">
+          <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+            <LifetimeOfferPaywallScreen onBack={jest.fn()} />
+          </SafeAreaProvider>
+        </ThemeProvider>
+      );
+      await flushPromises();
+    });
+
+    expect(fallbackFromLifetimeOffer).toHaveBeenCalledTimes(1);
+
+    // No sold-out lifetime offer flashes on the way out, and above all no
+    // purchase button for it.
+    const text = extractText(renderer!.toJSON());
+    expect(text).not.toContain("Unlock Lifetime Premium");
+    expect(text).not.toContain("0/100 claimed");
+    expect(text).toContain("Loading lifetime offer...");
   });
 
   it("uses the active app theme instead of a hardcoded dark palette", async () => {

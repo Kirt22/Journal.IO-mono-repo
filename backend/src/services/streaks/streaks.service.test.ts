@@ -78,6 +78,8 @@ test("getCurrentStreakSummary derives streak metrics and achievements from journ
   assert.equal(summary.bestStreak, 3);
   assert.equal(summary.thisMonthEntries, expectedThisMonthEntries);
   assert.equal(summary.totalEntries, expectedTotalEntries);
+  assert.equal(summary.lastEntryDateKey, getDateKey(today));
+  assert.equal(summary.hasEntryToday, true);
   assert.deepEqual(
     summary.achievements.map(achievement => [achievement.key, achievement.unlocked]),
     [
@@ -88,6 +90,28 @@ test("getCurrentStreakSummary derives streak metrics and achievements from journ
       ["100-entries", false],
     ],
   );
+});
+
+test("getCurrentStreakSummary reports a lapsed streak when the last entry predates yesterday", async () => {
+  const today = new Date();
+  const threeDaysAgo = addUtcDays(today, -3);
+
+  aggregateTarget.aggregate = async () => [
+    {
+      _id: getDateKey(addUtcDays(today, -4)),
+      count: 1,
+    },
+    {
+      _id: getDateKey(threeDaysAgo),
+      count: 1,
+    },
+  ];
+
+  const summary = await getCurrentStreakSummary("660aa8bcfe6b5b4d5f2af001");
+
+  assert.equal(summary.currentStreak, 0);
+  assert.equal(summary.hasEntryToday, false);
+  assert.equal(summary.lastEntryDateKey, getDateKey(threeDaysAgo));
 });
 
 test("getStreakHistory returns a full window with today last and entry flags populated", async () => {

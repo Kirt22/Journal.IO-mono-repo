@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import type { AuthUser } from './authService';
-import devLaunchConfig from '../utils/devLaunchConfig.json';
 
 const BIOMETRIC_LOCK_PREFERENCE_KEY = 'journalio.biometricLockEnabled';
 const BIOMETRIC_LOCK_KEYCHAIN_SERVICE = 'journalio.biometric.lock';
@@ -24,6 +23,7 @@ type BiometricLockAuthStatus =
 type BiometricLockToggleStatus =
   | 'enabled'
   | 'disabled'
+  | 'premium_required'
   | 'cancelled'
   | 'unavailable'
   | 'error';
@@ -49,12 +49,9 @@ type BiometricLockToggleResult = {
   status: BiometricLockToggleStatus;
 };
 
-const isBiometricLockTestingOverrideEnabled = () =>
-  __DEV__ && devLaunchConfig.enableBiometricLockForTesting === true;
-
 const canAccessBiometricLock = (
   user: Pick<AuthUser, 'isPremium'> | null | undefined,
-) => Boolean(user?.isPremium) || isBiometricLockTestingOverrideEnabled();
+) => Boolean(user?.isPremium);
 
 const mapBiometryType = (
   biometryType: Keychain.BIOMETRY_TYPE | null,
@@ -283,8 +280,18 @@ const authenticateBiometricLock = async (
   }
 };
 
-const enableBiometricLock = async (): Promise<BiometricLockToggleResult> => {
+const enableBiometricLock = async (
+  user: Pick<AuthUser, 'isPremium'> | null | undefined,
+): Promise<BiometricLockToggleResult> => {
   const availability = await getBiometricLockAvailability();
+
+  if (!canAccessBiometricLock(user)) {
+    return {
+      availability,
+      message: 'Biometric app lock is available with Journal.IO Premium.',
+      status: 'premium_required',
+    };
+  }
 
   if (!availability.isAvailable) {
     await saveBiometricLockPreference(false);
@@ -372,7 +379,6 @@ export {
   getBiometricLockAvailability,
   getBiometricLockLabel,
   getBiometricMethodName,
-  isBiometricLockTestingOverrideEnabled,
   readBiometricLockPreference,
 };
 export type {

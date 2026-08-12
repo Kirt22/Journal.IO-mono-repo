@@ -1,4 +1,14 @@
-import { InputAccessoryView, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import HapticPressable from './HapticPressable';
+import {
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  StyleSheet,
+  View,
+} from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 
 type KeyboardDismissAccessoryProps = {
   nativeID: string;
@@ -28,7 +38,8 @@ export default function KeyboardDismissAccessory({
           },
         ]}
       >
-        <Pressable
+        <HapticPressable
+          hapticEvent={false}
           accessibilityRole="button"
           accessibilityLabel="Dismiss keyboard"
           hitSlop={8}
@@ -39,7 +50,7 @@ export default function KeyboardDismissAccessory({
           ]}
         >
           <Text style={[styles.doneText, { color: actionColor }]}>Done</Text>
-        </Pressable>
+        </HapticPressable>
       </View>
     </InputAccessoryView>
   );

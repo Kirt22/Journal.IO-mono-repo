@@ -1,5 +1,14 @@
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useMemo,
+  useState } from "react";
+import {
+  StyleSheet,
+  View,
+} from "react-native";
+import {
+  Text,
+} from "../../infrastructure/reactNative";
 import { ArrowLeft, RotateCcw, Sparkles } from "lucide-react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import NativeMindMapView, {
@@ -108,7 +117,7 @@ export default function BrainMapDevScreen({ onBack }: BrainMapDevScreenProps) {
     >
       <View style={[styles.content, { paddingBottom: insets.bottom + 20 }]}>
         <View style={styles.headerRow}>
-          <Pressable
+          <HapticPressable
             accessibilityLabel="Back to Profile"
             onPress={onBack}
             style={({ pressed }) => [
@@ -121,7 +130,7 @@ export default function BrainMapDevScreen({ onBack }: BrainMapDevScreenProps) {
             ]}
           >
             <ArrowLeft color={colors.text} size={18} />
-          </Pressable>
+          </HapticPressable>
           <View
             style={[
               styles.devBadge,
@@ -162,7 +171,7 @@ export default function BrainMapDevScreen({ onBack }: BrainMapDevScreenProps) {
             style={styles.nativeScene}
             themeMode={theme.mode}
           />
-          <Pressable
+          <HapticPressable
             accessibilityLabel="Recenter Mind Map camera"
             onPress={() => setCameraResetToken(token => token + 1)}
             style={({ pressed }) => [
@@ -176,7 +185,7 @@ export default function BrainMapDevScreen({ onBack }: BrainMapDevScreenProps) {
           >
             <RotateCcw color={colors.nodeHot} size={14} />
             <Text style={[styles.recenterText, { color: colors.text }]}>Recenter</Text>
-          </Pressable>
+          </HapticPressable>
         </View>
 
         <View
@@ -235,12 +244,13 @@ const styles = StyleSheet.create({
   },
   devBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: 0.8,
   },
   title: {
     fontSize: 28,
-    fontWeight: "800",
+    letterSpacing: -0.6,
+    fontWeight: "700",
   },
   subtitle: {
     fontSize: 14,
@@ -286,7 +296,7 @@ const styles = StyleSheet.create({
   },
   detailsTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   detailsBody: {
     fontSize: 14,

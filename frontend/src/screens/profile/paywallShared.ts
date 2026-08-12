@@ -16,7 +16,9 @@ export type PaywallPlan = {
   id: string;
   durationLabel: string;
   title: string;
+  // Bare StoreKit price. Use `getPlanPriceLabel` when it needs to read as prose.
   price: string;
+  periodLabel: string;
   subtitle: string;
   planKey: RevenueCatPaywallPlan["planKey"];
   highlight?: string;
@@ -67,6 +69,7 @@ export const buildPaywallPlans = (
       durationLabel: plan.durationLabel,
       title: plan.title,
       price: plan.price,
+      periodLabel: plan.periodLabel,
       subtitle: plan.subtitle,
       planKey: plan.planKey,
       highlight: plan.highlight,
@@ -186,6 +189,17 @@ export const getPurchaseErrorMessage = (error: unknown) => {
   return DEFAULT_PURCHASE_ERROR_MESSAGE;
 };
 
+/**
+ * The plan's price as prose — for sentences and accessibility labels, where the
+ * billing period has to stay attached. Card layouts render the two parts
+ * separately so each can shrink on its own.
+ */
+export const getPlanPriceLabel = (plan: PaywallPlan) => {
+  const period = plan.periodLabel?.trim();
+
+  return period ? `${plan.price} ${period}` : plan.price;
+};
+
 export const getTrialFootnote = (
   plan: PaywallPlan | undefined,
   introOffer?: RevenueCatIntroOffer | null
@@ -198,7 +212,7 @@ export const getTrialFootnote = (
     ? `${introOffer.durationLabel} free`
     : `${introOffer.price} intro for ${introOffer.durationLabel}`;
 
-  return `If eligible, ${introSummary}, then ${plan.price}. Apple confirms final introductory terms before purchase.`;
+  return `If eligible, ${introSummary}, then ${getPlanPriceLabel(plan)}. Apple confirms final introductory terms before purchase.`;
 };
 
 export const getIntroOfferLabel = (introOffer?: RevenueCatIntroOffer | null) => {

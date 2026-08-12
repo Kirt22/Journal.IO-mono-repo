@@ -1,28 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import HapticPressable from '../../components/HapticPressable';
 import {
-  ActivityIndicator,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
+import {
+  AccessibilityInfo,
   Alert,
   Animated,
   Easing,
   Image,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  View,
   useWindowDimensions,
+  View,
 } from "react-native";
 import {
-  BellRing,
-  Brain,
-  Check,
-  CreditCard,
-  Download,
-  LockOpen,
-  Sparkles,
-  Star,
-  X,
-} from "lucide-react-native";
+  Text,
+} from "../../infrastructure/reactNative";
+import { Check, X } from "lucide-react-native";
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
@@ -31,7 +27,14 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import ButtonLoadingContent from "../../components/ButtonLoadingContent";
-import PrimaryButton from "../../components/PrimaryButton";
+import JournalLoader from '../../components/JournalLoader';
+import PriceText from "../../components/PriceText";
+import Orb from "../../components/orb";
+import {
+  getAmbientOrbOpacity,
+  getOrbAccents,
+} from "../../constants/orbPalette";
+import { triggerHaptic } from "../../services/hapticsService";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
@@ -39,7 +42,6 @@ import {
   getRevenueCatPaywallPlans,
   getRevenueCatPurchaseAttribution,
   hasPremiumAccess,
-  hasRevenueCatHostedPaywall,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
   restoreRevenueCatPurchases,
@@ -57,9 +59,11 @@ import {
 } from "../../services/paywallService";
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
+import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 import {
-  buildFeatureCards,
   buildPaywallPlans,
+  getIntroOfferLabel,
+  getPlanPriceLabel,
   getPurchaseErrorMessage,
   getTrialFootnote,
   isPurchasesError,
@@ -69,49 +73,13 @@ import {
   PURCHASE_UPDATING_SUCCESS_TITLE,
   type PaywallPlan,
 } from "./paywallShared";
-import { getPaywallLayoutMetrics } from "./paywallLayout";
-
-const mascotImage = require("../../assets/png/Masscott.png");
+import { getPaywallContent } from "./paywallContent";
 
 type PaywallScreenProps = {
   onBack: (reason?: "dismiss" | "continue") => void;
 };
 
 type ScreenState = "paywall" | "success";
-type PostAuthStep = "trial" | "reminder" | "purchase";
-
-const POST_AUTH_INTRO_FEATURES = [
-  { icon: Sparkles, text: "Unlimited AI insights" },
-  { icon: Brain, text: "Personalized daily prompts" },
-  { icon: Download, text: "Export all your entries" },
-] as const;
-
-const POST_AUTH_TIMELINE = [
-  {
-    icon: LockOpen,
-    title: "Today",
-    description: "Unlock Premium",
-    color: "success" as const,
-  },
-  {
-    icon: BellRing,
-    title: "Day 5",
-    description: "Reminder sent",
-    color: "warning" as const,
-  },
-  {
-    icon: CreditCard,
-    title: "Day 7",
-    description: "Trial ends",
-    color: "primary" as const,
-  },
-] as const;
-
-const POST_AUTH_BENEFITS = [
-  "Unlimited AI insights & personalized prompts",
-  "Advanced analytics & emotion tracking",
-  "Securely export all your entries",
-] as const;
 
 const PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE =
   "Premium plans are temporarily unavailable. Please try again later.";
@@ -121,6 +89,16 @@ const isAnnualPaywallPlan = (plan: PaywallPlan) =>
 
 const isWeeklyPaywallPlan = (plan: PaywallPlan) =>
   plan.planKey === "weekly" || plan.offeringKey === "weekly";
+
+const getPlanName = (plan: PaywallPlan) => {
+  if (isAnnualPaywallPlan(plan)) {
+    return "Yearly";
+  }
+  if (isWeeklyPaywallPlan(plan)) {
+    return "Weekly";
+  }
+  return plan.title.replace(/^\w/, character => character.toUpperCase());
+};
 
 const syncTrialEndingReminderForActivation = (
   premiumExpiresAt: string | null | undefined,
@@ -143,340 +121,22 @@ const syncTrialEndingReminderForActivation = (
   }).catch(() => undefined);
 };
 
-const getPostAuthPlanName = (plan: PaywallPlan) => {
-  if (isAnnualPaywallPlan(plan)) {
-    return "Yearly";
-  }
-
-  if (isWeeklyPaywallPlan(plan)) {
-    return "Weekly";
-  }
-
-  return plan.title
-    .toLowerCase()
-    .replace(/^\w/, character => character.toUpperCase());
-};
-
-const getPostAuthPlanPeriod = (plan: PaywallPlan) => {
-  if (isAnnualPaywallPlan(plan)) {
-    return "/yr";
-  }
-
-  if (isWeeklyPaywallPlan(plan)) {
-    return "/wk";
-  }
-
-  return "";
-};
-
-const getPostAuthPlanDescription = (plan: PaywallPlan) => {
-  if (isAnnualPaywallPlan(plan)) {
-    return "Billed annually";
-  }
-
-  if (isWeeklyPaywallPlan(plan)) {
-    return "Billed weekly";
-  }
-
-  return plan.subtitle;
-};
-
-const getPostAuthTrialBadgeLabel = (plan: PaywallPlan | null) => {
-  if (!plan?.introOffer?.isFreeTrial) {
-    return "Instantly unlock premium";
-  }
-
-  return `${plan.introOffer.durationLabel.toUpperCase()} FREE TRIAL INCLUDED`;
-};
-
-const getTimelineAccentColors = (
-  color: "success" | "warning" | "primary",
-  palette: ReturnType<typeof useTheme>["colors"]
-) => {
-  if (color === "success") {
-    return {
-      icon: palette.success,
-      background: `${palette.success}14`,
-    };
-  }
-
-  if (color === "warning") {
-    return {
-      icon: palette.warning,
-      background: `${palette.warning}14`,
-    };
-  }
-
-  return {
-    icon: palette.primary,
-    background: `${palette.primary}14`,
-  };
-};
-
-function StepActionButton({
-  label,
-  onPress,
-  disabled = false,
-  loading = false,
-  elevated = true,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  elevated?: boolean;
-}) {
-  const theme = useTheme();
-  const isDisabled = disabled || loading;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ busy: loading, disabled: isDisabled }}
-      onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.stepActionButton,
-        {
-          backgroundColor: theme.colors.primary,
-        },
-        elevated && {
-          shadowColor: theme.colors.primary,
-          shadowOpacity: 0.12,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 6 },
-          elevation: 3,
-        },
-        isDisabled && styles.disabledButton,
-        pressed && !isDisabled && styles.pressed,
-      ]}
-    >
-      <ButtonLoadingContent
-        loaderColor={theme.colors.primaryForeground}
-        loading={loading}
-      >
-        <Text
-          style={[
-            styles.stepActionButtonLabel,
-            { color: theme.colors.primaryForeground },
-          ]}
-        >
-          {label}
-        </Text>
-      </ButtonLoadingContent>
-    </Pressable>
-  );
-}
-
-function PlanCard({
-  plan,
-  selected,
-  onPress,
-}: {
-  plan: PaywallPlan;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.planCard,
-        {
-          backgroundColor: selected ? theme.colors.accent : theme.colors.card,
-          borderColor: selected ? theme.colors.primary : theme.colors.border,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <View style={styles.planHeaderRow}>
-        <View style={styles.planTitleWrap}>
-          <Text style={[styles.planTitle, { color: theme.colors.foreground }]}>
-            {plan.title}
-          </Text>
-          <Text style={[styles.planSubtitle, { color: theme.colors.mutedForeground }]}>
-            {plan.subtitle}
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.radioOuter,
-            { borderColor: selected ? theme.colors.primary : theme.colors.border },
-          ]}
-        >
-          {selected ? (
-            <View
-              style={[
-                styles.radioInner,
-                { backgroundColor: theme.colors.primary },
-              ]}
-            />
-          ) : null}
-        </View>
-      </View>
-
-      <Text style={[styles.planPrice, { color: theme.colors.foreground }]}>
-        {plan.durationLabel}
-      </Text>
-
-      {plan.badge ? (
-        <View
-          style={[
-            styles.planBadge,
-            { backgroundColor: `${theme.colors.primary}16` },
-          ]}
-        >
-          <Text style={[styles.planBadgeText, { color: theme.colors.primary }]}>
-            {plan.badge}
-          </Text>
-        </View>
-      ) : null}
-
-      {plan.highlight ? (
-        <Text style={[styles.planHighlight, { color: theme.colors.mutedForeground }]}>
-          {plan.highlight}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
-function PostAuthPlanCard({
-  plan,
-  selected,
-  onPress,
-}: {
-  plan: PaywallPlan;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  const isYearlyPlan = isAnnualPaywallPlan(plan);
-  const badgeText = isYearlyPlan ? plan.badge || "Most Popular" : null;
-  const savingsText = isYearlyPlan ? plan.highlight : null;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.postAuthPlanCard,
-        {
-          backgroundColor: selected ? `${theme.colors.primary}0D` : `${theme.colors.card}E6`,
-          borderColor: selected ? theme.colors.primary : `${theme.colors.border}80`,
-          shadowColor: selected ? theme.colors.primary : theme.colors.foreground,
-        },
-        pressed && styles.postAuthPlanPressed,
-      ]}
-    >
-      {badgeText ? (
-        <View
-          style={[
-            styles.postAuthPlanBadge,
-            { backgroundColor: theme.colors.primary },
-          ]}
-        >
-          <Text
-            style={[
-              styles.postAuthPlanBadgeText,
-              { color: theme.colors.primaryForeground },
-            ]}
-          >
-            {badgeText}
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.postAuthPlanContent}>
-        <View style={styles.postAuthPlanLeft}>
-          <View
-            style={[
-              styles.postAuthRadioOuter,
-              { borderColor: selected ? theme.colors.primary : theme.colors.border },
-            ]}
-          >
-            {selected ? (
-              <View
-                style={[
-                  styles.postAuthRadioFill,
-                  { backgroundColor: theme.colors.primary },
-                ]}
-              >
-                <View style={styles.postAuthRadioInner} />
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.postAuthPlanTextWrap}>
-            <View style={styles.postAuthPlanNameRow}>
-              <Text
-                style={[styles.postAuthPlanName, { color: theme.colors.foreground }]}
-              >
-                {getPostAuthPlanName(plan)}
-              </Text>
-              {savingsText ? (
-                <View
-                  style={[
-                    styles.postAuthSavingsPill,
-                    { backgroundColor: `${theme.colors.success}14` },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.postAuthSavingsText,
-                      { color: theme.colors.success },
-                    ]}
-                  >
-                    {savingsText}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            <Text
-              style={[
-                styles.postAuthPlanDescription,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              {getPostAuthPlanDescription(plan)}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.postAuthPriceWrap}>
-          <Text style={[styles.postAuthPlanPrice, { color: theme.colors.foreground }]}>
-            {plan.durationLabel}
-          </Text>
-          <Text
-            style={[
-              styles.postAuthPlanPeriod,
-              { color: theme.colors.mutedForeground },
-            ]}
-          >
-            {getPostAuthPlanPeriod(plan)}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
+/**
+ * The ambient orb runs well past the screen edge so only its lit rim is in
+ * frame, and sits high enough that the glow lands behind the headline rather
+ * than behind the feature rows.
+ */
+const AMBIENT_ORB_WIDTH_FACTOR = 1.5;
+const AMBIENT_ORB_CENTER_FACTOR = 0.3;
+/** Long enough to read as the content stepping aside for the orb, not a cut. */
+const DISMISS_FADE_MS = 160;
+/** Ink, not `foreground` — a light shadow on dark would halo, not deepen. */
+const PAYWALL_SHADOW_COLOR = "#000000";
 
 export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const {
-    horizontalPadding,
-    isCompact,
-    isVeryCompact,
-    postAuthHeroTitleSize,
-    postAuthTimelineMaxWidth,
-    postAuthTopContentPadding,
-  } = getPaywallLayoutMetrics(width);
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const activePaywallPlacementKey = useAppStore(
@@ -486,11 +146,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const activePaywallTriggerMode = useAppStore(
     state => state.activePaywallTriggerMode
   );
-  const openHostedPaywall = useAppStore(state => state.openHostedPaywall);
-  const postAuthPaywallStepOverride = useAppStore(
-    state => state.postAuthPaywallStepOverride
-  );
+  const isPaywallOverlay = useAppStore(state => state.isPaywallOverlay);
+  const beginOrbHandoff = useAppStore(state => state.beginOrbHandoff);
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+
   const [paywallConfig, setPaywallConfig] = useState<ResolvedPaywallConfig | null>(
     null
   );
@@ -507,74 +166,98 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   const [screenState, setScreenState] = useState<ScreenState>("paywall");
   const [lastPurchaseStore, setLastPurchaseStore] = useState<string | null>(null);
   const [isPurchaseAccessUpdating, setIsPurchaseAccessUpdating] = useState(false);
-  const [postAuthStep, setPostAuthStep] = useState<PostAuthStep>("trial");
-  const introHeroProgress = useRef(new Animated.Value(0)).current;
-  const introMascotFloat = useRef(new Animated.Value(0)).current;
-  const introFeatureProgress = useRef(
-    POST_AUTH_INTRO_FEATURES.map(() => new Animated.Value(0))
-  ).current;
-  const reminderScreenProgress = useRef(new Animated.Value(0)).current;
-  const reminderBellSwing = useRef(new Animated.Value(0)).current;
-  const reminderTimelineProgress = useRef(
-    POST_AUTH_TIMELINE.map(() => new Animated.Value(0))
-  ).current;
-  const purchaseHeaderProgress = useRef(new Animated.Value(0)).current;
-  const purchaseBannerProgress = useRef(new Animated.Value(0)).current;
-  const purchasePlanListProgress = useRef(new Animated.Value(0)).current;
-  const purchaseBenefitsProgress = useRef(new Animated.Value(0)).current;
-  const purchaseFooterProgress = useRef(new Animated.Value(0)).current;
+  // Measured height of the pinned footer so the scroll content clears it.
+  const [footerHeight, setFooterHeight] = useState(0);
+  // Set the instant the hand-off starts, so this screen's orb disappears before
+  // the overlay's copy appears and the two are never on screen together.
+  const [isOrbHandedOff, setIsOrbHandedOff] = useState(false);
+  const isDismissingRef = useRef(false);
+
+  // Entrance animations: hero -> bullets -> footer slide-up.
+  const heroAnim = useRef(new Animated.Value(0)).current;
+  const bulletsAnim = useRef(new Animated.Value(0)).current;
+  const footerAnim = useRef(new Animated.Value(0)).current;
+  // Package-switch feedback: a scale pop on the selected card + a fade on the
+  // CTA label when it changes.
+  const cardScale = useRef(new Animated.Value(1)).current;
+  const ctaFade = useRef(new Animated.Value(1)).current;
+
+  // Preserve the placement context for the lifetime of this mounted screen — a
+  // transient global reset must not swap the copy mid-life.
   const paywallContextRef = useRef({
     placementKey: activePaywallPlacementKey || "post_auth",
     screenKey: activePaywallScreenKey || null,
     triggerMode: activePaywallTriggerMode,
+    isOverlay: isPaywallOverlay,
   });
-
-  // Preserve the placement context for the lifetime of this mounted screen.
-  // ScreenTransitionHost can keep a previous paywall screen mounted briefly while
-  // the shell clears global paywall context, and we do not want that transient
-  // reset to make this instance fall back to the default post-auth placement.
   const paywallPlacementKey = paywallContextRef.current.placementKey;
   const paywallScreenKey = paywallContextRef.current.screenKey;
   const paywallTriggerMode = paywallContextRef.current.triggerMode;
-  const isPostAuthPaywall = paywallPlacementKey === "post_auth";
-  const isModernPurchasePaywall =
-    paywallPlacementKey !== "profile_upgrade_banner" &&
-    paywallPlacementKey !== "post_auth_exit_offer";
-  const featureCards = useMemo(() => buildFeatureCards(paywallConfig), [paywallConfig]);
+  /**
+   * Root paywalls — post-onboarding, and the relaunch route for a non-premium
+   * user — replaced the navigation root and exit by resetting to Home, so they
+   * are exactly the ones whose orb can be handed to the Home hero. A contextual
+   * paywall pops back to whatever screen raised it and keeps the plain
+   * background.
+   */
+  const isRootPaywall = !paywallContextRef.current.isOverlay;
 
-  const visiblePlans = useMemo(() => {
-    if (!isModernPurchasePaywall) {
-      return plans;
+  const copy = useMemo(
+    () => getPaywallContent(paywallPlacementKey, paywallScreenKey),
+    [paywallPlacementKey, paywallScreenKey]
+  );
+
+  const orbAccents = useMemo(() => getOrbAccents(theme.mode), [theme.mode]);
+  const ambientOrbOpacity = getAmbientOrbOpacity(theme.mode);
+  // Dark needs a much heavier cast to register at all against a near-black page.
+  const footerShadowOpacity = theme.mode === "dark" ? 0.5 : 0.08;
+  /**
+   * Computed rather than measured: the layer is absolutely positioned off these
+   * exact numbers, so measuring would only re-derive them, and the hand-off has
+   * to know the frame at the moment of the tap — before any layout pass.
+   */
+  const ambientOrbFrame = useMemo(() => {
+    if (!isRootPaywall) {
+      return null;
     }
 
-    const filteredPlans = plans
+    const size = Math.round(windowWidth * AMBIENT_ORB_WIDTH_FACTOR);
+
+    return {
+      x: Math.round((windowWidth - size) / 2),
+      y: Math.round(windowHeight * AMBIENT_ORB_CENTER_FACTOR - size / 2),
+      size,
+    };
+  }, [isRootPaywall, windowHeight, windowWidth]);
+
+  // Show annual first, then weekly.
+  const visiblePlans = useMemo(() => {
+    const filtered = plans
       .filter(plan => isAnnualPaywallPlan(plan) || isWeeklyPaywallPlan(plan))
       .sort((left, right) => {
-        const leftPriority = isAnnualPaywallPlan(left) ? 0 : isWeeklyPaywallPlan(left) ? 1 : 2;
-        const rightPriority = isAnnualPaywallPlan(right)
-          ? 0
-          : isWeeklyPaywallPlan(right)
-            ? 1
-            : 2;
-
-        return leftPriority - rightPriority;
+        const leftRank = isAnnualPaywallPlan(left) ? 0 : 1;
+        const rightRank = isAnnualPaywallPlan(right) ? 0 : 1;
+        return leftRank - rightRank;
       });
-
-    return filteredPlans.length ? filteredPlans : plans;
-  }, [isModernPurchasePaywall, plans]);
+    return filtered.length ? filtered : plans;
+  }, [plans]);
 
   const selectedPlan =
     visiblePlans.find(plan => plan.id === selectedPlanId) ?? visiblePlans[0] ?? null;
-  const trialFootnote = getTrialFootnote(selectedPlan ?? undefined, selectedPlan?.introOffer);
+  // The yearly plan carries the free trial. Drive the trial framing off the plan
+  // type so the CTA/timeline stay correct even if the store's intro-offer data
+  // is momentarily unavailable; use the real trial duration when we have it.
+  const selectedIsAnnual = selectedPlan ? isAnnualPaywallPlan(selectedPlan) : false;
+  const selectedTrialDuration =
+    selectedPlan?.introOffer?.durationLabel || "7-day";
+  const trialFootnote = getTrialFootnote(
+    selectedPlan ?? undefined,
+    selectedPlan?.introOffer
+  );
   const isBusy = isProcessing || isRestoring;
-  const selectedPlanHasTrial = Boolean(selectedPlan?.introOffer?.isFreeTrial);
-  const yearlyTrialPlan =
-    visiblePlans.find(
-      plan => isAnnualPaywallPlan(plan) && plan.introOffer?.isFreeTrial
-    ) ?? null;
-  const introButtonLabel = yearlyTrialPlan
-    ? `Start ${yearlyTrialPlan.introOffer?.durationLabel} free trial`
-    : "Continue to premium";
+  const ctaLabel = selectedIsAnnual
+    ? `Start ${selectedTrialDuration} free trial`
+    : "Continue to Premium";
 
   useEffect(() => {
     let isMounted = true;
@@ -609,9 +292,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         const livePlans = getRevenueCatPaywallPlans(
           offerings,
           resolvedConfig?.offerings,
-          {
-            placementKey: paywallPlacementKey,
-          }
+          { placementKey: paywallPlacementKey }
         );
         const nextPlans = buildPaywallPlans(livePlans, resolvedConfig);
 
@@ -643,7 +324,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         if (!isMounted) {
           return;
         }
-
         console.warn("[Paywall] Failed to load purchase options", error);
         setPlansError(PURCHASE_OPTIONS_UNAVAILABLE_MESSAGE);
       } finally {
@@ -676,27 +356,16 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       if (currentValue && visiblePlans.some(plan => plan.id === currentValue)) {
         return currentValue;
       }
-
-      if (isModernPurchasePaywall) {
-        return (
-          visiblePlans.find(plan => isAnnualPaywallPlan(plan))?.id ||
-          visiblePlans.find(plan => isWeeklyPaywallPlan(plan))?.id ||
-          visiblePlans[0]?.id ||
-          null
-        );
-      }
-
-      return visiblePlans[0]?.id || null;
+      // Prefer the plan that carries the free trial (yearly), so the CTA leads
+      // with "Start … free trial". Fall back to annual, then the first plan.
+      return (
+        visiblePlans.find(plan => plan.introOffer?.isFreeTrial)?.id ||
+        visiblePlans.find(plan => isAnnualPaywallPlan(plan))?.id ||
+        visiblePlans[0]?.id ||
+        null
+      );
     });
-  }, [isModernPurchasePaywall, visiblePlans]);
-
-  useEffect(() => {
-    if (!isPostAuthPaywall || !postAuthPaywallStepOverride) {
-      return;
-    }
-
-    setPostAuthStep(postAuthPaywallStepOverride);
-  }, [isPostAuthPaywall, postAuthPaywallStepOverride]);
+  }, [visiblePlans]);
 
   useEffect(() => {
     if (isPremiumUser) {
@@ -705,236 +374,85 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }
   }, [isPremiumUser]);
 
+  // Staggered entrance: hero -> bullets -> footer. Respects Reduce Motion.
   useEffect(() => {
-    introHeroProgress.stopAnimation();
-    introMascotFloat.stopAnimation();
-    introFeatureProgress.forEach(value => value.stopAnimation());
+    let isActive = true;
+    let animation: Animated.CompositeAnimation | null = null;
 
-    if (!isPostAuthPaywall || postAuthStep !== "trial" || screenState !== "paywall") {
-      introHeroProgress.setValue(0);
-      introMascotFloat.setValue(0);
-      introFeatureProgress.forEach(value => value.setValue(0));
+    const settle = () => {
+      animation?.stop();
+      heroAnim.setValue(1);
+      bulletsAnim.setValue(1);
+      footerAnim.setValue(1);
+    };
+
+    const reveal = (value: Animated.Value, duration: number) =>
+      Animated.timing(value, {
+        toValue: 1,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+
+    const play = () => {
+      if (!isActive) {
+        return;
+      }
+      heroAnim.setValue(0);
+      bulletsAnim.setValue(0);
+      footerAnim.setValue(0);
+      animation = Animated.sequence([
+        Animated.delay(120),
+        reveal(heroAnim, 420),
+        reveal(bulletsAnim, 380),
+        reveal(footerAnim, 440),
+      ]);
+      animation.start();
+    };
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => {
+        if (!isActive) {
+          return;
+        }
+        if (enabled) {
+          settle();
+        } else {
+          play();
+        }
+      })
+      .catch(play);
+
+    return () => {
+      isActive = false;
+      animation?.stop();
+    };
+  }, [bulletsAnim, footerAnim, heroAnim]);
+
+  const trackEvent = (
+    eventType:
+      | "paywall_dismiss"
+      | "plan_select"
+      | "cta_tap"
+      | "purchase_success"
+      | "restore_success"
+      | "purchase_failure",
+    metadata?: Record<string, unknown>
+  ) => {
+    if (!paywallConfig?.template) {
       return;
     }
 
-    introHeroProgress.setValue(0);
-    introMascotFloat.setValue(0);
-    introFeatureProgress.forEach(value => value.setValue(0));
-
-    const heroEntrance = Animated.timing(introHeroProgress, {
-      toValue: 1,
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
-
-    const featureEntrance = Animated.stagger(
-      110,
-      introFeatureProgress.map(value =>
-        Animated.timing(value, {
-          toValue: 1,
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        })
-      )
-    );
-
-    const mascotFloatLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(introMascotFloat, {
-          toValue: 1,
-          duration: 1800,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(introMascotFloat, {
-          toValue: 0,
-          duration: 1800,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    heroEntrance.start();
-    featureEntrance.start();
-    mascotFloatLoop.start();
-
-    return () => {
-      heroEntrance.stop();
-      featureEntrance.stop();
-      mascotFloatLoop.stop();
-    };
-  }, [
-    introFeatureProgress,
-    introHeroProgress,
-    introMascotFloat,
-    isPostAuthPaywall,
-    postAuthStep,
-    screenState,
-  ]);
-
-  useEffect(() => {
-    reminderScreenProgress.stopAnimation();
-    reminderBellSwing.stopAnimation();
-    reminderTimelineProgress.forEach(value => value.stopAnimation());
-
-    if (!isPostAuthPaywall || postAuthStep !== "reminder" || screenState !== "paywall") {
-      reminderScreenProgress.setValue(0);
-      reminderBellSwing.setValue(0);
-      reminderTimelineProgress.forEach(value => value.setValue(0));
-      return;
-    }
-
-    reminderScreenProgress.setValue(0);
-    reminderBellSwing.setValue(0);
-    reminderTimelineProgress.forEach(value => value.setValue(0));
-
-    const reminderEntrance = Animated.timing(reminderScreenProgress, {
-      toValue: 1,
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
-
-    const timelineEntrance = Animated.stagger(
-      120,
-      reminderTimelineProgress.map(value =>
-        Animated.timing(value, {
-          toValue: 1,
-          duration: 420,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        })
-      )
-    );
-
-    const bellLoop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(300),
-        Animated.timing(reminderBellSwing, {
-          toValue: 1,
-          duration: 180,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(reminderBellSwing, {
-          toValue: -1,
-          duration: 220,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(reminderBellSwing, {
-          toValue: 0.75,
-          duration: 180,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(reminderBellSwing, {
-          toValue: 0,
-          duration: 180,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.delay(2200),
-      ])
-    );
-
-    reminderEntrance.start();
-    timelineEntrance.start();
-    bellLoop.start();
-
-    return () => {
-      reminderEntrance.stop();
-      timelineEntrance.stop();
-      bellLoop.stop();
-    };
-  }, [
-    isPostAuthPaywall,
-    postAuthStep,
-    reminderBellSwing,
-    reminderScreenProgress,
-    reminderTimelineProgress,
-    screenState,
-  ]);
-
-  useEffect(() => {
-    purchaseHeaderProgress.stopAnimation();
-    purchaseBannerProgress.stopAnimation();
-    purchasePlanListProgress.stopAnimation();
-    purchaseBenefitsProgress.stopAnimation();
-    purchaseFooterProgress.stopAnimation();
-
-    const shouldAnimatePurchaseStep =
-      screenState === "paywall" &&
-      isModernPurchasePaywall &&
-      (!isPostAuthPaywall || postAuthStep === "purchase");
-
-    if (!shouldAnimatePurchaseStep) {
-      purchaseHeaderProgress.setValue(0);
-      purchaseBannerProgress.setValue(0);
-      purchasePlanListProgress.setValue(0);
-      purchaseBenefitsProgress.setValue(0);
-      purchaseFooterProgress.setValue(0);
-      return;
-    }
-
-    purchaseHeaderProgress.setValue(0);
-    purchaseBannerProgress.setValue(0);
-    purchasePlanListProgress.setValue(0);
-    purchaseBenefitsProgress.setValue(0);
-    purchaseFooterProgress.setValue(0);
-
-    const purchaseEntrance = Animated.stagger(90, [
-      Animated.timing(purchaseHeaderProgress, {
-        toValue: 1,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(purchaseBannerProgress, {
-        toValue: 1,
-        duration: 340,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(purchasePlanListProgress, {
-        toValue: 1,
-        duration: 360,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(purchaseBenefitsProgress, {
-        toValue: 1,
-        duration: 340,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(purchaseFooterProgress, {
-        toValue: 1,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]);
-
-    purchaseEntrance.start();
-
-    return () => {
-      purchaseEntrance.stop();
-    };
-  }, [
-    isModernPurchasePaywall,
-    isPostAuthPaywall,
-    postAuthStep,
-    purchaseBannerProgress,
-    purchaseBenefitsProgress,
-    purchaseFooterProgress,
-    purchaseHeaderProgress,
-    purchasePlanListProgress,
-    screenState,
-  ]);
+    trackPaywallEvent({
+      placementKey: paywallConfig.placementKey,
+      screenKey: paywallConfig.screenKey || undefined,
+      eventType,
+      templateKey: paywallConfig.template.key,
+      offeringKey: selectedPlan?.offeringKey,
+      wasInterruptive: paywallConfig.wasInterruptive,
+      metadata,
+    }).catch(() => undefined);
+  };
 
   const completePremiumActivation = async (
     customerInfo: CustomerInfo,
@@ -971,7 +489,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
         setScreenState("success");
         return "pending";
       }
-
       throw error;
     }
 
@@ -1013,50 +530,79 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     );
   };
 
-  const trackEvent = (
-    eventType:
-      | "paywall_dismiss"
-      | "plan_select"
-      | "cta_tap"
-      | "purchase_success"
-      | "restore_success"
-      | "purchase_failure",
-    metadata?: Record<string, unknown>
-  ) => {
-    if (!paywallConfig?.template) {
+  const handleDismiss = () => {
+    trackEvent("paywall_dismiss");
+    triggerHaptic("back").catch(() => undefined);
+
+    if (!isRootPaywall || !ambientOrbFrame) {
+      onBack("dismiss");
       return;
     }
 
-    trackPaywallEvent({
-      placementKey: paywallConfig.placementKey,
-      screenKey: paywallConfig.screenKey || undefined,
-      eventType,
-      templateKey: paywallConfig.template.key,
-      offeringKey: selectedPlan?.offeringKey,
-      wasInterruptive: paywallConfig.wasInterruptive,
-      metadata,
-    }).catch(() => undefined);
-  };
+    // Fade the copy and the plan footer out from under the orb, then let the
+    // overlay carry the orb through the root reset into Home. Guarded so a
+    // double-tap on the close button can't start two hand-offs.
+    if (isDismissingRef.current) {
+      return;
+    }
+    isDismissingRef.current = true;
+    setIsOrbHandedOff(true);
+    beginOrbHandoff(ambientOrbFrame);
 
-  const handleDismiss = () => {
-    trackEvent("paywall_dismiss", isPostAuthPaywall ? { step: postAuthStep } : undefined);
-    onBack("dismiss");
+    const finish = () => {
+      onBack("dismiss");
+    };
+
+    if (typeof jest !== "undefined") {
+      finish();
+      return;
+    }
+
+    Animated.parallel(
+      [heroAnim, bulletsAnim, footerAnim].map(value =>
+        Animated.timing(value, {
+          toValue: 0,
+          duration: DISMISS_FADE_MS,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        })
+      )
+    ).start(finish);
   };
 
   const handleContinueFromSuccess = () => {
     onBack("continue");
   };
 
-  const handleContinueFromReminder = () => {
-    if (isPostAuthPaywall && hasRevenueCatHostedPaywall("main")) {
-      openHostedPaywall("main");
+  const handlePlanPress = (plan: PaywallPlan) => {
+    if (plan.id === selectedPlanId) {
       return;
     }
+    setSelectedPlanId(plan.id);
+    triggerHaptic("optionSelected").catch(() => undefined);
+    trackEvent("plan_select", { planKey: plan.planKey });
 
-    setPostAuthStep("purchase");
+    // Pop the newly-selected card and cross-fade the CTA label as it changes.
+    cardScale.setValue(0.94);
+    Animated.spring(cardScale, {
+      toValue: 1,
+      friction: 5,
+      tension: 150,
+      useNativeDriver: true,
+    }).start();
+    ctaFade.setValue(0.25);
+    Animated.timing(ctaFade, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   };
 
   const handleUpgrade = async () => {
+    if (isBusy) {
+      return;
+    }
     if (!selectedPlan?.rcPackage) {
       Alert.alert(
         "Billing unavailable",
@@ -1066,9 +612,10 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }
 
     setIsProcessing(true);
+    triggerHaptic("primaryAction").catch(() => undefined);
 
     try {
-      trackEvent("cta_tap", isPostAuthPaywall ? { step: postAuthStep } : undefined);
+      trackEvent("cta_tap");
       const purchaseResult = await purchaseRevenueCatPackage(
         selectedPlan.rcPackage,
         sessionUserId
@@ -1081,9 +628,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       if (!activated) {
         setIsPurchaseAccessUpdating(true);
         setScreenState("success");
-        trackEvent("purchase_success", {
-          activationPending: true,
-        });
+        trackEvent("purchase_success", { activationPending: true });
       } else {
         trackEvent("purchase_success");
       }
@@ -1096,7 +641,6 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       }
 
       Alert.alert("Premium activation unavailable", getPurchaseErrorMessage(error));
-
       trackEvent("purchase_failure", {
         message: getPurchaseErrorMessage(error),
       });
@@ -1106,7 +650,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   };
 
   const handleRestore = async () => {
-    if (!selectedPlan) {
+    if (isBusy || !selectedPlan) {
       return;
     }
 
@@ -1117,10 +661,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       const premiumAccess = hasPremiumAccess(customerInfo);
 
       if (!premiumAccess) {
-        Alert.alert(
-          NO_RESTORED_PURCHASE_TITLE,
-          NO_RESTORED_PURCHASE_MESSAGE
-        );
+        Alert.alert(NO_RESTORED_PURCHASE_TITLE, NO_RESTORED_PURCHASE_MESSAGE);
         return;
       }
 
@@ -1135,847 +676,12 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     }
   };
 
-  const handlePlanPress = (plan: PaywallPlan) => {
-    setSelectedPlanId(plan.id);
-    trackEvent("plan_select", {
-      planKey: plan.planKey,
-    });
-  };
-
-  const renderPostAuthBackground = () => (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {postAuthStep === "trial" ? (
-        <View
-          style={[
-            styles.postAuthGlow,
-            styles.postAuthTrialGlow,
-            { backgroundColor: `${theme.colors.primary}12` },
-          ]}
-        />
-      ) : null}
-      {postAuthStep === "reminder" ? (
-        <View
-          style={[
-            styles.postAuthGlow,
-            styles.postAuthReminderGlow,
-            { backgroundColor: `${theme.colors.warning}10` },
-          ]}
-        />
-      ) : null}
-      {postAuthStep === "purchase" ? (
-        <>
-          <View
-            style={[
-              styles.postAuthGlow,
-              styles.postAuthPurchaseGlowTop,
-              { backgroundColor: `${theme.colors.primary}12` },
-            ]}
-          />
-          <View
-            style={[
-              styles.postAuthGlow,
-              styles.postAuthPurchaseGlowSide,
-              { backgroundColor: `${theme.colors.accent}90` },
-            ]}
-          />
-        </>
-      ) : null}
-    </View>
-  );
-
-  const renderPostAuthTrialStep = () => {
-    const heroAnimatedStyle = {
-      transform: [
-        {
-          translateY: introHeroProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [18, 0],
-          }),
-        },
-      ],
-    };
-    const mascotAnimatedStyle = {
-      transform: [
-        {
-          scale: introHeroProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.92, 1],
-          }),
-        },
-        {
-          translateY: introMascotFloat.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, -8],
-          }),
-        },
-      ],
-    };
-    const footerAnimatedStyle = {
-      transform: [
-        {
-          translateY: introHeroProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [22, 0],
-          }),
-        },
-      ],
-    };
-
-    return (
-      <View style={styles.postAuthScreen}>
-        {renderPostAuthBackground()}
-
-        <View
-          style={[
-            styles.postAuthStageInner,
-            {
-              paddingTop: insets.top,
-              paddingBottom: insets.bottom,
-              paddingHorizontal: horizontalPadding,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.postAuthTrialContent,
-              { paddingTop: postAuthTopContentPadding },
-              heroAnimatedStyle,
-            ]}
-          >
-            <Animated.View style={[styles.postAuthMascotWrap, mascotAnimatedStyle]}>
-              <Image
-                source={mascotImage}
-                resizeMode="contain"
-                style={[
-                  styles.postAuthMascotImage,
-                  isCompact ? styles.postAuthMascotImageCompact : null,
-                ]}
-              />
-            </Animated.View>
-
-            <Text
-              style={[
-                styles.postAuthHeroTitle,
-                { color: theme.colors.foreground, fontSize: postAuthHeroTitleSize },
-                isVeryCompact ? styles.postAuthHeroTitleCompact : null,
-              ]}
-            >
-              Unlock your mind
-            </Text>
-
-            <View
-              style={[
-                styles.postAuthFeatureList,
-                { maxWidth: postAuthTimelineMaxWidth },
-              ]}
-            >
-              {POST_AUTH_INTRO_FEATURES.map((feature, index) => {
-                const Icon = feature.icon;
-                const featureAnimatedStyle = {
-                  transform: [
-                    {
-                      translateX: introFeatureProgress[index].interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-14, 0],
-                      }),
-                    },
-                    {
-                      translateY: introFeatureProgress[index].interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [8, 0],
-                      }),
-                    },
-                  ],
-                };
-
-                return (
-                  <Animated.View
-                    key={feature.text}
-                    style={[
-                      styles.postAuthFeatureCard,
-                      {
-                        backgroundColor: `${theme.colors.card}D9`,
-                        borderColor: `${theme.colors.border}80`,
-                      },
-                      featureAnimatedStyle,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.postAuthFeatureIconWrap,
-                        { backgroundColor: `${theme.colors.primary}14` },
-                      ]}
-                    >
-                      <Icon size={20} color={theme.colors.primary} />
-                    </View>
-                    <Text
-                      style={[
-                        styles.postAuthFeatureText,
-                        { color: `${theme.colors.foreground}E6` },
-                      ]}
-                    >
-                      {feature.text}
-                    </Text>
-                  </Animated.View>
-                );
-              })}
-            </View>
-          </Animated.View>
-
-          <Animated.View style={[styles.postAuthFooter, footerAnimatedStyle]}>
-            <StepActionButton
-              label={introButtonLabel}
-              onPress={() => {
-                if (yearlyTrialPlan) {
-                  setPostAuthStep("reminder");
-                  return;
-                }
-
-                handleContinueFromReminder();
-              }}
-              elevated={false}
-            />
-          </Animated.View>
-        </View>
-      </View>
-    );
-  };
-
-  const renderPostAuthReminderStep = () => {
-    const reminderContentAnimatedStyle = {
-      transform: [
-        {
-          translateY: reminderScreenProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [20, 0],
-          }),
-        },
-      ],
-    };
-    const reminderBellAnimatedStyle = {
-      transform: [
-        {
-          scale: reminderScreenProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.9, 1],
-          }),
-        },
-        {
-          rotate: reminderBellSwing.interpolate({
-            inputRange: [-1, 0, 1],
-            outputRange: ["-10deg", "0deg", "10deg"],
-          }),
-        },
-      ],
-    };
-    const reminderFooterAnimatedStyle = {
-      transform: [
-        {
-          translateY: reminderScreenProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [24, 0],
-          }),
-        },
-      ],
-    };
-
-    return (
-      <View style={styles.postAuthScreen}>
-        {renderPostAuthBackground()}
-
-        <View
-          style={[
-            styles.postAuthStageInner,
-            {
-              paddingTop: insets.top,
-              paddingBottom: insets.bottom,
-              paddingHorizontal: horizontalPadding,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[
-              styles.postAuthReminderContent,
-              { paddingTop: postAuthTopContentPadding },
-              reminderContentAnimatedStyle,
-            ]}
-          >
-            <Animated.View
-              style={[
-                styles.postAuthBellWrap,
-                {
-                  backgroundColor: `${theme.colors.warning}14`,
-                  borderColor: `${theme.colors.warning}30`,
-                  shadowColor: theme.colors.warning,
-                },
-                reminderBellAnimatedStyle,
-              ]}
-            >
-              <BellRing size={40} color={theme.colors.warning} strokeWidth={1.6} />
-            </Animated.View>
-
-            <Text
-              style={[
-                styles.postAuthHeroTitle,
-                { color: theme.colors.foreground, fontSize: postAuthHeroTitleSize },
-                isVeryCompact ? styles.postAuthHeroTitleCompact : null,
-              ]}
-            >
-              No surprises
-            </Text>
-
-            <Text
-              style={[
-                styles.postAuthReminderBody,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              {yearlyTrialPlan
-                ? "We'll send you a push notification before your trial ends. Cancel anytime."
-                : "The App Store will confirm the plan and localized price before purchase."}
-            </Text>
-
-            <View
-              style={[
-                styles.postAuthTimelineWrap,
-                { maxWidth: postAuthTimelineMaxWidth },
-              ]}
-            >
-              <View
-                style={[
-                  styles.postAuthTimelineLine,
-                  { backgroundColor: theme.colors.border },
-                ]}
-              />
-
-              {(yearlyTrialPlan
-                ? POST_AUTH_TIMELINE
-                : [
-                    {
-                      icon: Sparkles,
-                      title: "Choose",
-                      description: "Select your plan",
-                      color: "success" as const,
-                    },
-                    {
-                      icon: CreditCard,
-                      title: "Confirm",
-                      description: "Review App Store pricing",
-                      color: "warning" as const,
-                    },
-                    {
-                      icon: LockOpen,
-                      title: "Unlock",
-                      description: "Premium becomes active",
-                      color: "primary" as const,
-                    },
-                  ]
-              ).map((step, index) => {
-                const Icon = step.icon;
-                const colors = getTimelineAccentColors(step.color, theme.colors);
-                const timelineAnimatedStyle = {
-                  transform: [
-                    {
-                      translateX: reminderTimelineProgress[index].interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-16, 0],
-                      }),
-                    },
-                  ],
-                };
-
-                return (
-                  <Animated.View
-                    key={step.title}
-                    style={[styles.postAuthTimelineItem, timelineAnimatedStyle]}
-                  >
-                    <View
-                      style={[
-                        styles.postAuthTimelineIconWrap,
-                        { backgroundColor: colors.background },
-                      ]}
-                    >
-                      <Icon size={22} color={colors.icon} />
-                    </View>
-                    <View style={styles.postAuthTimelineTextWrap}>
-                      <Text
-                        style={[
-                          styles.postAuthTimelineTitle,
-                          { color: theme.colors.foreground },
-                        ]}
-                      >
-                        {step.title}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.postAuthTimelineDescription,
-                          { color: theme.colors.mutedForeground },
-                        ]}
-                      >
-                        {step.description}
-                      </Text>
-                    </View>
-                  </Animated.View>
-                );
-              })}
-            </View>
-          </Animated.View>
-
-          <Animated.View style={[styles.postAuthFooter, reminderFooterAnimatedStyle]}>
-            <StepActionButton
-              label="Continue"
-              onPress={handleContinueFromReminder}
-              elevated={false}
-            />
-          </Animated.View>
-        </View>
-      </View>
-    );
-  };
-
-  const renderPostAuthPurchaseStep = () => {
-    const purchaseHeaderAnimatedStyle = {
-      transform: [
-        {
-          translateY: purchaseHeaderProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [16, 0],
-          }),
-        },
-      ],
-    };
-    const purchaseBannerAnimatedStyle = {
-      transform: [
-        {
-          translateY: purchaseBannerProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [18, 0],
-          }),
-        },
-      ],
-    };
-    const purchasePlanListAnimatedStyle = {
-      transform: [
-        {
-          translateY: purchasePlanListProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [22, 0],
-          }),
-        },
-      ],
-    };
-    const purchaseBenefitsAnimatedStyle = {
-      transform: [
-        {
-          translateY: purchaseBenefitsProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [24, 0],
-          }),
-        },
-      ],
-    };
-    const purchaseFooterAnimatedStyle = {
-      transform: [
-        {
-          translateY: purchaseFooterProgress.interpolate({
-            inputRange: [0, 1],
-            outputRange: [28, 0],
-          }),
-        },
-      ],
-    };
-
-    return (
-      <View style={styles.postAuthScreen}>
-        {renderPostAuthBackground()}
-
-        <View
-          style={[
-            styles.postAuthStageInner,
-            {
-              paddingTop: insets.top,
-              paddingBottom: insets.bottom,
-              paddingHorizontal: horizontalPadding,
-            },
-          ]}
-        >
-        <Animated.View style={[styles.postAuthPurchaseHeader, purchaseHeaderAnimatedStyle]}>
-          <View style={styles.postAuthBrandRow}>
-            <View
-              style={[
-                styles.postAuthBrandIconWrap,
-                { backgroundColor: `${theme.colors.primary}14` },
-              ]}
-            >
-              <Star size={14} color={theme.colors.primary} fill={theme.colors.primary} />
-            </View>
-            <Text style={[styles.postAuthBrandText, { color: theme.colors.foreground }]}>
-              Journal.IO Premium
-            </Text>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close paywall"
-            onPress={handleDismiss}
-            style={({ pressed }) => [
-              styles.purchaseCloseButton,
-              {
-                backgroundColor: `${theme.colors.card}E6`,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <X size={18} color={theme.colors.mutedForeground} />
-          </Pressable>
-        </Animated.View>
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          style={styles.postAuthPurchaseScroll}
-          contentContainerStyle={[
-            styles.postAuthPurchaseScrollContent,
-            { paddingTop: postAuthTopContentPadding },
-          ]}
-        >
-          <Animated.View
-            style={[styles.postAuthTrialBannerSlot, purchaseBannerAnimatedStyle]}
-          >
-            {selectedPlanHasTrial ? (
-              <View
-                style={[
-                  styles.postAuthTrialBanner,
-                  { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary },
-                ]}
-              >
-                <Sparkles size={12} color={theme.colors.primaryForeground} />
-                <Text
-                  style={[
-                    styles.postAuthTrialBannerText,
-                    { color: theme.colors.primaryForeground },
-                  ]}
-                >
-                  {getPostAuthTrialBadgeLabel(selectedPlan)}
-                </Text>
-              </View>
-            ) : (
-              <View
-                style={[
-                  styles.postAuthInstantBanner,
-                  { backgroundColor: theme.colors.secondary },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.postAuthInstantBannerText,
-                    { color: theme.colors.secondaryForeground },
-                  ]}
-                >
-                  Instantly unlock premium
-                </Text>
-              </View>
-            )}
-          </Animated.View>
-
-          <Animated.View
-            style={[styles.postAuthPurchasePlanList, purchasePlanListAnimatedStyle]}
-          >
-            {isLoadingPlans && !visiblePlans.length ? (
-              <View
-                style={[
-                  styles.inlineLoaderCard,
-                  {
-                    backgroundColor: `${theme.colors.card}E6`,
-                    borderColor: `${theme.colors.border}80`,
-                  },
-                ]}
-              >
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-                <Text
-                  style={[
-                    styles.inlineLoaderText,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  Loading premium offers...
-                </Text>
-              </View>
-            ) : (
-              visiblePlans.map(plan => (
-                <PostAuthPlanCard
-                  key={plan.id}
-                  plan={plan}
-                  selected={selectedPlan?.id === plan.id}
-                  onPress={() => handlePlanPress(plan)}
-                />
-              ))
-            )}
-          </Animated.View>
-
-          <Animated.View
-            style={[styles.postAuthBenefitsList, purchaseBenefitsAnimatedStyle]}
-          >
-            {POST_AUTH_BENEFITS.map(benefit => (
-              <View key={benefit} style={styles.postAuthBenefitRow}>
-                <View
-                  style={[
-                    styles.postAuthBenefitIconWrap,
-                    { backgroundColor: `${theme.colors.primary}14` },
-                  ]}
-                >
-                  <Check size={12} color={theme.colors.primary} strokeWidth={3} />
-                </View>
-                <Text
-                  style={[
-                    styles.postAuthBenefitText,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  {benefit}
-                </Text>
-              </View>
-            ))}
-          </Animated.View>
-
-          {plansError ? (
-            <View
-              style={[
-                styles.messageCard,
-                {
-                  backgroundColor: `${theme.colors.warning}12`,
-                  borderColor: `${theme.colors.warning}30`,
-                },
-              ]}
-            >
-              <Text style={[styles.messageText, { color: theme.colors.foreground }]}>
-                {plansError}
-              </Text>
-            </View>
-          ) : null}
-        </ScrollView>
-
-        <Animated.View
-          style={[
-            styles.postAuthPurchaseFooter,
-            purchaseFooterAnimatedStyle,
-            {
-              backgroundColor: `${theme.colors.background}F2`,
-              borderTopColor: `${theme.colors.border}66`,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.postAuthDynamicPriceText,
-              { color: theme.colors.foreground },
-            ]}
-          >
-            {selectedPlan
-              ? selectedPlanHasTrial
-                ? `0 today, then ${selectedPlan.durationLabel}${getPostAuthPlanPeriod(selectedPlan)}`
-                : `Billed ${selectedPlan.durationLabel} today`
-              : "Select a premium plan"}
-          </Text>
-
-          <View style={styles.postAuthPurchaseActions}>
-            <StepActionButton
-              label={selectedPlanHasTrial ? introButtonLabel : "Subscribe Now"}
-              onPress={() => {
-                handleUpgrade().catch(() => undefined);
-              }}
-              disabled={!selectedPlan?.rcPackage || isLoadingPlans || isRestoring}
-              loading={isProcessing}
-              elevated={false}
-            />
-
-            <View
-              style={[
-                styles.postAuthFooterMetaRow,
-                isCompact ? styles.postAuthFooterMetaRowCompact : null,
-              ]}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlans }}
-                onPress={handleRestore}
-                disabled={isBusy || isLoadingPlans}
-                style={({ pressed }) => [pressed && styles.pressed]}
-              >
-                <ButtonLoadingContent
-                  loaderColor={theme.colors.mutedForeground}
-                  loading={isRestoring}
-                >
-                  <Text
-                    style={[
-                      styles.postAuthRestoreText,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    Restore purchases
-                  </Text>
-                </ButtonLoadingContent>
-              </Pressable>
-
-              <Text
-                style={[
-                  styles.postAuthRenewalText,
-                  { color: `${theme.colors.mutedForeground}99` },
-                ]}
-              >
-                Cancel anytime. Auto-renews.
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-      </View>
-    </View>
-  );
-  };
-
-  const renderStandardPurchaseStep = () => (
-    <View style={styles.standardPurchaseLayout}>
-      <View style={styles.purchaseHero}>
-        <Text style={[styles.purchaseTitle, { color: theme.colors.foreground }]}>
-          {paywallConfig?.template?.title || "Unlock Journal.IO Premium"}
-        </Text>
-        <Text style={[styles.purchaseBody, { color: theme.colors.mutedForeground }]}>
-          {paywallConfig?.template?.headline ||
-            "Choose the premium plan that fits your journaling rhythm."}
-        </Text>
-      </View>
-
-      <View style={styles.planList}>
-        {isLoadingPlans && !visiblePlans.length ? (
-          <View
-            style={[
-              styles.inlineLoaderCard,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-            <Text
-              style={[
-                styles.inlineLoaderText,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              Loading premium offers...
-            </Text>
-          </View>
-        ) : (
-          visiblePlans.map(plan => (
-            <PlanCard
-              key={plan.id}
-              plan={plan}
-              selected={selectedPlan?.id === plan.id}
-              onPress={() => handlePlanPress(plan)}
-            />
-          ))
-        )}
-      </View>
-
-      <View style={styles.featureList}>
-        {featureCards.slice(0, 4).map(feature => (
-          <View
-            key={feature.title}
-            style={[
-              styles.featureRow,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.featureBullet,
-                { backgroundColor: `${theme.colors.success}18` },
-              ]}
-            >
-              <Check size={14} color={theme.colors.success} />
-            </View>
-            <View style={styles.featureCopy}>
-              <Text style={[styles.featureTitle, { color: theme.colors.foreground }]}>
-                {feature.title}
-              </Text>
-              <Text style={[styles.featureBody, { color: theme.colors.mutedForeground }]}>
-                {feature.body}
-              </Text>
-            </View>
-          </View>
-        ))}
-      </View>
-
-      {plansError ? (
-        <View
-          style={[
-            styles.messageCard,
-            {
-              backgroundColor: `${theme.colors.warning}12`,
-              borderColor: `${theme.colors.warning}30`,
-            },
-          ]}
-        >
-          <Text style={[styles.messageText, { color: theme.colors.foreground }]}>
-            {plansError}
-          </Text>
-        </View>
-      ) : null}
-
-      {trialFootnote ? (
-        <Text style={[styles.helperText, { color: theme.colors.mutedForeground }]}>
-          {trialFootnote}
-        </Text>
-      ) : null}
-
-      <View style={styles.footer}>
-        <PrimaryButton
-          label={selectedPlanHasTrial ? introButtonLabel : "Continue"}
-          onPress={() => {
-            handleUpgrade().catch(() => undefined);
-          }}
-          loading={isProcessing}
-          tone="accent"
-          disabled={!selectedPlan?.rcPackage || isLoadingPlans || isRestoring}
-        />
-
-        <Pressable
-          onPress={handleRestore}
-          disabled={isBusy || isLoadingPlans}
-          accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlans }}
-          style={styles.restoreAction}
-        >
-          <ButtonLoadingContent
-            loaderColor={theme.colors.mutedForeground}
-            loading={isRestoring}
-          >
-            <Text style={[styles.restoreText, { color: theme.colors.mutedForeground }]}>
-              Restore Purchases
-            </Text>
-          </ButtonLoadingContent>
-        </Pressable>
-
-        <Text style={[styles.legalText, { color: theme.colors.mutedForeground }]}>
-          {paywallConfig?.template?.footerLegal ||
-            "Cancel anytime from your store subscription settings."}
-        </Text>
-      </View>
-    </View>
-  );
-
   if (screenState === "success") {
     return (
       <ActionSuccessScreen
         variant="payment"
         title={
-          isPurchaseAccessUpdating
-            ? PURCHASE_UPDATING_SUCCESS_TITLE
-            : "You're Premium"
+          isPurchaseAccessUpdating ? PURCHASE_UPDATING_SUCCESS_TITLE : "You're Premium"
         }
         subtitle={
           isPurchaseAccessUpdating
@@ -1990,62 +696,332 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     );
   }
 
+  const colors = theme.colors;
+  const showLoading = isLoadingPlans && !visiblePlans.length;
+
+  const heroStyle = {
+    opacity: heroAnim,
+    transform: [
+      { translateY: heroAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+    ],
+  };
+  const bulletsStyle = {
+    opacity: bulletsAnim,
+    transform: [
+      {
+        translateY: bulletsAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
+      },
+    ],
+  };
+  const footerStyle = {
+    opacity: footerAnim,
+    transform: [
+      { translateY: footerAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
+    ],
+  };
+
   return (
     <SafeAreaView
-      edges={
-        isModernPurchasePaywall && screenState === "paywall"
-          ? []
-          : ["top", "right", "bottom", "left"]
-      }
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
+      edges={["top", "right", "left"]}
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
     >
-      <View
-        style={[
-          styles.container,
-          !(isModernPurchasePaywall && screenState === "paywall") && {
-            paddingHorizontal: horizontalPadding,
-          },
+      {ambientOrbFrame && !isOrbHandedOff ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.ambientOrb,
+            {
+              // `ambientOrbFrame` is in window coordinates because that is what
+              // the hand-off overlay needs; absolute children here are laid out
+              // from the SafeAreaView's padding box, so undo its insets.
+              left: ambientOrbFrame.x - insets.left,
+              top: ambientOrbFrame.y - insets.top,
+              opacity: Animated.multiply(heroAnim, ambientOrbOpacity),
+            },
+          ]}
+        >
+          <Orb
+            deepColor={orbAccents.deep}
+            primaryColor={colors.primary}
+            secondaryColor={orbAccents.secondary}
+            size={ambientOrbFrame.size}
+            testID="paywall-ambient-orb"
+          />
+        </Animated.View>
+      ) : null}
+
+      <View style={styles.header}>
+        <HapticPressable
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+          onPress={handleDismiss}
+          style={({ pressed }) => [
+            styles.closeButton,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            pressed && styles.pressed,
+          ]}
+        >
+          <X size={18} color={colors.mutedForeground} />
+        </HapticPressable>
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: footerHeight + 12 },
         ]}
       >
-        {isModernPurchasePaywall ? (
-          isPostAuthPaywall ? (
-            postAuthStep === "trial"
-              ? renderPostAuthTrialStep()
-              : postAuthStep === "reminder"
-                ? renderPostAuthReminderStep()
-                : renderPostAuthPurchaseStep()
-          ) : (
-            renderPostAuthPurchaseStep()
-          )
-        ) : (
-          <>
-            <View style={styles.standardHeader}>
-              <View style={styles.standardHeaderSpacer} />
-              <Pressable
-                accessibilityRole="button"
-                onPress={handleDismiss}
-                style={({ pressed }) => [
-                  styles.roundIconButton,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <X size={18} color={theme.colors.mutedForeground} />
-              </Pressable>
-            </View>
+        <Animated.View style={[styles.hero, heroStyle]}>
+          <Text style={[styles.headline, { color: colors.foreground }]}>
+            {copy.headline}
+          </Text>
+          <Text style={[styles.subhead, { color: colors.mutedForeground }]}>
+            {copy.subhead}
+          </Text>
+        </Animated.View>
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContent}
-            >
-              {renderStandardPurchaseStep()}
-            </ScrollView>
-          </>
+        <Animated.View style={[styles.bullets, bulletsStyle]}>
+          <Text style={[styles.featuresLabel, { color: colors.mutedForeground }]}>
+            What's included
+          </Text>
+          {copy.bullets.map(bullet => {
+            return (
+              <View key={bullet.text} style={styles.bulletRow}>
+                <View
+                  style={[
+                    styles.bulletIcon,
+                    { backgroundColor: `${colors.primary}1A` },
+                  ]}
+                >
+                  <Image
+                    accessibilityIgnoresInvertColors
+                    source={bullet.icon}
+                    style={styles.bulletIconImage}
+                  />
+                </View>
+                <Text style={[styles.bulletText, { color: colors.foreground }]}>
+                  {bullet.text}
+                </Text>
+              </View>
+            );
+          })}
+        </Animated.View>
+      </ScrollView>
+
+      {/* Sticky footer: package cards + CTA. Pinned to the bottom; the scroll
+          content is padded by its measured height so nothing overlaps.
+          It reads as a sheet raised off the page, so the separation is carried
+          by elevation rather than a fill tint. Tinted trays were tried first and
+          both failed for the same reason: a neutral grey looked like a disabled
+          strip, and a blush put a pink wash directly under a coral CTA and a
+          coral-tinted selected card, collapsing the whole bottom third into one
+          hue. A plain sheet leaves the coral as the only saturated thing down
+          here. The unselected plan card drops to `background` to compensate —
+          see `planCard`. */}
+      <Animated.View
+        onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
+        style={[
+          styles.footer,
+          {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+            paddingBottom: insets.bottom + 12,
+            shadowColor: PAYWALL_SHADOW_COLOR,
+            shadowOpacity: footerShadowOpacity,
+          },
+          footerStyle,
+        ]}
+      >
+        {showLoading ? (
+          <View style={styles.footerLoading}>
+            <JournalLoader color={colors.primary} />
+          </View>
+        ) : (
+          <View style={styles.planRow}>
+            {visiblePlans.map(plan => {
+              const isSelected = plan.id === selectedPlan?.id;
+              const introLabel = getIntroOfferLabel(plan.introOffer);
+              const tag = introLabel || plan.badge || null;
+              return (
+                <Animated.View
+                  key={plan.id}
+                  style={[
+                    styles.planCardWrap,
+                    isSelected ? { transform: [{ scale: cardScale }] } : null,
+                  ]}
+                >
+                  <HapticPressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`${getPlanName(plan)}, ${getPlanPriceLabel(
+                      plan
+                    )}${introLabel ? `, ${introLabel}` : ""}`}
+                    onPress={() => handlePlanPress(plan)}
+                    style={({ pressed }) => [
+                      styles.planCard,
+                      {
+                        // `background`, not `card`: the footer is now a raised
+                        // `card` sheet, so a `card` fill here would vanish into
+                        // it. The selected card is a translucent primary wash
+                        // and lifts off either surface unchanged.
+                        backgroundColor: isSelected
+                          ? `${colors.primary}12`
+                          : colors.background,
+                        borderColor: isSelected ? colors.primary : colors.border,
+                      },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isSelected ? (
+                      <View
+                        style={[styles.planCheck, { backgroundColor: colors.primary }]}
+                      >
+                        <Check size={11} color={colors.primaryForeground} strokeWidth={3} />
+                      </View>
+                    ) : null}
+                    <Text style={[styles.planName, { color: colors.foreground }]}>
+                      {getPlanName(plan)}
+                    </Text>
+                    {/* Price and period are stacked, not concatenated: this card
+                        is ~133pt wide on a 375pt screen, and a storefront can
+                        hand back `Rp 1.499.000`. Giving the number the whole
+                        line is what keeps it off a second one. */}
+                    <PriceText
+                      style={[styles.planPrice, { color: colors.foreground }]}
+                      testID={`paywall-plan-price-${plan.id}`}
+                      value={plan.price}
+                    />
+                    {plan.periodLabel ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.planPeriod, { color: colors.mutedForeground }]}
+                      >
+                        {plan.periodLabel}
+                      </Text>
+                    ) : null}
+                    {plan.subtitle ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.planSubtitle, { color: colors.mutedForeground }]}
+                      >
+                        {plan.subtitle}
+                      </Text>
+                    ) : null}
+                    {tag ? (
+                      <View
+                        style={[
+                          styles.planTag,
+                          {
+                            backgroundColor: isSelected
+                              ? colors.primary
+                              : `${colors.primary}1A`,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.planTagText,
+                            {
+                              color: isSelected
+                                ? colors.primaryForeground
+                                : colors.primary,
+                            },
+                          ]}
+                        >
+                          {tag}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </HapticPressable>
+                </Animated.View>
+              );
+            })}
+          </View>
         )}
-      </View>
+
+        {plansError ? (
+          <Text style={[styles.errorText, { color: colors.destructive }]}>
+            {plansError}
+          </Text>
+        ) : trialFootnote ? (
+          <Text style={[styles.footnote, { color: colors.mutedForeground }]}>
+            {trialFootnote}
+          </Text>
+        ) : null}
+
+        <HapticPressable
+          accessibilityLabel={ctaLabel}
+          accessibilityRole="button"
+          accessibilityState={{ busy: isProcessing, disabled: isBusy || !selectedPlan }}
+          disabled={isBusy || !selectedPlan}
+          onPress={() => handleUpgrade().catch(() => undefined)}
+          style={({ pressed }) => [
+            styles.ctaButton,
+            { backgroundColor: colors.primary },
+            (pressed || isBusy) && styles.pressed,
+          ]}
+        >
+          <ButtonLoadingContent
+            loaderColor={colors.primaryForeground}
+            loading={isProcessing}
+          >
+            <Animated.Text
+              style={[
+                styles.ctaText,
+                { color: colors.primaryForeground, opacity: ctaFade },
+              ]}
+            >
+              {ctaLabel}
+            </Animated.Text>
+          </ButtonLoadingContent>
+        </HapticPressable>
+
+        <View style={styles.footerRow}>
+          <HapticPressable
+            accessibilityLabel="Restore purchases"
+            accessibilityRole="button"
+            disabled={isBusy}
+            hitSlop={8}
+            onPress={() => handleRestore().catch(() => undefined)}
+          >
+            <Text style={[styles.footerLink, { color: colors.mutedForeground }]}>
+              {isRestoring ? "Restoring…" : "Restore"}
+            </Text>
+          </HapticPressable>
+          <Text style={[styles.footerDot, { color: colors.mutedForeground }]}>·</Text>
+          <HapticPressable
+            accessibilityLabel="Terms of Service"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() =>
+              openExternalUrl(LEGAL_URLS.termsOfService, "Terms of Service").catch(
+                () => undefined
+              )
+            }
+          >
+            <Text style={[styles.footerLink, { color: colors.mutedForeground }]}>
+              Terms
+            </Text>
+          </HapticPressable>
+          <Text style={[styles.footerDot, { color: colors.mutedForeground }]}>·</Text>
+          <HapticPressable
+            accessibilityLabel="Privacy Policy"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() =>
+              openExternalUrl(LEGAL_URLS.privacyPolicy, "Privacy Policy").catch(
+                () => undefined
+              )
+            }
+          >
+            <Text style={[styles.footerLink, { color: colors.mutedForeground }]}>
+              Privacy
+            </Text>
+          </HapticPressable>
+        </View>
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -2054,615 +1030,219 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  container: {
+  ambientOrb: {
+    position: "absolute",
+  },
+  header: {
+    alignItems: "flex-end",
+    paddingHorizontal: 20,
+    paddingTop: 6,
+  },
+  closeButton: {
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
+    paddingBottom: 20,
+    paddingHorizontal: 24,
     paddingTop: 8,
-    paddingBottom: 24,
   },
-  standardHeader: {
-    alignItems: "flex-end",
-    paddingVertical: 4,
-  },
-  standardHeaderSpacer: {
-    width: 36,
-    height: 36,
-  },
-  roundIconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+  hero: {
     alignItems: "center",
-    justifyContent: "center",
+    marginBottom: 36,
+    marginTop: 6,
   },
-  purchaseCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pressed: {
-    opacity: 0.9,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  stepActionButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepActionButtonLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  postAuthScreen: {
-    flex: 1,
-    overflow: "hidden",
-  },
-  postAuthStageInner: {
-    flex: 1,
-  },
-  postAuthGlow: {
-    position: "absolute",
-    borderRadius: 999,
-  },
-  postAuthTrialGlow: {
-    width: 300,
-    height: 300,
-    top: "22%",
-    left: "50%",
-    marginLeft: -150,
-  },
-  postAuthReminderGlow: {
-    width: 340,
-    height: 340,
-    top: -40,
-    right: -130,
-  },
-  postAuthPurchaseGlowTop: {
-    width: 280,
-    height: 280,
-    top: -140,
-    right: -120,
-  },
-  postAuthPurchaseGlowSide: {
-    width: 180,
-    height: 180,
-    top: "34%",
-    left: -90,
-  },
-  postAuthHeaderEnd: {
-    alignItems: "flex-end",
-    paddingTop: 4,
-  },
-  postAuthTrialContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingBottom: 32,
-  },
-  postAuthMascotWrap: {
-    marginBottom: 32,
-    position: "relative",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postAuthMascotHalo: {
-    position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  postAuthMascotImage: {
-    width: 112,
-    height: 112,
-  },
-  postAuthMascotImageCompact: {
-    width: 96,
-    height: 96,
-  },
-  postAuthHeroTitle: {
-    fontSize: 32,
+  headline: {
+    fontSize: 27,
     fontWeight: "700",
-    lineHeight: 38,
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  postAuthHeroTitleCompact: {
-    lineHeight: 34,
-    marginBottom: 20,
-  },
-  postAuthFeatureList: {
-    width: "100%",
-    gap: 14,
-    maxWidth: 280,
-  },
-  postAuthFeatureCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 22,
-    borderWidth: 1,
-  },
-  postAuthFeatureIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postAuthFeatureText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "500",
-    lineHeight: 20,
-  },
-  postAuthFooter: {
-    gap: 14,
-    paddingBottom: 12,
-  },
-  laterAction: {
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  laterActionText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  postAuthReminderContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingBottom: 44,
-  },
-  postAuthBellWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 38,
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3,
-  },
-  postAuthReminderBody: {
-    fontSize: 16,
-    lineHeight: 24,
-    textAlign: "center",
-    maxWidth: 300,
-    marginBottom: 34,
-  },
-  postAuthTimelineWrap: {
-    width: "100%",
-    gap: 24,
-    position: "relative",
-  },
-  postAuthTimelineLine: {
-    position: "absolute",
-    left: 23,
-    top: 24,
-    bottom: 24,
-    width: 2,
-    borderRadius: 999,
-  },
-  postAuthTimelineItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-    zIndex: 1,
-  },
-  postAuthTimelineIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postAuthTimelineTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  postAuthTimelineTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  postAuthTimelineDescription: {
-    fontSize: 14,
-    fontWeight: "500",
-    lineHeight: 20,
-  },
-  postAuthPurchaseHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 2,
-    paddingBottom: 8,
-  },
-  postAuthBrandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  postAuthBrandIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postAuthBrandText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  postAuthPurchaseScroll: {
-    flex: 1,
-  },
-  postAuthPurchaseScrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingBottom: 12,
-  },
-  postAuthTrialBannerSlot: {
-    minHeight: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  postAuthTrialBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  postAuthTrialBannerText: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-  },
-  postAuthInstantBanner: {
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-  },
-  postAuthInstantBannerText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  postAuthPurchasePlanList: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  inlineLoaderCard: {
-    minHeight: 112,
-    borderRadius: 22,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-  },
-  inlineLoaderText: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "500",
+    letterSpacing: -0.6,
+    lineHeight: 33,
     textAlign: "center",
   },
-  postAuthPlanCard: {
-    borderRadius: 24,
-    borderWidth: 2,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    position: "relative",
-    overflow: "hidden",
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
-  },
-  postAuthPlanPressed: {
-    transform: [{ scale: 0.99 }],
-  },
-  postAuthPlanBadge: {
-    position: "absolute",
-    top: 0,
-    right: 16,
-    borderBottomLeftRadius: 8,
-    borderBottomRightRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    zIndex: 1,
-  },
-  postAuthPlanBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  postAuthPlanContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 14,
-  },
-  postAuthPlanLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingRight: 8,
-  },
-  postAuthRadioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  postAuthRadioFill: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postAuthRadioInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#FFFFFF",
-  },
-  postAuthPlanTextWrap: {
-    flex: 1,
-    gap: 3,
-  },
-  postAuthPlanNameRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
-  },
-  postAuthPlanName: {
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  postAuthSavingsPill: {
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  postAuthSavingsText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  postAuthPlanDescription: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  postAuthPriceWrap: {
-    alignItems: "flex-end",
-    minWidth: 58,
-  },
-  postAuthPlanPrice: {
-    fontSize: 22,
-    fontWeight: "700",
-    lineHeight: 24,
-  },
-  postAuthPlanPeriod: {
-    fontSize: 10,
-    marginTop: 4,
-  },
-  postAuthBenefitsList: {
-    gap: 10,
-    paddingHorizontal: 2,
-  },
-  postAuthBenefitRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  postAuthBenefitIconWrap: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
-  },
-  postAuthBenefitText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  postAuthPurchaseFooter: {
-    paddingTop: 10,
-    paddingBottom: 6,
-    gap: 10,
-    borderTopWidth: 1,
-  },
-  postAuthDynamicPriceText: {
-    fontSize: 12,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-  postAuthPurchaseActions: {
-    gap: 10,
-  },
-  postAuthFooterMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 2,
-  },
-  postAuthFooterMetaRowCompact: {
-    flexDirection: "column",
-  },
-  postAuthRestoreText: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  postAuthRenewalText: {
-    fontSize: 10,
-    textAlign: "right",
-  },
-  postAuthLegalText: {
-    fontSize: 11,
-    lineHeight: 16,
-    textAlign: "center",
-  },
-  standardPurchaseLayout: {
-    gap: 18,
-    paddingTop: 8,
-    paddingBottom: 24,
-  },
-  purchaseHero: {
-    alignItems: "center",
-    gap: 10,
-  },
-  purchaseTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    lineHeight: 34,
-    textAlign: "center",
-  },
-  purchaseBody: {
+  subhead: {
     fontSize: 15,
     lineHeight: 22,
+    marginTop: 12,
+    maxWidth: 320,
     textAlign: "center",
-    maxWidth: 330,
   },
-  planList: {
-    gap: 12,
-  },
-  planCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 16,
-    gap: 8,
-  },
-  planHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 16,
-  },
-  planTitleWrap: {
-    flex: 1,
-    gap: 4,
-  },
-  planTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  planSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  radioOuter: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  planPrice: {
-    fontSize: 26,
-    fontWeight: "800",
-    lineHeight: 30,
-  },
-  planBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  planBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  planHighlight: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  featureList: {
-    gap: 12,
-  },
-  featureRow: {
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  featureBullet: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  featureCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  featureTitle: {
-    fontSize: 15,
+  featuresLabel: {
+    fontSize: 11.5,
     fontWeight: "600",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+    textTransform: "uppercase",
   },
-  featureBody: {
-    fontSize: 13,
-    lineHeight: 19,
+  bullets: {
+    gap: 14,
+    marginBottom: 22,
   },
-  messageCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
+  bulletRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 13,
   },
-  messageText: {
-    fontSize: 13,
-    lineHeight: 19,
+  bulletIcon: {
+    alignItems: "center",
+    borderRadius: 11,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
   },
-  helperText: {
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
+  bulletIconImage: {
+    height: 20,
+    resizeMode: "contain",
+    width: 20,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: "600",
+    lineHeight: 20,
   },
   footer: {
+    // A full point, not a hairline: this line separates two close tones, and a
+    // sub-pixel rule disappeared into them entirely.
+    borderTopWidth: 1,
+    bottom: 0,
+    elevation: 12,
+    left: 0,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    position: "absolute",
+    right: 0,
+    // Cast upward, over the scrolling list — this is what lifts the sheet.
+    shadowOffset: { width: 0, height: -6 },
+    shadowRadius: 18,
+  },
+  footerLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 34,
+  },
+  planRow: {
+    // `stretch` (the default) is load-bearing: it sizes both wrappers to the
+    // taller card's content so the cards below can grow into a matched height.
+    alignItems: "stretch",
+    flexDirection: "row",
     gap: 12,
   },
-  restoreAction: {
+  planCardWrap: {
+    flex: 1,
+  },
+  planCard: {
     alignItems: "center",
-    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    // `flexGrow`, not `flex: 1`: `flex: 1` would also set `flexBasis: 0`, which
+    // drops this card's content out of the height calculation and collapses the
+    // row back to `minHeight`. Growing from an `auto` basis is what lets the
+    // shorter card fill the taller one — only the yearly card carries an intro
+    // tag, so without this the two cards differ by a tag's height.
+    flexGrow: 1,
+    justifyContent: "center",
+    // `minHeight`, not `height`: a price long enough to survive shrink-to-fit
+    // used to spill out of a fixed card.
+    minHeight: 118,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    width: "100%",
   },
-  restoreText: {
-    fontSize: 13,
-    fontWeight: "500",
+  planCheck: {
+    alignItems: "center",
+    borderBottomLeftRadius: 8,
+    borderTopRightRadius: 14,
+    height: 20,
+    justifyContent: "center",
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: 22,
   },
-  legalText: {
-    fontSize: 12,
-    lineHeight: 18,
+  planName: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  planPrice: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 3,
+    // Full card width, so shrink-to-fit measures against the card rather than
+    // the natural width of the string.
     textAlign: "center",
+    width: "100%",
+  },
+  planPeriod: {
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 1,
+    textAlign: "center",
+  },
+  planSubtitle: {
+    fontSize: 11.5,
+    lineHeight: 15,
+    marginTop: 2,
+    textAlign: "center",
+  },
+  planTag: {
+    borderRadius: 6,
+    marginTop: 6,
+    maxWidth: "100%",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  planTagText: {
+    fontSize: 9.5,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+  },
+  errorText: {
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  footnote: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  ctaButton: {
+    alignItems: "center",
+    borderRadius: 18,
+    justifyContent: "center",
+    marginTop: 14,
+    minHeight: 56,
+  },
+  ctaText: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  footerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  footerLink: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  footerDot: {
+    fontSize: 12.5,
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });

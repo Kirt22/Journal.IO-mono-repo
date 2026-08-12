@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
 import test, { afterEach, beforeEach } from "node:test";
 import { journalModel } from "../../schema/journal.schema";
 import { reminderModel } from "../../schema/reminder.schema";
 import { userModel } from "../../schema/user.schema";
+import { widgetSessionModel } from "../../schema/widget_session.schema";
 import {
   requestPasswordReset,
   resetAppleIdentityTokenVerifierForTests,
@@ -41,11 +43,11 @@ type UserDocument = {
   premiumActivatedAt?: Date | null;
   refreshTokenHash?: string | null;
   refreshTokenExpiresAt?: Date | null;
+  widgetSessionVersion: number;
   passwordResetTokenHash?: string | null;
   passwordResetExpiresAt?: Date | null;
   passwordResetRequestedAt?: Date | null;
   onboardingContext?: {
-    aiOptIn?: boolean | null;
     goals?: string[];
   } | null;
   emailVerified: boolean;
@@ -67,6 +69,11 @@ const journalTarget = journalModel as unknown as {
 const reminderTarget = reminderModel as unknown as {
   exists: (query: AuthLookupQuery) => Promise<unknown>;
 };
+const widgetSessionTarget = widgetSessionModel as unknown as {
+  deleteMany: (query: AuthLookupQuery) => {
+    exec: () => Promise<{ deletedCount?: number }>;
+  };
+};
 
 const originalFindOne = userTarget.findOne;
 const originalCreate = userTarget.create;
@@ -74,6 +81,7 @@ const originalUpdateOne = userTarget.updateOne;
 const originalJournalExists = journalTarget.exists;
 const originalJournalCountDocuments = journalTarget.countDocuments;
 const originalReminderExists = reminderTarget.exists;
+const originalWidgetSessionDeleteMany = widgetSessionTarget.deleteMany;
 const originalConsoleInfo = console.info;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAuthEmailHeloHost = process.env.AUTH_EMAIL_HELO_HOST;
@@ -114,6 +122,7 @@ const buildUserDocument = (
     premiumActivatedAt: null,
     refreshTokenHash: null,
     refreshTokenExpiresAt: null,
+    widgetSessionVersion: 0,
     passwordResetTokenHash: null,
     passwordResetExpiresAt: null,
     passwordResetRequestedAt: null,
@@ -132,6 +141,9 @@ beforeEach(() => {
   journalTarget.exists = async () => null;
   journalTarget.countDocuments = async () => 0;
   reminderTarget.exists = async () => null;
+  widgetSessionTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 0 }),
+  });
 });
 
 afterEach(() => {
@@ -141,6 +153,7 @@ afterEach(() => {
   journalTarget.exists = originalJournalExists;
   journalTarget.countDocuments = originalJournalCountDocuments;
   reminderTarget.exists = originalReminderExists;
+  widgetSessionTarget.deleteMany = originalWidgetSessionDeleteMany;
   console.info = originalConsoleInfo;
   resetAppleIdentityTokenVerifierForTests();
   resetGoogleIdTokenVerifierForTests();
@@ -164,7 +177,7 @@ afterEach(() => {
   }
 });
 
-test("signInWithEmail persists onboarding AI preference for an existing user", async () => {
+test("signInWithEmail persists onboarding context for an existing user", async () => {
   process.env.JWT_ACCESS_SECRET = "test-access-secret";
 
   const password = "strong-password";
@@ -173,9 +186,9 @@ test("signInWithEmail persists onboarding AI preference for an existing user", a
     emailVerified: true,
     emailVerifiedAt: new Date("2026-04-04T10:00:00.000Z"),
     onboardingContext: {
-      aiOptIn: true,
       goals: [],
     },
+    widgetSessionVersion: 2,
   });
   const refreshUpdates: unknown[] = [];
   let saveCount = 0;
@@ -201,7 +214,6 @@ test("signInWithEmail persists onboarding AI preference for an existing user", a
     email: "alex@example.com",
     password,
     onboardingContext: {
-      aiOptIn: false,
       goals: ["Daily Reflection"],
     },
     onboardingCompleted: true,
@@ -213,11 +225,14 @@ test("signInWithEmail persists onboarding AI preference for an existing user", a
     return;
   }
 
-  assert.equal(existingUser.onboardingContext?.aiOptIn, false);
   assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
   assert.equal(existingUser.onboardingCompleted, true);
   assert.equal(existingUser.onboardingVersion, 2);
-  assert.equal(result.user.aiOptIn, false);
+  const accessPayload = jwt.verify(
+    result.tokens.accessToken,
+    "test-access-secret"
+  ) as jwt.JwtPayload;
+  assert.equal(accessPayload.widgetSessionVersion, 2);
   assert.equal(result.user.onboardingVersion, 2);
   assert.deepEqual(result.user.journalingGoals, ["Daily Reflection"]);
   assert.equal(saveCount, 2);
@@ -506,6 +521,7 @@ test("resetPassword updates the password and clears reset and refresh tokens", a
     passwordResetRequestedAt: new Date(),
   });
   let saveCount = 0;
+  const revokedWidgetQueries: AuthLookupQuery[] = [];
 
   existingUser.save = async () => {
     saveCount += 1;
@@ -524,6 +540,12 @@ test("resetPassword updates the password and clears reset and refresh tokens", a
     return null;
   };
   userTarget.updateOne = async () => ({ acknowledged: true });
+  widgetSessionTarget.deleteMany = query => ({
+    exec: async () => {
+      revokedWidgetQueries.push(query);
+      return { deletedCount: 1 };
+    },
+  });
 
   const result = await resetPassword({
     token: resetToken,
@@ -537,6 +559,8 @@ test("resetPassword updates the password and clears reset and refresh tokens", a
   assert.equal(existingUser.passwordResetRequestedAt, null);
   assert.equal(existingUser.refreshTokenHash, null);
   assert.equal(existingUser.refreshTokenExpiresAt, null);
+  assert.equal(existingUser.widgetSessionVersion, 1);
+  assert.deepEqual(revokedWidgetQueries, [{ userId: "user-123" }]);
 
   const signInResult = await signInWithEmail({
     email: "alex@example.com",
@@ -544,6 +568,14 @@ test("resetPassword updates the password and clears reset and refresh tokens", a
   });
 
   assert.equal(signInResult.ok, true);
+
+  if (signInResult.ok) {
+    const accessPayload = jwt.verify(
+      signInResult.tokens.accessToken,
+      "test-access-secret"
+    ) as jwt.JwtPayload;
+    assert.equal(accessPayload.widgetSessionVersion, 1);
+  }
 });
 
 test("signInWithGoogle links a verified Google identity onto an existing email user", async () => {
@@ -579,7 +611,6 @@ test("signInWithGoogle links a verified Google identity onto an existing email u
   const result = await signInWithGoogle({
     idToken: "google-id-token",
     onboardingContext: {
-      aiOptIn: false,
       goals: ["Daily Reflection"],
     },
     onboardingCompleted: true,
@@ -596,10 +627,8 @@ test("signInWithGoogle links a verified Google identity onto an existing email u
   assert.equal(existingUser.profilePic, "https://example.com/avatar.png");
   assert.equal(existingUser.emailVerified, true);
   assert.equal(existingUser.onboardingCompleted, true);
-  assert.equal(existingUser.onboardingContext?.aiOptIn, false);
   assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
   assert.ok(existingUser.authProviders.includes("google"));
-  assert.equal(result.user.aiOptIn, false);
   assert.match(result.tokens.accessToken, /\S+/);
   assert.match(result.tokens.refreshToken, /\S+/);
   assert.equal(refreshUpdates.length, 1);
@@ -683,7 +712,6 @@ test("signInWithApple links a verified Apple identity onto an existing email use
     identityToken: "apple-identity-token",
     nonce: "raw-apple-nonce-value",
     onboardingContext: {
-      aiOptIn: false,
       goals: ["Daily Reflection"],
     },
     onboardingCompleted: true,
@@ -699,10 +727,8 @@ test("signInWithApple links a verified Apple identity onto an existing email use
   assert.equal(existingUser.appleUserId, "apple-sub-123");
   assert.equal(existingUser.emailVerified, true);
   assert.equal(existingUser.onboardingCompleted, true);
-  assert.equal(existingUser.onboardingContext?.aiOptIn, false);
   assert.deepEqual(existingUser.journalingGoals, ["Daily Reflection"]);
   assert.ok(existingUser.authProviders.includes("apple"));
-  assert.equal(result.user.aiOptIn, false);
   assert.match(result.tokens.accessToken, /\S+/);
   assert.match(result.tokens.refreshToken, /\S+/);
   assert.equal(refreshUpdates.length, 1);

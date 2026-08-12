@@ -11,9 +11,21 @@ export type MoodCheckInResponse = {
 export type MoodCheckInInput = {
   userId: string;
   mood: MoodValue;
+  timeZone?: string;
+  now?: Date;
 };
 
 export type MoodStatusResponse = {
   moodCheckIn: MoodCheckInResponse | null;
   currentStreak: number;
+};
+
+export type MoodHistoryDay = {
+  moodDateKey: string;
+  mood: MoodValue | null;
+  isToday: boolean;
+};
+
+export type MoodHistoryResponse = {
+  days: MoodHistoryDay[];
 };

@@ -1,4 +1,5 @@
 import { CURRENT_ONBOARDING_VERSION } from "../../config/onboarding.config";
+import { invalidateUserPersonalizationCache } from "../../helpers/userPersonalization.helpers";
 import {
   type IOnboardingContext,
   type IOnboardingPayload,
@@ -47,13 +48,15 @@ type CompleteOnboardingInput = {
   reflectionTone?: string[];
   preferredTheme?: string;
   reminderPreference?: string;
-  aiComfort?: boolean;
   privacyConsent?: boolean;
   firstReflectionId?: string;
   firstReflectionSummary?: OnboardingFirstReflectionSummaryInput;
   personalGoals?: string[];
   goals?: string[];
   journalingExperience?: string;
+  referralSource?: string;
+  referralSourceOther?: string;
+  commitmentSignedAt?: string;
 };
 
 const moodLabels: Record<OnboardingDemoMood, string> = {
@@ -260,6 +263,17 @@ const sanitizeFirstReflectionSummary = (
   return Object.keys(sanitizedSummary).length > 0 ? sanitizedSummary : undefined;
 };
 
+/** Drops anything that is not a real timestamp rather than storing `Invalid Date`. */
+const parseOptionalDate = (value?: string): Date | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+};
+
 const sanitizeOnboardingCompletionPayload = (
   input: CompleteOnboardingInput
 ): IOnboardingPayload => {
@@ -282,6 +296,9 @@ const sanitizeOnboardingCompletionPayload = (
   const firstReflectionSummary = sanitizeFirstReflectionSummary(
     input.firstReflectionSummary
   );
+  const referralSource = cleanOptionalText(input.referralSource);
+  const referralSourceOther = cleanOptionalText(input.referralSourceOther);
+  const commitmentSignedAt = parseOptionalDate(input.commitmentSignedAt);
 
   if (whatBringsYouHere.length > 0) {
     payload.whatBringsYouHere = whatBringsYouHere;
@@ -311,10 +328,6 @@ const sanitizeOnboardingCompletionPayload = (
     payload.reminderPreference = reminderPreference;
   }
 
-  if (typeof input.aiComfort === "boolean") {
-    payload.aiComfort = input.aiComfort;
-  }
-
   if (typeof input.privacyConsent === "boolean") {
     payload.privacyConsent = input.privacyConsent;
   }
@@ -329,6 +342,18 @@ const sanitizeOnboardingCompletionPayload = (
 
   if (personalGoals.length > 0) {
     payload.personalGoals = personalGoals;
+  }
+
+  if (referralSource) {
+    payload.referralSource = referralSource;
+  }
+
+  if (referralSourceOther) {
+    payload.referralSourceOther = referralSourceOther;
+  }
+
+  if (commitmentSignedAt) {
+    payload.commitmentSignedAt = commitmentSignedAt;
   }
 
   return payload;
@@ -351,10 +376,6 @@ const buildLegacyOnboardingContext = (
       payload.supportFocusAreas || existingContext?.supportFocus || [],
     reminderPreference:
       payload.reminderPreference || existingContext?.reminderPreference || null,
-    aiOptIn:
-      typeof payload.aiComfort === "boolean"
-        ? payload.aiComfort
-        : existingContext?.aiOptIn ?? null,
     privacyConsentAccepted:
       typeof payload.privacyConsent === "boolean"
         ? payload.privacyConsent
@@ -389,6 +410,7 @@ const completeOnboardingForUser = async (
   }
 
   await user.save();
+  invalidateUserPersonalizationCache(userId);
 
   return buildAuthenticatedUserProfilePayload(user);
 };

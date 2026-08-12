@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
 import {
   Alert,
   Animated,
@@ -7,14 +12,15 @@ import {
   Platform,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
+import {
+  Text,
+  TextInput,
+} from "../../infrastructure/reactNative";
 import {
   Bell,
   BookHeart,
@@ -55,12 +61,12 @@ import { useTheme } from "../../theme/provider";
 import type { OnboardingCompletionData } from "../../types/onboarding";
 import { LEGAL_URLS, openExternalUrl } from "../../utils/legalLinks";
 
-const TOTAL_STEPS = 12;
-const PRIVACY_STEP = 8;
-const JOURNAL_DEMO_STEP = 9;
-const AI_REFLECTION_STEP = 10;
-const BREATHING_STEP = 11;
-const RATING_STEP = 12;
+const TOTAL_STEPS = 11;
+const PRIVACY_STEP = 7;
+const JOURNAL_DEMO_STEP = 8;
+const AI_REFLECTION_STEP = 9;
+const BREATHING_STEP = 10;
+const RATING_STEP = 11;
 const REFLECTION_WAIT_SECONDS = 3;
 const BREATHING_WAIT_SECONDS = 5;
 const isTestEnvironment = typeof jest !== "undefined";
@@ -314,7 +320,6 @@ export function OnboardingScreen({
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [selectedSupportAreas, setSelectedSupportAreas] = useState<string[]>([]);
   const [selectedReminder, setSelectedReminder] = useState("evening");
-  const [aiComfort, setAiComfort] = useState(true);
   const [excitementRating, setExcitementRating] = useState(0);
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
   const [hasRequestedAppRating, setHasRequestedAppRating] = useState(false);
@@ -358,8 +363,6 @@ export function OnboardingScreen({
     titleSize,
   } = responsiveMetrics;
   const heroSpacingStyle = isCompact ? styles.heroSectionCompact : styles.heroSectionStandard;
-  const aiComfortPrimaryBackground = aiComfort ? theme.colors.primary : "transparent";
-  const aiComfortSecondaryBackground = !aiComfort ? theme.colors.primary : "transparent";
   const privacyConsentBackground = agreedToPrivacy ? theme.colors.primary : "transparent";
   const ratingStepMinHeight = Math.max(height - (isCompact ? 270 : 315), 420);
   const demoStepMinHeight = Math.max(height - (isCompact ? 265 : 310), 470);
@@ -756,7 +759,6 @@ export function OnboardingScreen({
         goals: selectedGoals,
         supportFocusAreas: selectedSupportAreas,
         reminderPreference: selectedReminder,
-        aiComfort,
         privacyConsent: agreedToPrivacy,
       });
     } catch (error) {
@@ -895,7 +897,7 @@ export function OnboardingScreen({
               const selected = selectedAgeRange === ageRange;
 
               return (
-                <Pressable
+                <HapticPressable
                   key={ageRange}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
@@ -926,7 +928,7 @@ export function OnboardingScreen({
                   >
                     {selected ? <View style={styles.radioInner} /> : null}
                   </View>
-                </Pressable>
+                </HapticPressable>
               );
             })}
           </View>
@@ -949,7 +951,7 @@ export function OnboardingScreen({
               const selected = selectedExperience === experience.id;
 
               return (
-                <Pressable
+                <HapticPressable
                   key={experience.id}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
@@ -985,7 +987,7 @@ export function OnboardingScreen({
                   >
                     {selected ? <View style={styles.radioInner} /> : null}
                   </View>
-                </Pressable>
+                </HapticPressable>
               );
             })}
           </View>
@@ -1012,7 +1014,7 @@ export function OnboardingScreen({
               const selected = selectedGoals.includes(goal.id);
 
               return (
-                <Pressable
+                <HapticPressable
                   key={goal.id}
                   testID={`goal-card-${goal.id}`}
                   accessibilityRole="checkbox"
@@ -1062,7 +1064,7 @@ export function OnboardingScreen({
                   >
                     {selected ? <Check color={theme.colors.primaryForeground} size={12} /> : null}
                   </View>
-                </Pressable>
+                </HapticPressable>
               );
             })}
           </View>
@@ -1091,7 +1093,7 @@ export function OnboardingScreen({
                 const selected = selectedSupportAreas.includes(item.id);
 
                 return (
-                  <Pressable
+                  <HapticPressable
                     key={item.id}
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: selected }}
@@ -1133,7 +1135,7 @@ export function OnboardingScreen({
                     >
                       {selected ? <Check color={theme.colors.primaryForeground} size={12} /> : null}
                     </View>
-                  </Pressable>
+                  </HapticPressable>
                 );
               })}
             </View>
@@ -1158,7 +1160,7 @@ export function OnboardingScreen({
               const selected = selectedReminder === reminder.id;
 
               return (
-                <Pressable
+                <HapticPressable
                   key={reminder.id}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
@@ -1210,141 +1212,9 @@ export function OnboardingScreen({
                   >
                     {selected ? <Check color={theme.colors.primaryForeground} size={12} /> : null}
                   </View>
-                </Pressable>
+                </HapticPressable>
               );
             })}
-          </View>
-        </View>
-      );
-    }
-
-    if (step === 7) {
-      return (
-        <View style={styles.stepSection}>
-          <Text style={[styles.sectionTitle, { fontSize: sectionTitleSize, color: theme.colors.foreground }]}>
-            AI comfort and explanation
-          </Text>
-          <Text style={[styles.sectionSubtitle, { color: theme.colors.mutedForeground }]}>
-            Choose whether AI guidance should be ready if you unlock Premium later.
-          </Text>
-
-          <View
-            style={[
-              styles.infoCard,
-              styles.infoCardSpaced,
-              {
-                backgroundColor: theme.colors.accent,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <View style={styles.infoHeaderRow}>
-              <Sparkles color={theme.colors.primary} size={18} strokeWidth={2} />
-              <Text style={[styles.infoCardTitle, { color: theme.colors.foreground }]}>
-                What Premium AI can do for you
-              </Text>
-            </View>
-            <View style={styles.bulletList}>
-              <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
-                • Generate personalized journaling prompts
-              </Text>
-              <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
-                • Notice patterns and summarize weekly reflections
-              </Text>
-              <Text style={[styles.bulletText, { color: theme.colors.mutedForeground }]}>
-                • Surface supportive, non-clinical insights and AI tag suggestions
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.optionList}>
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ selected: aiComfort }}
-              onPress={() => {
-                setAiComfort(true);
-                setStepError(null);
-              }}
-              style={({ pressed }) => [
-                styles.singleSelectCard,
-                {
-                  backgroundColor: aiComfort ? theme.colors.accent : theme.colors.card,
-                  borderColor: aiComfort ? theme.colors.primary : theme.colors.border,
-                },
-                pressed && styles.cardPressed,
-              ]}
-            >
-              <View style={styles.singleSelectTextWrap}>
-                <Text style={[styles.singleSelectLabel, { color: theme.colors.foreground }]}>
-                  Yes, I&apos;d love AI assistance
-                </Text>
-                <Text style={[styles.singleSelectDescription, { color: theme.colors.mutedForeground }]}>
-                  If you upgrade, Journal.IO can unlock personalized prompts and weekly AI reflections.
-                </Text>
-              </View>
-                <View
-                  style={[
-                    styles.radioOuter,
-                    {
-                      borderColor: aiComfort ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: aiComfortPrimaryBackground,
-                    },
-                  ]}
-                >
-                {aiComfort ? <View style={styles.radioInner} /> : null}
-              </View>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ selected: !aiComfort }}
-              onPress={() => {
-                setAiComfort(false);
-                setStepError(null);
-              }}
-              style={({ pressed }) => [
-                styles.singleSelectCard,
-                {
-                  backgroundColor: !aiComfort ? theme.colors.accent : theme.colors.card,
-                  borderColor: !aiComfort ? theme.colors.primary : theme.colors.border,
-                },
-                pressed && styles.cardPressed,
-              ]}
-            >
-              <View style={styles.singleSelectTextWrap}>
-                <Text style={[styles.singleSelectLabel, { color: theme.colors.foreground }]}>
-                  No thanks, keep it simple
-                </Text>
-                <Text style={[styles.singleSelectDescription, { color: theme.colors.mutedForeground }]}>
-                  Keep AI features off, even if you upgrade later. You can change this anytime.
-                </Text>
-              </View>
-                <View
-                  style={[
-                    styles.radioOuter,
-                    {
-                      borderColor: !aiComfort ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: aiComfortSecondaryBackground,
-                    },
-                  ]}
-                >
-                {!aiComfort ? <View style={styles.radioInner} /> : null}
-              </View>
-            </Pressable>
-          </View>
-
-          <View
-            style={[
-              styles.supportNote,
-              {
-                backgroundColor: theme.colors.muted,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.supportNoteText, { color: theme.colors.mutedForeground }]}>
-              Premium unlocks AI features and Privacy Mode controls. Core journaling, export, and deletion remain available to every account.
-            </Text>
           </View>
         </View>
       );
@@ -1391,7 +1261,7 @@ export function OnboardingScreen({
                   const filled = excitementRating >= star;
 
                   return (
-                    <Pressable
+                    <HapticPressable
                       key={star}
                       accessibilityLabel={`Rate excitement ${star} out of 5`}
                       accessibilityRole="button"
@@ -1411,7 +1281,7 @@ export function OnboardingScreen({
                           strokeWidth={1.5}
                         />
                       </Animated.View>
-                    </Pressable>
+                    </HapticPressable>
                   );
                 })}
               </View>
@@ -1586,7 +1456,7 @@ export function OnboardingScreen({
           </View>
         </View>
 
-        <Pressable
+        <HapticPressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: agreedToPrivacy }}
           onPress={() => {
@@ -1644,7 +1514,7 @@ export function OnboardingScreen({
             </Text>
             .
           </Text>
-        </Pressable>
+        </HapticPressable>
       </View>
       );
     }
@@ -1670,7 +1540,7 @@ export function OnboardingScreen({
                   const selected = journalMood === mood.id;
 
                   return (
-                    <Pressable
+                    <HapticPressable
                       key={mood.id}
                       accessibilityRole="radio"
                       accessibilityState={{ selected }}
@@ -1707,7 +1577,7 @@ export function OnboardingScreen({
                       >
                         {mood.label}
                       </Text>
-                    </Pressable>
+                    </HapticPressable>
                   );
                 })}
               </View>
@@ -2002,7 +1872,7 @@ export function OnboardingScreen({
               </Text>
             </View>
 
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               disabled={!isBreathingReady}
               onPress={handleContinue}
@@ -2030,7 +1900,7 @@ export function OnboardingScreen({
               >
                 I feel calmer
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </Animated.View>
       </SafeAreaView>
@@ -2089,7 +1959,7 @@ export function OnboardingScreen({
             <View style={styles.actionsRow}>
               {step > 1 ? (
                 <View style={styles.actionSlot}>
-                  <Pressable
+                  <HapticPressable
                     accessibilityRole="button"
                     disabled={
                       isCompleting ||
@@ -2113,12 +1983,12 @@ export function OnboardingScreen({
                     <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
                       Back
                     </Text>
-                  </Pressable>
+                  </HapticPressable>
                 </View>
               ) : null}
 
               <View style={styles.actionSlot}>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityState={{
                     busy: isCompleting || isApplyingReminderPreference || isGeneratingDemoAnalysis,
@@ -2167,7 +2037,7 @@ export function OnboardingScreen({
                       {primaryButtonText}
                     </Text>
                   </ButtonLoadingContent>
-                </Pressable>
+                </HapticPressable>
               </View>
             </View>
 
@@ -2356,9 +2226,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
   },
-  infoCardSpaced: {
-    marginBottom: 14,
-  },
   infoHeaderRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -2372,23 +2239,6 @@ const styles = StyleSheet.create({
   infoCardBody: {
     fontSize: 13,
     lineHeight: 19,
-  },
-  bulletList: {
-    gap: 6,
-  },
-  bulletText: {
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  supportNote: {
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 12,
-    padding: 14,
-  },
-  supportNoteText: {
-    fontSize: 12,
-    lineHeight: 18,
   },
   ratingStepSection: {
     justifyContent: "center",
@@ -2452,7 +2302,7 @@ const styles = StyleSheet.create({
   },
   ratingMessage: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "400",
     lineHeight: 20,
     textAlign: "center",
   },
@@ -2665,7 +2515,7 @@ const styles = StyleSheet.create({
   },
   aiKicker: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: 1.1,
     textTransform: "uppercase",
   },

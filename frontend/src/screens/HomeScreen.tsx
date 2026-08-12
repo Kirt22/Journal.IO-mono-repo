@@ -1,57 +1,58 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import HapticPressable from '../components/HapticPressable';
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  } from 'react';
+import {
+  AccessibilityInfo,
   Alert,
   Animated,
+  AppState,
   Easing,
-  Modal,
-  Pressable,
+  Image,
+  LayoutAnimation,
+  Platform,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
+  UIManager,
   View,
   useWindowDimensions,
   type GestureResponderEvent,
+  type ImageSourcePropType,
+  type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import {
-  Brain,
-  CalendarDays,
-  Check,
-  ChevronRight,
-  Crown,
-  Feather,
+  Text,
+  TextInput,
+} from '../infrastructure/reactNative';
+import {
   Hash,
   Heart,
-  Lightbulb,
-  Plus,
-  RefreshCw,
-  Search,
   Send,
-  Settings,
-  Sparkles,
-  Target,
   X,
-  BookOpen,
   Frown,
-  Lock,
   Meh,
   Smile,
   SmilePlus,
 } from 'lucide-react-native';
 import TabScreenLayout from '../components/TabScreenLayout';
-import JournalEntryCard from '../components/JournalEntryCard';
+import Orb, { type OrbHandle } from '../components/orb';
+import AnimatedTagChip from '../components/AnimatedTagChip';
+import ButtonLoadingContent from '../components/ButtonLoadingContent';
 import EmojiWithFallback from '../components/EmojiWithFallback';
-import {
-  createJournalEntry,
-  toggleJournalFavorite,
-} from '../services/journalService';
-import {
-  getInsightsAiAnalysis,
-  type InsightsAiAnalysis,
-  type InsightsAiAnalysisReady,
-} from '../services/insightsService';
+import HomeStreakPill from '../components/HomeStreakPill';
+import HomeGreeting from '../components/HomeGreeting';
+import GoalsHomeCard from '../components/GoalsHomeCard';
+import DailyThoughtCard from '../components/DailyThoughtCard';
+import { triggerHaptic } from '../services/hapticsService';
+import { createJournalEntry } from '../services/journalService';
+import { getInsightsAiAnalysis } from '../services/insightsService';
 import {
   getTodayMoodCheckIn,
   logMoodCheckIn,
@@ -63,19 +64,38 @@ import {
   trackPaywallEvent,
 } from '../services/paywallService';
 import {
-  getWritingPrompts,
-  type WritingPrompt,
-} from '../services/promptsService';
-import {
   cancelWeeklyInsightNotifications,
   syncWeeklyInsightNotifications,
 } from '../services/reminderNotificationsService';
+import {
+  MOOD_SELECTED_TINT_ALPHA,
+  MOOD_TINT_ALPHA,
+  getMoodColor,
+} from '../constants/moodPalette';
+import { getOrbAccents } from '../constants/orbPalette';
+import { selectHomeNudge } from '../utils/homeNudge';
+import { createHeroFadeStyle, getHeroFadeDistance } from '../utils/heroScroll';
+import { selectTodoGoals } from '../store/slices/goalsSlice';
+import {
+  getLastKnownStreak,
+  getReflectionSeenDateKey,
+  saveLastKnownStreak,
+  saveReflectionSeenDateKey,
+} from '../utils/appStorage';
+import { getLocalDateKey } from '../utils/goalPeriod';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../theme/provider';
 import type { ThemePreference } from '../theme/theme';
 import { ApiError } from '../utils/apiClient';
-import { getJournalEntries } from '../services/journalService';
+import { navigateMainApp, navigateRoot } from '../navigation/navigation';
 import { useConnectivity } from '../hooks/useConnectivity';
+import {
+  ensureMoodWidgetSession,
+  reconcileStreakWidget,
+  syncMoodWidgetAfterMoodSave,
+  syncMoodWidgetTodayStatus,
+} from '../services/widgetService';
+import { getCurrentStreakSummary } from '../services/streaksService';
 
 type HomeScreenProps = {
   userName?: string;
@@ -99,76 +119,29 @@ type MoodType = MoodValue;
 
 const quickTags = ['thought', 'idea', 'reminder', 'gratitude', 'dream'];
 const MOOD_CONFIRMATION_DELAY_MS = 120;
-const HOME_AI_AUTOSCROLL_MS = 4800;
 const HOME_ENTRANCE_STAGGER_MS = 52;
 const HOME_ENTRANCE_DURATION_MS = 360;
-const DEFAULT_HOME_PROMPT: WritingPrompt = {
-  id: 'reflection-1',
-  topic: 'Reflection',
-  text: 'What felt most steady or grounding in your day?',
+const QUICK_NOTE_ICON = require('../assets/png/home/quill-pen.png');
+const SEARCH_ICON = require('../assets/png/home/icons8-search-64.png');
+const SETTINGS_ICON = require('../assets/png/home/icons8-settings-100.png');
+const QUICK_NOTE_CROSSFADE_MS = 180;
+
+// Mirrors RemindersScreen's config so an expanding card and the cards below it
+// move together instead of the body snapping between two heights.
+const QUICK_NOTE_LAYOUT_ANIMATION = {
+  duration: 230,
+  create: {
+    type: LayoutAnimation.Types.easeOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
 };
-const HOME_PROMPT_FALLBACKS: WritingPrompt[] = [
-  DEFAULT_HOME_PROMPT,
-  {
-    id: 'patterns-2',
-    topic: 'Patterns',
-    text: 'Where did your mood shift, and what seemed to influence it?',
-  },
-  {
-    id: 'next-step-3',
-    topic: 'Next Step',
-    text: 'What is one small thing you want to carry into tomorrow?',
-  },
-  {
-    id: 'small-win-4',
-    topic: 'Small Win',
-    text: 'What felt slightly easier today, and what may have helped?',
-  },
-  {
-    id: 'support-5',
-    topic: 'Support',
-    text: 'Where did you feel supported today, or where did you wish for more support?',
-  },
-];
-const HOME_PROMPT_TARGET_COUNT = 5;
-
-function buildHomePromptOptions(
-  featuredPrompt: WritingPrompt | null | undefined,
-  prompts: WritingPrompt[] | null | undefined,
-) {
-  const merged = [
-    ...(prompts || []),
-    ...(featuredPrompt ? [featuredPrompt] : []),
-    ...HOME_PROMPT_FALLBACKS,
-  ];
-  const deduped: WritingPrompt[] = [];
-  const seen = new Set<string>();
-
-  for (const prompt of merged) {
-    const topic = prompt.topic?.trim();
-    const text = prompt.text?.trim();
-
-    if (!topic || !text) {
-      continue;
-    }
-
-    const key = topic.toLowerCase();
-
-    if (seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    deduped.push(prompt);
-
-    if (deduped.length === HOME_PROMPT_TARGET_COUNT) {
-      break;
-    }
-  }
-
-  return deduped;
-}
-
 const moods: {
   value: MoodType;
   icon: typeof Smile;
@@ -241,142 +214,25 @@ function delay(ms: number) {
   });
 }
 
-function getFirstSentence(text: string) {
-  const normalized = text.trim();
-
-  if (!normalized) {
-    return '';
-  }
-
-  const match = normalized.match(/^[^.?!]+[.?!]?/);
-  return (match?.[0] || normalized).trim();
-}
-
-function truncateWords(text: string, maxWords: number) {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-
-  if (words.length <= maxWords) {
-    return text.trim();
-  }
-
-  return `${words.slice(0, maxWords).join(' ')}...`;
-}
-
-type HomeInsightCard = {
-  id: string;
-  title: string;
-  body: string;
-  icon: typeof Lightbulb;
-  ctaLabel: string;
-};
-
-function buildHomeInsightCards(
-  analysis: InsightsAiAnalysisReady | null,
-): HomeInsightCard[] {
-  if (!analysis) {
-    return [];
-  }
-
-  const cards: HomeInsightCard[] = [];
-  const firstHelpfulSignal = analysis.signals.whatHelped[0];
-  const firstDrainSignal = analysis.signals.whatDrained[0];
-  const firstRecurringSignal = analysis.signals.whatKeptShowingUp[0];
-  const firstActionStep = analysis.actionPlan.steps[0];
-  const firstSupportItem = analysis.appSupport.items[0];
-
-  cards.push({
-    id: 'summary',
-    title: analysis.summary.headline,
-    body: `${analysis.window.label}. ${getFirstSentence(
-      analysis.summary.highlight || analysis.summary.narrative,
-    )}`,
-    icon: Lightbulb,
-    ctaLabel: 'Open weekly analysis',
-  });
-
-  if (firstHelpfulSignal) {
-    cards.push({
-      id: 'what-helped',
-      title: firstHelpfulSignal.title,
-      body: `${getFirstSentence(firstHelpfulSignal.description)}${
-        firstHelpfulSignal.evidence[0]
-          ? ` ${firstHelpfulSignal.evidence[0]} stood out most.`
-          : ''
-      }`,
-      icon: Sparkles,
-      ctaLabel: 'See what helped',
-    });
-  }
-
-  if (firstDrainSignal) {
-    cards.push({
-      id: 'what-drained',
-      title: firstDrainSignal.title,
-      body: getFirstSentence(firstDrainSignal.description),
-      icon: Heart,
-      ctaLabel: 'See the pressure points',
-    });
-  }
-
-  if (firstRecurringSignal) {
-    cards.push({
-      id: 'recurring-theme',
-      title: firstRecurringSignal.title,
-      body: getFirstSentence(firstRecurringSignal.description),
-      icon: BookOpen,
-      ctaLabel: 'Open recurring themes',
-    });
-  }
-
-  if (firstActionStep) {
-    cards.push({
-      id: 'action-step',
-      title: firstActionStep.title,
-      body: `${firstActionStep.focus}: ${truncateWords(
-        firstActionStep.description,
-        16,
-      )}`,
-      icon: Feather,
-      ctaLabel: 'See the action plan',
-    });
-  }
-
-  if (firstSupportItem) {
-    cards.push({
-      id: 'app-support',
-      title: firstSupportItem.title,
-      body: truncateWords(firstSupportItem.description, 16),
-      icon: BookOpen,
-      ctaLabel: 'Open the full AI analysis',
-    });
-  }
-
-  return cards;
-}
-
 function buildQuickThoughtTitle() {
   return 'Quick Thought';
 }
 
 function HeaderIconButton({
-  icon,
+  source,
   onPress,
   label,
   borderColor,
   backgroundColor,
-  iconColor,
 }: {
-  icon: typeof Search;
+  source: ImageSourcePropType;
   onPress: (event: GestureResponderEvent) => void;
   label: string;
   borderColor: string;
   backgroundColor: string;
-  iconColor: string;
 }) {
-  const Icon = icon;
-
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
@@ -389,116 +245,10 @@ function HeaderIconButton({
         pressed && styles.pressed,
       ]}
     >
-      <Icon color={iconColor} size={18} />
-    </Pressable>
-  );
-}
-
-function ActionTile({
-  icon,
-  label,
-  onPress,
-  accessibilityLabel,
-  iconColor,
-  labelColor,
-  borderColor,
-  backgroundColor,
-}: {
-  icon: typeof Plus;
-  label: string;
-  onPress: () => void;
-  accessibilityLabel: string;
-  iconColor: string;
-  labelColor: string;
-  borderColor: string;
-  backgroundColor: string;
-}) {
-  const Icon = icon;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={() => onPress()}
-      style={({ pressed }) => [
-        styles.actionTile,
-        {
-          borderColor,
-          backgroundColor,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Icon color={iconColor} size={20} />
-      <Text style={[styles.actionLabel, { color: labelColor }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function EmptyState({
-  theme,
-  title,
-  description,
-  actionLabel,
-  onActionPress,
-  actionAccessibilityLabel,
-}: {
-  theme: ReturnType<typeof useTheme>;
-  title: string;
-  description: string;
-  actionLabel?: string;
-  onActionPress?: () => void;
-  actionAccessibilityLabel?: string;
-}) {
-  return (
-    <View style={styles.emptyState}>
-      <View
-        style={[
-          styles.emptyStateIconWrap,
-          {
-            backgroundColor: theme.colors.accent,
-          },
-        ]}
-      >
-        <BookOpen color={theme.colors.mutedForeground} size={28} />
-      </View>
-      <Text
-        style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}
-      >
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.emptyStateDescription,
-          { color: theme.colors.mutedForeground },
-        ]}
-      >
-        {description}
-      </Text>
-      {actionLabel ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={actionAccessibilityLabel}
-          onPress={() => onActionPress?.()}
-          style={({ pressed }) => [
-            styles.emptyStateAction,
-            {
-              backgroundColor: theme.colors.primary,
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text
-            style={[
-              styles.emptyStateActionText,
-              { color: theme.colors.primaryForeground },
-            ]}
-          >
-            {actionLabel}
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
+      {/* Full-colour icons8 artwork, matching the Settings row set — it carries
+          its own palette, so no theme tint is applied. */}
+      <Image source={source} style={styles.headerIcon} />
+    </HapticPressable>
   );
 }
 
@@ -506,26 +256,35 @@ function RevealBlock({
   children,
   style,
   index,
+  onLayout,
   shouldAnimate,
+  isReady = true,
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   index: number;
+  onLayout?: (event: LayoutChangeEvent) => void;
   shouldAnimate: boolean;
+  /**
+   * Holds the block off-stage until the screen is ready to reveal it — used
+   * while the paywall's orb is still travelling into the hero, so the cascade
+   * runs once the orb has landed rather than under it.
+   */
+  isReady?: boolean;
 }) {
   const progress = useRef(new Animated.Value(shouldAnimate ? 0 : 1)).current;
-  const hasStarted = useRef(false);
 
   useEffect(() => {
     if (!shouldAnimate || typeof jest !== 'undefined') {
-      if (!hasStarted.current) {
-        progress.setValue(1);
-      }
+      progress.setValue(1);
       return;
     }
 
-    hasStarted.current = true;
     progress.setValue(0);
+
+    if (!isReady) {
+      return;
+    }
 
     const animation = Animated.timing(progress, {
       toValue: 1,
@@ -540,10 +299,11 @@ function RevealBlock({
     return () => {
       animation.stop();
     };
-  }, [index, progress, shouldAnimate]);
+  }, [index, isReady, progress, shouldAnimate]);
 
   return (
     <Animated.View
+      onLayout={onLayout}
       style={[
         style,
         {
@@ -646,44 +406,62 @@ export default function HomeScreen({
   const isOnline = connectivityStatus === 'online';
   const stage = useAppStore(state => state.stage);
   const hasSeenHomeEntrance = useAppStore(state => state.hasSeenHomeEntrance);
+  const shouldAnimateEntrance = useRef(!hasSeenHomeEntrance).current;
   const markHomeEntranceSeen = useAppStore(state => state.markHomeEntranceSeen);
-  const setActiveTab = useAppStore(state => state.setActiveTab);
-  const openInsightsTab = useAppStore(state => state.openInsightsTab);
+  const orbHandoff = useAppStore(state => state.orbHandoff);
+  const reportOrbHandoffTarget = useAppStore(
+    state => state.reportOrbHandoffTarget,
+  );
+  // Only a Home that mounted *into* a hand-off owes the overlay a target. Once
+  // the overlay clears the store entry the orb is ours again, and the rest of
+  // the screen is free to cascade in behind it.
+  const arrivedFromOrbHandoff = useRef(Boolean(orbHandoff)).current;
+  const isOrbHandoffPending = arrivedFromOrbHandoff && Boolean(orbHandoff);
   const openPaywallForPlacement = useAppStore(
     state => state.openPaywallForPlacement,
   );
   const openHostedPaywall = useAppStore(state => state.openHostedPaywall);
+  const openNewEntryChoice = useAppStore(state => state.openNewEntryChoice);
+  const openAskJade = useAppStore(state => state.openAskJade);
+  const startNewJadeChat = useAppStore(state => state.startNewJadeChat);
   const isPremiumUser = useAppStore(state =>
     Boolean(state.session?.user.isPremium),
   );
-  const isAiOptedIn = useAppStore(
-    state => state.session?.user.aiOptIn !== false,
+  const sessionUserId = useAppStore(
+    state => state.session?.user.userId ?? null,
   );
   const shouldAnimateMood = typeof jest === 'undefined';
-  const shouldAutoScrollInsights = typeof jest === 'undefined';
   const addRecentJournalEntry = useAppStore(
     state => state.addRecentJournalEntry,
   );
-  const mergeRecentJournalEntries = useAppStore(
-    state => state.mergeRecentJournalEntries,
-  );
   const recentJournalEntries = useAppStore(state => state.recentJournalEntries);
-  const hasHydratedRecentJournalEntries = useAppStore(
-    state => state.hasHydratedRecentJournalEntries,
+  const goals = useAppStore(state => state.goals);
+  const pendingWidgetAction = useAppStore(state => state.pendingWidgetAction);
+  const consumePendingWidgetAction = useAppStore(
+    state => state.consumePendingWidgetAction,
   );
-  const openJournalEntry = useAppStore(state => state.openJournalEntry);
-  const updateRecentJournalEntry = useAppStore(
-    state => state.updateRecentJournalEntry,
-  );
+  const scrollViewRef = useRef<ScrollView>(null);
+  const moodSectionYRef = useRef(0);
+  const reflectionSectionYRef = useRef(0);
+  const quickThoughtSectionYRef = useRef(0);
   const noteInputRef = useRef<TextInput>(null);
-  const insightTransitionProgress = useRef(new Animated.Value(1)).current;
   const moodSelectionProgress = useRef(new Animated.Value(0)).current;
   const moodRevealProgress = useRef(new Animated.Value(0)).current;
   const moodEmojiSpinProgress = useRef(new Animated.Value(0)).current;
-  const moodTickProgress = useRef(new Animated.Value(0)).current;
   const moodStageProgress = useRef(new Animated.Value(0)).current;
-  const promptDialogProgress = useRef(new Animated.Value(0)).current;
+  const quickNoteReveal = useRef(new Animated.Value(0)).current;
+  const quickNoteClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const saveHighlight = useRef(new Animated.Value(0)).current;
+  const heroScrollY = useRef(new Animated.Value(0)).current;
+  const heroOrbRef = useRef<View>(null);
+  // Held at 0 while the paywall's orb is still travelling here — the overlay is
+  // drawing an identical orb on top, so this flips rather than fades.
+  const heroOrbOpacity = useRef(new Animated.Value(orbHandoff ? 0 : 1)).current;
   const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
+  const [widgetSuggestedMood, setWidgetSuggestedMood] =
+    useState<MoodType | null>(null);
   const [savedMood, setSavedMood] = useState<MoodType | null>(null);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [showMoodResult, setShowMoodResult] = useState(false);
@@ -693,40 +471,221 @@ export default function HomeScreen({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [noteInputHeight, setNoteInputHeight] = useState(92);
+  const [isReduceMotionEnabled, setIsReduceMotionEnabled] = useState(false);
   const [isSavingQuickThought, setIsSavingQuickThought] = useState(false);
-  const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
+  const [quickThoughtError, setQuickThoughtError] = useState<string | null>(
     null,
   );
-  const [insightIndex, setInsightIndex] = useState(0);
-  const [homeAiAnalysis, setHomeAiAnalysis] =
-    useState<InsightsAiAnalysis | null>(null);
-  const [isLoadingHomeAiInsight, setIsLoadingHomeAiInsight] = useState(true);
-  const [homeAiInsightError, setHomeAiInsightError] = useState<string | null>(
-    null,
-  );
-  const [isLoadingFeaturedPrompt, setIsLoadingFeaturedPrompt] = useState(true);
+  const [moodRefreshVersion, setMoodRefreshVersion] = useState(0);
   const [isHomeSummerOfferVisible, setIsHomeSummerOfferVisible] =
     useState(false);
-  const [featuredPrompt, setFeaturedPrompt] =
-    useState<WritingPrompt>(DEFAULT_HOME_PROMPT);
-  const [promptOptions, setPromptOptions] = useState<WritingPrompt[]>(
-    HOME_PROMPT_FALLBACKS,
-  );
-  const [isPromptDialogVisible, setIsPromptDialogVisible] = useState(false);
+  const [hadStreakBefore, setHadStreakBefore] = useState(false);
+  const [hasSeenTodaysReflection, setHasSeenTodaysReflection] = useState(true);
+  // Defaults true so the at-risk nudge never flashes before the streak summary
+  // lands and tells us whether today already has an entry.
+  const [hasWrittenToday, setHasWrittenToday] = useState(true);
+  const [isHeroAtTop, setIsHeroAtTop] = useState(true);
+  const isHeroAtTopRef = useRef(true);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const layoutMaxWidth = isWide ? 460 : 420;
-  const titleSize = isCompact ? 26 : isWide ? 34 : 30;
-  const sectionTitleSize = isCompact ? 17 : 18;
-  const shouldAnimateEntrance = !hasSeenHomeEntrance;
+  // The component's own default is width * 0.72; Home runs slightly larger so
+  // the canvas frame lands in the 290-310pt band and the ring reads at ~250-265pt.
+  const heroOrbSize = Math.min(Math.max(Math.round(width * 0.78), 260), 310);
+  const orbAccents = useMemo(() => getOrbAccents(theme.mode), [theme.mode]);
+  const handleHeroScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: heroScrollY } } }], {
+        useNativeDriver: true,
+      }),
+    [heroScrollY],
+  );
+  const shouldAnimateQuickNote =
+    typeof jest === 'undefined' && !isReduceMotionEnabled;
+  const canSaveQuickThought =
+    isOnline && note.trim().length > 0 && !isSavingQuickThought;
+
+  const clearQuickNoteDraft = () => {
+    setNote('');
+    setSelectedTags([]);
+    setQuickThoughtError(null);
+  };
+
+  const toggleNoteExpanded = (
+    expanded: boolean,
+    clearAfterCollapse = false,
+  ) => {
+    if (quickNoteClearTimerRef.current) {
+      clearTimeout(quickNoteClearTimerRef.current);
+      quickNoteClearTimerRef.current = null;
+    }
+
+    quickNoteReveal.stopAnimation();
+
+    if (shouldAnimateQuickNote) {
+      LayoutAnimation.configureNext(QUICK_NOTE_LAYOUT_ANIMATION);
+    }
+
+    setIsNoteExpanded(expanded);
+
+    if (!expanded && clearAfterCollapse) {
+      if (!shouldAnimateQuickNote) {
+        clearQuickNoteDraft();
+        return;
+      }
+
+      quickNoteClearTimerRef.current = setTimeout(() => {
+        clearQuickNoteDraft();
+        quickNoteClearTimerRef.current = null;
+      }, QUICK_NOTE_LAYOUT_ANIMATION.duration + 30);
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (quickNoteClearTimerRef.current) {
+        clearTimeout(quickNoteClearTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (shouldAnimateEntrance) {
       markHomeEntranceSeen();
     }
   }, [markHomeEntranceSeen, shouldAnimateEntrance]);
+
+  // Tell the travelling orb where to land. `onLayout` covers the normal case;
+  // this second pass covers a first layout that measures before the view is
+  // attached to the window and reports zeroes.
+  const publishOrbHandoffTarget = useCallback(() => {
+    if (!isOrbHandoffPending) {
+      return;
+    }
+
+    heroOrbRef.current?.measureInWindow((x, y, frameWidth) => {
+      if (!frameWidth) {
+        return;
+      }
+      reportOrbHandoffTarget({ x, y, size: frameWidth });
+    });
+  }, [isOrbHandoffPending, reportOrbHandoffTarget]);
+
+  useEffect(() => {
+    if (!isOrbHandoffPending) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(publishOrbHandoffTarget);
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [isOrbHandoffPending, publishOrbHandoffTarget]);
+
+  // The overlay clears the hand-off the instant its orb lands on ours.
+  useEffect(() => {
+    if (!isOrbHandoffPending) {
+      heroOrbOpacity.setValue(1);
+    }
+  }, [heroOrbOpacity, isOrbHandoffPending]);
+
+  // The greeting's wave now lives in HomeGreeting; the one welcome cue on first
+  // Home entrance stays here.
+  useEffect(() => {
+    if (!shouldAnimateEntrance || typeof jest !== 'undefined') {
+      return;
+    }
+
+    triggerHaptic('welcome').catch(() => undefined);
+  }, [shouldAnimateEntrance]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        // Native-driver animations pause with the app. If Quick Note was
+        // backgrounded mid-crossfade, settle it to the state React currently
+        // owns instead of resuming with the wrong layer visible.
+        quickNoteReveal.stopAnimation();
+        quickNoteReveal.setValue(isNoteExpanded ? 1 : 0);
+        setMoodRefreshVersion(previous => previous + 1);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [isNoteExpanded, quickNoteReveal]);
+
+  useEffect(() => {
+    if (!pendingWidgetAction?.isReadyForHome) {
+      return;
+    }
+
+    const { action, requestId } = pendingWidgetAction;
+
+    if (action.type === 'home') {
+      consumePendingWidgetAction(requestId);
+      return;
+    }
+
+    if (action.type === 'streaks') {
+      consumePendingWidgetAction(requestId);
+      onOpenStreaks();
+      return;
+    }
+
+    if (action.type === 'widget-settings') {
+      consumePendingWidgetAction(requestId);
+      navigateRoot('ProfileModal', { screen: 'Widgets' });
+      return;
+    }
+
+    if (action.type === 'quick-thought') {
+      consumePendingWidgetAction(requestId);
+      if (!isPremiumUser) {
+        openPaywallForPlacement({
+          placementKey: 'settings_widgets_locked',
+          returnStage: 'main-app',
+          screenKey: 'widgets',
+        });
+        return;
+      }
+      navigateMainApp('QuickThought');
+      return;
+    }
+
+    if (!isPremiumUser) {
+      consumePendingWidgetAction(requestId);
+      openPaywallForPlacement({
+        placementKey: 'settings_widgets_locked',
+        returnStage: 'main-app',
+        screenKey: 'widgets',
+      });
+      return;
+    }
+
+    setWidgetSuggestedMood(action.type === 'mood' ? action.mood : null);
+
+    const timer = setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        animated: true,
+        y: Math.max(0, moodSectionYRef.current - 16),
+      });
+
+      consumePendingWidgetAction(requestId);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [
+    consumePendingWidgetAction,
+    isPremiumUser,
+    onOpenStreaks,
+    openPaywallForPlacement,
+    pendingWidgetAction,
+  ]);
+
   const firstName = useMemo(() => {
     const trimmedName = userName?.trim();
 
@@ -738,34 +697,8 @@ export default function HomeScreen({
   }, [userName]);
 
   const greeting = getGreeting();
-  const displayedMood = selectedMood || savedMood;
-  const readyHomeAiAnalysis =
-    homeAiAnalysis?.status === 'ready' ? homeAiAnalysis : null;
-  const collectingHomeAiAnalysis =
-    homeAiAnalysis?.status === 'collecting' ? homeAiAnalysis : null;
-  const insufficientHomeAiAnalysis =
-    homeAiAnalysis?.status === 'insufficient' ? homeAiAnalysis : null;
-  const homeInsightCards = useMemo(
-    () => buildHomeInsightCards(readyHomeAiAnalysis),
-    [readyHomeAiAnalysis],
-  );
-  const isAiInsightEnabled = isPremiumUser && isAiOptedIn;
-  const isLoadingAiInsightContent =
-    isAiInsightEnabled && isLoadingHomeAiInsight;
-  const insightIndicators = isAiInsightEnabled
-    ? isLoadingAiInsightContent ||
-      collectingHomeAiAnalysis ||
-      insufficientHomeAiAnalysis
-      ? [0]
-      : homeInsightCards.length
-      ? homeInsightCards
-      : [0]
-    : isPremiumUser
-    ? [0]
-    : [0, 1, 2];
-  const activeHomeInsight = homeInsightCards[insightIndex] || null;
-  const ActiveHomeInsightIcon = activeHomeInsight?.icon || Lightbulb;
-  const shouldShowHomeSummerOffer = !isPremiumUser && isHomeSummerOfferVisible;
+  const displayedMood = selectedMood || widgetSuggestedMood || savedMood;
+  const isAiInsightEnabled = isPremiumUser;
   const todayDate = useMemo(
     () =>
       new Intl.DateTimeFormat('en-US', {
@@ -775,86 +708,266 @@ export default function HomeScreen({
       }).format(new Date()),
     [],
   );
-  const promptDialogBackdropStyle = {
-    opacity: promptDialogProgress.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, 1],
-    }),
-  } as const;
-  const promptDialogCardAnimatedStyle = {
-    opacity: promptDialogProgress,
-    transform: [
-      { perspective: 900 },
-      {
-        translateY: promptDialogProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [34, 0],
-        }),
-      },
-      {
-        scale: promptDialogProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.9, 1],
-        }),
-      },
-      {
-        rotateX: promptDialogProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['8deg', '0deg'],
-        }),
-      },
+
+  // Only one nudge shows at a time; `selectHomeNudge` owns the priority ladder.
+  const pendingGoalCount = useMemo(
+    () => selectTodoGoals(goals).length,
+    [goals],
+  );
+  const hasCheckedInToday = Boolean(savedMood);
+  const homeNudge = useMemo(
+    () =>
+      selectHomeNudge({
+        currentStreak,
+        hasCheckedInToday,
+        hasWrittenToday,
+        hadStreakBefore,
+        pendingGoalCount,
+        hasSeenTodaysReflection,
+        isPremium: isPremiumUser,
+        isOfferAvailable: isHomeSummerOfferVisible,
+        isHeroVisible: isHeroAtTop,
+      }),
+    [
+      currentStreak,
+      hadStreakBefore,
+      hasCheckedInToday,
+      hasSeenTodaysReflection,
+      hasWrittenToday,
+      isHeroAtTop,
+      isHomeSummerOfferVisible,
+      isPremiumUser,
+      pendingGoalCount,
     ],
-  } as const;
+  );
+
+  // The offer swap gets one celebration per visit — replaying it on every
+  // return to the top would turn a moment into wallpaper.
+  const hasCelebratedOfferRef = useRef(false);
+  const [isCelebratingOffer, setIsCelebratingOffer] = useState(false);
 
   useEffect(() => {
-    if (!isAiInsightEnabled) {
-      setHomeAiAnalysis(null);
-      setHomeAiInsightError(null);
-      setIsLoadingHomeAiInsight(false);
-      cancelWeeklyInsightNotifications().catch(() => undefined);
-      return;
+    if (homeNudge.kind !== 'offer' || hasCelebratedOfferRef.current) {
+      return undefined;
     }
 
-    if (!isOnline) {
-      setIsLoadingHomeAiInsight(false);
+    hasCelebratedOfferRef.current = true;
+    setIsCelebratingOffer(true);
+    triggerHaptic('personalizationComplete').catch(() => undefined);
+
+    const timer = setTimeout(() => setIsCelebratingOffer(false), 1200);
+    return () => clearTimeout(timer);
+  }, [homeNudge.kind]);
+  const shouldAnimateGreeting =
+    typeof jest === 'undefined' && !isReduceMotionEnabled;
+
+  // Same curve the orb uses, so the greeting dissolves with it as one hero
+  // rather than lingering after the orb has gone.
+  const heroFadeStyle = useMemo(
+    () =>
+      createHeroFadeStyle(heroScrollY, getHeroFadeDistance(heroOrbSize), {
+        withScale: false,
+      }),
+    [heroOrbSize, heroScrollY],
+  );
+
+  // The mood API only reports the streak as it stands, so a reset is inferred by
+  // comparing against the last value we stored. A fresh install has nothing to
+  // compare with and simply stays quiet.
+  useEffect(() => {
+    if (isLoadingMoodStatus) {
       return;
     }
 
     let isActive = true;
 
-    const loadHomeAiInsight = async () => {
-      setIsLoadingHomeAiInsight(true);
-      setHomeAiInsightError(null);
+    getLastKnownStreak()
+      .then(lastKnown => {
+        if (!isActive) {
+          return;
+        }
 
+        setHadStreakBefore(
+          lastKnown !== null && lastKnown > 0 && currentStreak === 0,
+        );
+
+        return saveLastKnownStreak(currentStreak);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentStreak, isLoadingMoodStatus]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    getReflectionSeenDateKey()
+      .then(seenDateKey => {
+        if (isActive) {
+          setHasSeenTodaysReflection(seenDateKey === getLocalDateKey());
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, [moodRefreshVersion]);
+
+  // The streak nudge is about writing, so it reads the journal streak summary
+  // rather than the mood check-in endpoint the pill uses.
+  useEffect(() => {
+    if (!isOnline) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    getCurrentStreakSummary()
+      .then(summary => {
+        if (isActive) {
+          setHasWrittenToday(Boolean(summary.hasEntryToday));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, [isOnline, moodRefreshVersion, reconnectVersion]);
+
+  // The offer nudge waits for the hero to be back on screen so its celebration
+  // is actually seen. Hysteresis keeps the flag from chattering at the edge —
+  // same approach the orb uses for its own visibility gate.
+  useEffect(() => {
+    const listenerId = heroScrollY.addListener(({ value }) => {
+      const nextAtTop = isHeroAtTopRef.current ? value < 48 : value < 8;
+
+      if (nextAtTop === isHeroAtTopRef.current) {
+        return;
+      }
+
+      isHeroAtTopRef.current = nextAtTop;
+      setIsHeroAtTop(nextAtTop);
+    });
+
+    return () => {
+      heroScrollY.removeListener(listenerId);
+    };
+  }, [heroScrollY]);
+
+  // The orb is only a tap target while it is actually on screen; once it has
+  // faded out on scroll it must let touches through to the content behind it.
+  const isOrbInteractive = isHeroAtTop && !isOrbHandoffPending;
+
+  // Touching the orb surges the shader's own `intensity` uniform, so the ring
+  // liquifies and settles in its own material rather than taking an overlay.
+  // It fires on press-in, not press: a reaction started on release would be cut
+  // off almost immediately by the Ask Jade transition. Reduce Motion and the
+  // shader-compile fallback are handled inside the orb.
+  const orbRef = useRef<OrbHandle>(null);
+
+  const handleOrbPressIn = useCallback(() => {
+    orbRef.current?.pulse();
+  }, []);
+
+  const handleOrbPress = useCallback(() => {
+    triggerHaptic('primaryAction').catch(() => undefined);
+    // Free users still reach the screen — it renders the locked card, which
+    // gives the paywall real context instead of a bare punch-out.
+    startNewJadeChat();
+    openAskJade();
+  }, [openAskJade, startNewJadeChat]);
+
+  const handleReflectionSeen = useCallback(() => {
+    setHasSeenTodaysReflection(true);
+    saveReflectionSeenDateKey(getLocalDateKey()).catch(() => undefined);
+  }, []);
+
+  const scrollToSection = useCallback((sectionY: number) => {
+    scrollViewRef.current?.scrollTo({
+      animated: true,
+      y: Math.max(0, sectionY - 16),
+    });
+  }, []);
+
+  const handleNudgePress = useCallback(() => {
+    triggerHaptic('secondaryAction').catch(() => undefined);
+
+    switch (homeNudge.target) {
+      case 'goals':
+        onOpenGoals?.();
+        return;
+      case 'reflection':
+        scrollToSection(reflectionSectionYRef.current);
+        return;
+      case 'new-entry':
+        // The streak is carried by writing, so this opens the entry chooser
+        // rather than pointing at the mood row.
+        openNewEntryChoice();
+        return;
+      case 'offer':
+        trackPaywallEvent({
+          placementKey: 'post_auth_exit_offer',
+          screenKey: 'home',
+          eventType: 'upgrade_tap',
+          wasInterruptive: false,
+          metadata: {
+            source: 'home_offer_nudge',
+            offerLabel: 'special_yearly_offer',
+          },
+        }).catch(() => undefined);
+        openHostedPaywall('exit');
+        return;
+      case 'quick-thought':
+        scrollToSection(quickThoughtSectionYRef.current);
+        setIsNoteExpanded(true);
+        return;
+      case 'mood':
+      default:
+        scrollToSection(moodSectionYRef.current);
+    }
+  }, [
+    homeNudge.target,
+    onOpenGoals,
+    openHostedPaywall,
+    openNewEntryChoice,
+    scrollToSection,
+  ]);
+
+  // The insight card was removed from home, but weekly-insight notification
+  // scheduling still keys off the latest analysis, so keep that sync running.
+  useEffect(() => {
+    if (!isAiInsightEnabled) {
+      cancelWeeklyInsightNotifications().catch(() => undefined);
+      return;
+    }
+
+    if (!isOnline) {
+      return;
+    }
+
+    let isActive = true;
+
+    const syncWeeklyInsight = async () => {
       try {
         const analysis = await getInsightsAiAnalysis();
 
-        if (isActive) {
-          setHomeAiAnalysis(analysis);
+        if (!isActive) {
+          return;
         }
 
         await syncWeeklyInsightNotifications(
           analysis.status === 'collecting' ? analysis : null,
         );
-      } catch (error) {
-        if (!isActive) {
-          return;
-        }
-
-        setHomeAiInsightError(
-          error instanceof Error
-            ? error.message
-            : 'We could not load your latest AI insight right now.',
-        );
+      } catch {
         cancelWeeklyInsightNotifications().catch(() => undefined);
-      } finally {
-        if (isActive) {
-          setIsLoadingHomeAiInsight(false);
-        }
       }
     };
 
-    loadHomeAiInsight().catch(() => undefined);
+    syncWeeklyInsight().catch(() => undefined);
 
     return () => {
       isActive = false;
@@ -890,112 +1003,6 @@ export default function HomeScreen({
   }, [isOnline, reconnectVersion]);
 
   useEffect(() => {
-    if (!isOnline) {
-      setIsLoadingFeaturedPrompt(false);
-      return;
-    }
-
-    let isActive = true;
-
-    const loadFeaturedPrompt = async () => {
-      setIsLoadingFeaturedPrompt(true);
-
-      try {
-        const response = await getWritingPrompts();
-
-        if (isActive && response.featuredPrompt?.text) {
-          setFeaturedPrompt(response.featuredPrompt);
-          setPromptOptions(
-            buildHomePromptOptions(response.featuredPrompt, response.prompts),
-          );
-        }
-      } catch {
-        if (isActive) {
-          setFeaturedPrompt(DEFAULT_HOME_PROMPT);
-          setPromptOptions(HOME_PROMPT_FALLBACKS);
-        }
-      } finally {
-        if (isActive) {
-          setIsLoadingFeaturedPrompt(false);
-        }
-      }
-    };
-
-    loadFeaturedPrompt().catch(() => undefined);
-
-    return () => {
-      isActive = false;
-    };
-  }, [isOnline, reconnectVersion]);
-
-  useEffect(() => {
-    if (!isPromptDialogVisible) {
-      promptDialogProgress.setValue(0);
-      return;
-    }
-
-    promptDialogProgress.setValue(0);
-    Animated.spring(promptDialogProgress, {
-      toValue: 1,
-      damping: 16,
-      stiffness: 180,
-      mass: 0.72,
-      useNativeDriver: true,
-    }).start();
-  }, [isPromptDialogVisible, promptDialogProgress]);
-
-  useEffect(() => {
-    if (!homeInsightCards.length) {
-      setInsightIndex(0);
-      return;
-    }
-
-    setInsightIndex(previous =>
-      previous < homeInsightCards.length ? previous : 0,
-    );
-  }, [homeInsightCards.length]);
-
-  useEffect(() => {
-    if (
-      !isAiInsightEnabled ||
-      !shouldAutoScrollInsights ||
-      homeInsightCards.length < 2 ||
-      isLoadingHomeAiInsight
-    ) {
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      setInsightIndex(previous => (previous + 1) % homeInsightCards.length);
-    }, HOME_AI_AUTOSCROLL_MS);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [
-    homeInsightCards.length,
-    isLoadingHomeAiInsight,
-    isAiInsightEnabled,
-    shouldAutoScrollInsights,
-  ]);
-
-  useEffect(() => {
-    if (!isAiInsightEnabled || !activeHomeInsight) {
-      insightTransitionProgress.setValue(1);
-      return;
-    }
-
-    insightTransitionProgress.stopAnimation();
-    insightTransitionProgress.setValue(0);
-    Animated.timing(insightTransitionProgress, {
-      toValue: 1,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [activeHomeInsight, insightTransitionProgress, isAiInsightEnabled]);
-
-  useEffect(() => {
     if (isNoteExpanded) {
       noteInputRef.current?.focus();
     }
@@ -1008,30 +1015,75 @@ export default function HomeScreen({
   }, [isNoteExpanded]);
 
   useEffect(() => {
-    if (!isOnline) {
-      return;
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
+  }, []);
 
+  useEffect(() => {
     let isActive = true;
 
-    const loadRecentEntries = async () => {
-      try {
-        const entries = await getJournalEntries();
-
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => {
         if (isActive) {
-          mergeRecentJournalEntries(entries);
+          setIsReduceMotionEnabled(enabled);
         }
-      } catch {
-        // Leave the locally cached entries in place if the backend list is unavailable.
-      }
-    };
+      })
+      .catch(() => undefined);
 
-    loadRecentEntries().catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      enabled => {
+        setIsReduceMotionEnabled(enabled);
+      },
+    );
 
     return () => {
       isActive = false;
+      subscription.remove();
     };
-  }, [isOnline, mergeRecentJournalEntries, reconnectVersion]);
+  }, []);
+
+  // Cross-fade the collapsed and expanded quick-note bodies so the swap reads as
+  // one motion alongside the layout animation, rather than a hard cut.
+  useEffect(() => {
+    const target = isNoteExpanded ? 1 : 0;
+
+    if (!shouldAnimateQuickNote) {
+      quickNoteReveal.setValue(target);
+      return;
+    }
+
+    quickNoteReveal.stopAnimation();
+    const animation = Animated.timing(quickNoteReveal, {
+      toValue: target,
+      duration: QUICK_NOTE_CROSSFADE_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+
+    return () => animation.stop();
+  }, [isNoteExpanded, quickNoteReveal, shouldAnimateQuickNote]);
+
+  // The save button only becomes a real primary action once there is something
+  // to save — reveal it with the sanctioned conditional-action spring.
+  useEffect(() => {
+    const target = canSaveQuickThought ? 1 : 0;
+
+    if (!shouldAnimateQuickNote) {
+      saveHighlight.setValue(target);
+      return;
+    }
+
+    Animated.spring(saveHighlight, {
+      toValue: target,
+      damping: 16,
+      stiffness: 220,
+      mass: 0.85,
+      useNativeDriver: false,
+    }).start();
+  }, [canSaveQuickThought, saveHighlight, shouldAnimateQuickNote]);
 
   useEffect(() => {
     if (!isOnline) {
@@ -1049,18 +1101,28 @@ export default function HomeScreen({
           return;
         }
 
+        if (sessionUserId) {
+          ensureMoodWidgetSession({
+            userId: sessionUserId,
+            hasPremiumAccess: isPremiumUser,
+            todayStatus: moodStatus,
+          })
+            .then(() => syncMoodWidgetTodayStatus(moodStatus, sessionUserId))
+            .catch(() => undefined);
+        }
+
         setCurrentStreak(moodStatus.currentStreak);
 
         const moodCheckIn = moodStatus.moodCheckIn;
 
         if (moodCheckIn) {
+          setWidgetSuggestedMood(null);
           setSavedMood(moodCheckIn.mood);
           setShowMoodResult(true);
           setSelectedMood(null);
           moodSelectionProgress.setValue(0);
           moodRevealProgress.setValue(1);
           moodEmojiSpinProgress.setValue(1);
-          moodTickProgress.setValue(1);
           moodStageProgress.setValue(1);
         } else {
           setSavedMood(null);
@@ -1068,7 +1130,6 @@ export default function HomeScreen({
           moodSelectionProgress.setValue(0);
           moodRevealProgress.setValue(0);
           moodEmojiSpinProgress.setValue(0);
-          moodTickProgress.setValue(0);
           moodStageProgress.setValue(0);
         }
       } catch {
@@ -1090,30 +1151,21 @@ export default function HomeScreen({
     moodRevealProgress,
     moodSelectionProgress,
     moodStageProgress,
-    moodTickProgress,
     isOnline,
+    isPremiumUser,
+    moodRefreshVersion,
     reconnectVersion,
+    sessionUserId,
   ]);
-
-  const handleOpenPromptDialog = () => {
-    setIsPromptDialogVisible(true);
-  };
-
-  const handleSelectPrompt = (prompt: WritingPrompt) => {
-    setIsPromptDialogVisible(false);
-    onOpenNewEntry(prompt.text);
-  };
 
   const resetMoodAnimations = () => {
     moodSelectionProgress.stopAnimation();
     moodRevealProgress.stopAnimation();
     moodEmojiSpinProgress.stopAnimation();
-    moodTickProgress.stopAnimation();
     moodStageProgress.stopAnimation();
     moodSelectionProgress.setValue(0);
     moodRevealProgress.setValue(0);
     moodEmojiSpinProgress.setValue(0);
-    moodTickProgress.setValue(0);
     moodStageProgress.setValue(0);
   };
 
@@ -1123,6 +1175,7 @@ export default function HomeScreen({
     }
 
     resetMoodAnimations();
+    setWidgetSuggestedMood(null);
     setShowMoodResult(false);
     setIsLoggingMood(true);
     setSelectedMood(mood);
@@ -1140,6 +1193,12 @@ export default function HomeScreen({
     try {
       const moodCheckIn = await logMoodCheckIn(mood);
 
+      if (sessionUserId) {
+        syncMoodWidgetAfterMoodSave(moodCheckIn, sessionUserId).catch(
+          () => undefined,
+        );
+      }
+
       if (shouldAnimateMood) {
         await delay(MOOD_CONFIRMATION_DELAY_MS);
         setSavedMood(moodCheckIn.mood);
@@ -1149,7 +1208,6 @@ export default function HomeScreen({
         moodSelectionProgress.setValue(0);
         moodRevealProgress.setValue(0);
         moodEmojiSpinProgress.setValue(0);
-        moodTickProgress.setValue(0);
         moodStageProgress.setValue(0);
 
         Animated.parallel([
@@ -1171,15 +1229,6 @@ export default function HomeScreen({
             easing: Easing.out(Easing.cubic),
             useNativeDriver: false,
           }),
-          Animated.sequence([
-            Animated.delay(160),
-            Animated.spring(moodTickProgress, {
-              toValue: 1,
-              friction: 8,
-              tension: 160,
-              useNativeDriver: false,
-            }),
-          ]),
         ]).start();
       } else {
         setSavedMood(moodCheckIn.mood);
@@ -1188,7 +1237,6 @@ export default function HomeScreen({
         moodSelectionProgress.setValue(0);
         moodRevealProgress.setValue(1);
         moodEmojiSpinProgress.setValue(1);
-        moodTickProgress.setValue(1);
         moodStageProgress.setValue(1);
       }
     } catch (error) {
@@ -1215,6 +1263,7 @@ export default function HomeScreen({
       return;
     }
 
+    setQuickThoughtError(null);
     setIsSavingQuickThought(true);
 
     const hadEntryTodayBeforeSave = recentJournalEntries.some(entry => {
@@ -1228,6 +1277,7 @@ export default function HomeScreen({
       title: buildQuickThoughtTitle(),
       content: trimmedNote,
       type: 'open_ended' as const,
+      entryKind: 'quick_thought' as const,
       images: [],
       tags: [...selectedTags],
       createdAt: new Date().toISOString(),
@@ -1239,6 +1289,7 @@ export default function HomeScreen({
         title: optimisticEntry.title,
         content: optimisticEntry.content,
         type: optimisticEntry.type,
+        entryKind: optimisticEntry.entryKind,
         tags: optimisticEntry.tags,
       });
 
@@ -1248,11 +1299,13 @@ export default function HomeScreen({
         setCurrentStreak(previous => previous + 1);
       }
 
-      setNote('');
-      setSelectedTags([]);
-      setIsNoteExpanded(false);
-    } catch (error) {
-      console.error('Unable to save quick thought:', error);
+      reconcileStreakWidget().catch(() => undefined);
+
+      toggleNoteExpanded(false, true);
+    } catch {
+      setQuickThoughtError(
+        "We couldn't save this thought right now. Your draft is still here.",
+      );
     } finally {
       setIsSavingQuickThought(false);
     }
@@ -1271,40 +1324,16 @@ export default function HomeScreen({
     : null;
   const SavedMoodIcon = savedMoodData?.icon || Smile;
 
-  const currentMoodTone =
-    displayedMood === 'amazing'
-      ? {
-          color: theme.colors.primary,
-          backgroundColor: hexToRgba(theme.colors.primary, 0.1),
-        }
-      : displayedMood === 'good'
-      ? {
-          color: theme.colors.success,
-          backgroundColor: hexToRgba(theme.colors.success, 0.1),
-        }
-      : displayedMood === 'okay'
-      ? {
-          color: theme.colors.warning,
-          backgroundColor: hexToRgba(theme.colors.warning, 0.12),
-        }
-      : displayedMood === 'bad'
-      ? {
-          color: theme.colors.mutedForeground,
-          backgroundColor: hexToRgba(theme.colors.mutedForeground, 0.12),
-        }
-      : displayedMood === 'terrible'
-      ? {
-          color: theme.colors.destructive,
-          backgroundColor: hexToRgba(theme.colors.destructive, 0.1),
-        }
-      : null;
+  const currentMoodTone = displayedMood
+    ? (() => {
+        const color = getMoodColor(displayedMood, theme.mode);
 
-  const activeInsightDotStyle = {
-    backgroundColor: theme.colors.primary,
-  };
-  const inactiveInsightDotStyle = {
-    backgroundColor: theme.colors.border,
-  };
+        return {
+          color,
+          backgroundColor: hexToRgba(color, MOOD_SELECTED_TINT_ALPHA),
+        };
+      })()
+    : null;
 
   const noteBorderColor = isNoteExpanded
     ? theme.colors.primary
@@ -1347,117 +1376,31 @@ export default function HomeScreen({
   });
   const moodStageHeight = moodStageProgress.interpolate({
     inputRange: [0, 1],
-    outputRange: [144, 56],
+    outputRange: [160, 56],
   });
-  const moodTickOpacity = moodTickProgress.interpolate({
+  const quickNoteCollapsedOpacity = quickNoteReveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const quickNoteExpandedOpacity = quickNoteReveal.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
-  const moodTickScale = moodTickProgress.interpolate({
+  const saveButtonBackgroundColor = saveHighlight.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.4, 1],
+    outputRange: [theme.colors.muted, theme.colors.primary],
   });
-  const recentEntries = recentJournalEntries.slice(0, 10);
-
-  const reloadHomeAiInsight = () => {
-    if (!isOnline || !isAiInsightEnabled) {
-      return;
-    }
-
-    setIsLoadingHomeAiInsight(true);
-    setHomeAiInsightError(null);
-
-    getInsightsAiAnalysis()
-      .then(analysis => {
-        setHomeAiAnalysis(analysis);
-        return syncWeeklyInsightNotifications(
-          analysis.status === 'collecting' ? analysis : null,
-        );
-      })
-      .catch(error => {
-        setHomeAiInsightError(
-          error instanceof Error
-            ? error.message
-            : 'We could not load your latest AI insight right now.',
-        );
-        cancelWeeklyInsightNotifications().catch(() => undefined);
-      })
-      .finally(() => {
-        setIsLoadingHomeAiInsight(false);
-      });
-  };
-
-  const handleAdvanceInsight = () => {
-    if (!isPremiumUser) {
-      trackPaywallEvent({
-        placementKey: 'home_ai_card_locked',
-        screenKey: 'home',
-        eventType: 'locked_feature_tap',
-        wasInterruptive: false,
-      }).catch(() => undefined);
-      openPaywallForPlacement({
-        placementKey: 'home_ai_card_locked',
-        returnStage: 'main-app',
-        screenKey: 'home',
-      });
-      return;
-    }
-
-    if (!isAiOptedIn) {
-      openInsightsTab('analysis');
-      return;
-    }
-
-    if (homeAiInsightError) {
-      reloadHomeAiInsight();
-      return;
-    }
-
-    if (collectingHomeAiAnalysis || insufficientHomeAiAnalysis) {
-      openInsightsTab('analysis');
-      return;
-    }
-
-    if (homeInsightCards.length < 2) {
-      return;
-    }
-
-    setInsightIndex(previous => (previous + 1) % homeInsightCards.length);
-  };
-
-  const handleOpenFullAiAnalysis = () => {
-    if (!isPremiumUser) {
-      trackPaywallEvent({
-        placementKey: 'home_ai_card_locked',
-        screenKey: 'home',
-        eventType: 'locked_feature_tap',
-        wasInterruptive: false,
-      }).catch(() => undefined);
-      openPaywallForPlacement({
-        placementKey: 'home_ai_card_locked',
-        returnStage: 'main-app',
-        screenKey: 'home',
-      });
-      return;
-    }
-
-    openInsightsTab('analysis');
-  };
-
-  const handleClaimHomeSummerOffer = () => {
-    trackPaywallEvent({
-      placementKey: 'post_auth_exit_offer',
-      screenKey: 'home',
-      eventType: 'upgrade_tap',
-      wasInterruptive: false,
-      metadata: {
-        source: 'home_summer_offer_card',
-        offerLabel: 'special_yearly_offer',
-      },
-    }).catch(() => undefined);
-
-    openHostedPaywall('exit');
-  };
+  const saveButtonOpacity = saveHighlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.55, 1],
+  });
+  const saveButtonScale = saveHighlight.interpolate({
+    inputRange: [0, 0.75, 1],
+    outputRange: [1, 1.035, 1],
+  });
+  const saveButtonForeground = canSaveQuickThought
+    ? theme.colors.primaryForeground
+    : theme.colors.mutedForeground;
 
   useEffect(() => {
     if (isPremiumUser || stage !== 'main-app') {
@@ -1491,302 +1434,144 @@ export default function HomeScreen({
     };
   }, [isPremiumUser, openPaywallForPlacement, stage]);
 
-  const handleFavoriteToggle = async (
-    entryId: string,
-    nextFavorite: boolean,
-  ) => {
-    if (!isOnline || favoriteUpdatingId === entryId) {
-      return;
-    }
-
-    const currentEntry = recentJournalEntries.find(
-      entry => entry._id === entryId,
-    );
-
-    if (!currentEntry) {
-      return;
-    }
-
-    setFavoriteUpdatingId(entryId);
-
-    try {
-      const updatedEntry = await toggleJournalFavorite({
-        journalId: entryId,
-        isFavorite: nextFavorite,
-      });
-
-      updateRecentJournalEntry(updatedEntry);
-    } finally {
-      setFavoriteUpdatingId(null);
-    }
-  };
-
   return (
     <TabScreenLayout
       backgroundColor={theme.colors.background}
       horizontalPadding={horizontalPadding}
       layoutMaxWidth={layoutMaxWidth}
-      shellStyle={styles.content}
-    >
-      <RevealBlock
-        index={0}
-        shouldAnimate={shouldAnimateEntrance}
-        style={styles.header}
-      >
-        <View style={styles.headerCopy}>
-          <Text
-            style={[styles.greeting, { color: theme.colors.mutedForeground }]}
-          >
-            {greeting}
-          </Text>
-          <View style={styles.titleRow}>
-            <Text
-              style={[
-                styles.title,
-                { color: theme.colors.foreground, fontSize: titleSize },
-              ]}
-            >
-              {firstName}
-            </Text>
-            <EmojiWithFallback
-              emoji="👋"
-              emojiStyle={styles.wave}
-              fallbackIcon={Sparkles}
-              fallbackIconColor={theme.colors.warning}
-              fallbackIconSize={isCompact ? 19 : 22}
-            />
-          </View>
-          <Text style={[styles.date, { color: theme.colors.mutedForeground }]}>
-            {todayDate}
-          </Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          <HeaderIconButton
-            icon={Search}
-            onPress={() => {
-              onOpenSearch?.();
-            }}
-            label="Search"
-            borderColor={theme.colors.border}
-            backgroundColor={theme.colors.card}
-            iconColor={theme.colors.foreground}
-          />
-          <HeaderIconButton
-            icon={Settings}
-            onPress={() => {
-              onOpenSettings?.();
-            }}
-            label="Account settings"
-            borderColor={theme.colors.border}
-            backgroundColor={theme.colors.card}
-            iconColor={theme.colors.foreground}
-          />
-        </View>
-      </RevealBlock>
-
-      <RevealBlock index={1} shouldAnimate={shouldAnimateEntrance}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open goals"
-          onPress={() => onOpenGoals?.()}
-          style={({ pressed }) => [
-            styles.goalsCard,
-            {
-              borderColor: hexToRgba(theme.colors.primary, 0.24),
-              backgroundColor: hexToRgba(theme.colors.primary, 0.07),
-            },
-            pressed && styles.pressed,
-          ]}
+      header={
+        <View
+          style={[styles.headerBar, { paddingHorizontal: horizontalPadding }]}
         >
-          <View style={styles.goalsCardIcon}>
-            <Target color={theme.colors.primary} size={20} />
-          </View>
-          <View style={styles.goalsCardCopy}>
-            <Text
-              style={[
-                styles.goalsCardTitle,
-                { color: theme.colors.foreground },
-              ]}
+          <View style={[styles.headerBarShell, { maxWidth: layoutMaxWidth }]}>
+            <RevealBlock
+              index={0}
+              isReady={!isOrbHandoffPending}
+              shouldAnimate={shouldAnimateEntrance}
+              style={styles.header}
             >
-              Goals
-            </Text>
-            <Text
-              style={[
-                styles.goalsCardBody,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              Keep the next steps you choose in one calm place.
-            </Text>
+              <HomeStreakPill
+                currentStreak={currentStreak}
+                isLoading={isLoadingMoodStatus}
+                onPress={onOpenStreaks}
+              />
+
+              <View style={styles.headerActions}>
+                <HeaderIconButton
+                  source={SEARCH_ICON}
+                  onPress={() => {
+                    onOpenSearch?.();
+                  }}
+                  label="Search"
+                  borderColor={theme.colors.border}
+                  backgroundColor={theme.colors.card}
+                />
+                <HeaderIconButton
+                  source={SETTINGS_ICON}
+                  onPress={() => {
+                    onOpenSettings?.();
+                  }}
+                  label="Account settings"
+                  borderColor={theme.colors.border}
+                  backgroundColor={theme.colors.card}
+                />
+              </View>
+            </RevealBlock>
           </View>
-          <ChevronRight color={theme.colors.primary} size={20} />
-        </Pressable>
+        </View>
+      }
+      onScroll={handleHeroScroll}
+      scrollEventThrottle={16}
+      scrollViewRef={scrollViewRef}
+      shellStyle={styles.content}
+      useAnimatedScroll
+    >
+      {/* Arriving from the paywall, the orb is already on screen and travelling
+          here — replaying the entrance reveal would fight it, so the block is
+          placed at rest and the orb below fades in when the hand-off lands. */}
+      <RevealBlock
+        index={1}
+        shouldAnimate={shouldAnimateEntrance && !arrivedFromOrbHandoff}
+        style={styles.heroSection}
+      >
+        <Animated.View
+          collapsable={false}
+          onLayout={publishOrbHandoffTarget}
+          ref={heroOrbRef}
+          style={{ opacity: heroOrbOpacity }}
+        >
+          {/* The orb fades to opacity 0 as the page scrolls, and opacity alone
+              does not stop touches — without disabling both the press handler
+              and pointer events, this would swallow taps meant for the cards
+              that have scrolled up underneath it. */}
+          <HapticPressable
+            accessibilityHint="Opens a chat about your patterns"
+            accessibilityLabel="Ask Jade"
+            accessibilityRole="button"
+            disabled={!isOrbInteractive}
+            onPress={handleOrbPress}
+            onPressIn={handleOrbPressIn}
+            pointerEvents={isOrbInteractive ? 'auto' : 'none'}
+            testID="home-orb-pressable"
+          >
+            <Orb
+              deepColor={orbAccents.deep}
+              paused={isOrbHandoffPending}
+              primaryColor={theme.colors.primary}
+              ref={orbRef}
+              scrollY={heroScrollY}
+              secondaryColor={orbAccents.secondary}
+              size={heroOrbSize}
+            />
+          </HapticPressable>
+        </Animated.View>
       </RevealBlock>
 
       <RevealBlock
         index={2}
+        isReady={!isOrbHandoffPending}
         shouldAnimate={shouldAnimateEntrance}
-        style={[
-          styles.topCardRow,
-          !shouldShowHomeSummerOffer && styles.topCardRowSingle,
-        ]}
+        style={styles.greetingSection}
       >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open current streak details"
-          onPress={onOpenStreaks}
-          style={({ pressed }) => [
-            styles.streakCard,
-            shouldShowHomeSummerOffer && styles.streakCardCompact,
-            {
-              borderColor: hexToRgba(theme.colors.primary, 0.32),
-              backgroundColor: hexToRgba(theme.colors.primary, 0.08),
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <View style={styles.streakCopy}>
-            <Text
-              style={[
-                styles.sectionLabel,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              Current Streak
-            </Text>
-            <View style={styles.streakValueRow}>
-              {isLoadingMoodStatus ? (
-                <View
-                  accessibilityLabel="Loading streak"
-                  style={styles.streakLoadingRow}
-                >
-                  <ShimmerBlock
-                    theme={theme}
-                    width={34}
-                    height={30}
-                    borderRadius={10}
-                  />
-                  <ShimmerBlock
-                    theme={theme}
-                    width={42}
-                    height={12}
-                    borderRadius={999}
-                  />
-                </View>
-              ) : (
-                <>
-                  <Text
-                    style={[
-                      styles.streakValue,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    {currentStreak}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.streakSuffix,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    days
-                  </Text>
-                  <EmojiWithFallback
-                    emoji="🔥"
-                    emojiStyle={styles.streakFireEmoji}
-                    fallbackIcon={Sparkles}
-                    fallbackIconColor={theme.colors.primary}
-                    fallbackIconSize={14}
-                  />
-                </>
-              )}
-            </View>
-          </View>
-          {!shouldShowHomeSummerOffer ? (
-            <View style={styles.ghostButton}>
-              <Text
-                style={[
-                  styles.ghostButtonText,
-                  { color: theme.colors.foreground },
-                ]}
-              >
-                View Details
-              </Text>
-            </View>
-          ) : null}
-        </Pressable>
-
-        {shouldShowHomeSummerOffer ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="View special yearly offer"
-            onPress={handleClaimHomeSummerOffer}
-            style={({ pressed }) => [
-              styles.summerOfferCard,
-              {
-                borderColor: hexToRgba(theme.colors.primary, 0.38),
-                backgroundColor: hexToRgba(theme.colors.primary, 0.11),
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <View
-              pointerEvents="none"
-              style={[
-                styles.summerOfferGlow,
-                { backgroundColor: hexToRgba(theme.colors.primary, 0.18) },
-              ]}
-            />
-            <View
-              pointerEvents="none"
-              style={[
-                styles.summerOfferRoseGlow,
-                styles.summerOfferRoseGlowColor,
-              ]}
-            />
-            <View style={styles.summerOfferHeader}>
-              <Crown size={14} color={theme.colors.primary} strokeWidth={1.9} />
-              <Text
-                style={[
-                  styles.summerOfferKicker,
-                  { color: theme.colors.primary },
-                ]}
-              >
-                Special Yearly Offer
-              </Text>
-            </View>
-            <View style={styles.summerOfferBottomRow}>
-              <Text
-                style={[
-                  styles.summerOfferTitle,
-                  { color: theme.colors.foreground },
-                ]}
-              >
-                Unlock Yearly{'\n'}Premium
-              </Text>
-              <View
-                style={[
-                  styles.summerOfferClaimPill,
-                  { backgroundColor: theme.colors.primary },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.summerOfferClaimText,
-                    { color: theme.colors.primaryForeground },
-                  ]}
-                >
-                  Claim
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        ) : null}
+        <Animated.View style={heroFadeStyle}>
+          <HomeGreeting
+            celebrate={isCelebratingOffer}
+            date={todayDate}
+            firstName={firstName}
+            greeting={greeting}
+            isCompact={isCompact}
+            isWide={isWide}
+            nudge={homeNudge}
+            onPress={handleNudgePress}
+            shouldAnimate={shouldAnimateGreeting}
+          />
+        </Animated.View>
       </RevealBlock>
 
       <RevealBlock
-        index={3}
+        index={4}
+        onLayout={event => {
+          reflectionSectionYRef.current = event.nativeEvent.layout.y;
+        }}
+        isReady={!isOrbHandoffPending}
+        shouldAnimate={shouldAnimateEntrance}
+        style={styles.sectionSpacing}
+      >
+        <DailyThoughtCard
+          onReflect={text => {
+            handleReflectionSeen();
+            onOpenNewEntry(text);
+          }}
+          isCompact={isCompact}
+        />
+      </RevealBlock>
+
+      <RevealBlock
+        index={5}
+        onLayout={event => {
+          moodSectionYRef.current = event.nativeEvent.layout.y;
+        }}
+        isReady={!isOrbHandoffPending}
         shouldAnimate={shouldAnimateEntrance}
         style={styles.sectionSpacing}
       >
@@ -1797,8 +1582,8 @@ export default function HomeScreen({
             {
               backgroundColor: theme.colors.card,
               borderColor:
-                showMoodResult && savedMood
-                  ? theme.colors.primary
+                showMoodResult && currentMoodTone
+                  ? currentMoodTone.color
                   : theme.colors.border,
             },
             moodCardAnimatedStyle,
@@ -1873,74 +1658,27 @@ export default function HomeScreen({
                     { color: theme.colors.foreground },
                   ]}
                 >
-                  How are you feeling today?
+                  {widgetSuggestedMood
+                    ? 'Your widget choice is highlighted. Tap it to save.'
+                    : 'How are you feeling today?'}
                 </Text>
 
                 <View style={styles.moodRow}>
                   {moods.map(mood => {
                     const Icon = mood.icon;
-                    const isSelected = selectedMood === mood.value;
+                    const isSelected =
+                      selectedMood === mood.value ||
+                      widgetSuggestedMood === mood.value;
 
-                    const tone =
-                      mood.value === 'amazing'
-                        ? {
-                            color: theme.colors.primary,
-                            backgroundColor: hexToRgba(
-                              theme.colors.primary,
-                              0.1,
-                            ),
-                            selectedBackgroundColor: hexToRgba(
-                              theme.colors.primary,
-                              0.14,
-                            ),
-                          }
-                        : mood.value === 'good'
-                        ? {
-                            color: theme.colors.success,
-                            backgroundColor: hexToRgba(
-                              theme.colors.success,
-                              0.1,
-                            ),
-                            selectedBackgroundColor: hexToRgba(
-                              theme.colors.success,
-                              0.14,
-                            ),
-                          }
-                        : mood.value === 'okay'
-                        ? {
-                            color: theme.colors.warning,
-                            backgroundColor: hexToRgba(
-                              theme.colors.warning,
-                              0.1,
-                            ),
-                            selectedBackgroundColor: hexToRgba(
-                              theme.colors.warning,
-                              0.14,
-                            ),
-                          }
-                        : mood.value === 'bad'
-                        ? {
-                            color: theme.colors.mutedForeground,
-                            backgroundColor: hexToRgba(
-                              theme.colors.mutedForeground,
-                              0.1,
-                            ),
-                            selectedBackgroundColor: hexToRgba(
-                              theme.colors.mutedForeground,
-                              0.14,
-                            ),
-                          }
-                        : {
-                            color: theme.colors.destructive,
-                            backgroundColor: hexToRgba(
-                              theme.colors.destructive,
-                              0.1,
-                            ),
-                            selectedBackgroundColor: hexToRgba(
-                              theme.colors.destructive,
-                              0.14,
-                            ),
-                          };
+                    const moodColor = getMoodColor(mood.value, theme.mode);
+                    const tone = {
+                      color: moodColor,
+                      backgroundColor: hexToRgba(moodColor, MOOD_TINT_ALPHA),
+                      selectedBackgroundColor: hexToRgba(
+                        moodColor,
+                        MOOD_SELECTED_TINT_ALPHA,
+                      ),
+                    };
 
                     const selectedButtonStyle = isSelected
                       ? {
@@ -1962,7 +1700,7 @@ export default function HomeScreen({
                       : null;
 
                     return (
-                      <Pressable
+                      <HapticPressable
                         key={mood.value}
                         accessibilityRole="button"
                         accessibilityLabel={mood.label}
@@ -2027,7 +1765,7 @@ export default function HomeScreen({
                             {mood.label}
                           </Text>
                         </Animated.View>
-                      </Pressable>
+                      </HapticPressable>
                     );
                   })}
                 </View>
@@ -2080,14 +1818,6 @@ export default function HomeScreen({
                           </Text>{' '}
                           today
                         </Text>
-                        <Animated.View
-                          style={{
-                            opacity: moodTickOpacity,
-                            transform: [{ scale: moodTickScale }],
-                          }}
-                        >
-                          <Check size={14} color={theme.colors.success} />
-                        </Animated.View>
                       </View>
                       <Text
                         style={[
@@ -2107,7 +1837,11 @@ export default function HomeScreen({
       </RevealBlock>
 
       <RevealBlock
-        index={4}
+        index={6}
+        onLayout={event => {
+          quickThoughtSectionYRef.current = event.nativeEvent.layout.y;
+        }}
+        isReady={!isOrbHandoffPending}
         shouldAnimate={shouldAnimateEntrance}
         style={styles.sectionSpacing}
       >
@@ -2121,11 +1855,21 @@ export default function HomeScreen({
             },
           ]}
         >
-          {!isNoteExpanded ? (
-            <Pressable
+          <Animated.View
+            accessibilityElementsHidden={isNoteExpanded}
+            importantForAccessibility={
+              isNoteExpanded ? 'no-hide-descendants' : 'auto'
+            }
+            pointerEvents={isNoteExpanded ? 'none' : 'auto'}
+            style={[
+              isNoteExpanded && styles.quickNoteLayerAbsolute,
+              { opacity: quickNoteCollapsedOpacity },
+            ]}
+          >
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel="Open quick thought"
-              onPress={() => setIsNoteExpanded(true)}
+              onPress={() => toggleNoteExpanded(true)}
               style={({ pressed }) => [
                 styles.quickNoteCollapsed,
                 pressed && styles.pressed,
@@ -2139,7 +1883,10 @@ export default function HomeScreen({
                   },
                 ]}
               >
-                <Feather size={18} color={theme.colors.primary} />
+                <Image
+                  source={QUICK_NOTE_ICON}
+                  style={styles.quickNoteIconImage}
+                />
               </View>
               <Text
                 style={[
@@ -2149,746 +1896,175 @@ export default function HomeScreen({
               >
                 Capture a quick thought...
               </Text>
-            </Pressable>
-          ) : (
-            <View style={styles.quickNoteExpanded}>
-              <View style={styles.quickNoteHeader}>
-                <View style={styles.quickNoteTitleRow}>
-                  <Feather size={16} color={theme.colors.primary} />
-                  <Text
-                    style={[
-                      styles.quickNoteTitle,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    Quick Note
-                  </Text>
-                </View>
-                <View style={styles.quickNoteActions}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Open full editor"
-                    onPress={() => onOpenNewEntry()}
-                    style={({ pressed }) => [
-                      styles.smallIconButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <ChevronRight
-                      size={14}
-                      color={theme.colors.mutedForeground}
-                    />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    onPress={() => {
-                      setIsNoteExpanded(false);
-                      setNote('');
-                      setSelectedTags([]);
-                    }}
-                    style={({ pressed }) => [
-                      styles.smallIconButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <X size={14} color={theme.colors.mutedForeground} />
-                  </Pressable>
-                </View>
-              </View>
-
-              <TextInput
-                ref={noteInputRef}
-                value={note}
-                onChangeText={setNote}
-                onContentSizeChange={event => {
-                  const nextHeight = Math.min(
-                    120,
-                    Math.max(72, event.nativeEvent.contentSize.height),
-                  );
-
-                  setNoteInputHeight(nextHeight);
-                }}
-                placeholder="What's on your mind?"
-                placeholderTextColor={theme.colors.mutedForeground}
-                multiline
-                scrollEnabled={false}
-                maxLength={500}
-                style={[
-                  styles.quickNoteInput,
-                  {
-                    color: theme.colors.foreground,
-                    height: noteInputHeight,
-                  },
-                ]}
-              />
-
-              <View style={styles.quickTagsRow}>
-                <Hash size={12} color={theme.colors.mutedForeground} />
-                {quickTags.map(tag => {
-                  const selected = selectedTags.includes(tag);
-
-                  return (
-                    <Pressable
-                      key={tag}
-                      accessibilityRole="button"
-                      accessibilityLabel={tag}
-                      onPress={() => handleToggleTag(tag)}
-                      style={({ pressed }) => [
-                        styles.tagChip,
-                        {
-                          borderColor: selected
-                            ? theme.colors.primary
-                            : theme.colors.border,
-                          backgroundColor: selected
-                            ? hexToRgba(theme.colors.primary, 0.1)
-                            : theme.colors.card,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.tagText,
-                          {
-                            color: selected
-                              ? theme.colors.primary
-                              : theme.colors.mutedForeground,
-                          },
-                        ]}
-                      >
-                        {tag}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <View style={styles.quickNoteFooter}>
-                <Text
-                  style={[
-                    styles.quickNoteCount,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  {note.length}/500
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Save quick thought"
-                  onPress={handleSaveNote}
-                  disabled={!isOnline || !note.trim()}
-                  style={({ pressed }) => [
-                    styles.saveButton,
-                    {
-                      backgroundColor: theme.colors.primary,
-                    },
-                    (!isOnline || !note.trim()) && styles.saveButtonDisabled,
-                    pressed && isOnline && note.trim() && styles.pressed,
-                  ]}
-                >
-                  <Send size={12} color={theme.colors.primaryForeground} />
-                  <Text
-                    style={[
-                      styles.saveButtonText,
-                      { color: theme.colors.primaryForeground },
-                    ]}
-                  >
-                    Save
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-        </View>
-      </RevealBlock>
-
-      <RevealBlock
-        index={5}
-        shouldAnimate={shouldAnimateEntrance}
-        style={styles.sectionSpacing}
-      >
-        <View
-          style={[
-            styles.card,
-            styles.insightCard,
-            {
-              backgroundColor: theme.colors.card,
-              borderColor: theme.colors.border,
-            },
-          ]}
-        >
-          <View
+            </HapticPressable>
+          </Animated.View>
+          <Animated.View
+            accessibilityElementsHidden={!isNoteExpanded}
+            importantForAccessibility={
+              isNoteExpanded ? 'auto' : 'no-hide-descendants'
+            }
+            pointerEvents={isNoteExpanded ? 'auto' : 'none'}
             style={[
-              styles.insightGlow,
-              { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
-            ]}
-          />
-          <View style={styles.insightHeader}>
-            <View style={styles.insightTitleRow}>
-              <Brain size={14} color={theme.colors.primary} />
-              <Text
-                style={[
-                  styles.sectionKicker,
-                  { color: theme.colors.mutedForeground },
-                ]}
-              >
-                AI Insight
-              </Text>
-            </View>
-
-            <View style={styles.insightControls}>
-              <View style={styles.insightDots}>
-                {insightIndicators.map((_, _index) => (
-                  <Pressable
-                    key={_index}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Insight ${_index + 1}`}
-                    onPress={() => setInsightIndex(_index)}
-                    style={[
-                      styles.insightDot,
-                      _index === insightIndex
-                        ? activeInsightDotStyle
-                        : inactiveInsightDotStyle,
-                      _index === insightIndex && styles.insightDotActive,
-                      !isAiInsightEnabled && styles.insightDotLocked,
-                    ]}
-                  />
-                ))}
-              </View>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  !isPremiumUser
-                    ? 'Unlock AI insights'
-                    : !isAiOptedIn
-                    ? 'AI insights are off'
-                    : isLoadingAiInsightContent
-                    ? 'Loading AI insight'
-                    : collectingHomeAiAnalysis || insufficientHomeAiAnalysis
-                    ? 'Open weekly analysis'
-                    : homeAiInsightError
-                    ? 'Retry AI insight'
-                    : 'Next insight'
-                }
-                disabled={isLoadingAiInsightContent}
-                onPress={handleAdvanceInsight}
-                style={({ pressed }) => [
-                  styles.smallIconButton,
-                  isLoadingAiInsightContent && styles.smallIconButtonDisabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {!isAiInsightEnabled ? (
-                  <Lock size={13} color={theme.colors.mutedForeground} />
-                ) : (
-                  <RefreshCw size={13} color={theme.colors.mutedForeground} />
-                )}
-              </Pressable>
-            </View>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open AI analysis"
-            onPress={handleOpenFullAiAnalysis}
-            disabled={isLoadingAiInsightContent}
-            style={({ pressed }) => [
-              styles.insightBody,
-              isLoadingAiInsightContent && styles.insightBodyDisabled,
-              pressed && styles.pressed,
+              styles.quickNoteExpanded,
+              !isNoteExpanded && styles.quickNoteLayerAbsolute,
+              { opacity: quickNoteExpandedOpacity },
             ]}
           >
-            {isLoadingAiInsightContent ? (
-              <View
-                accessibilityLabel="Loading AI insight"
-                style={styles.insightAnimatedContent}
-              >
-                <ShimmerBlock
-                  theme={theme}
-                  width={40}
-                  height={40}
-                  borderRadius={12}
+            <View style={styles.quickNoteHeader}>
+              <View style={styles.quickNoteTitleRow}>
+                <Image
+                  source={QUICK_NOTE_ICON}
+                  style={styles.quickNoteTitleIcon}
                 />
-                <View style={styles.insightCopy}>
-                  <Text
-                    style={[
-                      styles.insightTitle,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    Loading weekly signal
-                  </Text>
-                  <ShimmerBlock
-                    theme={theme}
-                    height={10}
-                    width="92%"
-                    style={styles.insightLoadingLine}
-                  />
-                  <ShimmerBlock
-                    theme={theme}
-                    height={10}
-                    width="84%"
-                    style={styles.insightLoadingLine}
-                  />
-                  <ShimmerBlock
-                    theme={theme}
-                    height={10}
-                    width="58%"
-                    style={styles.insightLoadingLine}
-                  />
-                </View>
-              </View>
-            ) : (
-              <Animated.View
-                style={[
-                  styles.insightAnimatedContent,
-                  {
-                    opacity: insightTransitionProgress,
-                    transform: [
-                      {
-                        translateX: insightTransitionProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [14, 0],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <View
+                <Text
                   style={[
-                    styles.insightIconWrap,
-                    {
-                      backgroundColor: hexToRgba(theme.colors.primary, 0.1),
-                    },
+                    styles.quickNoteTitle,
+                    { color: theme.colors.foreground },
                   ]}
                 >
-                  {isAiInsightEnabled ? (
-                    <ActiveHomeInsightIcon
-                      size={20}
-                      color={theme.colors.primary}
-                    />
-                  ) : (
-                    <Lock size={18} color={theme.colors.primary} />
-                  )}
-                </View>
-                <View style={styles.insightCopy}>
-                  <Text
-                    style={[
-                      styles.insightTitle,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    {!isPremiumUser
-                      ? 'Premium AI Insight'
-                      : !isAiOptedIn
-                      ? 'AI insights are turned off'
-                      : collectingHomeAiAnalysis
-                      ? collectingHomeAiAnalysis.summary.headline
-                      : insufficientHomeAiAnalysis
-                      ? insufficientHomeAiAnalysis.summary.headline
-                      : homeAiInsightError
-                      ? 'AI analysis unavailable'
-                      : activeHomeInsight?.title || 'AI Insight'}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.insightText,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {!isPremiumUser
-                      ? 'Upgrade to Premium to unlock rotating AI insight snippets from your weekly analysis.'
-                      : !isAiOptedIn
-                      ? 'AI reflections are off for this account, so weekly AI insight cards stay hidden.'
-                      : collectingHomeAiAnalysis
-                      ? `${collectingHomeAiAnalysis.summary.narrative} ${collectingHomeAiAnalysis.quickAnalysis.title}.`
-                      : insufficientHomeAiAnalysis
-                      ? `${insufficientHomeAiAnalysis.summary.narrative} ${insufficientHomeAiAnalysis.quickAnalysis.title}.`
-                      : homeAiInsightError
-                      ? 'We could not load the latest AI insight right now.'
-                      : activeHomeInsight?.body ||
-                        'Your latest weekly patterns will appear here.'}
-                  </Text>
-                  {isAiInsightEnabled &&
-                  !homeAiInsightError &&
-                  !collectingHomeAiAnalysis &&
-                  !insufficientHomeAiAnalysis ? (
-                    <View style={styles.insightCtaRow}>
-                      <Text
-                        style={[
-                          styles.insightCtaText,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        {activeHomeInsight?.ctaLabel || 'Open full AI analysis'}
-                      </Text>
-                      <ChevronRight size={14} color={theme.colors.primary} />
-                    </View>
-                  ) : collectingHomeAiAnalysis ? (
-                    <View style={styles.insightCtaRow}>
-                      <Text
-                        style={[
-                          styles.insightCtaText,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        Track this week's progress
-                      </Text>
-                      <ChevronRight size={14} color={theme.colors.primary} />
-                    </View>
-                  ) : insufficientHomeAiAnalysis ? (
-                    <View style={styles.insightCtaRow}>
-                      <Text
-                        style={[
-                          styles.insightCtaText,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        Start the next week stronger
-                      </Text>
-                      <ChevronRight size={14} color={theme.colors.primary} />
-                    </View>
-                  ) : !isPremiumUser ? (
-                    <View style={styles.insightCtaRow}>
-                      <Text
-                        style={[
-                          styles.insightCtaText,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        Open subscription
-                      </Text>
-                      <ChevronRight size={14} color={theme.colors.primary} />
-                    </View>
-                  ) : !isAiOptedIn ? (
-                    <View style={styles.insightCtaRow}>
-                      <Text
-                        style={[
-                          styles.insightCtaText,
-                          { color: theme.colors.primary },
-                        ]}
-                      >
-                        View details
-                      </Text>
-                      <ChevronRight size={14} color={theme.colors.primary} />
-                    </View>
-                  ) : null}
-                </View>
-              </Animated.View>
-            )}
-          </Pressable>
-        </View>
-      </RevealBlock>
+                  Quick Note
+                </Text>
+              </View>
+              <View style={styles.quickNoteActions}>
+                <HapticPressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  onPress={() => toggleNoteExpanded(false, true)}
+                  style={({ pressed }) => [
+                    styles.smallIconButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <X size={14} color={theme.colors.mutedForeground} />
+                </HapticPressable>
+              </View>
+            </View>
 
-      <RevealBlock
-        index={6}
-        shouldAnimate={shouldAnimateEntrance}
-        style={styles.sectionSpacing}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            isLoadingFeaturedPrompt
-              ? "Loading today's writing prompt"
-              : `Open today's writing prompt: ${featuredPrompt.text}`
-          }
-          disabled={isLoadingFeaturedPrompt}
-          onPress={() => onOpenNewEntry(featuredPrompt.text)}
-          style={({ pressed }) => [
-            styles.card,
-            {
-              backgroundColor: theme.colors.card,
-              borderColor: theme.colors.border,
-            },
-            isLoadingFeaturedPrompt && styles.promptCardDisabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          <View style={styles.promptRow}>
-            {isLoadingFeaturedPrompt ? (
-              <ShimmerBlock
-                theme={theme}
-                width={40}
-                height={40}
-                borderRadius={20}
-              />
-            ) : (
-              <View
+            <TextInput
+              ref={noteInputRef}
+              value={note}
+              onChangeText={value => {
+                setNote(value);
+                setQuickThoughtError(null);
+              }}
+              onContentSizeChange={event => {
+                const nextHeight = Math.min(
+                  120,
+                  Math.max(72, event.nativeEvent.contentSize.height),
+                );
+
+                setNoteInputHeight(nextHeight);
+              }}
+              placeholder="What's on your mind?"
+              placeholderTextColor={theme.colors.mutedForeground}
+              multiline
+              scrollEnabled={false}
+              maxLength={500}
+              style={[
+                styles.quickNoteInput,
+                {
+                  color: theme.colors.foreground,
+                  height: noteInputHeight,
+                },
+              ]}
+            />
+
+            <View style={styles.quickTagsRow}>
+              <Hash size={12} color={theme.colors.mutedForeground} />
+              {quickTags.map(tag => (
+                <AnimatedTagChip
+                  key={tag}
+                  label={tag}
+                  onPress={() => handleToggleTag(tag)}
+                  selected={selectedTags.includes(tag)}
+                  shouldAnimate={shouldAnimateQuickNote}
+                  style={styles.tagChip}
+                  textStyle={styles.tagText}
+                />
+              ))}
+            </View>
+
+            {quickThoughtError ? (
+              <Text
+                accessibilityRole="alert"
                 style={[
-                  styles.promptIconWrap,
-                  { backgroundColor: hexToRgba(theme.colors.primary, 0.1) },
+                  styles.quickThoughtError,
+                  { color: theme.colors.destructive },
                 ]}
               >
-                <Sparkles size={20} color={theme.colors.primary} />
-              </View>
-            )}
-            <View style={styles.promptCopy}>
+                {quickThoughtError}
+              </Text>
+            ) : null}
+
+            <View style={styles.quickNoteFooter}>
               <Text
                 style={[
-                  styles.sectionKicker,
+                  styles.quickNoteCount,
                   { color: theme.colors.mutedForeground },
                 ]}
               >
-                Today&apos;s Prompt
+                {note.length}/500
               </Text>
-              <Text
-                style={[styles.promptText, { color: theme.colors.foreground }]}
+              <HapticPressable
+                accessibilityRole="button"
+                accessibilityLabel="Save quick thought"
+                accessibilityState={{
+                  busy: isSavingQuickThought,
+                  disabled: !canSaveQuickThought,
+                }}
+                onPress={handleSaveNote}
+                disabled={!canSaveQuickThought}
+                style={({ pressed }) => [
+                  pressed && canSaveQuickThought && styles.pressed,
+                ]}
               >
-                {isLoadingFeaturedPrompt
-                  ? "Loading today's prompt"
-                  : featuredPrompt.text}
-              </Text>
-              {isLoadingFeaturedPrompt ? (
-                <View style={styles.promptLoadingStack}>
-                  <ShimmerBlock
-                    theme={theme}
-                    height={10}
-                    width="90%"
-                    style={styles.promptLoadingLine}
-                  />
-                  <ShimmerBlock
-                    theme={theme}
-                    height={10}
-                    width="72%"
-                    style={styles.promptLoadingLine}
-                  />
-                </View>
-              ) : null}
+                <Animated.View
+                  style={[
+                    styles.saveButton,
+                    {
+                      backgroundColor: saveButtonBackgroundColor,
+                      opacity: saveButtonOpacity,
+                      transform: [{ scale: saveButtonScale }],
+                    },
+                  ]}
+                >
+                  <ButtonLoadingContent
+                    contentStyle={styles.saveButtonContent}
+                    loaderColor={theme.colors.primaryForeground}
+                    loading={isSavingQuickThought}
+                  >
+                    <Send size={12} color={saveButtonForeground} />
+                    <Text
+                      style={[
+                        styles.saveButtonText,
+                        { color: saveButtonForeground },
+                      ]}
+                    >
+                      Save
+                    </Text>
+                  </ButtonLoadingContent>
+                </Animated.View>
+              </HapticPressable>
             </View>
-          </View>
-        </Pressable>
+          </Animated.View>
+        </View>
       </RevealBlock>
 
       <RevealBlock
         index={7}
-        shouldAnimate={shouldAnimateEntrance}
-        style={styles.sectionSpacing}
-      >
-        <View style={styles.quickActionsGrid}>
-          <ActionTile
-            icon={Plus}
-            label="New Entry"
-            accessibilityLabel="Create new entry"
-            onPress={() => onOpenNewEntry()}
-            iconColor={theme.colors.primary}
-            labelColor={theme.colors.mutedForeground}
-            borderColor={theme.colors.border}
-            backgroundColor={theme.colors.card}
-          />
-          <ActionTile
-            icon={CalendarDays}
-            label="Calendar"
-            accessibilityLabel="Open calendar"
-            onPress={() => setActiveTab('calendar')}
-            iconColor={theme.colors.primary}
-            labelColor={theme.colors.mutedForeground}
-            borderColor={theme.colors.border}
-            backgroundColor={theme.colors.card}
-          />
-          <ActionTile
-            icon={Sparkles}
-            label="Prompts"
-            accessibilityLabel="Open prompts"
-            onPress={handleOpenPromptDialog}
-            iconColor={theme.colors.primary}
-            labelColor={theme.colors.mutedForeground}
-            borderColor={theme.colors.border}
-            backgroundColor={theme.colors.card}
-          />
-        </View>
-      </RevealBlock>
-
-      <RevealBlock
-        index={8}
+        isReady={!isOrbHandoffPending}
         shouldAnimate={shouldAnimateEntrance}
         style={styles.sectionSpacingBottom}
       >
-        <View style={styles.recentHeader}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              {
-                color: theme.colors.foreground,
-                fontSize: sectionTitleSize,
-              },
-            ]}
-          >
-            Recent Entries
-          </Text>
-        </View>
-
-        {recentEntries.length ? (
-          <View style={styles.recentEntryList}>
-            {recentEntries.map(entry => (
-              <JournalEntryCard
-                key={entry._id}
-                entry={entry}
-                onPress={() => openJournalEntry(entry._id)}
-                onFavoritePress={() => {
-                  handleFavoriteToggle(entry._id, !entry.isFavorite).catch(
-                    () => undefined,
-                  );
-                }}
-                isFavoriteUpdating={favoriteUpdatingId === entry._id}
-                previewLines={2}
-              />
-            ))}
-            {recentEntries.length === 10 ? (
-              <View style={styles.recentEntriesFooterHint}>
-                <Text
-                  style={[
-                    styles.recentEntriesFooterText,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  See Calendar for more details and the full entry history.
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : !isOnline && !hasHydratedRecentJournalEntries ? (
-          <EmptyState
-            theme={theme}
-            title="Entries unavailable offline"
-            description="Reconnect to load your journal history. Your entries remain safely stored on your account."
-          />
-        ) : (
-          <EmptyState
-            theme={theme}
-            title="No entries yet"
-            description="Start your journaling journey by creating your first entry"
-            actionLabel="Create Entry"
-            actionAccessibilityLabel="Create a new entry"
-            onActionPress={onOpenNewEntry}
-          />
-        )}
+        <GoalsHomeCard onOpenGoals={() => onOpenGoals?.()} />
       </RevealBlock>
-
-      <Modal
-        animationType="none"
-        transparent
-        visible={isPromptDialogVisible}
-        onRequestClose={() => setIsPromptDialogVisible(false)}
-      >
-        <Animated.View
-          style={[styles.promptDialogBackdrop, promptDialogBackdropStyle]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close prompts"
-            onPress={() => setIsPromptDialogVisible(false)}
-            style={styles.promptDialogDismissLayer}
-          />
-          <Animated.View
-            style={[
-              styles.promptDialogCard,
-              promptDialogCardAnimatedStyle,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <View style={styles.promptDialogHeader}>
-              <View style={styles.promptDialogTitleWrap}>
-                <Text
-                  style={[
-                    styles.promptDialogTitle,
-                    { color: theme.colors.foreground },
-                  ]}
-                >
-                  Choose a writing prompt
-                </Text>
-                <Text
-                  style={[
-                    styles.promptDialogSubtitle,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  Pick one to start a fuller entry.
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close prompts"
-                onPress={() => setIsPromptDialogVisible(false)}
-                style={({ pressed }) => [
-                  styles.promptDialogCloseButton,
-                  {
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.accent,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <X size={16} color={theme.colors.mutedForeground} />
-              </Pressable>
-            </View>
-
-            {isLoadingFeaturedPrompt ? (
-              <Text
-                style={[
-                  styles.promptDialogStatus,
-                  { color: theme.colors.mutedForeground },
-                ]}
-              >
-                Loading prompt options...
-              </Text>
-            ) : (
-              <ScrollView
-                style={styles.promptDialogScroll}
-                contentContainerStyle={styles.promptDialogList}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-              >
-                {promptOptions.map(prompt => (
-                  <Pressable
-                    key={prompt.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Use prompt: ${prompt.text}`}
-                    onPress={() => handleSelectPrompt(prompt)}
-                    style={({ pressed }) => [
-                      styles.promptDialogOption,
-                      {
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.background,
-                      },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.promptDialogTopic,
-                        { color: theme.colors.primary },
-                      ]}
-                    >
-                      {prompt.topic}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.promptDialogPrompt,
-                        { color: theme.colors.foreground },
-                      ]}
-                    >
-                      {prompt.text}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-          </Animated.View>
-        </Animated.View>
-      </Modal>
     </TabScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: 12,
+    paddingTop: 0,
     paddingBottom: 28,
   },
   header: {
@@ -2896,29 +2072,25 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 16,
-  },
-  headerCopy: {
-    flex: 1,
-  },
-  greeting: {
-    fontSize: 13,
     marginBottom: 4,
   },
-  titleRow: {
-    flexDirection: 'row',
+  heroSection: {
     alignItems: 'center',
-    gap: 8,
+    marginTop: 24,
+    marginBottom: 0,
   },
-  title: {
-    fontWeight: '600',
-    letterSpacing: -0.3,
+  greetingSection: {
+    alignItems: 'center',
+    marginBottom: 24,
   },
-  wave: {
-    fontSize: 28,
+  headerBar: {
+    width: '100%',
   },
-  date: {
-    marginTop: 4,
-    fontSize: 12,
+  headerBarShell: {
+    alignSelf: 'center',
+    paddingBottom: 8,
+    paddingTop: 12,
+    width: '100%',
   },
   headerActions: {
     flexDirection: 'row',
@@ -2947,11 +2119,16 @@ const styles = StyleSheet.create({
   },
   goalsCardTitle: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   goalsCardBody: {
     fontSize: 13,
     lineHeight: 19,
+  },
+  headerIcon: {
+    height: 20,
+    resizeMode: 'contain',
+    width: 20,
   },
   headerIconButton: {
     width: 36,
@@ -3033,87 +2210,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  summerOfferCard: {
-    flex: 1.18,
-    minHeight: 118,
-    borderRadius: 22,
-    borderWidth: 1,
-    paddingVertical: 22,
-    paddingHorizontal: 18,
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  summerOfferGlow: {
-    position: 'absolute',
-    top: -34,
-    right: -28,
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    opacity: 1,
-  },
-  summerOfferRoseGlow: {
-    position: 'absolute',
-    bottom: -54,
-    right: 18,
-    width: 136,
-    height: 96,
-    borderRadius: 68,
-  },
-  summerOfferRoseGlowColor: {
-    backgroundColor: 'rgba(251, 113, 133, 0.13)',
-  },
-  summerOfferHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    zIndex: 1,
-  },
-  summerOfferKicker: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-  },
-  summerOfferBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: 8,
-    zIndex: 1,
-  },
-  summerOfferTitle: {
-    flex: 1,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  summerOfferClaimPill: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: '#2D2A26',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 7,
-    },
-    elevation: 3,
-  },
-  summerOfferClaimText: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: '700',
-  },
   sectionSpacing: {
-    marginTop: 12,
+    marginTop: 16,
   },
   sectionSpacingBottom: {
-    marginTop: 12,
+    marginTop: 16,
   },
   card: {
     borderWidth: 1,
@@ -3144,10 +2245,20 @@ const styles = StyleSheet.create({
   },
   quickNoteCard: {
     padding: 0,
+    position: 'relative',
+  },
+  quickNoteLayerAbsolute: {
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   cardPrompt: {
-    fontSize: 15,
-    marginBottom: 16,
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    marginBottom: 18,
+    marginTop: 4,
   },
   moodRow: {
     flexDirection: 'row',
@@ -3191,7 +2302,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moodLabel: {
-    fontSize: 10,
+    fontSize: 11,
+    fontWeight: '600',
   },
   moodLoadingLabel: {
     alignSelf: 'center',
@@ -3249,6 +2361,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
+  quickNoteIconImage: {
+    height: 20,
+    width: 20,
+  },
+  quickNoteTitleIcon: {
+    height: 17,
+    width: 17,
+  },
   quickNotePlaceholder: {
     flex: 1,
     fontSize: 14,
@@ -3303,19 +2423,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  quickThoughtError: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 10,
+  },
   quickNoteCount: {
     fontSize: 12,
   },
   saveButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  saveButtonDisabled: {
-    opacity: 0.4,
+  saveButtonContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   saveButtonText: {
     fontSize: 12,
@@ -3407,7 +2532,7 @@ const styles = StyleSheet.create({
   insightMetaText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   insightTitle: {
     fontSize: 14,

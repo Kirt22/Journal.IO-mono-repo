@@ -18,6 +18,18 @@ This is the source of truth for running Journal.IO in the three supported iOS en
 
 The selected env file is the primary source for `API_BASE_URL`. The optional `frontend/src/utils/devLaunchConfig.json` URL is only a development fallback when the selected env file has no API URL.
 
+## Development Premium Access
+
+The local backend supports one global Premium override in `backend/.env`:
+
+```env
+DEV_PREMIUM_ACCESS_OVERRIDE=pro
+```
+
+Use `pro` to force effective Premium access, `free` to force the Free experience, or `auto` to use the account's server-verified RevenueCat entitlement. The override changes runtime authorization and the `isPremium` value returned in authenticated profiles without modifying stored subscription data. It is ignored when `NODE_ENV=production`.
+
+Restart the backend after changing the value, then refresh or relaunch the app so it reloads the authenticated profile. Authentication, ownership, and safety checks remain enforced in every mode.
+
 ## Important URL Rule
 
 `0.0.0.0` is a server listen address. It means the backend accepts connections through all of the Mac's network interfaces. It is not an address the app should request.
@@ -112,7 +124,7 @@ Terminal 3, install or relaunch the Debug app on the connected iPhone:
 
 ```bash
 cd frontend
-npm run ios:local-test -- --device "Your iPhone Name"
+npm run ios:local-test -- --device "Kirtan’s iPhone"
 ```
 
 If the phone cannot connect, verify the LAN IP has not changed, allow Node/backend connections through the Mac firewall, accept iOS local-network permission, and confirm the backend health endpoint from another device at `http://<mac-lan-ip>:3001/health`.
@@ -171,6 +183,34 @@ If the app logs an API URL from a different environment:
 5. Check the first development API request log for `[apiClient] base URL resolved` and confirm its source is `env`.
 
 Do not run a simulator `start:*` command with a local-test or production `ios:*` command. Metro creates the JavaScript bundle, so both terminals must select the same environment.
+
+## Widgets Missing From The Simulator Widget Gallery
+
+Symptom: searching "Journal.IO" in the add-widget sheet returns nothing, even though the app installs and runs fine.
+
+This is almost always stale simulator state, not a project misconfiguration. Reinstalling the app places it in a new bundle container, but `launchd_sim` keeps the `app.journalio.widgets` XPC service registered against the previous container path. It then refuses to re-bootstrap, so `chronod` can never launch the extension to read its widget descriptors.
+
+Confirm with:
+
+```bash
+xcrun simctl spawn booted log show --last 15m --style compact \
+  --predicate 'subsystem == "com.apple.chrono"' | grep -i journalio
+```
+
+The signature lines are `Attempt to re-bootstrap service from different path, will use existing`, `Failed to launch extension`, and `unable to obtain widget extension session`.
+
+Recover by shutting the simulator down — that is what clears `launchd_sim`'s in-memory service registry:
+
+```bash
+xcrun simctl uninstall booted app.journalio
+xcrun simctl shutdown booted
+xcrun simctl boot <device-udid>
+cd frontend && npm run ios
+```
+
+To avoid it recurring, use `npm run ios:clean` instead of `npm run ios` when reinstalling after widget-target changes. It uninstalls first so the extension is deregistered cleanly.
+
+Verify success by looking for `created from CHS widget descriptor` in the same log query.
 
 
 

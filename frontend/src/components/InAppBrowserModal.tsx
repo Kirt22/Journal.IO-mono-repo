@@ -1,17 +1,21 @@
-import { useEffect, useState } from "react";
+import HapticPressable from './HapticPressable';
 import {
-  ActivityIndicator,
+  useEffect,
+  useState } from "react";
+import {
   Linking,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 import { X } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import WebView from "react-native-webview";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
+import JournalLoader from './JournalLoader';
 
 export default function InAppBrowserModal() {
   const theme = useTheme();
@@ -62,7 +66,7 @@ export default function InAppBrowserModal() {
           },
         ]}
       >
-        <Pressable
+        <HapticPressable
           accessibilityLabel="Close browser"
           accessibilityRole="button"
           onPress={handleClose}
@@ -76,7 +80,7 @@ export default function InAppBrowserModal() {
           ]}
         >
           <X size={18} color={theme.colors.foreground} />
-        </Pressable>
+        </HapticPressable>
 
         <View style={styles.headerCopy}>
           <Text
@@ -129,7 +133,7 @@ export default function InAppBrowserModal() {
               { backgroundColor: theme.colors.background },
             ]}
           >
-            <ActivityIndicator color={theme.colors.primary} />
+            <JournalLoader color={theme.colors.primary} />
             <Text
               style={[
                 styles.loadingText,
@@ -163,7 +167,7 @@ export default function InAppBrowserModal() {
               {errorMessage}
             </Text>
             <View style={styles.errorActions}>
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 onPress={handleRetry}
                 style={({ pressed }) => [
@@ -182,8 +186,8 @@ export default function InAppBrowserModal() {
                 >
                   Retry
                 </Text>
-              </Pressable>
-              <Pressable
+              </HapticPressable>
+              <HapticPressable
                 accessibilityRole="button"
                 onPress={handleClose}
                 style={({ pressed }) => [
@@ -203,7 +207,7 @@ export default function InAppBrowserModal() {
                 >
                   Close
                 </Text>
-              </Pressable>
+              </HapticPressable>
             </View>
           </View>
         ) : null}

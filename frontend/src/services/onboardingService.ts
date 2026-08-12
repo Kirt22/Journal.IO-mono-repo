@@ -24,7 +24,21 @@ type OnboardingDemoAnalysisResponse = {
   prompt: string;
 };
 
-type CompleteOnboardingPayload = OnboardingCompletionData;
+/**
+ * V1 sends every field; V2 sends a different, partly overlapping subset (and no
+ * `journalingExperience` or `reminderPreference` — reminders are their own step).
+ * The backend treats all of them as optional, so the payload is the union of
+ * both flows rather than V1's required shape.
+ */
+type CompleteOnboardingPayload = Partial<OnboardingCompletionData> & {
+  primaryContext?: string;
+  reflectionTone?: string[];
+  whatBringsYouHere?: string[];
+  preferredTheme?: string;
+  referralSource?: string;
+  referralSourceOther?: string;
+  commitmentSignedAt?: string;
+};
 
 const generateOnboardingDemoAnalysis = async (
   payload: OnboardingDemoAnalysisRequest

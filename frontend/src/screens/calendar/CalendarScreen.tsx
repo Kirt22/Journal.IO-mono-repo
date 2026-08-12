@@ -1,41 +1,89 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import HapticPressable from '../../components/HapticPressable';
 import {
-  Pressable,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
+import {
   StyleSheet,
   Text,
   View,
-} from "../../infrastructure/reactNative";
+} from '../../infrastructure/reactNative';
 import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
   Grid3x3,
   List,
-} from "lucide-react-native";
-import { Animated, Easing, useWindowDimensions } from "react-native";
-import TabScreenLayout from "../../components/TabScreenLayout";
-import JournalEntryCard from "../../components/JournalEntryCard";
-import { toCalendarEntries } from "../../models/calendarModels";
-import { toggleJournalFavorite } from "../../services/journalService";
-import { useAppStore } from "../../store/appStore";
-import { useTheme } from "../../theme/provider";
-import { useConnectivity } from "../../hooks/useConnectivity";
+  } from 'lucide-react-native';
+import {
+  AccessibilityInfo,
+  Alert,
+  Animated,
+  Easing,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  useWindowDimensions,
+} from 'react-native';
+import TabScreenLayout from '../../components/TabScreenLayout';
+import JournalEntryCard from '../../components/JournalEntryCard';
+import JournalLoader from '../../components/JournalLoader';
+import { toCalendarEntries } from '../../models/calendarModels';
+import {
+  deleteJournalEntry,
+  getJournalEntriesPage,
+  toggleJournalFavorite,
+} from '../../services/journalService';
+import type { JournalEntry } from '../../models/journalModels';
+import { useAppStore } from '../../store/appStore';
+import { useTheme } from '../../theme/provider';
+import { useConnectivity } from '../../hooks/useConnectivity';
+import { triggerHaptic } from '../../services/hapticsService';
 
-type ViewMode = "list" | "calendar";
+type ViewMode = 'list' | 'calendar';
+
+function useReduceMotionPreference() {
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => {
+        if (mounted) {
+          setReduceMotionEnabled(enabled);
+        }
+      })
+      .catch(() => undefined);
+
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotionEnabled,
+    );
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  return reduceMotionEnabled;
+}
 
 function formatMonthLabel(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
   }).format(date);
 }
 
 function formatDateLabel(date: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
   }).format(date);
 }
 
@@ -54,9 +102,34 @@ function isSameMonth(left: Date, right: Date) {
   );
 }
 
+function getMonthRange(date: Date) {
+  return {
+    from: new Date(date.getFullYear(), date.getMonth(), 1).toISOString(),
+    to: new Date(date.getFullYear(), date.getMonth() + 1, 1).toISOString(),
+  };
+}
+
+function mergeJournalEntries(
+  current: JournalEntry[],
+  incoming: JournalEntry[],
+) {
+  const entriesById = new Map(
+    [...current, ...incoming].map(entry => [entry._id, entry]),
+  );
+
+  return Array.from(entriesById.values()).sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  );
+}
+
 function buildMonthCells(date: Date) {
   const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
-  const monthDays = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const monthDays = new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0,
+  ).getDate();
   const offset = firstDay.getDay();
   const cells: Array<Date | null> = [];
 
@@ -83,11 +156,13 @@ function ModeToggle({
   onChange: (next: ViewMode) => void;
 }) {
   const theme = useTheme();
-  const translateX = useRef(new Animated.Value(value === "list" ? 0 : 35)).current;
+  const translateX = useRef(
+    new Animated.Value(value === 'list' ? 0 : 35),
+  ).current;
 
   useEffect(() => {
     Animated.timing(translateX, {
-      toValue: value === "list" ? 0 : 35,
+      toValue: value === 'list' ? 0 : 35,
       duration: 180,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -115,44 +190,40 @@ function ModeToggle({
         ]}
       />
       {[
-        { key: "list" as const, icon: List, label: "List" },
-        { key: "calendar" as const, icon: Grid3x3, label: "Calendar" },
+        { key: 'list' as const, icon: List, label: 'List' },
+        { key: 'calendar' as const, icon: Grid3x3, label: 'Calendar' },
       ].map(item => {
         const Icon = item.icon;
         const isActive = value === item.key;
 
         return (
-          <Pressable
+          <HapticPressable
             key={item.key}
             accessibilityRole="button"
             accessibilityLabel={`Switch to ${item.label.toLowerCase()} view`}
             onPress={() => onChange(item.key)}
             style={({ pressed }: { pressed: boolean }) => [
               styles.toggleButton,
-              isActive && [
-                styles.toggleButtonActive,
-              ],
+              isActive && [styles.toggleButtonActive],
               pressed && styles.pressed,
             ]}
           >
             <Icon
               size={14}
-              color={isActive ? theme.colors.foreground : theme.colors.mutedForeground}
+              color={
+                isActive
+                  ? theme.colors.foreground
+                  : theme.colors.mutedForeground
+              }
             />
-          </Pressable>
+          </HapticPressable>
         );
       })}
     </View>
   );
 }
 
-function StatCard({
-  value,
-  label,
-}: {
-  value: number;
-  label: string;
-}) {
+function StatCard({ value, label }: { value: number; label: string }) {
   const theme = useTheme();
 
   return (
@@ -166,8 +237,12 @@ function StatCard({
         },
       ]}
     >
-      <Text style={[styles.statValue, { color: theme.colors.foreground }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: theme.colors.mutedForeground }]}>{label}</Text>
+      <Text style={[styles.statValue, { color: theme.colors.foreground }]}>
+        {value}
+      </Text>
+      <Text style={[styles.statLabel, { color: theme.colors.mutedForeground }]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -195,7 +270,9 @@ function EmptyState({
       >
         <BookOpen color={theme.colors.mutedForeground} size={28} />
       </View>
-      <Text style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}>
+      <Text
+        style={[styles.emptyStateTitle, { color: theme.colors.foreground }]}
+      >
         {title}
       </Text>
       <Text
@@ -207,7 +284,7 @@ function EmptyState({
         {description}
       </Text>
       {onActionPress ? (
-        <Pressable
+        <HapticPressable
           accessibilityRole="button"
           accessibilityLabel="Create a new entry"
           onPress={onActionPress}
@@ -227,7 +304,7 @@ function EmptyState({
           >
             Create Entry
           </Text>
-        </Pressable>
+        </HapticPressable>
       ) : null}
     </View>
   );
@@ -235,29 +312,65 @@ function EmptyState({
 
 export default function CalendarScreen() {
   const theme = useTheme();
+  const reduceMotionEnabled = useReduceMotionPreference();
   const { status: connectivityStatus } = useConnectivity();
-  const isOnline = connectivityStatus === "online";
+  const isOnline = connectivityStatus === 'online';
   const { width } = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
-  const recentJournalEntries = useAppStore(
-    state => state.recentJournalEntries
-  );
+  const recentJournalEntries = useAppStore(state => state.recentJournalEntries);
   const hasHydratedRecentJournalEntries = useAppStore(
-    state => state.hasHydratedRecentJournalEntries
+    state => state.hasHydratedRecentJournalEntries,
   );
   const openNewEntry = useAppStore(state => state.openNewEntry);
   const openJournalEntry = useAppStore(state => state.openJournalEntry);
   const updateRecentJournalEntry = useAppStore(
-    state => state.updateRecentJournalEntry
+    state => state.updateRecentJournalEntry,
   );
-  const [view, setView] = useState<ViewMode>("list");
+  const removeRecentJournalEntry = useAppStore(
+    state => state.removeRecentJournalEntry,
+  );
+  const mergeRecentJournalEntries = useAppStore(
+    state => state.mergeRecentJournalEntries,
+  );
+  const [view, setView] = useState<ViewMode>('list');
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDate, setSelectedDate] = useState<Date | null>(today);
   const [favoriteUpdatingId, setFavoriteUpdatingId] = useState<string | null>(
-    null
+    null,
   );
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+  const [openActionsEntryId, setOpenActionsEntryId] = useState<string | null>(
+    null,
+  );
+  const [listJournalEntries, setListJournalEntries] =
+    useState<JournalEntry[]>(recentJournalEntries);
+  const [monthJournalEntries, setMonthJournalEntries] = useState<
+    JournalEntry[]
+  >(
+    recentJournalEntries.filter(entry =>
+      isSameMonth(new Date(entry.createdAt), today),
+    ),
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMoreEntries, setHasMoreEntries] = useState(false);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(
+    isOnline && !hasHydratedRecentJournalEntries,
+  );
+  const [isLoadingMoreEntries, setIsLoadingMoreEntries] = useState(false);
+  const isLoadingMoreEntriesRef = useRef(false);
+  const [entriesPageError, setEntriesPageError] = useState<string | null>(null);
+  const [entrySummary, setEntrySummary] = useState({
+    totalEntries: recentJournalEntries.length,
+    favoriteEntries: recentJournalEntries.filter(entry => entry.isFavorite)
+      .length,
+  });
   const viewTransition = useRef(new Animated.Value(1)).current;
+  const titleTransition = useRef(new Animated.Value(1)).current;
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressNextViewSwipeRef = useRef(false);
+  const swipeSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -265,46 +378,234 @@ export default function CalendarScreen() {
   const layoutMaxWidth = isWide ? 460 : 420;
   const gridCellSize = isCompact ? 38 : isWide ? 48 : 44;
   const gridGap = isCompact ? 6 : 8;
+  const listEntries = useMemo(
+    () => toCalendarEntries(listJournalEntries),
+    [listJournalEntries],
+  );
   const calendarEntries = useMemo(
-    () => toCalendarEntries(recentJournalEntries),
-    [recentJournalEntries]
+    () => toCalendarEntries(monthJournalEntries),
+    [monthJournalEntries],
   );
 
-  const monthCells = useMemo(() => buildMonthCells(currentMonth), [currentMonth]);
+  const monthCells = useMemo(
+    () => buildMonthCells(currentMonth),
+    [currentMonth],
+  );
   const monthEntries = useMemo(
     () =>
       calendarEntries.filter(entry => isSameMonth(entry.date, currentMonth)),
-    [calendarEntries, currentMonth]
+    [calendarEntries, currentMonth],
   );
   const selectedEntries = useMemo(
     () =>
       selectedDate
         ? calendarEntries.filter(entry => isSameDay(entry.date, selectedDate))
         : [],
-    [calendarEntries, selectedDate]
+    [calendarEntries, selectedDate],
   );
 
-  const totalCount = calendarEntries.length;
+  const totalCount = entrySummary.totalEntries;
   const monthCount = monthEntries.length;
-  const favoriteCount = calendarEntries.filter(entry => entry.isFavorite).length;
+  const favoriteCount = entrySummary.favoriteEntries;
+
+  useEffect(() => {
+    setListJournalEntries(current =>
+      mergeJournalEntries(current, recentJournalEntries),
+    );
+    setMonthJournalEntries(current =>
+      mergeJournalEntries(
+        current,
+        recentJournalEntries.filter(entry =>
+          isSameMonth(new Date(entry.createdAt), currentMonth),
+        ),
+      ),
+    );
+  }, [currentMonth, recentJournalEntries]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setIsLoadingEntries(false);
+      return;
+    }
+
+    let isActive = true;
+    setIsLoadingEntries(true);
+    setEntriesPageError(null);
+
+    getJournalEntriesPage({ limit: 10 })
+      .then(page => {
+        if (!isActive) {
+          return;
+        }
+
+        setListJournalEntries(page.entries);
+        setNextCursor(page.pagination.nextCursor);
+        setHasMoreEntries(page.pagination.hasMore);
+        setEntrySummary(page.summary);
+        mergeRecentJournalEntries(page.entries);
+      })
+      .catch(() => {
+        if (isActive) {
+          setEntriesPageError("We couldn't load your entries right now.");
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingEntries(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isOnline, mergeRecentJournalEntries]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setMonthJournalEntries(
+        recentJournalEntries.filter(entry =>
+          isSameMonth(new Date(entry.createdAt), currentMonth),
+        ),
+      );
+      return;
+    }
+
+    let isActive = true;
+    const range = getMonthRange(currentMonth);
+
+    const loadMonthEntries = async () => {
+      const collected: JournalEntry[] = [];
+      let cursor: string | undefined;
+
+      do {
+        const page = await getJournalEntriesPage({
+          limit: 50,
+          ...range,
+          ...(cursor ? { cursor } : {}),
+        });
+        collected.push(...page.entries);
+        cursor = page.pagination.nextCursor || undefined;
+      } while (cursor && isActive);
+
+      if (isActive) {
+        setMonthJournalEntries(mergeJournalEntries([], collected));
+      }
+    };
+
+    loadMonthEntries().catch(() => {
+      // Keep cached month entries visible when the range request fails.
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentMonth, isOnline, recentJournalEntries]);
+
+  const loadMoreEntries = useCallback(async () => {
+    if (
+      !isOnline ||
+      !hasMoreEntries ||
+      !nextCursor ||
+      isLoadingEntries ||
+      isLoadingMoreEntriesRef.current
+    ) {
+      return;
+    }
+
+    isLoadingMoreEntriesRef.current = true;
+    setIsLoadingMoreEntries(true);
+    setEntriesPageError(null);
+
+    try {
+      const page = await getJournalEntriesPage({
+        limit: 10,
+        cursor: nextCursor,
+      });
+      setListJournalEntries(current =>
+        mergeJournalEntries(current, page.entries),
+      );
+      setNextCursor(page.pagination.nextCursor);
+      setHasMoreEntries(page.pagination.hasMore);
+      setEntrySummary(page.summary);
+    } catch {
+      setEntriesPageError(
+        "We couldn't load older entries. Try again when you're ready.",
+      );
+    } finally {
+      isLoadingMoreEntriesRef.current = false;
+      setIsLoadingMoreEntries(false);
+    }
+  }, [hasMoreEntries, isLoadingEntries, isOnline, nextCursor]);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (view !== 'list') {
+        return;
+      }
+
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - layoutMeasurement.height - contentOffset.y;
+
+      if (distanceFromBottom < 280) {
+        loadMoreEntries().catch(() => undefined);
+      }
+    },
+    [loadMoreEntries, view],
+  );
+
+  const retryEntriesPage = useCallback(async () => {
+    if (nextCursor) {
+      await loadMoreEntries();
+      return;
+    }
+
+    if (!isOnline || isLoadingEntries) {
+      return;
+    }
+
+    setIsLoadingEntries(true);
+    setEntriesPageError(null);
+    try {
+      const page = await getJournalEntriesPage({ limit: 10 });
+      setListJournalEntries(page.entries);
+      setNextCursor(page.pagination.nextCursor);
+      setHasMoreEntries(page.pagination.hasMore);
+      setEntrySummary(page.summary);
+      mergeRecentJournalEntries(page.entries);
+    } catch {
+      setEntriesPageError("We couldn't load your entries right now.");
+    } finally {
+      setIsLoadingEntries(false);
+    }
+  }, [
+    isLoadingEntries,
+    isOnline,
+    loadMoreEntries,
+    mergeRecentJournalEntries,
+    nextCursor,
+  ]);
 
   const handleMonthShift = (offset: number) => {
     setCurrentMonth(
       previous =>
-        new Date(previous.getFullYear(), previous.getMonth() + offset, 1)
+        new Date(previous.getFullYear(), previous.getMonth() + offset, 1),
     );
     setSelectedDate(null);
   };
 
   const handleFavoriteToggle = async (
     entryId: string,
-    nextFavorite: boolean
+    nextFavorite: boolean,
   ) => {
     if (!isOnline || favoriteUpdatingId === entryId) {
       return;
     }
 
-    const currentEntry = calendarEntries.find(entry => entry.id === entryId);
+    const currentEntry = [...listEntries, ...calendarEntries].find(
+      entry => entry.id === entryId,
+    );
 
     if (!currentEntry) {
       return;
@@ -319,38 +620,137 @@ export default function CalendarScreen() {
       });
 
       updateRecentJournalEntry(updatedEntry);
+      setListJournalEntries(current =>
+        current.map(entry => (entry._id === entryId ? updatedEntry : entry)),
+      );
+      setMonthJournalEntries(current =>
+        current.map(entry => (entry._id === entryId ? updatedEntry : entry)),
+      );
+      setEntrySummary(current => ({
+        ...current,
+        favoriteEntries: Math.max(
+          0,
+          current.favoriteEntries + (nextFavorite ? 1 : -1),
+        ),
+      }));
+    } catch (error) {
+      Alert.alert(
+        "Couldn't update favorite",
+        "Your entry wasn't changed. Please try again.",
+      );
+      throw error;
     } finally {
       setFavoriteUpdatingId(null);
     }
   };
 
-  const handleFavoritePress = (entryId: string, nextFavorite: boolean) => {
-    handleFavoriteToggle(entryId, nextFavorite).catch(() => undefined);
-  };
-
-  const handleViewModeChange = useCallback((nextView: ViewMode) => {
-    if (view === nextView) {
+  const handleDeletePress = (entryId: string) => {
+    if (!isOnline || deletingEntryId) {
       return;
     }
 
-    setView(nextView);
-  }, [view]);
+    const deletingEntry = [...listJournalEntries, ...monthJournalEntries].find(
+      entry => entry._id === entryId,
+    );
 
-  const handleSwipeStart = useCallback((event: {
-    nativeEvent: { locationX: number; locationY: number };
-  }) => {
-    swipeStartRef.current = {
-      x: event.nativeEvent.locationX,
-      y: event.nativeEvent.locationY,
-    };
+    Alert.alert(
+      'Delete entry?',
+      'This entry will be removed from your journal history.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingEntryId(entryId);
+
+            try {
+              await deleteJournalEntry(entryId);
+              removeRecentJournalEntry(entryId);
+              setListJournalEntries(current =>
+                current.filter(entry => entry._id !== entryId),
+              );
+              setMonthJournalEntries(current =>
+                current.filter(entry => entry._id !== entryId),
+              );
+              setEntrySummary(current => ({
+                totalEntries: Math.max(0, current.totalEntries - 1),
+                favoriteEntries: Math.max(
+                  0,
+                  current.favoriteEntries - (deletingEntry?.isFavorite ? 1 : 0),
+                ),
+              }));
+              setOpenActionsEntryId(null);
+            } catch {
+              Alert.alert(
+                "Couldn't delete entry",
+                'Your entry is still here. Please try again.',
+              );
+            } finally {
+              setDeletingEntryId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleViewModeChange = useCallback(
+    (nextView: ViewMode) => {
+      if (view === nextView) {
+        return;
+      }
+
+      if (!reduceMotionEnabled) {
+        titleTransition.stopAnimation();
+        titleTransition.setValue(0);
+      }
+
+      setView(nextView);
+      setOpenActionsEntryId(null);
+    },
+    [reduceMotionEnabled, titleTransition, view],
+  );
+
+  const handleSwipeStart = useCallback(
+    (event: { nativeEvent: { locationX: number; locationY: number } }) => {
+      swipeStartRef.current = {
+        x: event.nativeEvent.locationX,
+        y: event.nativeEvent.locationY,
+      };
+    },
+    [],
+  );
+
+  const handleEntryCardSwipeClaim = useCallback(() => {
+    suppressNextViewSwipeRef.current = true;
+
+    if (swipeSuppressionTimerRef.current) {
+      clearTimeout(swipeSuppressionTimerRef.current);
+    }
+
+    swipeSuppressionTimerRef.current = setTimeout(() => {
+      suppressNextViewSwipeRef.current = false;
+      swipeSuppressionTimerRef.current = null;
+    }, 700);
   }, []);
 
   const handleSwipeEnd = useCallback(
-    (event: {
-      nativeEvent: { locationX: number; locationY: number };
-    }) => {
+    (event: { nativeEvent: { locationX: number; locationY: number } }) => {
       const start = swipeStartRef.current;
       swipeStartRef.current = null;
+
+      if (suppressNextViewSwipeRef.current) {
+        suppressNextViewSwipeRef.current = false;
+        if (swipeSuppressionTimerRef.current) {
+          clearTimeout(swipeSuppressionTimerRef.current);
+          swipeSuppressionTimerRef.current = null;
+        }
+        return;
+      }
 
       if (!start) {
         return;
@@ -365,17 +765,27 @@ export default function CalendarScreen() {
         return;
       }
 
-      if (dx < 0 && view === "list") {
-        handleViewModeChange("calendar");
+      if (dx < 0 && view === 'list') {
+        triggerHaptic('optionSelected').catch(() => undefined);
+        handleViewModeChange('calendar');
         return;
       }
 
-      if (dx > 0 && view === "calendar") {
-        handleViewModeChange("list");
+      if (dx > 0 && view === 'calendar') {
+        triggerHaptic('optionSelected').catch(() => undefined);
+        handleViewModeChange('list');
       }
     },
-    [handleViewModeChange, view]
+    [handleViewModeChange, view],
   );
+
+  useEffect(() => {
+    return () => {
+      if (swipeSuppressionTimerRef.current) {
+        clearTimeout(swipeSuppressionTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     viewTransition.stopAnimation();
@@ -389,18 +799,59 @@ export default function CalendarScreen() {
     }).start();
   }, [view, viewTransition]);
 
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      titleTransition.stopAnimation();
+      titleTransition.setValue(1);
+      return;
+    }
+
+    const animation = Animated.timing(titleTransition, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+    };
+  }, [reduceMotionEnabled, titleTransition, view]);
+
   return (
     <TabScreenLayout
       backgroundColor={theme.colors.background}
       horizontalPadding={horizontalPadding}
       layoutMaxWidth={layoutMaxWidth}
+      onScroll={handleScroll}
+      scrollEventThrottle={16}
       scrollContentStyle={styles.content}
       shellStyle={styles.shell}
     >
       <View style={styles.header}>
-        <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
-          Calendar
-        </Text>
+        <Animated.Text
+          accessibilityRole="header"
+          testID="entries-screen-title"
+          style={[
+            styles.screenTitle,
+            {
+              color: theme.colors.foreground,
+              opacity: titleTransition,
+              transform: [
+                {
+                  translateY: titleTransition.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [6, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {view === 'list' ? 'All Entries' : 'Calendar'}
+        </Animated.Text>
         <ModeToggle value={view} onChange={handleViewModeChange} />
       </View>
 
@@ -416,18 +867,67 @@ export default function CalendarScreen() {
         onTouchStart={handleSwipeStart}
         onTouchEnd={handleSwipeEnd}
       >
-        {view === "list" ? (
-          totalCount === 0 ? (
+        {view === 'list' ? (
+          isLoadingEntries && listEntries.length === 0 ? (
+            <View style={styles.entriesLoadingState}>
+              <JournalLoader color={theme.colors.primary} size="small" />
+              <Text
+                style={[
+                  styles.entriesLoadingText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                Loading your entries...
+              </Text>
+            </View>
+          ) : entriesPageError && listEntries.length === 0 ? (
+            <View style={styles.entriesLoadingState}>
+              <Text
+                style={[
+                  styles.emptyStateTitle,
+                  { color: theme.colors.foreground },
+                ]}
+              >
+                Entries unavailable
+              </Text>
+              <Text
+                style={[
+                  styles.emptyStateDescription,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                {entriesPageError}
+              </Text>
+              <HapticPressable
+                accessibilityLabel="Retry loading entries"
+                accessibilityRole="button"
+                onPress={() => retryEntriesPage().catch(() => undefined)}
+                style={[
+                  styles.emptyStateAction,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.emptyStateActionText,
+                    { color: theme.colors.primaryForeground },
+                  ]}
+                >
+                  Try again
+                </Text>
+              </HapticPressable>
+            </View>
+          ) : totalCount === 0 ? (
             <EmptyState
               title={
                 !isOnline && !hasHydratedRecentJournalEntries
-                  ? "Calendar unavailable offline"
-                  : "No entries yet"
+                  ? 'Entries unavailable offline'
+                  : 'No entries yet'
               }
               description={
                 !isOnline && !hasHydratedRecentJournalEntries
-                  ? "Reconnect to load your journal calendar."
-                  : "Start your journaling journey by creating your first entry"
+                  ? 'Reconnect to load your journal entries.'
+                  : 'Start your journaling journey by creating your first entry'
               }
               onActionPress={
                 isOnline || hasHydratedRecentJournalEntries
@@ -454,16 +954,72 @@ export default function CalendarScreen() {
               ]}
             >
               <View style={styles.listStack}>
-                {calendarEntries.map(entry => (
+                {listEntries.map(entry => (
                   <JournalEntryCard
                     key={entry.id}
                     entry={entry}
                     onPress={() => openJournalEntry(entry.id)}
-                    onFavoritePress={() => handleFavoritePress(entry.id, !entry.isFavorite)}
+                    onFavoritePress={nextFavorite =>
+                      handleFavoriteToggle(entry.id, nextFavorite)
+                    }
+                    onDeletePress={() => handleDeletePress(entry.id)}
                     isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                    isDeleting={deletingEntryId === entry.id}
+                    actionsDisabled={!isOnline}
+                    actionsOpen={openActionsEntryId === entry.id}
+                    onActionsOpenChange={open =>
+                      setOpenActionsEntryId(open ? entry.id : null)
+                    }
+                    onHorizontalSwipeClaim={handleEntryCardSwipeClaim}
+                    enableEntryActions
                     previewLines={3}
                   />
                 ))}
+                {isLoadingMoreEntries ? (
+                  <View style={styles.paginationFooter}>
+                    <JournalLoader
+                      color={theme.colors.primary}
+                      size="small"
+                    />
+                    <Text
+                      style={[
+                        styles.paginationText,
+                        { color: theme.colors.mutedForeground },
+                      ]}
+                    >
+                      Loading older entries...
+                    </Text>
+                  </View>
+                ) : !isOnline && hasMoreEntries ? (
+                  <View style={styles.paginationFooter}>
+                    <Text
+                      style={[
+                        styles.paginationText,
+                        { color: theme.colors.mutedForeground },
+                      ]}
+                    >
+                      Reconnect to load older entries
+                    </Text>
+                  </View>
+                ) : entriesPageError && listEntries.length > 0 ? (
+                  <HapticPressable
+                    accessibilityLabel="Retry loading older entries"
+                    accessibilityRole="button"
+                    onPress={() => retryEntriesPage().catch(() => undefined)}
+                    style={styles.paginationRetry}
+                  >
+                    <Text
+                      style={[
+                        styles.paginationText,
+                        { color: theme.colors.primary },
+                      ]}
+                    >
+                      {isOnline
+                        ? 'Try loading older entries again'
+                        : 'Reconnect to load older entries'}
+                    </Text>
+                  </HapticPressable>
+                ) : null}
               </View>
             </Animated.View>
           )
@@ -487,7 +1043,7 @@ export default function CalendarScreen() {
           >
             <View style={styles.calendarStack}>
               <View style={styles.monthHeader}>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Previous month"
                   onPress={() => handleMonthShift(-1)}
@@ -497,13 +1053,18 @@ export default function CalendarScreen() {
                   ]}
                 >
                   <ChevronLeft size={20} color={theme.colors.foreground} />
-                </Pressable>
+                </HapticPressable>
 
-                <Text style={[styles.monthLabel, { color: theme.colors.foreground }]}>
+                <Text
+                  style={[
+                    styles.monthLabel,
+                    { color: theme.colors.foreground },
+                  ]}
+                >
                   {formatMonthLabel(currentMonth)}
                 </Text>
 
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Next month"
                   onPress={() => handleMonthShift(1)}
@@ -513,16 +1074,19 @@ export default function CalendarScreen() {
                   ]}
                 >
                   <ChevronRight size={20} color={theme.colors.foreground} />
-                </Pressable>
+                </HapticPressable>
               </View>
 
               <View style={[styles.weekdayRow, { gap: gridGap }]}>
-                {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
                   <Text
                     key={`${day}-${index}`}
                     style={[
                       styles.weekdayLabel,
-                      { color: theme.colors.mutedForeground, width: gridCellSize },
+                      {
+                        color: theme.colors.mutedForeground,
+                        width: gridCellSize,
+                      },
                     ]}
                   >
                     {day}
@@ -553,17 +1117,17 @@ export default function CalendarScreen() {
                     ? isSameDay(cell, selectedDate)
                     : false;
                   const hasEntry = calendarEntries.some(entry =>
-                    isSameDay(entry.date, cell)
+                    isSameDay(entry.date, cell),
                   );
 
                   return (
-                    <Pressable
+                    <HapticPressable
                       key={cell.toISOString()}
                       accessibilityRole="button"
                       accessibilityLabel={`Select ${formatDateLabel(cell)}`}
                       onPress={() =>
                         setSelectedDate(previous =>
-                          previous && isSameDay(previous, cell) ? null : cell
+                          previous && isSameDay(previous, cell) ? null : cell,
                         )
                       }
                       style={({ pressed }: { pressed: boolean }) => [
@@ -574,11 +1138,11 @@ export default function CalendarScreen() {
                           borderColor: isSelected
                             ? theme.colors.primary
                             : isToday
-                              ? theme.colors.primary
-                              : "transparent",
+                            ? theme.colors.primary
+                            : 'transparent',
                           backgroundColor: isSelected
                             ? theme.colors.primary
-                            : "transparent",
+                            : 'transparent',
                         },
                         pressed && styles.pressed,
                       ]}
@@ -607,14 +1171,19 @@ export default function CalendarScreen() {
                           ]}
                         />
                       ) : null}
-                    </Pressable>
+                    </HapticPressable>
                   );
                 })}
               </View>
 
               {selectedDate ? (
                 <View style={styles.selectedSection}>
-                  <Text style={[styles.selectedLabel, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.selectedLabel,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     {formatDateLabel(selectedDate)}
                   </Text>
 
@@ -625,10 +1194,19 @@ export default function CalendarScreen() {
                           key={entry.id}
                           entry={entry}
                           onPress={() => openJournalEntry(entry.id)}
-                          onFavoritePress={() =>
-                            handleFavoritePress(entry.id, !entry.isFavorite)
+                          onFavoritePress={nextFavorite =>
+                            handleFavoriteToggle(entry.id, nextFavorite)
                           }
+                          onDeletePress={() => handleDeletePress(entry.id)}
                           isFavoriteUpdating={favoriteUpdatingId === entry.id}
+                          isDeleting={deletingEntryId === entry.id}
+                          actionsDisabled={!isOnline}
+                          actionsOpen={openActionsEntryId === entry.id}
+                          onActionsOpenChange={open =>
+                            setOpenActionsEntryId(open ? entry.id : null)
+                          }
+                          onHorizontalSwipeClaim={handleEntryCardSwipeClaim}
+                          enableEntryActions
                           previewLines={3}
                         />
                       ))}
@@ -657,7 +1235,8 @@ export default function CalendarScreen() {
                           { color: theme.colors.mutedForeground },
                         ]}
                       >
-                        This is a calm placeholder until entry creation is connected.
+                        This is a calm placeholder until entry creation is
+                        connected.
                       </Text>
                     </View>
                   )}
@@ -679,28 +1258,30 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
   },
   screenTitle: {
+    flex: 1,
     fontSize: 28,
-    fontWeight: "600",
+    lineHeight: 36,
+    fontWeight: '600',
     letterSpacing: -0.4,
   },
   toggleShell: {
-    position: "relative",
-    flexDirection: "row",
-    alignItems: "center",
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderRadius: 999,
     padding: 3,
     gap: 3,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   toggleThumb: {
-    position: "absolute",
+    position: 'absolute',
     left: 3,
     top: 3,
     bottom: 3,
@@ -718,13 +1299,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 28,
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  toggleButtonActive: {
-  },
+  toggleButtonActive: {},
   statsRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
   },
   statCard: {
@@ -732,8 +1312,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowOpacity: 0.04,
     shadowRadius: 10,
     shadowOffset: {
@@ -744,7 +1324,8 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 30,
-    fontWeight: "600",
+    letterSpacing: -0.7,
+    fontWeight: '600',
     lineHeight: 34,
   },
   statLabel: {
@@ -755,9 +1336,38 @@ const styles = StyleSheet.create({
   listStack: {
     gap: 12,
   },
+  entriesLoadingState: {
+    alignItems: 'center',
+    gap: 10,
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  entriesLoadingText: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  paginationFooter: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 9,
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  paginationRetry: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 16,
+  },
+  paginationText: {
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 48,
     paddingHorizontal: 20,
   },
@@ -765,20 +1375,20 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
   },
   emptyStateTitle: {
     fontSize: 16,
     lineHeight: 22,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 6,
   },
   emptyStateDescription: {
     fontSize: 14,
     lineHeight: 20,
-    textAlign: "center",
+    textAlign: 'center',
     maxWidth: 260,
     marginBottom: 20,
   },
@@ -790,13 +1400,13 @@ const styles = StyleSheet.create({
   emptyStateActionText: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: '700',
   },
   viewTransition: {
-    width: "100%",
+    width: '100%',
   },
   swipeZone: {
-    width: "100%",
+    width: '100%',
   },
   entryCard: {
     borderWidth: 1,
@@ -814,9 +1424,9 @@ const styles = StyleSheet.create({
     opacity: 0.98,
   },
   entryTopRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 12,
     marginBottom: 10,
   },
@@ -825,8 +1435,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   entryDateRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
   },
   entryDateText: {
@@ -836,13 +1446,13 @@ const styles = StyleSheet.create({
   entryTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   favoriteWrap: {
     width: 28,
     height: 28,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     flexShrink: 0,
   },
   entryContent: {
@@ -851,9 +1461,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tagRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   tagPill: {
@@ -869,49 +1479,49 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   monthHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   monthNavButton: {
     width: 36,
     height: 36,
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   monthLabel: {
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: '600',
   },
   weekdayRow: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
     gap: 8,
     paddingHorizontal: 0,
   },
   weekdayLabel: {
     width: 44,
-    textAlign: "center",
+    textAlign: 'center',
     fontSize: 12,
     lineHeight: 16,
   },
   grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    justifyContent: "flex-start",
+    justifyContent: 'flex-start',
   },
   dayCell: {
     borderWidth: 1,
     borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 3,
   },
   dayText: {
     fontSize: 15,
-    fontWeight: "500",
+    fontWeight: '500',
   },
   dayDot: {
     width: 4,
@@ -924,29 +1534,29 @@ const styles = StyleSheet.create({
   },
   selectedLabel: {
     fontSize: 16,
-    fontWeight: "500",
+    fontWeight: '500',
   },
   emptyCalendarState: {
     borderWidth: 1,
     borderRadius: 18,
     paddingVertical: 18,
     paddingHorizontal: 16,
-    alignItems: "center",
+    alignItems: 'center',
   },
   emptyCalendarTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '600',
     marginBottom: 4,
   },
   emptyCalendarText: {
     fontSize: 12,
     lineHeight: 18,
-    textAlign: "center",
+    textAlign: 'center',
     maxWidth: 260,
   },
   gridPlaceholder: {
     borderWidth: 0,
-    backgroundColor: "transparent",
+    backgroundColor: 'transparent',
   },
   pressed: {
     opacity: 0.85,

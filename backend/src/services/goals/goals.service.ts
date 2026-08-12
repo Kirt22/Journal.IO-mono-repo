@@ -1,15 +1,45 @@
 import { z } from "zod";
-import { requestStructuredOpenAi } from "../../helpers/openai.helpers";
+import { AI_ACTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
+import { buildUserPersonalization } from "../../helpers/userPersonalization.helpers";
+import {
+  requestEmbedding,
+  requestStructuredOpenAi,
+} from "../../helpers/openai.helpers";
+import {
+  filterNovelGoalSuggestions,
+  type GoalIntent,
+} from "../../helpers/goalSuggestions.helpers";
+import { buildUserReflectionMemory } from "../mindmap/entryInsight.service";
 import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
+import { randomUUID } from "crypto";
 import { journalModel } from "../../schema/journal.schema";
-import { userModel } from "../../schema/user.schema";
+import { userModel, type IStructuredGoal } from "../../schema/user.schema";
+import {
+  DEFAULT_GOAL_ICON,
+  GOAL_ICON_KEYS,
+  normalizeGoalIcon,
+  resolveUniqueGoalIcon,
+  type GoalIconKey,
+} from "../../helpers/goalIcons.helpers";
+import {
+  GOAL_FREQUENCIES,
+  getServerFallbackDateKey,
+  isGoalDoneForPeriod,
+  isGoalFrequency,
+  isValidLocalDateKey,
+} from "../../helpers/goalPeriod.helpers";
 import type {
   CreateGoalInput,
   DeleteGoalInput,
+  GetGoalsInput,
+  GoalDraftInput,
   GoalRecord,
   GoalsListResponse,
   GoalSuggestionsInput,
   GoalSuggestionsResponse,
+  SetGoalCompletionInput,
+  SetGoalStatusInput,
+  UpdateGoalInput,
 } from "../../types/goals.types";
 
 export class GoalSuggestionsPremiumRequiredError extends Error {
@@ -19,12 +49,20 @@ export class GoalSuggestionsPremiumRequiredError extends Error {
   }
 }
 
-export class GoalSuggestionsDisabledError extends Error {
+/**
+ * Raised when a delete is attempted on a goal that is not archived.
+ *
+ * The UI only ever offers Delete from an archived goal's edit sheet, but
+ * enforcing it here means a future UI slip can never hard-delete user data.
+ */
+export class GoalNotArchivedError extends Error {
   constructor() {
-    super("AI goal suggestions are turned off for your account.");
-    this.name = "GoalSuggestionsDisabledError";
+    super("Archive this goal before deleting it.");
+    this.name = "GoalNotArchivedError";
   }
 }
+
+const REMINDER_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const goalSuggestionsSchema = z.object({
   suggestions: z
@@ -32,9 +70,14 @@ const goalSuggestionsSchema = z.object({
       z.object({
         title: z.string().trim().min(1).max(80),
         description: z.string().trim().min(1).max(180),
+        // Both enums below MUST come from the same shared constants as the JSON
+        // schema. If they drift, requestStructuredOpenAi's parser fails and the
+        // helper returns null — losing *all* suggestions, not just the icon.
+        icon: z.enum(GOAL_ICON_KEYS),
+        frequency: z.enum(GOAL_FREQUENCIES),
       })
     )
-    .min(2)
+    .min(1)
     .max(4),
 });
 
@@ -45,15 +88,19 @@ const goalSuggestionsJsonSchema = {
   properties: {
     suggestions: {
       type: "array",
-      minItems: 2,
+      minItems: 1,
       maxItems: 4,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "description"],
+        // `strict: true` on the Responses API requires every property to be
+        // listed in `required`.
+        required: ["title", "description", "icon", "frequency"],
         properties: {
           title: { type: "string" },
           description: { type: "string" },
+          icon: { type: "string", enum: [...GOAL_ICON_KEYS] },
+          frequency: { type: "string", enum: [...GOAL_FREQUENCIES] },
         },
       },
     },
@@ -61,21 +108,337 @@ const goalSuggestionsJsonSchema = {
 } satisfies Record<string, unknown>;
 
 const normalizeGoalTitle = (value: string) =>
-  value
-    .trim()
-    .replace(/\s+/g, " ")
-    .slice(0, 120);
+  value.trim().replace(/\s+/g, " ").slice(0, 120);
 
-const toGoalId = (title: string) =>
-  normalizeGoalTitle(title)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+const toDate = (value: Date | string | number | undefined): Date =>
+  value instanceof Date ? value : new Date(value ?? Date.now());
 
-const toGoalRecord = (title: string): GoalRecord => ({
-  id: toGoalId(title),
-  title: normalizeGoalTitle(title),
+const normalizeDescription = (value: string | null | undefined) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const trimmed = value.trim().replace(/\s+/g, " ").slice(0, 200);
+
+  return trimmed || null;
+};
+
+const resolveTodayKey = (today?: string) =>
+  isValidLocalDateKey(today) ? today : getServerFallbackDateKey();
+
+const toGoalRecord = (goal: IStructuredGoal, todayKey: string): GoalRecord => ({
+  id: goal.id,
+  title: goal.title,
+  description: goal.description ?? null,
+  icon: normalizeGoalIcon(goal.icon, goal.title),
+  iconSource: goal.iconSource === "fixed" ? "fixed" : "automatic",
+  frequency: isGoalFrequency(goal.frequency) ? goal.frequency : "as_needed",
+  // Legacy statuses are drained by the schema's pre("validate") hook, but a
+  // read that never saves can still see one, so narrow defensively here too.
+  status: goal.status === "archived" || goal.status === "dismissed"
+    ? "archived"
+    : "active",
+  reminderEnabled: goal.reminderEnabled === true,
+  reminderTime: goal.reminderTime ?? null,
+  lastCompletedLocalDate: goal.lastCompletedLocalDate ?? null,
+  isCompletedForPeriod: isGoalDoneForPeriod(
+    {
+      frequency: isGoalFrequency(goal.frequency) ? goal.frequency : "as_needed",
+      lastCompletedLocalDate: goal.lastCompletedLocalDate ?? null,
+    },
+    todayKey
+  ),
+  createdAt: toDate(goal.createdAt).toISOString(),
+  updatedAt: toDate(goal.updatedAt).toISOString(),
 });
+
+const sortGoalsNewestFirst = (goals: IStructuredGoal[]): IStructuredGoal[] =>
+  [...goals].sort(
+    (a, b) => toDate(b.createdAt).getTime() - toDate(a.createdAt).getTime()
+  );
+
+const getUsedGoalIcons = (
+  goals: IStructuredGoal[],
+  excludedGoalId?: string
+) =>
+  new Set<GoalIconKey>(
+    goals
+      .filter((goal) => goal.id !== excludedGoalId)
+      .map((goal) => normalizeGoalIcon(goal.icon, goal.title))
+  );
+
+/**
+ * Brings a user's goals up to the current shape, in one place.
+ *
+ * Two jobs:
+ *  1. The original lazy migration — earlier releases stored goals only as plain
+ *     `journalingGoals` strings, and `onboarding.service.ts` still writes that
+ *     field, so this path stays live.
+ *  2. Per-goal back-fill of the fields added for recurrence, icons and reminders,
+ *     plus draining the legacy `completed` / `dismissed` statuses.
+ *
+ * `completed -> active + as_needed + date marker` is lossless: `as_needed` only
+ * checks `lastCompletedLocalDate` for presence, never its value.
+ *
+ * A missing frequency becomes `as_needed`, deliberately NOT `daily` — guessing
+ * `daily` would resurrect every pre-existing goal every morning.
+ *
+ * Calls `markModified("goals")` itself so no caller can forget it.
+ * Returns true when the document was mutated and needs saving.
+ */
+const normalizeUserGoals = (user: {
+  goals?: IStructuredGoal[];
+  journalingGoals?: string[];
+  markModified?: (path: string) => void;
+}): boolean => {
+  let didChange = false;
+
+  if ((user.goals?.length ?? 0) === 0) {
+    const legacyTitles = getUniqueGoals(user.journalingGoals || []);
+
+    if (legacyTitles.length > 0) {
+      const base = Date.now();
+      const legacyUsedIcons = new Set<GoalIconKey>();
+
+      // Preserve legacy order (oldest first) so the most recently added legacy
+      // goal still sorts as the newest structured goal.
+      user.goals = legacyTitles.map((title, index) => {
+        const timestamp = new Date(base + index);
+        const icon = resolveUniqueGoalIcon(title, legacyUsedIcons);
+        legacyUsedIcons.add(icon);
+
+        return {
+          id: randomUUID(),
+          title,
+          description: null,
+          icon,
+          iconSource: "automatic",
+          frequency: "as_needed",
+          status: "active",
+          reminderEnabled: false,
+          reminderTime: null,
+          lastCompletedLocalDate: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        } as IStructuredGoal;
+      });
+
+      didChange = true;
+    }
+  }
+
+  const usedIcons = new Set<GoalIconKey>();
+
+  // Reserve every explicit choice before assigning automatic icons. Without
+  // this pass, an automatic goal earlier in the array could take an icon that a
+  // later fixed goal already owns.
+  for (const goal of user.goals || []) {
+    if (!goal) {
+      continue;
+    }
+
+    const storedIcon = normalizeGoalIcon(goal.icon, goal.title);
+    const inferredSource =
+      goal.iconSource === "automatic" || goal.iconSource === "fixed"
+        ? goal.iconSource
+        : goal.icon === undefined ||
+            goal.icon === null ||
+            goal.icon === "" ||
+            storedIcon === DEFAULT_GOAL_ICON
+          ? "automatic"
+          : "fixed";
+
+    if (inferredSource === "fixed") {
+      usedIcons.add(storedIcon);
+    }
+  }
+
+  for (const goal of user.goals || []) {
+    if (!goal) {
+      continue;
+    }
+
+    if (goal.status === "completed") {
+      goal.status = "active";
+      goal.frequency = "as_needed";
+
+      if (!goal.lastCompletedLocalDate) {
+        goal.lastCompletedLocalDate = toDate(goal.updatedAt)
+          .toISOString()
+          .slice(0, 10);
+      }
+
+      didChange = true;
+    } else if (goal.status === "dismissed") {
+      goal.status = "archived";
+      didChange = true;
+    }
+
+    if (!isGoalFrequency(goal.frequency)) {
+      goal.frequency = "as_needed";
+      didChange = true;
+    }
+
+    const storedIcon = normalizeGoalIcon(goal.icon, goal.title);
+
+    if (goal.iconSource !== "automatic" && goal.iconSource !== "fixed") {
+      goal.iconSource =
+        goal.icon === undefined ||
+        goal.icon === null ||
+        goal.icon === "" ||
+        storedIcon === DEFAULT_GOAL_ICON
+          ? "automatic"
+          : "fixed";
+      didChange = true;
+    }
+
+    if (goal.iconSource === "automatic") {
+      const nextIcon = resolveUniqueGoalIcon(
+        goal.title,
+        usedIcons,
+        storedIcon === DEFAULT_GOAL_ICON ? undefined : storedIcon
+      );
+
+      if (goal.icon !== nextIcon) {
+        goal.icon = nextIcon;
+        didChange = true;
+      }
+    } else if (goal.icon !== storedIcon) {
+      goal.icon = storedIcon;
+      didChange = true;
+    }
+
+    usedIcons.add(normalizeGoalIcon(goal.icon, goal.title));
+
+    if (goal.description === undefined) {
+      goal.description = null;
+      didChange = true;
+    }
+
+    if (goal.reminderEnabled === undefined || goal.reminderEnabled === null) {
+      goal.reminderEnabled = false;
+      didChange = true;
+    }
+
+    if (goal.reminderTime === undefined) {
+      goal.reminderTime = null;
+      didChange = true;
+    }
+
+    if (goal.lastCompletedLocalDate === undefined) {
+      goal.lastCompletedLocalDate = null;
+      didChange = true;
+    }
+  }
+
+  if (didChange) {
+    user.markModified?.("goals");
+  }
+
+  return didChange;
+};
+
+/**
+ * Applies a partial draft onto a goal. Returns true when anything changed, so
+ * callers can skip a pointless save.
+ */
+const applyGoalDraft = (
+  goal: IStructuredGoal,
+  draft: GoalDraftInput,
+  unavailableIcons: Iterable<GoalIconKey> = []
+) => {
+  let didChange = false;
+  let titleChanged = false;
+
+  if (draft.title !== undefined) {
+    const nextTitle = normalizeGoalTitle(draft.title);
+
+    if (!nextTitle) {
+      throw new Error("Goal title is required.");
+    }
+
+    if (nextTitle !== goal.title) {
+      goal.title = nextTitle;
+      didChange = true;
+      titleChanged = true;
+    }
+  }
+
+  if (draft.description !== undefined) {
+    const nextDescription = normalizeDescription(draft.description);
+
+    if (nextDescription !== (goal.description ?? null)) {
+      goal.description = nextDescription;
+      didChange = true;
+    }
+  }
+
+  const currentIconSource = goal.iconSource === "fixed" ? "fixed" : "automatic";
+  const nextIconSource =
+    draft.iconSource ||
+    // Older clients that send an icon without the new source field intended an
+    // explicit choice, so preserve that behavior.
+    (draft.icon !== undefined ? "fixed" : currentIconSource);
+
+  if (nextIconSource !== currentIconSource) {
+    goal.iconSource = nextIconSource;
+    didChange = true;
+  }
+
+  if (nextIconSource === "fixed" && draft.icon !== undefined) {
+    const nextIcon = normalizeGoalIcon(draft.icon, goal.title);
+
+    if (nextIcon !== goal.icon) {
+      goal.icon = nextIcon;
+      didChange = true;
+    }
+  } else if (
+    nextIconSource === "automatic" &&
+    (titleChanged || draft.iconSource === "automatic" || draft.icon !== undefined)
+  ) {
+    const nextIcon = resolveUniqueGoalIcon(
+      goal.title,
+      unavailableIcons,
+      draft.iconSource === "automatic" ? draft.icon : undefined
+    );
+
+    if (nextIcon !== goal.icon) {
+      goal.icon = nextIcon;
+      didChange = true;
+    }
+  }
+
+  if (draft.frequency !== undefined && isGoalFrequency(draft.frequency)) {
+    if (draft.frequency !== goal.frequency) {
+      goal.frequency = draft.frequency;
+      didChange = true;
+    }
+  }
+
+  if (draft.reminderEnabled !== undefined) {
+    const nextEnabled = draft.reminderEnabled === true;
+
+    if (nextEnabled !== (goal.reminderEnabled === true)) {
+      goal.reminderEnabled = nextEnabled;
+      didChange = true;
+    }
+  }
+
+  if (draft.reminderTime !== undefined) {
+    const nextTime =
+      typeof draft.reminderTime === "string" &&
+      REMINDER_TIME_PATTERN.test(draft.reminderTime)
+        ? draft.reminderTime
+        : null;
+
+    if (nextTime !== (goal.reminderTime ?? null)) {
+      goal.reminderTime = nextTime;
+      didChange = true;
+    }
+  }
+
+  return didChange;
+};
 
 const getUniqueGoals = (values: string[]) => {
   const seen = new Set<string>();
@@ -101,39 +464,68 @@ const getUniqueGoals = (values: string[]) => {
   return nextGoals;
 };
 
-const createFallbackSuggestions = (content: string): GoalSuggestionsResponse["suggestions"] => {
+type GoalSuggestionCandidate = Omit<
+  GoalSuggestionsResponse["suggestions"][number],
+  "iconSource"
+>;
+
+const createFallbackSuggestions = (
+  content: string
+): GoalSuggestionCandidate[] => {
   const comparable = content.toLowerCase();
 
   if (/\b(plan|tomorrow|next step|focus|routine|goal)\b/.test(comparable)) {
     return [
       {
         title: "Write tomorrow's first step",
-        description: "Name one small action tonight so tomorrow starts with less friction.",
+        description:
+          "Name one small action tonight so tomorrow starts with less friction.",
+        icon: "plan",
+        frequency: "daily",
       },
       {
         title: "Protect one focus block",
-        description: "Give one part of the day a short distraction-light window.",
+        description:
+          "Give one part of the day a short distraction-light window.",
+        icon: "focus",
+        frequency: "daily",
       },
       {
         title: "Check in after progress",
-        description: "Notice how your energy changes after one thing gets finished.",
+        description:
+          "Notice how your energy changes after one thing gets finished.",
+        icon: "mood",
+        frequency: "daily",
       },
     ];
   }
 
-  if (/\b(stress|overwhelm|heavy|anxious|pressure|tired|drained)\b/.test(comparable)) {
+  if (
+    /\b(stress|overwhelm|heavy|anxious|pressure|tired|drained)\b/.test(
+      comparable
+    )
+  ) {
     return [
       {
         title: "Notice one pressure point",
-        description: "Pause once tomorrow and name what feels heaviest without trying to solve all of it.",
+        description:
+          "Pause once tomorrow and name what feels heaviest without trying to solve all of it.",
+        icon: "anxiety",
+        frequency: "daily",
       },
       {
         title: "Add one softer reset",
-        description: "Choose one short break, walk, stretch, or quiet moment that helps your system settle.",
+        description:
+          "Choose one short break, walk, stretch, or quiet moment that helps your system settle.",
+        icon: "calm",
+        frequency: "daily",
       },
       {
         title: "Close the day in one sentence",
-        description: "End tomorrow with one line about what helped you feel a little steadier.",
+        description:
+          "End tomorrow with one line about what helped you feel a little steadier.",
+        icon: "journal",
+        frequency: "daily",
       },
     ];
   }
@@ -141,24 +533,45 @@ const createFallbackSuggestions = (content: string): GoalSuggestionsResponse["su
   return [
     {
       title: "Write one honest line",
-      description: "Keep showing up with one clear sentence about how the day actually felt.",
+      description:
+        "Keep showing up with one clear sentence about how the day actually felt.",
+      icon: "journal",
+      frequency: "daily",
     },
     {
       title: "Name one thing to carry forward",
-      description: "Choose one useful thought, habit, or moment you want to keep noticing.",
+      description:
+        "Choose one useful thought, habit, or moment you want to keep noticing.",
+      icon: "gratitude",
+      frequency: "daily",
     },
     {
       title: "Notice a repeating theme",
-      description: "Watch for one pattern that shows up again in your writing this week.",
+      description:
+        "Watch for one pattern that shows up again in your writing this week.",
+      icon: "mood",
+      frequency: "weekly",
     },
   ];
 };
 
-const getGoals = async (userId: string): Promise<GoalsListResponse> => {
-  const user = await userModel.findById(userId).select("journalingGoals").lean().exec();
+const getGoals = async (input: GetGoalsInput): Promise<GoalsListResponse> => {
+  const user = await userModel.findById(input.userId).exec();
+
+  if (!user) {
+    return { goals: [] };
+  }
+
+  const todayKey = resolveTodayKey(input.today);
+
+  if (normalizeUserGoals(user)) {
+    await user.save();
+  }
 
   return {
-    goals: getUniqueGoals(user?.journalingGoals || []).map(toGoalRecord),
+    goals: sortGoalsNewestFirst(user.goals || []).map((goal) =>
+      toGoalRecord(goal, todayKey)
+    ),
   };
 };
 
@@ -170,18 +583,166 @@ const createGoal = async (input: CreateGoalInput): Promise<GoalRecord> => {
   }
 
   const nextTitle = normalizeGoalTitle(input.title);
-  const existingGoals = getUniqueGoals(user.journalingGoals || []);
 
-  if (
-    existingGoals.some(goal => goal.toLowerCase() === nextTitle.toLowerCase())
-  ) {
-    return toGoalRecord(nextTitle);
+  if (!nextTitle) {
+    throw new Error("Goal title is required.");
   }
 
-  user.journalingGoals = getUniqueGoals([...existingGoals, nextTitle]);
+  const todayKey = resolveTodayKey(input.today);
+
+  normalizeUserGoals(user);
+
+  const existing = (user.goals || []).find(
+    (goal) =>
+      goal.status === "active" &&
+      goal.title.toLowerCase() === nextTitle.toLowerCase()
+  );
+
+  // A duplicate title MERGES the incoming payload instead of being ignored.
+  // Returning the pre-existing goal untouched silently discarded whatever the
+  // caller sent, which becomes a visible bug now that goals carry a reminder
+  // time and a frequency: "I set a reminder and it didn't stick."
+  if (existing) {
+    applyGoalDraft(
+      existing,
+      { ...input, title: nextTitle },
+      getUsedGoalIcons(user.goals || [], existing.id)
+    );
+    existing.updatedAt = new Date();
+    user.markModified("goals");
+    await user.save();
+
+    return toGoalRecord(existing, todayKey);
+  }
+
+  const now = new Date();
+  const iconSource =
+    input.iconSource || (input.icon ? "fixed" : "automatic");
+  const unavailableIcons = getUsedGoalIcons(user.goals || []);
+  const goal: IStructuredGoal = {
+    id: randomUUID(),
+    title: nextTitle,
+    description: normalizeDescription(input.description),
+    // Falls back to the keyword matcher so a manually typed goal still gets a
+    // sensible icon without an AI round trip.
+    icon:
+      iconSource === "fixed" && input.icon
+        ? normalizeGoalIcon(input.icon, nextTitle)
+        : resolveUniqueGoalIcon(nextTitle, unavailableIcons, input.icon),
+    iconSource,
+    frequency: isGoalFrequency(input.frequency) ? input.frequency : "as_needed",
+    status: "active",
+    reminderEnabled: input.reminderEnabled === true,
+    reminderTime:
+      typeof input.reminderTime === "string" &&
+      REMINDER_TIME_PATTERN.test(input.reminderTime)
+        ? input.reminderTime
+        : null,
+    lastCompletedLocalDate: null,
+    createdAt: now,
+    updatedAt: now,
+  } as IStructuredGoal;
+
+  user.goals = [...(user.goals || []), goal];
+  user.markModified("goals");
   await user.save();
 
-  return toGoalRecord(nextTitle);
+  return toGoalRecord(goal, todayKey);
+};
+
+const updateGoal = async (
+  input: UpdateGoalInput
+): Promise<GoalRecord | null> => {
+  const user = await userModel.findById(input.userId).exec();
+
+  if (!user) {
+    return null;
+  }
+
+  const todayKey = resolveTodayKey(input.today);
+
+  normalizeUserGoals(user);
+
+  const goal = (user.goals || []).find((item) => item.id === input.goalId);
+
+  if (!goal) {
+    return null;
+  }
+
+  applyGoalDraft(
+    goal,
+    input,
+    getUsedGoalIcons(user.goals || [], goal.id)
+  );
+  goal.updatedAt = new Date();
+  user.markModified("goals");
+  await user.save();
+
+  return toGoalRecord(goal, todayKey);
+};
+
+/**
+ * Records or clears a completion for the current period.
+ *
+ * One endpoint for both directions because both write the same single field;
+ * splitting it would duplicate the validator, controller, service branch and the
+ * client's notification cancel/re-arm path for no benefit.
+ */
+const setGoalCompletion = async (
+  input: SetGoalCompletionInput
+): Promise<GoalRecord | null> => {
+  const user = await userModel.findById(input.userId).exec();
+
+  if (!user) {
+    return null;
+  }
+
+  const todayKey = resolveTodayKey(input.today ?? input.localDate);
+
+  normalizeUserGoals(user);
+
+  const goal = (user.goals || []).find((item) => item.id === input.goalId);
+
+  if (!goal) {
+    return null;
+  }
+
+  goal.lastCompletedLocalDate = input.completed
+    ? resolveTodayKey(input.localDate)
+    : null;
+  goal.updatedAt = new Date();
+  user.markModified("goals");
+  await user.save();
+
+  return toGoalRecord(goal, todayKey);
+};
+
+/** Archive / unarchive. Reminders are left intact — the scheduler filters on status. */
+const setGoalStatus = async (
+  input: SetGoalStatusInput
+): Promise<GoalRecord | null> => {
+  const user = await userModel.findById(input.userId).exec();
+
+  if (!user) {
+    return null;
+  }
+
+  const todayKey = resolveTodayKey(input.today);
+
+  normalizeUserGoals(user);
+
+  const goal = (user.goals || []).find((item) => item.id === input.goalId);
+
+  if (!goal) {
+    return null;
+  }
+
+  goal.status = input.status;
+  goal.updatedAt = new Date();
+  user.markModified("goals");
+  await user.save();
+
+  return toGoalRecord(goal, todayKey);
 };
 
 const deleteGoal = async (input: DeleteGoalInput): Promise<boolean> => {
@@ -191,17 +752,93 @@ const deleteGoal = async (input: DeleteGoalInput): Promise<boolean> => {
     return false;
   }
 
-  const existingGoals = getUniqueGoals(user.journalingGoals || []);
-  const filteredGoals = existingGoals.filter(goal => toGoalId(goal) !== input.goalId);
+  normalizeUserGoals(user);
 
-  if (filteredGoals.length === existingGoals.length) {
+  const existingGoals = user.goals || [];
+  const target = existingGoals.find((goal) => goal.id === input.goalId);
+
+  if (!target) {
     return false;
   }
 
-  user.journalingGoals = filteredGoals;
+  if (target.status !== "archived") {
+    throw new GoalNotArchivedError();
+  }
+
+  user.goals = existingGoals.filter((goal) => goal.id !== input.goalId);
+  user.markModified("goals");
   await user.save();
 
   return true;
+};
+
+type SavedGoalSuggestionContext = {
+  goals: Array<GoalIntent & { icon: GoalIconKey; status: "active" | "archived" }>;
+  usedIcons: GoalIconKey[];
+};
+
+const buildSavedGoalSuggestionContext = (
+  goals: IStructuredGoal[]
+): SavedGoalSuggestionContext => ({
+  goals: goals.map((goal) => ({
+    title: goal.title,
+    description: goal.description ?? null,
+    icon: normalizeGoalIcon(goal.icon, goal.title),
+    status:
+      goal.status === "archived" || goal.status === "dismissed"
+        ? "archived"
+        : "active",
+  })),
+  usedIcons: goals.map((goal) => normalizeGoalIcon(goal.icon, goal.title)),
+});
+
+const getSavedGoalSuggestionContext = async (
+  userId: string
+): Promise<SavedGoalSuggestionContext> => {
+  try {
+    const user = await userModel
+      .findById(userId)
+      .select("goals journalingGoals")
+      .exec();
+
+    if (!user) {
+      return { goals: [], usedIcons: [] };
+    }
+
+    if (normalizeUserGoals(user)) {
+      await user.save();
+    }
+
+    return buildSavedGoalSuggestionContext(user.goals || []);
+  } catch {
+    // Suggestion generation already has a safe fallback. Novelty context is a
+    // best-effort enhancement and must not break that primary flow.
+    return { goals: [], usedIcons: [] };
+  }
+};
+
+const prepareNovelGoalSuggestions = async <
+  T extends GoalIntent & { icon: GoalIconKey }
+>(
+  candidates: T[],
+  context: SavedGoalSuggestionContext,
+  useEmbeddings = true
+): Promise<Array<T & { iconSource: "automatic" }>> => {
+  const novel = await filterNovelGoalSuggestions(candidates, context.goals, {
+    useEmbeddings,
+  });
+  const unavailable = new Set(context.usedIcons);
+
+  return novel.map((candidate) => {
+    const icon = resolveUniqueGoalIcon(
+      candidate.title,
+      unavailable,
+      candidate.icon
+    );
+    unavailable.add(icon);
+
+    return { ...candidate, icon, iconSource: "automatic" as const };
+  });
 };
 
 const createGoalSuggestions = async (
@@ -210,18 +847,18 @@ const createGoalSuggestions = async (
   const user = await userModel
     .findById(input.userId)
     .select(
-      "isPremium premiumPlanKey premiumExpiresAt premiumSource onboardingContext.aiOptIn"
+      "isPremium premiumPlanKey premiumExpiresAt premiumSource goals journalingGoals"
     )
-    .lean()
     .exec();
 
   if (!user || !hasActivePremiumEntitlement(user)) {
     throw new GoalSuggestionsPremiumRequiredError();
   }
 
-  if (user.onboardingContext?.aiOptIn === false) {
-    throw new GoalSuggestionsDisabledError();
+  if (normalizeUserGoals(user)) {
+    await user.save();
   }
+  const existingGoalContext = buildSavedGoalSuggestionContext(user.goals || []);
 
   const journal = await journalModel
     .findOne({ _id: input.journalId, userId: input.userId })
@@ -234,6 +871,25 @@ const createGoalSuggestions = async (
   }
 
   const fallback = createFallbackSuggestions(journal.content || "");
+
+  // Best-effort long-term memory so goals can anchor in the user's real recurring
+  // patterns, not just this one entry. Never blocks suggestion generation.
+  let longTermMemory = "";
+  try {
+    const queryEmbedding = await requestEmbedding(
+      String(journal.content || "")
+        .trim()
+        .slice(0, 1600)
+    );
+    longTermMemory = await buildUserReflectionMemory(input.userId, {
+      queryEmbedding,
+    });
+  } catch (error) {
+    console.error("Failed to build goal-suggestion memory:", error);
+  }
+
+  const personalization = await buildUserPersonalization(input.userId);
+
   const aiResponse = await requestStructuredOpenAi({
     feature: "journal entry goal suggestions",
     schemaName: "journal_entry_goal_suggestions",
@@ -243,27 +899,58 @@ const createGoalSuggestions = async (
     messages: [
       {
         role: "system",
-        content:
-          "You write Journal.IO goal suggestions. Suggest small supportive non-clinical goals from a single journal entry. Keep them practical, optional, and emotionally safe. Never diagnose, shame, or overstate certainty.",
+        content: [
+          "You write Journal.IO goal suggestions. Suggest small supportive non-clinical goals from this saved entry. Keep them practical, optional, and emotionally safe. Never diagnose, shame, or overstate certainty.",
+          "Use the entry and longTermMemory as evidence, while allowing a broadly useful contextual action such as a walk, a change of setting, or a small routine when it is a plausible experiment. Direct advice is welcome when the useful action is clear, but never assert a speculative hidden cause as fact.",
+          "Do not repeat or paraphrase anything in existingGoals. A changed duration, time of day, meal, or trigger does not make the same core action a new goal. Return fewer goals when only a few are genuinely new, and never pad.",
+          // Without an explicit instruction models bias toward the first enum member.
+          "Set `icon` to the single best-fitting key from the provided enum for what the goal is about, and use `target` when nothing fits. Set `frequency` to how often the goal should realistically recur: `daily` for a small everyday action, `weekly` for something done once a week, `as_needed` for a one-off.",
+          personalization?.systemDirective,
+          AI_ACTION_BALANCE_GUIDANCE,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
       {
         role: "user",
         content: JSON.stringify({
-          task:
-            "Create 2-4 small goals from this saved entry. These are suggestions only and are not saved automatically.",
+          task: "Create one to four genuinely new, practical goals from this saved entry. These are suggestions only and are not saved automatically.",
+          userProfile: personalization?.promptProfile ?? null,
           title: journal.title,
           tags: Array.isArray(journal.tags) ? journal.tags : [],
-          entry: String(journal.content || "").trim().slice(0, 1400),
+          entry: String(journal.content || "")
+            .trim()
+            .slice(0, 1400),
+          longTermMemory: longTermMemory || "No prior entries yet.",
+          existingGoals: existingGoalContext.goals,
           fallbackExamples: fallback,
         }),
       },
     ],
   });
 
+  const candidates = aiResponse?.suggestions?.slice(0, 4) || fallback;
+  const suggestions = await prepareNovelGoalSuggestions(
+    candidates,
+    existingGoalContext,
+    true
+  );
+
   return {
     journalId: input.journalId,
-    suggestions: aiResponse?.suggestions?.slice(0, 4) || fallback,
+    suggestions,
   };
 };
 
-export { createGoal, createGoalSuggestions, deleteGoal, getGoals };
+export {
+  createGoal,
+  createGoalSuggestions,
+  deleteGoal,
+  getGoals,
+  getSavedGoalSuggestionContext,
+  normalizeUserGoals,
+  prepareNovelGoalSuggestions,
+  setGoalCompletion,
+  setGoalStatus,
+  updateGoal,
+};

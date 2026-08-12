@@ -549,7 +549,7 @@ Follow these rules strictly:
 - never log tokens, passwords, or secrets
 - never commit secrets to the repo
 - keep environment variables in `.env` files that are ignored by git
-- honor privacy controls such as export, deletion, and AI opt-out
+- honor privacy controls such as export, deletion, biometric lock, and hidden previews
 
 The MVP does not use end-to-end encryption for AI-enabled journaling mode.
 

@@ -1,224 +1,311 @@
-import { useEffect, useMemo, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
 import {
-  ActivityIndicator,
-  Pressable,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState } from 'react';
+import {
+  LayoutAnimation,
+  Platform,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
+  UIManager,
   View,
   useWindowDimensions,
 } from 'react-native';
-import { ArrowLeft, Plus, Target, Trash2 } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import ButtonLoadingContent from '../../components/ButtonLoadingContent';
 import {
-  createGoal,
-  deleteGoal,
-  getGoals,
-  type SavedGoal,
-} from '../../services/goalsService';
+  Text,
+} from '../../infrastructure/reactNative';
+import { ArrowLeft } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import GoalRow from '../../components/GoalRow';
+import GoalSheet from '../../components/GoalSheet';
+import JournalLoader from '../../components/JournalLoader';
+import { triggerHaptic } from '../../services/hapticsService';
 import { useTheme } from '../../theme/provider';
+import { useAppStore } from '../../store/appStore';
+import {
+  selectArchivedGoals,
+  selectCompletedGoals,
+  selectTodoGoals,
+} from '../../store/slices/goalsSlice';
+import type { GoalDraft, SavedGoal } from '../../services/goalsService';
 
 type GoalsScreenProps = {
   onBack: () => void;
 };
 
-function toRgba(hex: string, alpha: number) {
-  const normalized = hex.replace('#', '');
+const SECTION_LAYOUT_ANIMATION = {
+  duration: 240,
+  create: {
+    type: LayoutAnimation.Types.easeOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: { type: LayoutAnimation.Types.easeInEaseOut },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+};
 
-  if (normalized.length !== 6) {
-    return hex;
-  }
-
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
+/**
+ * Manage Goals is intentionally just three lists — To do, Completed, Archived.
+ * The hero card, inline create form and stats line were removed; creating a goal
+ * happens from the home card, and editing happens in the shared GoalSheet.
+ */
 export default function GoalsScreen({ onBack }: GoalsScreenProps) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [goals, setGoals] = useState<SavedGoal[]>([]);
-  const [draftTitle, setDraftTitle] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const goals = useAppStore(state => state.goals);
+  const isLoadingGoals = useAppStore(state => state.isLoadingGoals);
+  const hasHydratedGoals = useAppStore(state => state.hasHydratedGoals);
+  const goalsError = useAppStore(state => state.goalsError);
+  const loadGoals = useAppStore(state => state.loadGoals);
+  const updateGoalDraft = useAppStore(state => state.updateGoalDraft);
+  const setGoalCompleted = useAppStore(state => state.setGoalCompleted);
+  const setGoalArchived = useAppStore(state => state.setGoalArchived);
+  const deleteArchivedGoal = useAppStore(state => state.deleteArchivedGoal);
+
+  const [editingGoal, setEditingGoal] = useState<SavedGoal | null>(null);
+  const [isSheetVisible, setIsSheetVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const layoutMaxWidth = isWide ? 430 : 390;
-  const trimmedDraftTitle = draftTitle.trim();
-  const canSave = trimmedDraftTitle.length > 0 && !isSaving;
+
+  // Derived with useMemo, not inside the selector — a Zustand selector returning
+  // a new array re-renders on every unrelated store change.
+  const todoGoals = useMemo(() => selectTodoGoals(goals), [goals]);
+  const completedGoals = useMemo(() => selectCompletedGoals(goals), [goals]);
+  const archivedGoals = useMemo(() => selectArchivedGoals(goals), [goals]);
+  const unavailableIcons = useMemo(
+    () =>
+      goals.filter(goal => goal.id !== editingGoal?.id).map(goal => goal.icon),
+    [editingGoal?.id, goals],
+  );
 
   useEffect(() => {
-    let isActive = true;
-
-    const loadGoals = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await getGoals();
-
-        if (isActive) {
-          setGoals(response);
-        }
-      } catch (loadError) {
-        if (isActive) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "We couldn't load your goals right now.",
-          );
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadGoals().catch(() => undefined);
-
-    return () => {
-      isActive = false;
-    };
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
   }, []);
 
-  const goalCountLabel = useMemo(() => {
-    if (goals.length === 1) {
-      return '1 active goal';
+  useEffect(() => {
+    loadGoals().catch(() => undefined);
+  }, [loadGoals]);
+
+  const animateSections = useCallback(() => {
+    if (typeof jest === 'undefined') {
+      LayoutAnimation.configureNext(SECTION_LAYOUT_ANIMATION);
     }
+  }, []);
 
-    return `${goals.length} active goals`;
-  }, [goals.length]);
+  const openEditSheet = (goal: SavedGoal) => {
+    triggerHaptic('optionSelected').catch(() => undefined);
+    setSubmitError(null);
+    setEditingGoal(goal);
+    setIsSheetVisible(true);
+  };
 
-  const handleSaveGoal = async () => {
-    if (!canSave) {
+  const closeSheet = () => {
+    setIsSheetVisible(false);
+  };
+
+  const handleSubmit = async (draft: GoalDraft) => {
+    if (!editingGoal) {
       return;
     }
 
-    setIsSaving(true);
-    setSaveError(null);
+    setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
-      const savedGoal = await createGoal(trimmedDraftTitle);
+      const saved = await updateGoalDraft(editingGoal.id, draft);
 
-      setGoals(currentGoals => {
-        const nextGoals = currentGoals.filter(goal => goal.id !== savedGoal.id);
-        return [savedGoal, ...nextGoals];
-      });
-      setDraftTitle('');
-    } catch (saveGoalError) {
-      setSaveError(
-        saveGoalError instanceof Error
-          ? saveGoalError.message
-          : "We couldn't save that goal right now.",
-      );
+      if (!saved) {
+        setSubmitError("We couldn't save that goal. Please try again.");
+        return;
+      }
+
+      animateSections();
+      closeSheet();
     } finally {
-      setIsSaving(false);
+      setIsSubmitting(false);
     }
   };
 
-  const handleDeleteGoal = async (goalId: string) => {
-    setDeletingGoalId(goalId);
-    setSaveError(null);
+  const handleToggleComplete = (goal: SavedGoal, completed: boolean) => {
+    animateSections();
+    return setGoalCompleted(goal.id, completed);
+  };
+
+  const handleArchive = (goal: SavedGoal) => {
+    closeSheet();
+    animateSections();
+    setGoalArchived(goal.id, true).catch(() => undefined);
+  };
+
+  const handleUnarchive = (goal: SavedGoal) => {
+    closeSheet();
+    animateSections();
+    setGoalArchived(goal.id, false).catch(() => undefined);
+  };
+
+  const handleDelete = async (goal: SavedGoal) => {
+    if (goal.status !== 'archived') {
+      return;
+    }
+
+    setIsDeleting(true);
+    setSubmitError(null);
 
     try {
-      await deleteGoal(goalId);
-      setGoals(currentGoals => currentGoals.filter(goal => goal.id !== goalId));
-    } catch (deleteError) {
-      setSaveError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "We couldn't remove that goal right now.",
-      );
+      const deleted = await deleteArchivedGoal(goal.id);
+
+      if (!deleted) {
+        setSubmitError("We couldn't delete that goal. Please try again.");
+        return;
+      }
+
+      animateSections();
+      closeSheet();
     } finally {
-      setDeletingGoalId(null);
+      setIsDeleting(false);
     }
   };
+
+  /** A section header only appears when that section actually holds a goal. */
+  const renderSection = (label: string, sectionGoals: SavedGoal[]) => {
+    if (sectionGoals.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.section}>
+        <Text
+          style={[styles.sectionTitle, { color: theme.colors.mutedForeground }]}
+        >
+          {label}
+        </Text>
+        <View style={styles.sectionList}>
+          {sectionGoals.map(goal => (
+            <GoalRow
+              key={goal.id}
+              goal={goal}
+              accentIndex={goals.findIndex(item => item.id === goal.id)}
+              onToggleComplete={handleToggleComplete}
+              onEdit={openEditSheet}
+              onArchive={item => {
+                animateSections();
+                setGoalArchived(item.id, true).catch(() => undefined);
+              }}
+              onUnarchive={item => {
+                animateSections();
+                setGoalArchived(item.id, false).catch(() => undefined);
+              }}
+              presentation="manage"
+            />
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const hasAnyGoal = goals.length > 0;
 
   return (
     <SafeAreaView
+      style={[styles.shell, { backgroundColor: theme.colors.background }]}
       edges={['top', 'left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
     >
+      <View style={[styles.header, { paddingHorizontal: horizontalPadding }]}>
+        <HapticPressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={onBack}
+          style={({ pressed }) => [
+            styles.headerButton,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.border,
+            },
+            pressed && styles.pressed,
+          ]}
+        >
+          <ArrowLeft size={18} color={theme.colors.foreground} />
+        </HapticPressable>
+        <Text style={[styles.headerTitle, { color: theme.colors.foreground }]}>
+          Goals
+        </Text>
+        <View style={styles.headerSpacer} />
+      </View>
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          {
-            paddingHorizontal: horizontalPadding,
-            backgroundColor: theme.colors.background,
-          },
+          { paddingHorizontal: horizontalPadding, maxWidth: layoutMaxWidth },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
-          <View style={styles.header}>
-            <Pressable
-              accessibilityLabel="Back"
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.headerButton,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ArrowLeft color={theme.colors.foreground} size={18} />
-            </Pressable>
-            <Text
-              style={[styles.headerTitle, { color: theme.colors.foreground }]}
-            >
-              Goals
-            </Text>
-            <View style={styles.headerSpacer} />
-          </View>
-
+        {isLoadingGoals && !hasHydratedGoals ? (
           <View
             style={[
-              styles.heroCard,
+              styles.statusCard,
               {
-                backgroundColor: toRgba(theme.colors.primary, 0.08),
-                borderColor: toRgba(theme.colors.primary, 0.22),
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
               },
             ]}
           >
-            <View
+            <JournalLoader color={theme.colors.primary} />
+            <Text
               style={[
-                styles.heroIcon,
-                { backgroundColor: toRgba(theme.colors.primary, 0.12) },
+                styles.statusText,
+                { color: theme.colors.mutedForeground },
               ]}
             >
-              <Target color={theme.colors.primary} size={20} />
-            </View>
-            <Text
-              style={[styles.heroTitle, { color: theme.colors.foreground }]}
-            >
-              Keep your next steps simple
-            </Text>
-            <Text
-              style={[styles.heroBody, { color: theme.colors.mutedForeground }]}
-            >
-              Goals are user-owned and lightweight here. Add only the ones you
-              want to actively keep in view.
-            </Text>
-            <Text style={[styles.heroMeta, { color: theme.colors.primary }]}>
-              {goalCountLabel}
+              Loading your goals...
             </Text>
           </View>
+        ) : null}
 
+        {goalsError ? (
+          <HapticPressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading goals"
+            onPress={() => loadGoals().catch(() => undefined)}
+            style={({ pressed }) => [
+              styles.statusCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusText,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              {goalsError} Tap to retry.
+            </Text>
+          </HapticPressable>
+        ) : null}
+
+        {renderSection('To do', todoGoals)}
+        {renderSection('Completed', completedGoals)}
+        {renderSection('Archived', archivedGoals)}
+
+        {hasHydratedGoals && !hasAnyGoal && !goalsError ? (
           <View
             style={[
-              styles.createCard,
+              styles.statusCard,
               {
                 backgroundColor: theme.colors.card,
                 borderColor: theme.colors.border,
@@ -226,375 +313,104 @@ export default function GoalsScreen({ onBack }: GoalsScreenProps) {
             ]}
           >
             <Text
-              style={[styles.sectionTitle, { color: theme.colors.foreground }]}
+              style={[styles.emptyTitle, { color: theme.colors.foreground }]}
             >
-              Add a manual goal
+              Nothing saved yet
             </Text>
             <Text
               style={[
-                styles.sectionBody,
+                styles.statusText,
                 { color: theme.colors.mutedForeground },
               ]}
             >
-              A short title is enough. You can use goals for habits, reminders
-              to yourself, or one next step from today.
+              Add a goal from your home screen to see it here.
             </Text>
-            <TextInput
-              accessibilityLabel="Goal title"
-              placeholder="Example: Write one honest line before bed"
-              placeholderTextColor={theme.colors.mutedForeground}
-              style={[
-                styles.input,
-                {
-                  color: theme.colors.foreground,
-                  borderColor: theme.colors.border,
-                  backgroundColor: theme.colors.background,
-                },
-              ]}
-              value={draftTitle}
-              onChangeText={setDraftTitle}
-              onSubmitEditing={() => {
-                handleSaveGoal();
-              }}
-              returnKeyType="done"
-            />
-            {saveError ? (
-              <Text
-                style={[styles.errorText, { color: theme.colors.destructive }]}
-              >
-                {saveError}
-              </Text>
-            ) : null}
-            <Pressable
-              accessibilityLabel="Save goal"
-              accessibilityState={{ busy: isSaving, disabled: !canSave }}
-              onPress={handleSaveGoal}
-              disabled={!canSave}
-              style={({ pressed }) => [
-                styles.saveButton,
-                {
-                  backgroundColor: canSave
-                    ? theme.colors.primary
-                    : theme.colors.secondary,
-                },
-                pressed && canSave && styles.pressed,
-              ]}
-            >
-              <ButtonLoadingContent
-                contentStyle={styles.saveButtonContent}
-                loaderColor={theme.colors.primaryForeground}
-                loading={isSaving}
-              >
-                <Plus color={theme.colors.primaryForeground} size={16} />
-              <Text
-                style={[
-                  styles.saveButtonText,
-                  { color: theme.colors.primaryForeground },
-                ]}
-              >
-                Add goal
-              </Text>
-              </ButtonLoadingContent>
-            </Pressable>
           </View>
-
-          <View style={styles.listSection}>
-            <Text
-              style={[styles.sectionTitle, { color: theme.colors.foreground }]}
-            >
-              Active goals
-            </Text>
-            {isLoading ? (
-              <View
-                style={[
-                  styles.statusCard,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <ActivityIndicator color={theme.colors.primary} size="small" />
-                <Text
-                  style={[
-                    styles.statusText,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  Loading your goals...
-                </Text>
-              </View>
-            ) : error ? (
-              <View
-                style={[
-                  styles.statusCard,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.errorText,
-                    { color: theme.colors.destructive },
-                  ]}
-                >
-                  {error}
-                </Text>
-              </View>
-            ) : goals.length === 0 ? (
-              <View
-                style={[
-                  styles.emptyCard,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.emptyTitle,
-                    { color: theme.colors.foreground },
-                  ]}
-                >
-                  Nothing saved yet
-                </Text>
-                <Text
-                  style={[
-                    styles.emptyBody,
-                    { color: theme.colors.mutedForeground },
-                  ]}
-                >
-                  Add one small goal you want visible on purpose. You can keep
-                  this list calm and short.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.goalList}>
-                {goals.map(goal => (
-                  <View
-                    key={goal.id}
-                    style={[
-                      styles.goalCard,
-                      {
-                        backgroundColor: theme.colors.card,
-                        borderColor: theme.colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.goalTitle,
-                        { color: theme.colors.foreground },
-                      ]}
-                    >
-                      {goal.title}
-                    </Text>
-                    <Pressable
-                      accessibilityLabel={`Remove goal ${goal.title}`}
-                      accessibilityState={{
-                        busy: deletingGoalId === goal.id,
-                        disabled: deletingGoalId === goal.id,
-                      }}
-                      onPress={() => {
-                        handleDeleteGoal(goal.id);
-                      }}
-                      disabled={deletingGoalId === goal.id}
-                      style={({ pressed }) => [
-                        styles.deleteButton,
-                        {
-                          backgroundColor: toRgba(
-                            theme.colors.destructive,
-                            0.08,
-                          ),
-                          borderColor: toRgba(theme.colors.destructive, 0.18),
-                        },
-                        pressed && deletingGoalId !== goal.id && styles.pressed,
-                      ]}
-                    >
-                      <ButtonLoadingContent
-                        loaderColor={theme.colors.destructive}
-                        loading={deletingGoalId === goal.id}
-                      >
-                        <Trash2 color={theme.colors.destructive} size={16} />
-                      </ButtonLoadingContent>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        </View>
+        ) : null}
       </ScrollView>
+
+      <GoalSheet
+        visible={isSheetVisible}
+        mode="edit"
+        goal={editingGoal}
+        isSubmitting={isSubmitting}
+        isDeleting={isDeleting}
+        errorMessage={submitError}
+        unavailableIcons={unavailableIcons}
+        onSubmit={handleSubmit}
+        onArchive={handleArchive}
+        onUnarchive={handleUnarchive}
+        onDelete={goal => {
+          handleDelete(goal).catch(() => undefined);
+        }}
+        onClose={closeSheet}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  content: {
-    flexGrow: 1,
-    alignItems: 'center',
-    paddingBottom: 132,
-  },
   shell: {
-    width: '100%',
-    gap: 20,
-    paddingTop: 6,
+    flex: 1,
   },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingBottom: 12,
+    paddingTop: 10,
   },
   headerButton: {
     alignItems: 'center',
-    borderRadius: 18,
+    borderRadius: 19,
     borderWidth: 1,
     height: 38,
     justifyContent: 'center',
     width: 38,
+  },
+  headerTitle: {
+    fontSize: 16,
   },
   headerSpacer: {
     width: 38,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+  content: {
+    alignSelf: 'center',
+    gap: 22,
+    paddingBottom: 48,
+    paddingTop: 18,
+    width: '100%',
   },
-  heroCard: {
-    borderRadius: 24,
-    borderWidth: 1,
+  section: {
     gap: 10,
-    padding: 20,
-  },
-  heroIcon: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  heroBody: {
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  heroMeta: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  createCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    gap: 12,
-    padding: 20,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
-  sectionBody: {
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  input: {
-    borderRadius: 16,
-    borderWidth: 1,
-    fontSize: 15,
-    minHeight: 52,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  saveButton: {
-    alignItems: 'center',
-    borderRadius: 16,
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 52,
-  },
-  saveButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  saveButtonContent: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-  },
-  listSection: {
-    gap: 12,
+  sectionList: {
+    gap: 10,
   },
   statusCard: {
     alignItems: 'center',
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 10,
-    justifyContent: 'center',
-    minHeight: 148,
-    padding: 20,
-  },
-  statusText: {
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  emptyCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 10,
-    minHeight: 148,
-    justifyContent: 'center',
-    padding: 20,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  emptyBody: {
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  goalList: {
-    gap: 12,
-  },
-  goalCard: {
-    alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 22,
   },
-  goalTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    lineHeight: 21,
-  },
-  deleteButton: {
-    alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  errorText: {
-    fontSize: 13,
+  statusText: {
+    fontSize: 13.5,
     lineHeight: 19,
+    textAlign: 'center',
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   pressed: {
-    transform: [{ scale: 0.98 }],
+    opacity: 0.7,
   },
 });

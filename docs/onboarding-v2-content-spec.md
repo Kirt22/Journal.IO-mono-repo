@@ -32,7 +32,7 @@ Product principles:
 | 6 | `reflection_tone` | Optional | `reflectionTone` | `Continue` | `Skip` |
 | 7 | `theme_picker` | Optional | `preferredTheme` | `Continue` | `Skip` |
 | 8 | `personalization_complete` | Required transition | none | `Continue` | none |
-| 9 | `ai_privacy_disclaimer` | Required if consent flag is true | `privacyConsent`, `aiComfort` | `Start first reflection` | `Not now` only if safe |
+| 9 | `ai_privacy_disclaimer` | Required if consent flag is true | `privacyConsent` | `Start first reflection` | `Not now` only if safe |
 | 10 | `first_reflection_handoff` | Temporary Phase 2 placeholder | none | `Continue` | none |
 
 ## Payload Shape
@@ -48,7 +48,6 @@ type OnboardingV2Draft = {
   ageRange?: string;
   reflectionTone?: string[];
   preferredTheme?: string;
-  aiComfort?: boolean;
   privacyConsent?: boolean;
 };
 ```
@@ -364,7 +363,7 @@ Current implementation notes:
 | Secondary action | `Not now` only if it safely returns to `personalization_complete` without losing draft state. |
 | Required | Required if `REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT` is true. |
 | Validation | If consent is required, CTA is disabled until `privacyConsent === true`. |
-| Payload keys | `privacyConsent: boolean`, `aiComfort?: boolean` |
+| Payload keys | `privacyConsent: boolean` |
 | Recommended hero | Optional `privacy` iconography inside sheet only if space allows; current sheet without hero is acceptable. |
 | Recommended animation | Scrim fade and sheet slide-up. |
 | Recommended haptic | None by default; optional light haptic on consent checkbox only if not overused. |
@@ -392,7 +391,7 @@ Consent checkbox copy:
 Behavior:
 
 - If `REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT` is true, consent is a hard gate.
-- On continue, set `privacyConsent: true` and `aiComfort: true`.
+- On continue, set `privacyConsent: true`.
 - Continue to the first real guided reflection in Phase 3.
 - In Phase 2, continue to the placeholder handoff.
 
@@ -400,7 +399,7 @@ Current implementation notes:
 
 - Current body points match the spec.
 - Current sheet includes `Not now` because `onDismiss` is provided. This is acceptable only if dismissing leaves the user safely on `personalization_complete`.
-- Current `aiComfort` is set to true when continuing. That is acceptable as a draft preference but should not be treated as completed onboarding.
+- Current consent is stored as a privacy-policy acknowledgement, not an AI feature preference.
 
 ### 10. First Reflection Placeholder Handoff
 

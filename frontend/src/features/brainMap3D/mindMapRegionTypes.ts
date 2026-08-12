@@ -8,4 +8,6 @@ export type MindMapNativeRegion = {
   confidence: number;
   intensity: "low" | "moderate" | "high";
   isStrongest: boolean;
+  // 1-based signal rank; used to number the reflection pins in the 3D renderer.
+  rank?: number;
 };

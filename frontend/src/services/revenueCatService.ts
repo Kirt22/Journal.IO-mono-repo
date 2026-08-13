@@ -16,6 +16,10 @@ import {
   REVENUECAT_OFFERINGS,
   REVENUECAT_PRODUCTS,
 } from "../config/revenueCat";
+import {
+  getDevPriceOverride,
+  getDevPricePerMonthOverride,
+} from "./devPriceOverride";
 import type { PaywallOffering } from "./paywallService";
 
 type RevenueCatPlanKey =
@@ -29,7 +33,11 @@ type RevenueCatPaywallPlan = {
   id: string;
   title: string;
   durationLabel: string;
+  // The bare StoreKit price, with no billing period appended. Period words live
+  // in `periodLabel` so the card can stack them and each line can shrink alone —
+  // `Rp 1.499.000/year` does not fit a plan card, `Rp 1.499.000` does.
   price: string;
+  periodLabel: string;
   subtitle: string;
   badge?: string;
   highlight?: string;
@@ -348,14 +356,14 @@ const getPlanTitle = (planKey: RevenueCatPlanKey) => {
   }
 };
 
-const getBillingSuffix = (planKey: RevenueCatPlanKey) => {
+const getBillingPeriodLabel = (planKey: RevenueCatPlanKey) => {
   switch (planKey) {
     case "annual":
-      return "/year";
+      return "per year";
     case "weekly":
-      return "/week";
+      return "per week";
     case "monthly":
-      return "/month";
+      return "per month";
     case "lifetime":
       return "one-time";
     default:
@@ -363,14 +371,32 @@ const getBillingSuffix = (planKey: RevenueCatPlanKey) => {
   }
 };
 
-const formatPriceWithSuffix = (price: string, suffix?: string | null) => {
-  const trimmedSuffix = suffix?.trim();
-
-  if (!trimmedSuffix) {
-    return price;
+/**
+ * The single read point for a product's display price. Everything the user sees
+ * as money goes through here so the dev storefront override reaches all four
+ * paywall surfaces from one switch.
+ */
+const resolveProductPriceString = (
+  product: PurchasesPackage["product"] | undefined | null
+) => {
+  if (!product) {
+    return "";
   }
 
-  return trimmedSuffix.startsWith("/") ? `${price}${trimmedSuffix}` : `${price} ${trimmedSuffix}`;
+  return getDevPriceOverride(product.identifier) ?? product.priceString;
+};
+
+const resolveProductPricePerMonthString = (
+  product: PurchasesPackage["product"] | undefined | null
+) => {
+  if (!product) {
+    return null;
+  }
+
+  return (
+    getDevPricePerMonthOverride(product.identifier) ??
+    product.pricePerMonthString
+  );
 };
 
 const getConfiguredOfferingHighlight = (
@@ -395,8 +421,12 @@ const getPlanSubtitle = (
   planKey: RevenueCatPlanKey,
   rcPackage: PurchasesPackage
 ) => {
-  if (planKey === "annual" && rcPackage.product.pricePerMonthString) {
-    return `${rcPackage.product.pricePerMonthString}/month equivalent`;
+  const pricePerMonth = resolveProductPricePerMonthString(rcPackage.product);
+
+  // `/mo`, not `/month equivalent`: this sits in a ~133pt card at 11.5pt, and
+  // the price ahead of it can be as long as `Rp 124.917` on some storefronts.
+  if (planKey === "annual" && pricePerMonth) {
+    return `${pricePerMonth}/mo`;
   }
 
   switch (planKey) {
@@ -1396,11 +1426,9 @@ function getRevenueCatPaywallPlans(
         return [{
           id: configuredOffering.key,
           title: configuredOffering.title,
-          durationLabel: rcPackage.product.priceString,
-          price: formatPriceWithSuffix(
-            rcPackage.product.priceString,
-            getBillingSuffix(planKey)
-          ),
+          durationLabel: resolveProductPriceString(rcPackage.product),
+          price: resolveProductPriceString(rcPackage.product),
+          periodLabel: getBillingPeriodLabel(planKey),
           subtitle:
             configuredOffering.subtitle ||
             getPlanSubtitle(planKey, rcPackage),
@@ -1448,16 +1476,15 @@ function getRevenueCatPaywallPlans(
       return {
         id: rcPackage.identifier,
         title: getPlanTitle(planKey),
-        durationLabel: rcPackage.product.priceString,
-        price: formatPriceWithSuffix(
-          rcPackage.product.priceString,
-          getBillingSuffix(planKey)
-        ),
+        durationLabel: resolveProductPriceString(rcPackage.product),
+        price: resolveProductPriceString(rcPackage.product),
+        periodLabel: getBillingPeriodLabel(planKey),
         subtitle: getPlanSubtitle(planKey, rcPackage),
         badge: planKey === "annual" ? "Most Value" : undefined,
         highlight:
-          planKey === "annual" && rcPackage.product.pricePerMonthString
-            ? `${rcPackage.product.pricePerMonthString}/month`
+          planKey === "annual" &&
+          resolveProductPricePerMonthString(rcPackage.product)
+            ? `${resolveProductPricePerMonthString(rcPackage.product)}/mo`
             : undefined,
         planKey,
         revenueCatOfferingId: getRevenueCatOfferingIdFromPackage(rcPackage),
@@ -1544,6 +1571,77 @@ function getRevenueCatPurchaseAttribution(
   };
 }
 
+const DEFAULT_FREE_TRIAL_DAYS = 7;
+const TRIAL_UNIT_DAYS: Record<string, number> = {
+  day: 1,
+  week: 7,
+  month: 30,
+  year: 365,
+};
+
+let cachedFreeTrialDays: number | null = null;
+let inFlightFreeTrialDays: Promise<number> | null = null;
+
+/**
+ * Trial length in days, read off the annual package's intro offer.
+ *
+ * The store is the only source of truth for this — nothing in the app config
+ * declares a trial length — so onboarding copy that names a number has to ask
+ * RevenueCat rather than hardcode one.
+ */
+const resolveFreeTrialDays = async (appUserID?: string | null) => {
+  const offerings = await getRevenueCatOfferings(appUserID);
+  const introOffer = getIntroOffer(
+    findRevenueCatPackageByPlanKey(offerings, "annual")
+  );
+
+  if (!introOffer?.isFreeTrial) {
+    return DEFAULT_FREE_TRIAL_DAYS;
+  }
+
+  const unitDays = TRIAL_UNIT_DAYS[introOffer.unitLabel];
+
+  if (!unitDays || introOffer.durationCount <= 0) {
+    return DEFAULT_FREE_TRIAL_DAYS;
+  }
+
+  return introOffer.durationCount * unitDays;
+};
+
+/** Resolved once per launch; concurrent callers share the same request. */
+const getFreeTrialDays = async (appUserID?: string | null) => {
+  if (cachedFreeTrialDays) {
+    return cachedFreeTrialDays;
+  }
+
+  if (inFlightFreeTrialDays) {
+    return inFlightFreeTrialDays;
+  }
+
+  inFlightFreeTrialDays = resolveFreeTrialDays(appUserID)
+    .catch(() => DEFAULT_FREE_TRIAL_DAYS)
+    .then(days => {
+      cachedFreeTrialDays = days;
+      return days;
+    })
+    .finally(() => {
+      inFlightFreeTrialDays = null;
+    });
+
+  return inFlightFreeTrialDays;
+};
+
+/**
+ * Last resolved value, for a first render that cannot wait on the network.
+ * Falls back to the common 7-day trial until the real value lands.
+ */
+const getCachedFreeTrialDays = () => cachedFreeTrialDays ?? DEFAULT_FREE_TRIAL_DAYS;
+
+/** Warms the cache from an earlier onboarding step so the timeline renders settled. */
+const primeFreeTrialDays = (appUserID?: string | null) => {
+  getFreeTrialDays(appUserID).catch(() => undefined);
+};
+
 const getOfferingsSafe = getRevenueCatOfferings;
 const purchasePackageSafe = purchaseRevenueCatPackage;
 const restorePurchasesSafe = restoreRevenueCatPurchases;
@@ -1562,7 +1660,11 @@ function getRevenueCatConfigurationError() {
 export {
   addRevenueCatCustomerInfoUpdateListener,
   configureRevenueCat,
+  DEFAULT_FREE_TRIAL_DAYS,
+  getCachedFreeTrialDays,
+  getFreeTrialDays,
   getIntroOffer,
+  primeFreeTrialDays,
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
   getRevenueCatCustomerInfo,
@@ -1591,6 +1693,7 @@ export {
   purchasePackageSafe,
   purchaseRevenueCatPackage,
   refreshRevenueCatEntitlementState,
+  resolveProductPriceString,
   restoreRevenueCatPurchases,
   restorePurchasesSafe,
   syncRevenueCatIdentity,

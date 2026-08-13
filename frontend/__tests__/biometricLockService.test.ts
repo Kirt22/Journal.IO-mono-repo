@@ -56,7 +56,7 @@ test('reports Face ID availability on supported iPhones', async () => {
 });
 
 test('enables the biometric lock after one successful device authentication', async () => {
-  const result = await enableBiometricLock();
+  const result = await enableBiometricLock({ isPremium: true });
 
   expect(result.status).toBe('enabled');
   expect(Keychain.setGenericPassword).toHaveBeenCalledWith(
@@ -86,7 +86,7 @@ test('keeps the lock disabled when authentication is cancelled during setup', as
     new Error('User canceled the operation.'),
   );
 
-  const result = await enableBiometricLock();
+  const result = await enableBiometricLock({ isPremium: true });
 
   expect(result.status).toBe('cancelled');
   expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
@@ -96,6 +96,16 @@ test('keeps the lock disabled when authentication is cancelled during setup', as
     'journalio.biometricLockEnabled',
     'false',
   );
+});
+
+test('rejects free enable attempts without changing secure storage', async () => {
+  const result = await enableBiometricLock({ isPremium: false });
+
+  expect(result.status).toBe('premium_required');
+  expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
+  expect(Keychain.getGenericPassword).not.toHaveBeenCalled();
+  expect(Keychain.resetGenericPassword).not.toHaveBeenCalled();
+  expect(AsyncStorage.setItem).not.toHaveBeenCalled();
 });
 
 test('authenticates an existing lock marker with the system prompt', async () => {

@@ -1,13 +1,15 @@
+import HapticPressable from '../../components/HapticPressable';
 import type { ReactNode } from 'react';
 import {
-  Pressable,
   StyleSheet,
-  Text,
   View,
   ScrollView,
   useWindowDimensions,
   type ViewStyle,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import { ArrowLeft } from 'lucide-react-native';
 import { BOTTOM_NAV_CONTENT_PADDING } from '../../components/BottomNav';
 import { useTheme } from '../../theme/provider';
@@ -69,7 +71,7 @@ export function ProfileSectionLayout({
           ]}
         >
           <View style={[styles.header, { maxWidth: layoutMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
               onPress={onBack}
@@ -79,7 +81,7 @@ export function ProfileSectionLayout({
               ]}
             >
               <ArrowLeft size={19} color={theme.colors.foreground} />
-            </Pressable>
+            </HapticPressable>
 
             <View style={styles.headerTextWrap}>
               <Text style={[styles.title, { color: theme.colors.foreground }]}>

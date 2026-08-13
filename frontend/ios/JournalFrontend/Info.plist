@@ -56,6 +56,10 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>JournalIOWidgetKeychainAccessGroup</key>
+	<string>$(AppIdentifierPrefix)group.app.journalio.widgets</string>
+	<key>JournalIOWidgetProductionAPIHost</key>
+	<string>api.journalio.app</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -89,5 +93,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>SchibstedGrotesk-Regular.ttf</string>
+		<string>SchibstedGrotesk-SemiBold.ttf</string>
+		<string>SchibstedGrotesk-Italic.ttf</string>
+		<string>BricolageGrotesque-SemiBold.ttf</string>
+		<string>SchibstedGrotesk-Bold.ttf</string>
+		<string>BricolageGrotesque-Bold.ttf</string>
+		<string>SchibstedGrotesk-Medium.ttf</string>
+	</array>
 </dict>
 </plist>

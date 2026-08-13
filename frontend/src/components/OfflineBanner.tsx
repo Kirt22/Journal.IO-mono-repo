@@ -1,5 +1,6 @@
 import { CloudOff } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../infrastructure/reactNative';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnectivity } from '../hooks/useConnectivity';
 import { useTheme } from '../theme/provider';

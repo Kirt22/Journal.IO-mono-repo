@@ -6,7 +6,6 @@ const createInitialOnboardingV2Draft = (): OnboardingV2Draft => ({
   whatBringsYouHere: [],
   supportFocusAreas: [],
   reflectionTone: [],
-  aiComfort: false,
   privacyConsent: false,
 });
 

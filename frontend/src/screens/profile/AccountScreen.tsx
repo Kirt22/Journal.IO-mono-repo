@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import {
+  Text,
+  TextInput,
+} from '../../infrastructure/reactNative';
 import { Trash2 } from 'lucide-react-native';
 import { deleteAccount } from '../../services/privacyService';
 import { useAppStore } from '../../store/appStore';
@@ -141,7 +144,7 @@ export default function AccountScreen({
         >
           Danger zone
         </Text>
-        <Pressable
+        <HapticPressable
           accessibilityLabel="Delete account"
           accessibilityRole="button"
           disabled={isDeletingAccount}
@@ -167,7 +170,7 @@ export default function AccountScreen({
           >
             {isDeletingAccount ? 'Deleting account...' : 'Delete account'}
           </Text>
-        </Pressable>
+        </HapticPressable>
       </View>
 
       <Modal
@@ -180,7 +183,7 @@ export default function AccountScreen({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.dialogBackdrop}
         >
-          <Pressable
+          <HapticPressable
             accessibilityLabel="Dismiss account deletion confirmation"
             disabled={isDeletingAccount}
             onPress={closeDeleteConfirmation}
@@ -239,7 +242,7 @@ export default function AccountScreen({
               value={deleteConfirmation}
             />
             <View style={styles.dialogActions}>
-              <Pressable
+              <HapticPressable
                 accessibilityLabel="Cancel account deletion"
                 accessibilityRole="button"
                 disabled={isDeletingAccount}
@@ -261,8 +264,8 @@ export default function AccountScreen({
                 >
                   Cancel
                 </Text>
-              </Pressable>
-              <Pressable
+              </HapticPressable>
+              <HapticPressable
                 accessibilityLabel="Continue account deletion"
                 accessibilityRole="button"
                 disabled={!hasConfirmedDeletion || isDeletingAccount}
@@ -285,7 +288,7 @@ export default function AccountScreen({
                 >
                   Continue
                 </Text>
-              </Pressable>
+              </HapticPressable>
             </View>
           </View>
         </KeyboardAvoidingView>

@@ -1,4 +1,6 @@
 export type JournalEntryMode = 'open_ended' | 'guided';
+export type JournalEntryKind = 'journal' | 'quick_thought';
+export type DetectedMood = 'amazing' | 'good' | 'okay' | 'bad' | 'terrible';
 // Read compatibility keeps historic entries renderable while writes use JournalEntryMode.
 export type JournalEntryType = JournalEntryMode | (string & {});
 
@@ -6,6 +8,7 @@ export type CreateJournalPayload = {
   title: string;
   content: string;
   type?: JournalEntryMode;
+  entryKind?: JournalEntryKind;
   aiPrompt?: string;
   images?: string[];
   tags?: string[];
@@ -28,17 +31,42 @@ export type JournalEntry = {
   title: string;
   content: string;
   type: JournalEntryType;
+  entryKind?: JournalEntryKind;
   aiPrompt: string | null;
   images: string[] | null;
   tags: string[];
+  detectedTopics?: string[];
+  detectedMood?: DetectedMood | null;
   isFavorite?: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
-export type JournalEntryApiRecord = Omit<JournalEntry, 'tags'> & {
+export type JournalEntryApiRecord = Omit<
+  JournalEntry,
+  'tags' | 'detectedTopics' | 'detectedMood'
+> & {
   tags?: string[];
+  detectedTopics?: string[];
+  detectedMood?: DetectedMood | null;
   isFavorite?: boolean;
+};
+
+export type JournalEntryPage = {
+  entries: JournalEntry[];
+  pagination: {
+    nextCursor: string | null;
+    hasMore: boolean;
+    matchingCount: number;
+  };
+  summary: {
+    totalEntries: number;
+    favoriteEntries: number;
+  };
+};
+
+export type JournalEntryPageApiRecord = Omit<JournalEntryPage, 'entries'> & {
+  entries: JournalEntryApiRecord[];
 };
 
 export type JournalTagSuggestions = {
@@ -91,5 +119,8 @@ export type JournalQuickAnalysis = {
     description: string;
     focus: string;
   };
+  // Optional "this echoes something from before" line drawn from long-term
+  // memory. Null when there is no genuine connection.
+  connection: string | null;
   generatedAt: string | null;
 };

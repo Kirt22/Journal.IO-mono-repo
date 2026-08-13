@@ -1,4 +1,5 @@
 import type { JournalEntry } from "../../models/journalModels";
+import { getEntryDisplayTags } from "../../utils/journalEntryCard";
 
 const PRELOADED_SEARCH_TAGS = [
   "anxiety",
@@ -51,7 +52,7 @@ const matchesQuery = (entry: JournalEntry, query: string) => {
     entry.title,
     entry.content,
     entry.type,
-    ...entry.tags,
+    ...getEntryDisplayTags(entry),
   ]
     .join(" ")
     .toLowerCase();
@@ -64,7 +65,7 @@ const matchesSelectedTags = (entry: JournalEntry, selectedTags: string[]) => {
     return true;
   }
 
-  const entryTags = new Set(entry.tags.map(normalizeTag));
+  const entryTags = new Set(getEntryDisplayTags(entry).map(normalizeTag));
 
   return selectedTags.some(tag => entryTags.has(normalizeTag(tag)));
 };
@@ -87,7 +88,11 @@ const filterSearchEntries = (
 
 const buildSearchTags = (entries: JournalEntry[]) => {
   const entryTags = Array.from(
-    new Set(entries.flatMap(entry => entry.tags.map(normalizeTag)))
+    new Set(
+      entries.flatMap(entry =>
+        getEntryDisplayTags(entry).map(normalizeTag),
+      ),
+    )
   ).sort();
 
   const combined = [...PRELOADED_SEARCH_TAGS];

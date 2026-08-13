@@ -37,13 +37,15 @@ const completeOnboardingBodySchema = z.object({
   reflectionTone: onboardingStringArraySchema.optional(),
   preferredTheme: z.string().trim().max(80).optional(),
   reminderPreference: z.string().trim().max(80).optional(),
-  aiComfort: z.boolean().optional(),
   privacyConsent: z.boolean().optional(),
   firstReflectionId: z.string().trim().max(120).optional(),
   firstReflectionSummary: onboardingFirstReflectionSummarySchema.optional(),
   personalGoals: onboardingStringArraySchema.optional(),
   goals: onboardingStringArraySchema.optional(),
   journalingExperience: z.string().trim().max(120).optional(),
+  referralSource: z.string().trim().max(80).optional(),
+  referralSourceOther: z.string().trim().max(120).optional(),
+  commitmentSignedAt: z.string().datetime().optional(),
 });
 
 const completeOnboardingSchema = z.object({

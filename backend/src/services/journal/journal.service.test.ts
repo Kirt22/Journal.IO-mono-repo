@@ -3,10 +3,15 @@ import test, { afterEach, beforeEach } from "node:test";
 import { journalModel } from "../../schema/journal.schema";
 import { userModel } from "../../schema/user.schema";
 import {
+  getJournals,
   getJournalQuickAnalysis,
+  getJournalSessionAnalysis,
+  InvalidJournalCursorError,
   PremiumQuickAnalysisRequiredError,
+  PremiumSessionAnalysisRequiredError,
   PremiumTagSuggestionsRequiredError,
-  QuickAnalysisDisabledError,
+  serializeJournal,
+  SessionAnalysisUnavailableError,
   suggestJournalTags,
 } from "./journal.service";
 
@@ -32,7 +37,7 @@ const originalJournalFindOne = journalTarget.findOne;
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.OPENAI_API_KEY;
 
-const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
+const mockUserAiAccess = (isPremium: boolean) => {
   userTarget.findById = () => ({
     select: () => ({
       lean: () => ({
@@ -45,9 +50,6 @@ const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
                 premiumSource: "revenuecat_verified",
               }
             : {}),
-          onboardingContext: {
-            aiOptIn,
-          },
         }),
       }),
     }),
@@ -68,6 +70,29 @@ afterEach(() => {
   } else {
     delete process.env.OPENAI_API_KEY;
   }
+});
+
+test("serializeJournal omits reserved onboarding metadata tags", () => {
+  const result = serializeJournal({
+    toObject: () => ({
+      _id: "journal-1",
+      title: "First reflection",
+      content: "I noticed anxiety and loneliness today.",
+      type: "guided",
+      entryKind: "journal",
+      aiPrompt: "Onboarding first guided reflection",
+      tags: ["onboarding:first-reflection", "reflection"],
+      detectedTopics: ["anxiety", "loneliness"],
+      detectedMood: "bad",
+      images: [],
+      isFavorite: false,
+      createdAt: new Date("2026-08-03T10:00:00.000Z"),
+      updatedAt: new Date("2026-08-03T10:00:00.000Z"),
+    }),
+  } as Parameters<typeof serializeJournal>[0]);
+
+  assert.deepEqual(result.tags, ["reflection"]);
+  assert.deepEqual(result.detectedTopics, ["anxiety", "loneliness"]);
 });
 
 test("suggestJournalTags rejects non-premium users before generating suggestions", async () => {
@@ -110,23 +135,93 @@ test("getJournalQuickAnalysis rejects non-premium users", async () => {
   );
 });
 
-test("getJournalQuickAnalysis rejects opted-out users", async () => {
-  mockUserAiAccess(true, false);
+test("getJournalSessionAnalysis rejects non-premium users before reading an entry", async () => {
+  mockUserAiAccess(false);
+  let journalRead = false;
+  journalTarget.findOne = () => ({
+    exec: async () => {
+      journalRead = true;
+      return null;
+    },
+  });
 
   await assert.rejects(
     () =>
-      getJournalQuickAnalysis({
+      getJournalSessionAnalysis({
         userId: "user-1",
         journalId: "journal-1",
       }),
     (error: unknown) => {
-      assert.ok(error instanceof QuickAnalysisDisabledError);
-      assert.equal(
-        (error as Error).message,
-        "Quick analysis is turned off for your account."
-      );
+      assert.ok(error instanceof PremiumSessionAnalysisRequiredError);
       return true;
     }
+  );
+  assert.equal(journalRead, false);
+});
+
+test("getJournalSessionAnalysis replays the saved snapshot without regenerating", async () => {
+  const savedAnalysis = {
+    analysis: "This session suggests a calmer response to pressure.",
+    majorInsight: "A small pause appeared associated with more steadiness.",
+    observedTrends: ["Calm"],
+    detectedTopics: ["calm"],
+    detectedMood: "good",
+    brainSessionMap: {
+      dominantCenterId: "planning_self_control",
+      dominantCenter: {},
+      secondaryCenterIds: [],
+      secondaryCenters: [],
+      centers: [],
+      neuroscienceSummary: "Saved map",
+      mostNoticedText: "Planning stood out.",
+      mindMapSeedText: "A planning signal was saved.",
+    },
+    hasEnoughSignal: true,
+  };
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      title: "A calmer afternoon",
+      entryKind: "journal",
+      sessionAnalysisSnapshot: { analysis: savedAnalysis },
+    }),
+  });
+
+  const result = await getJournalSessionAnalysis({
+    userId: "user-1",
+    journalId: "journal-1",
+  });
+
+  assert.equal(result, savedAnalysis);
+});
+
+test("getJournalSessionAnalysis excludes Quick Notes", async () => {
+  journalTarget.findOne = () => ({
+    exec: async () => ({
+      title: "Quick Thought",
+      entryKind: "quick_thought",
+      sessionAnalysisSnapshot: null,
+    }),
+  });
+
+  await assert.rejects(
+    () =>
+      getJournalSessionAnalysis({
+        userId: "user-1",
+        journalId: "journal-1",
+      }),
+    SessionAnalysisUnavailableError
+  );
+});
+
+test("getJournals rejects malformed cursors before querying journals", async () => {
+  await assert.rejects(
+    () =>
+      getJournals({
+        userId: "user-1",
+        limit: 10,
+        cursor: "not-a-valid-cursor",
+      }),
+    InvalidJournalCursorError
   );
 });
 

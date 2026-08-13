@@ -5,6 +5,7 @@ import type {
   InsightsAiAnalysisResponse,
   InsightsMindMapResponse,
 } from "../types/insights.types";
+import { applyEncryptedSchemaPaths } from "../helpers/fieldEncryption.schema.helpers";
 
 export interface IInsights extends Document {
   toObject(): Record<string, unknown>;
@@ -27,6 +28,10 @@ export interface IInsights extends Document {
   mindMapLatestWeekStale: boolean;
   mindMapLatestWeekComputedAt: Date | null;
   mindMapLatestWeekCacheKey: string | null;
+  mindMapMonthly: InsightsMindMapResponse | null;
+  mindMapMonthlyStale: boolean;
+  mindMapMonthlyComputedAt: Date | null;
+  mindMapMonthlyCacheKey: string | null;
   mindMapAllTime: InsightsMindMapResponse | null;
   mindMapAllTimeStale: boolean;
   mindMapAllTimeComputedAt: Date | null;
@@ -52,8 +57,7 @@ const insightsSchema = new mongoose.Schema<IInsights>(
       default: {},
     },
     tagCounts: {
-      type: Map,
-      of: Number,
+      type: mongoose.Schema.Types.Mixed,
       default: {},
     },
     moodCounts: {
@@ -72,6 +76,10 @@ const insightsSchema = new mongoose.Schema<IInsights>(
     mindMapLatestWeekStale: { type: Boolean, required: true, default: true },
     mindMapLatestWeekComputedAt: { type: Date, default: null },
     mindMapLatestWeekCacheKey: { type: String, default: null, trim: true },
+    mindMapMonthly: { type: mongoose.Schema.Types.Mixed, default: null },
+    mindMapMonthlyStale: { type: Boolean, required: true, default: true },
+    mindMapMonthlyComputedAt: { type: Date, default: null },
+    mindMapMonthlyCacheKey: { type: String, default: null, trim: true },
     mindMapAllTime: { type: mongoose.Schema.Types.Mixed, default: null },
     mindMapAllTimeStale: { type: Boolean, required: true, default: true },
     mindMapAllTimeComputedAt: { type: Date, default: null },
@@ -81,6 +89,14 @@ const insightsSchema = new mongoose.Schema<IInsights>(
 );
 
 insightsSchema.index({ userId: 1 }, { unique: true });
+
+applyEncryptedSchemaPaths(insightsSchema, [
+  { path: "tagCounts" },
+  { path: "aiAnalysis" },
+  { path: "mindMapLatestWeek" },
+  { path: "mindMapMonthly" },
+  { path: "mindMapAllTime" },
+]);
 
 export const insightsModel: Model<IInsights> = connectMongoDB.model<IInsights>(
   "insights",

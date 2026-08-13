@@ -1,8 +1,16 @@
 import { Router } from "express";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import { validateRequest } from "../../middleware/validateRequest.middleware";
-import { getTodayMoodController, logMoodController } from "./mood.controllers";
-import { getTodayMoodSchema, logMoodSchema } from "./mood.validators";
+import {
+  getMoodHistoryController,
+  getTodayMoodController,
+  logMoodController,
+} from "./mood.controllers";
+import {
+  getMoodHistorySchema,
+  getTodayMoodSchema,
+  logMoodSchema,
+} from "./mood.validators";
 
 const moodRouter: Router = Router();
 

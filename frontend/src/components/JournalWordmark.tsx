@@ -4,10 +4,10 @@ import {
   Animated,
   Easing,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Text } from '../infrastructure/reactNative';
 import { useTheme } from '../theme/provider';
 
 export type JournalWordmarkIntroResult = {
@@ -95,6 +95,20 @@ const COMPACT_PRESENTATION = {
   trailFontSize: 30,
   trailLineHeight: 33,
 };
+
+// The mark is set in Bricolage Grotesque Bold, whose tightest glyph pair in
+// "journal.io" (the period against the i) leaves 0.066em of clearance. Tracking
+// is held just inside that so the lockup stays tight without the glyphs
+// touching, and `.io` runs marginally looser because it owns that tight pair.
+//
+// These are ratios rather than point values on purpose: the mark renders
+// anywhere from 30px to 62px, and a single value tuned for 56px over-tightens
+// to the point of collision at 30px.
+const WORDMARK_TRACKING_RATIO = -0.04;
+const IO_TRACKING_RATIO = -0.035;
+
+const trackingFor = (fontSize: number, ratio = WORDMARK_TRACKING_RATIO) =>
+  Math.round(fontSize * ratio * 10) / 10;
 
 function getRowInputRange(index: number, copyCount: number) {
   const rowProgress = copyCount === 1 ? 0 : index / (copyCount - 1);
@@ -518,6 +532,7 @@ export default function JournalWordmark({
                   {
                     color: theme.colors.foreground,
                     fontSize: presentation.trailFontSize,
+                    letterSpacing: trackingFor(presentation.trailFontSize),
                     lineHeight: presentation.trailLineHeight,
                     top: Math.round(
                       (wordmarkHeight - presentation.trailLineHeight) / 2,
@@ -545,6 +560,7 @@ export default function JournalWordmark({
                 {
                   color: theme.colors.foreground,
                   fontSize: presentation.finalFontSize,
+                  letterSpacing: trackingFor(presentation.finalFontSize),
                   lineHeight: wordmarkHeight,
                 },
               ]}
@@ -553,17 +569,26 @@ export default function JournalWordmark({
             </Text>
             <View
               testID="journal-wordmark-io-wrap"
-              style={[styles.ioWrap, { height: wordmarkHeight }]}
+              style={[
+                styles.ioWrap,
+                {
+                  height: wordmarkHeight,
+                  marginLeft: trackingFor(presentation.finalFontSize),
+                },
+              ]}
             >
               <Text
                 allowFontScaling={false}
                 numberOfLines={1}
                 style={[
                   styles.finalText,
-                  styles.ioText,
                   {
                     color: theme.colors.foreground,
                     fontSize: presentation.finalFontSize,
+                    letterSpacing: trackingFor(
+                      presentation.finalFontSize,
+                      IO_TRACKING_RATIO,
+                    ),
                     lineHeight: wordmarkHeight,
                   },
                 ]}
@@ -576,11 +601,14 @@ export default function JournalWordmark({
                 numberOfLines={1}
                 style={[
                   styles.finalText,
-                  styles.ioText,
                   styles.ioColorOverlay,
                   {
                     color: theme.colors.primary,
                     fontSize: presentation.finalFontSize,
+                    letterSpacing: trackingFor(
+                      presentation.finalFontSize,
+                      IO_TRACKING_RATIO,
+                    ),
                     lineHeight: wordmarkHeight,
                   },
                   ioColorRevealStyle,
@@ -621,10 +649,9 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   currentLine: {
-    fontWeight: '900',
+    fontWeight: '700',
     includeFontPadding: false,
     left: 0,
-    letterSpacing: -2.2,
     position: 'absolute',
     right: 0,
     textAlign: 'center',
@@ -639,20 +666,15 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   finalText: {
-    fontWeight: '900',
+    fontWeight: '700',
     includeFontPadding: false,
-    letterSpacing: -3.4,
     textAlign: 'center',
   },
   ioWrap: {
     justifyContent: 'center',
-    marginLeft: -3.4,
     overflow: 'visible',
     paddingRight: 4,
     position: 'relative',
-  },
-  ioText: {
-    letterSpacing: -3,
   },
   ioColorOverlay: {
     bottom: 0,

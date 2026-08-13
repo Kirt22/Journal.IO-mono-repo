@@ -1,26 +1,36 @@
-import { useEffect, useMemo, useRef } from 'react';
+import HapticPressable from './HapticPressable';
+import {
+  useEffect,
+  useMemo,
+  useRef } from 'react';
 import {
   Animated,
   Easing,
+  Image,
   Platform,
-  Pressable,
   StyleSheet,
-  Text,
   View,
+  type ImageSourcePropType,
 } from 'react-native';
 import {
-  Brain,
-  Calendar,
+  Text,
+} from '../infrastructure/reactNative';
+import {
   Home,
   PlusCircle,
-  TrendingUp,
   User,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/provider';
 
+const HOME_TAB_ICON = require('../assets/png/navigation/icons8-home-64.png');
+const ENTRIES_TAB_ICON = require('../assets/png/navigation/icons8-list-64.png');
+const MINDMAP_TAB_ICON = require('../assets/png/navigation/icons8-brain-100.png');
+const INSIGHTS_TAB_ICON = require('../assets/png/insights/icons8-combo-chart-100.png');
+
 type BottomNavItem = {
-  icon: typeof Home;
+  icon?: typeof Home;
+  image?: ImageSourcePropType;
   label: string;
   key: 'home' | 'calendar' | 'new' | 'insights' | 'mindmap' | 'profile';
   primary?: boolean;
@@ -35,16 +45,16 @@ type BottomNavProps = {
 };
 
 const sharedNavItems: BottomNavItem[] = [
-  { icon: Home, label: 'Home', key: 'home' },
-  { icon: Calendar, label: 'Calendar', key: 'calendar' },
+  { image: HOME_TAB_ICON, label: 'Home', key: 'home' },
+  { image: ENTRIES_TAB_ICON, label: 'Entries', key: 'calendar' },
   { icon: PlusCircle, label: 'New', key: 'new', primary: true },
-  { icon: TrendingUp, label: 'Insights', key: 'insights' },
+  { image: INSIGHTS_TAB_ICON, label: 'Insights', key: 'insights' },
 ];
 
 const navItems: BottomNavItem[] = [
   ...sharedNavItems,
   Platform.OS === 'ios'
-    ? { icon: Brain, label: 'Mind Map', key: 'mindmap' }
+    ? { image: MINDMAP_TAB_ICON, label: 'Mind Map', key: 'mindmap' }
     : { icon: User, label: 'Profile', key: 'profile' },
 ];
 
@@ -58,20 +68,17 @@ export default function BottomNav({
 }: BottomNavProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const shouldAnimateEntranceOnMount = useRef(shouldAnimateEntrance).current;
   const entranceProgress = useRef(
-    new Animated.Value(shouldAnimateEntrance ? 0 : 1),
+    new Animated.Value(shouldAnimateEntranceOnMount ? 0 : 1),
   ).current;
-  const hasStartedEntrance = useRef(false);
 
   useEffect(() => {
-    if (!shouldAnimateEntrance || typeof jest !== 'undefined') {
-      if (!hasStartedEntrance.current) {
-        entranceProgress.setValue(1);
-      }
+    if (!shouldAnimateEntranceOnMount || typeof jest !== 'undefined') {
+      entranceProgress.setValue(1);
       return;
     }
 
-    hasStartedEntrance.current = true;
     entranceProgress.setValue(0);
 
     const animation = Animated.timing(entranceProgress, {
@@ -87,7 +94,7 @@ export default function BottomNav({
     return () => {
       animation.stop();
     };
-  }, [entranceProgress, shouldAnimateEntrance]);
+  }, [entranceProgress, shouldAnimateEntranceOnMount]);
 
   const barStyle = useMemo(
     () => ({
@@ -133,7 +140,7 @@ export default function BottomNav({
 
               if (item.primary) {
                 return (
-                  <Pressable
+                  <HapticPressable
                     key={item.key}
                     accessibilityRole="button"
                     accessibilityLabel={item.label}
@@ -149,14 +156,19 @@ export default function BottomNav({
                         { backgroundColor: theme.colors.primary },
                       ]}
                     >
-                      <Icon color={theme.colors.primaryForeground} size={24} />
+                      {Icon ? (
+                        <Icon
+                          color={theme.colors.primaryForeground}
+                          size={24}
+                        />
+                      ) : null}
                     </View>
-                  </Pressable>
+                  </HapticPressable>
                 );
               }
 
               return (
-                <Pressable
+                <HapticPressable
                   key={item.key}
                   accessibilityRole="button"
                   accessibilityLabel={item.label}
@@ -174,15 +186,22 @@ export default function BottomNav({
                       ]}
                     />
                   ) : null}
-                  <Icon
-                    size={20}
-                    color={
-                      isActive
-                        ? theme.colors.primary
-                        : theme.colors.mutedForeground
-                    }
-                    style={styles.tabIcon}
-                  />
+                  {Icon ? (
+                    <Icon
+                      size={20}
+                      color={
+                        isActive
+                          ? theme.colors.primary
+                          : theme.colors.mutedForeground
+                      }
+                      style={styles.tabIcon}
+                    />
+                  ) : item.image ? (
+                    <Image
+                      source={item.image}
+                      style={[styles.tabIcon, styles.tabIconImage]}
+                    />
+                  ) : null}
                   <Text
                     style={[
                       styles.tabLabel,
@@ -195,7 +214,7 @@ export default function BottomNav({
                   >
                     {item.label}
                   </Text>
-                </Pressable>
+                </HapticPressable>
               );
             })}
           </View>
@@ -257,6 +276,11 @@ const styles = StyleSheet.create({
   tabIcon: {
     position: 'relative',
     zIndex: 1,
+  },
+  tabIconImage: {
+    width: 20,
+    height: 20,
+    resizeMode: 'contain',
   },
   tabLabel: {
     fontSize: 10,

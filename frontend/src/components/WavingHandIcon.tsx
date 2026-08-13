@@ -4,8 +4,8 @@ import {
   Animated,
   Easing,
   StyleSheet,
-  Text,
 } from 'react-native';
+import { Text } from '../infrastructure/reactNative';
 
 const WAVE_DELAY_MS = 220;
 const WAVE_OUT_DURATION_MS = 520;

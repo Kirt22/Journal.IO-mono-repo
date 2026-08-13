@@ -4,12 +4,10 @@ import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
   deletePrivacyAccountController,
   exportPrivacyDataController,
-  updatePrivacyAiOptOutController,
 } from "./privacy.controllers";
 import {
   deletePrivacyAccountSchema,
   exportPrivacyDataSchema,
-  updateAiOptOutSchema,
 } from "./privacy.validators";
 
 const privacyRouter: Router = Router();
@@ -26,13 +24,6 @@ privacyRouter.post(
   verifyJwtToken,
   validateRequest(deletePrivacyAccountSchema),
   deletePrivacyAccountController
-);
-
-privacyRouter.patch(
-  "/ai-opt-out",
-  verifyJwtToken,
-  validateRequest(updateAiOptOutSchema),
-  updatePrivacyAiOptOutController
 );
 
 export default privacyRouter;

@@ -3,15 +3,21 @@ import test, { afterEach } from "node:test";
 import { journalModel } from "../../schema/journal.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { insightsModel } from "../../schema/insights.schema";
+import { mindMapEntryScoreModel } from "../../schema/mindMapEntryScore.schema";
+import { entryInsightModel } from "../../schema/entryInsight.schema";
+import { userMemoryModel } from "../../schema/userMemory.schema";
+import { patternNodeModel } from "../../schema/patternNode.schema";
+import { patternEdgeModel } from "../../schema/patternEdge.schema";
+import { jadeSessionModel } from "../../schema/jadeSession.schema";
+import { jadeMessageModel } from "../../schema/jadeMessage.schema";
 import { reminderModel } from "../../schema/reminder.schema";
 import { streaksModel } from "../../schema/streak.schema";
 import { statsModel } from "../../schema/stat.schema";
 import { userModel } from "../../schema/user.schema";
+import { widgetSessionModel } from "../../schema/widget_session.schema";
 import {
   deletePrivacyAccount,
   exportPrivacyData,
-  PremiumPrivacyModeRequiredError,
-  updatePrivacyAiOptOut,
 } from "./privacy.service";
 
 type QueryResult<T> = {
@@ -47,7 +53,6 @@ const reminderTarget = reminderModel as unknown as {
 
 const insightsTarget = insightsModel as unknown as {
   findOne: (...args: unknown[]) => QueryResult<unknown>;
-  updateOne: (...args: unknown[]) => Promise<unknown>;
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
@@ -61,6 +66,77 @@ const statsTarget = statsModel as unknown as {
   deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
 };
 
+const widgetSessionTarget = widgetSessionModel as unknown as {
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+const mindMapEntryScoreTarget = mindMapEntryScoreModel as unknown as {
+  find: (...args: unknown[]) => {
+    sort: (...args: unknown[]) => QueryResult<unknown[]>;
+  };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+// Defaults so the unconnected per-entry Mind Map collection is never hit.
+const defaultMindMapFind = () => ({
+  sort: () => ({ exec: async () => [] as unknown[] }),
+});
+const defaultMindMapDeleteMany = () => ({
+  exec: async () => ({ deletedCount: 0 }),
+});
+mindMapEntryScoreTarget.find = defaultMindMapFind;
+mindMapEntryScoreTarget.deleteMany = defaultMindMapDeleteMany;
+
+const entryInsightTarget = entryInsightModel as unknown as {
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+// Default so the unconnected per-entry insight collection is never hit.
+const defaultEntryInsightDeleteMany = () => ({
+  exec: async () => ({ deletedCount: 0 }),
+});
+entryInsightTarget.deleteMany = defaultEntryInsightDeleteMany;
+
+const userMemoryTarget = userMemoryModel as unknown as {
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+// Default so the unconnected long-term memory collection is never hit.
+const defaultUserMemoryDeleteMany = () => ({
+  exec: async () => ({ deletedCount: 0 }),
+});
+userMemoryTarget.deleteMany = defaultUserMemoryDeleteMany;
+
+const patternNodeTarget = patternNodeModel as unknown as {
+  find: (...args: unknown[]) => { sort: (...args: unknown[]) => QueryResult<unknown[]> };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+const patternEdgeTarget = patternEdgeModel as unknown as {
+  find: (...args: unknown[]) => { sort: (...args: unknown[]) => QueryResult<unknown[]> };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+// Defaults so the unconnected pattern graph collections are never hit.
+const defaultGraphFind = () => ({
+  sort: () => ({ exec: async () => [] as unknown[] }),
+});
+const defaultGraphDeleteMany = () => ({
+  exec: async () => ({ deletedCount: 0 }),
+});
+patternNodeTarget.find = defaultGraphFind;
+patternNodeTarget.deleteMany = defaultGraphDeleteMany;
+patternEdgeTarget.find = defaultGraphFind;
+patternEdgeTarget.deleteMany = defaultGraphDeleteMany;
+
+const jadeSessionTarget = jadeSessionModel as unknown as {
+  find: (...args: unknown[]) => { sort: (...args: unknown[]) => QueryResult<unknown[]> };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+const jadeMessageTarget = jadeMessageModel as unknown as {
+  find: (...args: unknown[]) => { sort: (...args: unknown[]) => QueryResult<unknown[]> };
+  deleteMany: (...args: unknown[]) => QueryResult<{ deletedCount?: number }>;
+};
+// Defaults so the unconnected Ask Jade collections are never hit.
+jadeSessionTarget.find = defaultGraphFind;
+jadeSessionTarget.deleteMany = defaultGraphDeleteMany;
+jadeMessageTarget.find = defaultGraphFind;
+jadeMessageTarget.deleteMany = defaultGraphDeleteMany;
+
 const originalFindById = userTarget.findById;
 const originalUpdateOne = userTarget.updateOne;
 const originalDeleteOne = userTarget.deleteOne;
@@ -71,34 +147,12 @@ const originalMoodDeleteMany = moodTarget.deleteMany;
 const originalReminderFind = reminderTarget.find;
 const originalReminderDeleteMany = reminderTarget.deleteMany;
 const originalInsightsFindOne = insightsTarget.findOne;
-const originalInsightsUpdateOne = insightsTarget.updateOne;
 const originalInsightsDeleteMany = insightsTarget.deleteMany;
 const originalStreakFindOne = streakTarget.findOne;
 const originalStreakDeleteMany = streakTarget.deleteMany;
 const originalStatsFindOne = statsTarget.findOne;
 const originalStatsDeleteMany = statsTarget.deleteMany;
-
-const mockUserAiAccess = (isPremium: boolean, aiOptIn = true) => {
-  userTarget.findById = ((() => ({
-    select: () => ({
-      lean: () => ({
-        exec: async () => ({
-          isPremium,
-          ...(isPremium
-            ? {
-                premiumPlanKey: "yearly",
-                premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
-                premiumSource: "revenuecat_verified",
-              }
-            : {}),
-          onboardingContext: {
-            aiOptIn,
-          },
-        }),
-      }),
-    }),
-  })) as unknown) as typeof userTarget.findById;
-};
+const originalWidgetSessionDeleteMany = widgetSessionTarget.deleteMany;
 
 afterEach(() => {
   userTarget.findById = originalFindById;
@@ -111,12 +165,24 @@ afterEach(() => {
   reminderTarget.find = originalReminderFind;
   reminderTarget.deleteMany = originalReminderDeleteMany;
   insightsTarget.findOne = originalInsightsFindOne;
-  insightsTarget.updateOne = originalInsightsUpdateOne;
   insightsTarget.deleteMany = originalInsightsDeleteMany;
   streakTarget.findOne = originalStreakFindOne;
   streakTarget.deleteMany = originalStreakDeleteMany;
   statsTarget.findOne = originalStatsFindOne;
   statsTarget.deleteMany = originalStatsDeleteMany;
+  widgetSessionTarget.deleteMany = originalWidgetSessionDeleteMany;
+  mindMapEntryScoreTarget.find = defaultMindMapFind;
+  mindMapEntryScoreTarget.deleteMany = defaultMindMapDeleteMany;
+  entryInsightTarget.deleteMany = defaultEntryInsightDeleteMany;
+  userMemoryTarget.deleteMany = defaultUserMemoryDeleteMany;
+  patternNodeTarget.find = defaultGraphFind;
+  patternNodeTarget.deleteMany = defaultGraphDeleteMany;
+  patternEdgeTarget.find = defaultGraphFind;
+  patternEdgeTarget.deleteMany = defaultGraphDeleteMany;
+  jadeSessionTarget.find = defaultGraphFind;
+  jadeSessionTarget.deleteMany = defaultGraphDeleteMany;
+  jadeMessageTarget.find = defaultGraphFind;
+  jadeMessageTarget.deleteMany = defaultGraphDeleteMany;
 });
 
 test("exportPrivacyData returns the authenticated user's data export", async () => {
@@ -137,7 +203,6 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
           goals: ["Daily Reflection"],
           supportFocus: ["Stress"],
           reminderPreference: "Evening",
-          aiOptIn: true,
           privacyConsentAccepted: true,
         },
         avatarColor: "#8E4636",
@@ -161,6 +226,14 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
             type: "journal",
             aiPrompt: null,
             tags: ["calm"],
+            detectedTopics: ["calm", "focus"],
+            detectedMood: "good",
+            sessionAnalysisSnapshot: {
+              analysis: { analysis: "A saved session read." },
+              source: "open_ended",
+              version: 1,
+              generatedAt: new Date("2026-04-02T08:10:00.000Z"),
+            },
             images: [],
             isFavorite: false,
             createdAt: new Date("2026-04-02T08:00:00.000Z"),
@@ -247,20 +320,80 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
     }),
   });
 
+  patternNodeTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          toObject: () => ({
+            key: "eats-while-watching-shows",
+            kind: "pattern",
+            label: "eats while watching shows",
+            rationale: "Meals happen with a screen on.",
+            evidenceQuote: "I put a show on and eat.",
+            occurrences: 6,
+            confidence: 0.8,
+            sourceKinds: ["journal"],
+            firstSeenAt: new Date("2026-03-30T00:00:00.000Z"),
+            lastSeenAt: new Date("2026-04-02T00:00:00.000Z"),
+          }),
+        },
+      ],
+    }),
+  });
+  patternEdgeTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          toObject: () => ({
+            fromKey: "eats-while-watching-shows",
+            toKey: "eating-past-fullness",
+            type: "reinforces",
+            source: "ai_inferred",
+            rationale: "Attention is on the screen, so fullness lands late.",
+            observations: 4,
+            confidence: 0.75,
+            firstSeenAt: new Date("2026-03-30T00:00:00.000Z"),
+            lastSeenAt: new Date("2026-04-02T00:00:00.000Z"),
+          }),
+        },
+      ],
+    }),
+  });
+
   const result = await exportPrivacyData("user-123");
 
   assert.ok(result);
   assert.equal(result?.account.userId, "user-123");
   assert.equal(result?.journalEntries.length, 1);
+  assert.equal(result?.journalEntries[0]?.entryKind, "journal");
+  assert.deepEqual(result?.journalEntries[0]?.tags, ["calm"]);
+  assert.deepEqual(result?.journalEntries[0]?.detectedTopics, ["calm", "focus"]);
+  assert.equal(result?.journalEntries[0]?.detectedMood, "good");
+  assert.equal(
+    (result?.journalEntries[0]?.sessionAnalysisSnapshot?.analysis as {
+      analysis?: string;
+    })?.analysis,
+    "A saved session read."
+  );
   assert.equal(result?.moodCheckIns.length, 1);
   assert.equal(result?.reminders.length, 1);
   assert.equal(result?.insights?.totalEntries, 3);
   assert.equal(result?.streak?.streak, 4);
   assert.equal(result?.stats?.journalsWritten, 3);
+  // A user is entitled to see the patterns the app concluded about them, and
+  // the connections it drew between them.
+  assert.equal(result?.patternGraph.nodes.length, 1);
+  assert.equal(result?.patternGraph.nodes[0]?.label, "eats while watching shows");
+  assert.equal(result?.patternGraph.edges.length, 1);
+  assert.equal(result?.patternGraph.edges[0]?.type, "reinforces");
 });
 
 test("deletePrivacyAccount removes all user-owned records", async () => {
-  userTarget.updateOne = async () => ({ acknowledged: true });
+  const userUpdates: unknown[][] = [];
+  userTarget.updateOne = async (...args) => {
+    userUpdates.push(args);
+    return { acknowledged: true };
+  };
   userTarget.deleteOne = () => ({
     exec: async () => ({ deletedCount: 1 }),
   });
@@ -282,6 +415,28 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   statsTarget.deleteMany = () => ({
     exec: async () => ({ deletedCount: 1 }),
   });
+  userMemoryTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 1 }),
+  });
+  patternNodeTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 7 }),
+  });
+  patternEdgeTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 12 }),
+  });
+  jadeSessionTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 3 }),
+  });
+  jadeMessageTarget.deleteMany = () => ({
+    exec: async () => ({ deletedCount: 26 }),
+  });
+  const revokedWidgetQueries: unknown[] = [];
+  widgetSessionTarget.deleteMany = query => ({
+    exec: async () => {
+      revokedWidgetQueries.push(query);
+      return { deletedCount: 1 };
+    },
+  });
 
   const result = await deletePrivacyAccount("user-123");
 
@@ -292,36 +447,21 @@ test("deletePrivacyAccount removes all user-owned records", async () => {
   assert.equal(result.deletedInsights, 1);
   assert.equal(result.deletedStreaks, 1);
   assert.equal(result.deletedStats, 1);
-});
-
-test("updatePrivacyAiOptOut updates the stored AI preference", async () => {
-  mockUserAiAccess(true);
-  userTarget.updateOne = async () => ({ matchedCount: 1 });
-  const insightUpdates: unknown[] = [];
-  insightsTarget.updateOne = async (...args) => {
-    insightUpdates.push(args);
-    return { matchedCount: 1 };
-  };
-
-  const result = await updatePrivacyAiOptOut("user-123", true);
-
-  assert.ok(result);
-  assert.equal(result?.aiOptIn, false);
-  assert.equal(insightUpdates.length, 1);
-});
-
-test("updatePrivacyAiOptOut rejects non-premium users", async () => {
-  mockUserAiAccess(false);
-
-  await assert.rejects(
-    () => updatePrivacyAiOptOut("user-123", true),
-    (error: unknown) => {
-      assert.ok(error instanceof PremiumPrivacyModeRequiredError);
-      assert.equal(
-        (error as Error).message,
-        "Privacy Mode is available with Premium."
-      );
-      return true;
-    }
-  );
+  assert.equal(result.deletedUserMemories, 1);
+  // The graph holds derived conclusions about the person, so deleting an
+  // account has to take it with everything else.
+  assert.equal(result.deletedPatternNodes, 7);
+  assert.equal(result.deletedPatternEdges, 12);
+  assert.equal(result.deletedJadeSessions, 3);
+  assert.equal(result.deletedJadeMessages, 26);
+  assert.deepEqual(revokedWidgetQueries, [{ userId: "user-123" }]);
+  assert.deepEqual(userUpdates[0]?.[1], {
+    $set: {
+      refreshTokenHash: null,
+      refreshTokenExpiresAt: null,
+    },
+    $inc: {
+      widgetSessionVersion: 1,
+    },
+  });
 });

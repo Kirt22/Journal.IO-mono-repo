@@ -10,7 +10,9 @@ export type CalendarEntry = {
   title: string;
   content: string;
   tags: string[];
+  detectedTopics?: string[];
   type: string;
+  entryKind?: JournalEntry["entryKind"];
   isFavorite: boolean;
   tone: CalendarEntryTone;
   icon: typeof Heart;
@@ -239,9 +241,11 @@ export const calendarSampleJournalEntries: JournalEntry[] = calendarSampleEntrie
     title: entry.title,
     content: entry.content,
     type: entry.type,
+    entryKind: entry.entryKind,
     aiPrompt: null,
     images: [],
     tags: entry.tags,
+    detectedTopics: entry.detectedTopics || entry.tags,
     createdAt: entry.createdAt,
     updatedAt: entry.createdAt,
   })
@@ -257,7 +261,9 @@ export function toCalendarEntry(entry: JournalEntry): CalendarEntry {
     title: entry.title,
     content: entry.content,
     type: entry.type,
+    entryKind: entry.entryKind,
     tags: entry.tags,
+    detectedTopics: entry.detectedTopics || [],
     isFavorite: entry.isFavorite ?? decoration.isFavorite,
     tone: decoration.tone,
     icon: decoration.icon,

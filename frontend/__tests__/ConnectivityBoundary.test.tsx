@@ -46,7 +46,6 @@ const setCachedAuthenticatedSession = () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       },
     },
   });

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
-  ActivityIndicator,
   Animated,
   Easing,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import JournalLoader from './JournalLoader';
 
 type ButtonLoadingContentProps = {
   children: ReactNode;
@@ -118,7 +118,7 @@ export default function ButtonLoadingContent({
         pointerEvents="none"
         style={[styles.loader, loaderAnimatedStyle]}
       >
-        {loader ?? <ActivityIndicator color={loaderColor} size={loaderSize} />}
+        {loader ?? <JournalLoader color={loaderColor} size={loaderSize} />}
       </Animated.View>
     </View>
   );

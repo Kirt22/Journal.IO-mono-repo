@@ -6,12 +6,18 @@ import {
   createGoalSuggestionsController,
   deleteGoalController,
   getGoalsController,
+  setGoalCompletionController,
+  setGoalStatusController,
+  updateGoalController,
 } from "./goals.controllers";
 import {
   createGoalSchema,
   createGoalSuggestionsSchema,
   deleteGoalSchema,
   getGoalsSchema,
+  setGoalCompletionSchema,
+  setGoalStatusSchema,
+  updateGoalSchema,
 } from "./goals.validators";
 
 const goalsRouter = Router();
@@ -28,6 +34,29 @@ goalsRouter.post(
   verifyJwtToken,
   validateRequest(createGoalSchema),
   createGoalController
+);
+
+// Sub-paths MUST stay registered before the bare "/:goalId" patch route, or
+// Express matches "completion"/"status" as a goalId.
+goalsRouter.patch(
+  "/:goalId/completion",
+  verifyJwtToken,
+  validateRequest(setGoalCompletionSchema),
+  setGoalCompletionController
+);
+
+goalsRouter.patch(
+  "/:goalId/status",
+  verifyJwtToken,
+  validateRequest(setGoalStatusSchema),
+  setGoalStatusController
+);
+
+goalsRouter.patch(
+  "/:goalId",
+  verifyJwtToken,
+  validateRequest(updateGoalSchema),
+  updateGoalController
 );
 
 goalsRouter.delete(

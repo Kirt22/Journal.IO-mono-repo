@@ -9,11 +9,11 @@ export type FlowStage =
   | "reset-password"
   | "create-account"
   | "verify-email"
-  | "profile"
   | "main-app"
   | "new-entry"
   | "journal-detail"
   | "journal-edit"
+  | "ask-jade"
   | "complete";
 
 export type AuthEntrySource = "email" | "google" | "apple";

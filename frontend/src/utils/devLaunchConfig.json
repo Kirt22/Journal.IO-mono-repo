@@ -2,6 +2,5 @@
   "stage": "onboarding",
   "activeTab": "home",
   "email": null,
-  "apiBaseUrl": "http://192.168.1.226:3001/api/v1",
-  "enableBiometricLockForTesting": true
+  "apiBaseUrl": "http://192.168.1.226:3001/api/v1"
 }

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Keychain from "react-native-keychain";
 import {
   clearCachedAuthUser,
   getCachedAuthUser,
@@ -22,16 +23,16 @@ describe("authSessionCache", () => {
       profileSetupCompleted: true,
       onboardingCompleted: true,
       profilePic: null,
-      aiOptIn: true,
     };
 
     await saveCachedAuthUser(user);
 
-    const serializedValue = (AsyncStorage.setItem as jest.Mock).mock.calls[0][1];
+    const serializedValue = (Keychain.setGenericPassword as jest.Mock).mock.calls[0][1];
 
     expect(serializedValue).toBe(JSON.stringify(user));
     expect(serializedValue).not.toContain("accessToken");
     expect(serializedValue).not.toContain("refreshToken");
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
   });
 
   it("returns a valid cached profile and clears it when requested", async () => {
@@ -46,14 +47,18 @@ describe("authSessionCache", () => {
       profileSetupCompleted: true,
       onboardingCompleted: true,
       profilePic: null,
-      aiOptIn: true,
     };
 
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(user));
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue({
+      password: JSON.stringify(user),
+      service: "journalio.auth.user.secure",
+      username: "secure",
+    });
 
     await expect(getCachedAuthUser()).resolves.toEqual(user);
 
     await clearCachedAuthUser();
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
+    expect(Keychain.resetGenericPassword).toHaveBeenCalled();
   });
 });

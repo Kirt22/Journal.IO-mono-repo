@@ -1,27 +1,55 @@
+import mongoose from "mongoose";
 import { journalModel, type IJournal } from "../../schema/journal.schema";
 import { z } from "zod";
 import {
   canUseOpenAiForUser,
   getUserAiAccessState,
+  requestEmbedding,
   requestStructuredOpenAi,
 } from "../../helpers/openai.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
+import { normalizeJournalEntryKind } from "../../helpers/journalEntryKind.helpers";
+import { filterReservedJournalTags } from "../../helpers/journalTags.helpers";
 import {
   detectJournalSafetySignal,
   hasJournalSafetySignal,
   type JournalSafetySignal,
 } from "../../helpers/journalSafety.helpers";
 import {
+  AI_EXTRACTION_BALANCE_GUIDANCE,
+  AI_REFLECTION_BALANCE_GUIDANCE,
+} from "../../helpers/aiReflectionBalance.helpers";
+import { buildUserPersonalization } from "../../helpers/userPersonalization.helpers";
+import {
+  detectEntryMetadataHeuristically,
+  normalizeDetectedTopics,
+} from "../../helpers/entryMetadata.helpers";
+import {
+  createGuidedReflectionSessionAnalysis,
+  type GuidedReflectionSessionAnalysisResponse,
+} from "../guided-reflection/guided-reflection.service";
+import {
+  markUserMindMapStale,
   syncJournalCreatedInsights,
   syncJournalDeletedInsights,
   syncJournalUpdatedInsights,
 } from "../insights/insights.service";
+import {
+  deleteEntryScore,
+  persistEntryScore,
+  runEntryAiScore,
+  setEntryScoreFavorite,
+} from "../mindmap/mindmap.service";
+import { buildUserReflectionMemory } from "../mindmap/entryInsight.service";
 import type {
   CreateJournalInput,
   JournalTagSuggestionsResponse,
   JournalQuickAnalysisInput,
   JournalQuickAnalysisResponse,
+  JournalSessionAnalysisInput,
   JournalEntryResponse,
+  JournalListInput,
+  JournalListResponse,
   JournalLookupInput,
   JournalEntryMode,
   SuggestJournalTagsInput,
@@ -29,13 +57,24 @@ import type {
   UpdateJournalInput,
 } from "../../types/journal.types";
 import type { InsightTone } from "../../types/insights.types";
+import {
+  isStaleSessionAnalysisSnapshot,
+  persistJournalSessionAnalysisSnapshot,
+} from "./journalMetadata.service";
 
 const journalTagKeywords: Record<string, string[]> = {
   gratitude: ["grateful", "thankful", "appreciate", "blessed", "thanks"],
   anxiety: ["anxious", "worried", "nervous", "stress", "panic", "overwhelm"],
   happiness: ["happy", "joy", "excited", "wonderful", "amazing", "great"],
   sadness: ["sad", "cry", "lonely", "grief", "down", "upset"],
-  reflection: ["think", "reflect", "realize", "learn", "insight", "looking back"],
+  reflection: [
+    "think",
+    "reflect",
+    "realize",
+    "learn",
+    "insight",
+    "looking back",
+  ],
   goals: ["goal", "plan", "achieve", "dream", "hope to", "aim"],
   mindfulness: ["mindful", "present", "breathe", "meditate", "calm", "peace"],
   "self-care": [
@@ -134,11 +173,19 @@ const journalQuickAnalysisSchema = z.object({
     description: z.string().trim().min(1).max(180),
     focus: z.string().trim().min(1).max(36),
   }),
+  connection: z.string().trim().max(200).nullable(),
 });
 const journalQuickAnalysisJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "scorecard", "patternTags", "signals", "nextStep"],
+  required: [
+    "summary",
+    "scorecard",
+    "patternTags",
+    "signals",
+    "nextStep",
+    "connection",
+  ],
   properties: {
     summary: {
       type: "object",
@@ -275,18 +322,28 @@ const journalQuickAnalysisJsonSchema = {
         focus: { type: "string" },
       },
     },
+    connection: { type: ["string", "null"] },
   },
 } satisfies Record<string, unknown>;
 
-const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const positiveMoodTags = new Set(["gratitude", "happiness", "mindfulness", "growth"]);
+const escapeRegex = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const positiveMoodTags = new Set([
+  "gratitude",
+  "happiness",
+  "mindfulness",
+  "growth",
+]);
 const negativeCueExpressions = [
   /\bnot\s+(?:that\s+)?(grateful|thankful|happy|excited|calm|good|great|well)\b/gi,
   /\b(?:no|never)\s+(gratitude|joy|energy|motivation|hope)\b/gi,
   /\btoo\s+(tired|drained|exhausted)\b/gi,
   /\b(?:don't|do not|didn't|did not|can't|cannot|couldn't|could not)\s+feel\s+(good|well|calm|happy)\b/gi,
 ];
-const moodBoosts: Record<NonNullable<SuggestJournalTagsInput["mood"]>, string[]> = {
+const moodBoosts: Record<
+  NonNullable<SuggestJournalTagsInput["mood"]>,
+  string[]
+> = {
   amazing: [],
   good: [],
   okay: [],
@@ -313,6 +370,16 @@ const quickAnalysisToneByTag: Record<string, InsightTone> = {
 const normalizeJournalEntryMode = (value?: string | null): JournalEntryMode =>
   value === "guided" ? "guided" : "open_ended";
 
+const getJournalAnalysisTags = (
+  journal: Pick<IJournal, "tags" | "detectedTopics">
+) =>
+  filterReservedJournalTags([
+    ...(journal.tags || []),
+    ...(journal.detectedTopics || []),
+  ]).filter(
+    (tag, index, allTags) => Boolean(tag) && allTags.indexOf(tag) === index
+  );
+
 const scoreKeywordMatches = (content: string, keyword: string) => {
   const expression = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "gi");
   const matches = [...content.matchAll(expression)];
@@ -321,7 +388,10 @@ const scoreKeywordMatches = (content: string, keyword: string) => {
 
   for (const match of matches) {
     const startIndex = match.index ?? 0;
-    const contextWindow = content.slice(Math.max(0, startIndex - 18), startIndex);
+    const contextWindow = content.slice(
+      Math.max(0, startIndex - 18),
+      startIndex
+    );
     const negatedContext =
       /\b(?:not|no|never|hardly|barely)\s+$/.test(contextWindow) ||
       /\bnot\s+that\s+$/.test(contextWindow);
@@ -370,19 +440,19 @@ const formatTagLabel = (tag: string) =>
   tag
     .split(/[\s_-]+/)
     .filter(Boolean)
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
 
 const getMoodTag = (tags: string[]) =>
   tags
-    .map(tag => tag.trim().toLowerCase())
-    .find(tag => tag.startsWith("mood:"))
+    .map((tag) => tag.trim().toLowerCase())
+    .find((tag) => tag.startsWith("mood:"))
     ?.slice("mood:".length) || null;
 
 const getVisibleJournalTags = (tags: string[]) =>
-  tags
-    .map(tag => tag.trim().toLowerCase())
-    .filter(tag => Boolean(tag) && !tag.startsWith("mood:"));
+  filterReservedJournalTags(tags)
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => Boolean(tag) && !tag.startsWith("mood:"));
 
 const getQuickAnalysisTone = (tag: string): InsightTone =>
   quickAnalysisToneByTag[tag] || "blue";
@@ -431,20 +501,25 @@ const buildHeuristicJournalTagSuggestions = ({
   mood,
 }: Omit<SuggestJournalTagsInput, "userId">): JournalTagSuggestionsResponse => {
   const normalizedContent = content.trim().toLowerCase();
-  const existingTagSet = new Set(selectedTags.map(tag => tag.trim().toLowerCase()).filter(Boolean));
+  const existingTagSet = new Set(
+    selectedTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+  );
   const negativeCueCount = countNegativeCues(normalizedContent);
 
   const scoredTags = Object.entries(journalTagKeywords)
     .map(([tag, keywords]) => {
       const score = keywords.reduce((total, keyword) => {
-        const { positiveMatches, negatedMatches } = scoreKeywordMatches(normalizedContent, keyword);
+        const { positiveMatches, negatedMatches } = scoreKeywordMatches(
+          normalizedContent,
+          keyword
+        );
 
         return total + positiveMatches - negatedMatches;
       }, 0);
 
       return { tag, score };
     })
-    .map(item => {
+    .map((item) => {
       let nextScore = item.score;
 
       if (positiveMoodTags.has(item.tag) && negativeCueCount > 0) {
@@ -460,7 +535,7 @@ const buildHeuristicJournalTagSuggestions = ({
         score: nextScore,
       };
     })
-    .filter(item => item.score > 0 && !existingTagSet.has(item.tag))
+    .filter((item) => item.score > 0 && !existingTagSet.has(item.tag))
     .sort((left, right) => {
       if (right.score !== left.score) {
         return right.score - left.score;
@@ -469,7 +544,7 @@ const buildHeuristicJournalTagSuggestions = ({
       return left.tag.localeCompare(right.tag);
     })
     .slice(0, 5)
-    .map(item => item.tag);
+    .map((item) => item.tag);
 
   if (scoredTags.length > 0) {
     return { tags: scoredTags };
@@ -492,7 +567,9 @@ const generateOpenAiJournalTags = async ({
     return null;
   }
 
-  const existingTagSet = new Set(selectedTags.map(tag => tag.trim().toLowerCase()).filter(Boolean));
+  const existingTagSet = new Set(
+    selectedTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean)
+  );
   const aiResponse = await requestStructuredOpenAi({
     feature: "journal tag suggestions",
     schemaName: "journal_tag_suggestions",
@@ -502,8 +579,10 @@ const generateOpenAiJournalTags = async ({
     messages: [
       {
         role: "system",
-        content:
+        content: [
           "You select Journal.IO tags for a draft journal entry. Use only the allowed tags provided. Base tags on what the user actually describes, not on prompt words they may be answering. If positive words appear in a negated or distressed sentence, do not choose the positive tag. Prefer emotional accuracy, specificity, and calm behavioral framing.",
+          AI_EXTRACTION_BALANCE_GUIDANCE,
+        ].join(" "),
       },
       {
         role: "user",
@@ -539,13 +618,6 @@ class PremiumQuickAnalysisRequiredError extends Error {
   }
 }
 
-class QuickAnalysisDisabledError extends Error {
-  constructor() {
-    super("Quick analysis is turned off for your account.");
-    this.name = "QuickAnalysisDisabledError";
-  }
-}
-
 const ensureQuickAnalysisAccess = async (userId: string) => {
   const accessState = await getUserAiAccessState(userId);
 
@@ -553,17 +625,18 @@ const ensureQuickAnalysisAccess = async (userId: string) => {
     throw new PremiumQuickAnalysisRequiredError();
   }
 
-  if (accessState.aiOptIn === false) {
-    throw new QuickAnalysisDisabledError();
-  }
 };
 
-const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnalysisResponse => {
+const buildHeuristicJournalQuickAnalysis = (
+  journal: IJournal
+): JournalQuickAnalysisResponse => {
   const textQuality = analyzeJournalTextQuality({
     content: journal.content || "",
     aiPrompt: journal.aiPrompt,
   });
-  const safetySignal = detectJournalSafetySignal(textQuality.analysisText || journal.content || "");
+  const safetySignal = detectJournalSafetySignal(
+    textQuality.analysisText || journal.content || ""
+  );
 
   if (hasJournalSafetySignal(safetySignal)) {
     return buildSafetyJournalQuickAnalysis({
@@ -598,13 +671,13 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
           ...(primaryMoodLabel ? [primaryMoodLabel.toLowerCase()] : []),
         ]
       : patternTagKeys.length
-        ? patternTagKeys
-        : primaryMoodLabel
-          ? [primaryMoodLabel.toLowerCase()]
-          : ["reflection"]
+      ? patternTagKeys
+      : primaryMoodLabel
+      ? [primaryMoodLabel.toLowerCase()]
+      : ["reflection"]
   )
     .slice(0, 3)
-    .map(tag => ({
+    .map((tag) => ({
       label: formatTagLabel(tag),
       tone:
         tag === "prompt carryover" || tag === "low signal"
@@ -617,8 +690,8 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
       ? "Prompt carryover"
       : "Low signal"
     : primaryTag
-      ? formatTagLabel(primaryTag)
-      : "Reflection";
+    ? formatTagLabel(primaryTag)
+    : "Reflection";
   const moodLabel = getQuickAnalysisMoodLabel(moodTag);
   const moodTone = getQuickAnalysisMoodTone(moodTag);
   const depthLabel = textQuality.lowSignalDetected
@@ -629,12 +702,12 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
       ? "Prompt-led note"
       : "Unclear note"
     : moodTag === "bad" || moodTag === "terrible"
-      ? "Heavy moment"
-      : moodTag === "amazing" || moodTag === "good"
-        ? "Steadier moment"
-        : wordCount >= 90
-          ? "Thoughtful unpack"
-          : "Quiet check-in";
+    ? "Heavy moment"
+    : moodTag === "amazing" || moodTag === "good"
+    ? "Steadier moment"
+    : wordCount >= 90
+    ? "Thoughtful unpack"
+    : "Quiet check-in";
 
   let summaryHeadline = "A clear emotional thread showed up here";
   let summaryNarrative =
@@ -662,7 +735,8 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
   } else if (primaryMoodLabel) {
     summaryHeadline = `${primaryMoodLabel} energy came through clearly here`;
     summaryNarrative = `This entry reads like a ${primaryMoodLabel.toLowerCase()} check-in. The language may indicate you were naming the moment honestly, even if the bigger pattern is still unfolding.`;
-    summaryHighlight = "The emotional tone is already clear enough here to build a useful next step from it.";
+    summaryHighlight =
+      "The emotional tone is already clear enough here to build a useful next step from it.";
   }
 
   let nextStepTitle = "Name the need underneath it";
@@ -676,7 +750,10 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
       ? "Keep the prompt if it helps, but add one direct sentence in your own words about what actually happened and how it landed."
       : "Next time, add one clear sentence about what happened, one about how it felt, and one about what you needed right after.";
     nextStepFocus = "Specificity";
-  } else if (visibleTags.includes("self-care") || visibleTags.includes("anxiety")) {
+  } else if (
+    visibleTags.includes("self-care") ||
+    visibleTags.includes("anxiety")
+  ) {
     nextStepTitle = "Track what steadied you";
     nextStepDescription =
       "Next time, note one small thing that helped you feel safer, steadier, or more supported so the pattern is easier to reuse.";
@@ -707,7 +784,9 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
           ? "Most of the usable text still looks shaped by the prompt itself, so the strongest signal here is that the entry needs more of your own wording."
           : "The entry does not hold enough grounded detail yet for Journal.IO to treat it like a strong emotional or topic signal.",
         evidence: [
-          textQuality.promptEchoDetected ? "Prompt echo detected" : "Low-signal text",
+          textQuality.promptEchoDetected
+            ? "Prompt echo detected"
+            : "Low-signal text",
           `${wordCount} usable words`,
         ],
         tone: "slate" as const,
@@ -734,7 +813,9 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
             ? "Prompt carryover or filler text is making the entry hard to read, so any deeper interpretation would risk overreaching."
             : "The wording is too thin or too noisy right now, so the useful next move is clarity rather than a bigger interpretation.",
           evidence: [
-            textQuality.promptEchoDetected ? "Prompt carryover" : "Low-signal note",
+            textQuality.promptEchoDetected
+              ? "Prompt carryover"
+              : "Low-signal note",
             depthLabel,
           ],
           tone: "slate" as const,
@@ -744,28 +825,28 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
             moodTag === "bad" || moodTag === "terrible"
               ? "This moment deserves a softer read"
               : visibleTags.includes("work")
-                ? "Pressure looked close to the surface"
-                : "There may be a subtle friction point here",
+              ? "Pressure looked close to the surface"
+              : "There may be a subtle friction point here",
           description:
             moodTag === "bad" || moodTag === "terrible"
               ? "The entry carries enough strain that it makes sense to treat this as a real stress moment, not something to brush past."
               : visibleTags.includes("work") || visibleTags.includes("goals")
-                ? "The writing suggests responsibility or pressure may have been crowding the page a bit."
-                : "Nothing looks extreme here, but there is still a useful tension point to notice before it turns repetitive.",
+              ? "The writing suggests responsibility or pressure may have been crowding the page a bit."
+              : "Nothing looks extreme here, but there is still a useful tension point to notice before it turns repetitive.",
           evidence: [
             moodLabel,
             visibleTags.includes("work")
               ? "Work"
               : visibleTags.includes("self-care")
-                ? "Self Care"
-                : depthLabel,
+              ? "Self Care"
+              : depthLabel,
           ],
           tone:
             moodTag === "bad" || moodTag === "terrible"
               ? "slate"
               : visibleTags.includes("work") || visibleTags.includes("goals")
-                ? "amber"
-                : "blue",
+              ? "amber"
+              : "blue",
         }
   ) satisfies JournalQuickAnalysisResponse["signals"]["whatNeedsCare"];
 
@@ -776,7 +857,9 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
           description:
             "The useful move is not a deeper label right now. It is one cleaner pass in your own words so the next reflection has something solid to work with.",
           evidence: [
-            textQuality.promptEchoDetected ? "Use your own wording" : "Add concrete detail",
+            textQuality.promptEchoDetected
+              ? "Use your own wording"
+              : "Add concrete detail",
             "Specificity",
           ],
           tone: "coral" as const,
@@ -790,10 +873,7 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
             visibleTags.includes("gratitude") || visibleTags.includes("growth")
               ? "The entry does not just flag friction. It also shows a thread that could help you build the next reflection with a little more steadiness."
               : "You already named this moment clearly enough to work with. That kind of directness is what makes the next entry more useful, too.",
-          evidence: [
-            depthLabel,
-            primaryTag ? focusLabel : "Reflection",
-          ],
+          evidence: [depthLabel, primaryTag ? focusLabel : "Reflection"],
           tone:
             visibleTags.includes("gratitude") || visibleTags.includes("growth")
               ? "sage"
@@ -814,8 +894,8 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
         moodTag === "bad" || moodTag === "terrible"
           ? "slate"
           : moodTag === "amazing" || moodTag === "good"
-            ? "sage"
-            : "blue",
+          ? "sage"
+          : "blue",
       cards: [
         {
           key: "words",
@@ -836,14 +916,18 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
           tone: textQuality.lowSignalDetected
             ? "slate"
             : primaryTag
-              ? getQuickAnalysisTone(primaryTag)
-              : "coral",
+            ? getQuickAnalysisTone(primaryTag)
+            : "coral",
         },
         {
           key: "depth",
           label: "Depth",
           value: depthLabel,
-          tone: textQuality.lowSignalDetected ? "slate" : wordCount >= 70 ? "sage" : "amber",
+          tone: textQuality.lowSignalDetected
+            ? "slate"
+            : wordCount >= 70
+            ? "sage"
+            : "amber",
         },
       ],
     },
@@ -858,6 +942,7 @@ const buildHeuristicJournalQuickAnalysis = (journal: IJournal): JournalQuickAnal
       description: nextStepDescription,
       focus: nextStepFocus,
     },
+    connection: null,
     generatedAt: new Date().toISOString(),
   };
 };
@@ -881,7 +966,9 @@ const buildSafetyJournalQuickAnalysis = ({
   const highlight = isSelfHarm
     ? "If you might act on this or feel unable to stay safe, contact emergency services now. In the U.S. or Canada, call or text 988."
     : "If someone could be hurt, create distance from the situation and contact local emergency services or a trusted person now.";
-  const supportTitle = isSelfHarm ? "Get support now" : "Pause and create distance";
+  const supportTitle = isSelfHarm
+    ? "Get support now"
+    : "Pause and create distance";
   const supportDescription = isSelfHarm
     ? "Reach out to a trusted person or crisis support before continuing to analyze this entry. The priority is immediate safety, not a deeper interpretation."
     : "Step away from the situation if possible and involve a trusted person or emergency support. The priority is preventing harm, not interpreting the entry.";
@@ -894,7 +981,8 @@ const buildSafetyJournalQuickAnalysis = ({
       highlight,
     },
     scorecard: {
-      vibeLabel: safetySignal.level === "urgent" ? "Urgent support" : "Support first",
+      vibeLabel:
+        safetySignal.level === "urgent" ? "Urgent support" : "Support first",
       vibeTone: "slate",
       cards: [
         {
@@ -938,7 +1026,12 @@ const buildSafetyJournalQuickAnalysis = ({
         title: "Safety matters more than interpretation",
         description:
           "The wording may point to immediate risk, so this reflection stays focused on support instead of drawing a behavioral conclusion.",
-        evidence: ["Safety signal", safetySignal.level === "urgent" ? "Urgent wording" : "Support wording"],
+        evidence: [
+          "Safety signal",
+          safetySignal.level === "urgent"
+            ? "Urgent wording"
+            : "Support wording",
+        ],
         tone: "slate",
       },
       whatNeedsCare: {
@@ -961,6 +1054,7 @@ const buildSafetyJournalQuickAnalysis = ({
       description: supportDescription,
       focus: "Safety",
     },
+    connection: null,
     generatedAt: new Date().toISOString(),
   };
 };
@@ -981,24 +1075,49 @@ const generateOpenAiJournalQuickAnalysis = async ({
 
   if (
     !(await canUseOpenAiForUser(userId)) ||
-    hasJournalSafetySignal(detectJournalSafetySignal(textQuality.analysisText || journal.content)) ||
+    hasJournalSafetySignal(
+      detectJournalSafetySignal(textQuality.analysisText || journal.content)
+    ) ||
     textQuality.lowSignalDetected ||
     textQuality.analysisText.length < 24
   ) {
     return null;
   }
 
+  // Long-term memory (best-effort): lets a single-entry card connect today to a
+  // recurring thread from the user's history, the way a therapist who remembers
+  // past sessions would. Never blocks or fails the analysis.
+  let longTermMemory = "";
+  try {
+    const queryEmbedding = await requestEmbedding(
+      textQuality.analysisText.trim().slice(0, 1600)
+    );
+    longTermMemory = await buildUserReflectionMemory(userId, { queryEmbedding });
+  } catch (error) {
+    console.error("Failed to build quick-analysis memory:", error);
+    longTermMemory = "";
+  }
+
+  const personalization = await buildUserPersonalization(userId);
+
   return requestStructuredOpenAi({
     feature: "journal quick analysis",
     schemaName: "journal_quick_analysis",
     schema: journalQuickAnalysisJsonSchema,
     parser: journalQuickAnalysisSchema,
-    maxOutputTokens: 260,
+    maxOutputTokens: 320,
     messages: [
       {
         role: "system",
-        content:
-          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in the single entry only. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card. Use a warm, sharp, soft Gen Z psychologist tone: modern and emotionally aware, but not slang-heavy. Prefer signals, friction points, and useful next steps over personality labels.",
+        content: [
+          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in this entry. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card. Use a warm, sharp, soft Gen Z psychologist tone: modern and emotionally aware, but not slang-heavy. Prefer signals, friction points, and useful next steps over personality labels.",
+          "When the entry names a behaviour, coping habit, or avoidance, notice its likely trigger or the feeling it regulates rather than judging it — name the pattern and its cost, never call the behaviour good or bad, never shame.",
+          "longTermMemory is a private, best-effort recollection of this user's past entries. Use the optional connection field ONLY when today genuinely echoes a specific past thread in that memory: write one short, warm sentence naming the concrete link (e.g. 'This is the third time work deadlines have shown up right before you feel this way.'). If there is no real connection, or memory is empty, set connection to null. Never invent history.",
+          personalization?.systemDirective,
+          AI_REFLECTION_BALANCE_GUIDANCE,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
       {
         role: "user",
@@ -1008,6 +1127,8 @@ const generateOpenAiJournalQuickAnalysis = async ({
           moodTag: getMoodTag(journal.tags || []),
           tags: getVisibleJournalTags(journal.tags || []),
           entry: textQuality.analysisText.trim().slice(0, 1200),
+          longTermMemory: longTermMemory || "No prior entries yet.",
+          userProfile: personalization?.promptProfile ?? null,
           baseline,
         }),
       },
@@ -1023,8 +1144,21 @@ const serializeJournal = (journal: IJournal): JournalEntryResponse => {
     title: journalObject.title,
     content: journalObject.content,
     type: normalizeJournalEntryMode(journalObject.type),
-    aiPrompt: typeof journalObject.aiPrompt === "string" ? journalObject.aiPrompt : null,
-    tags: Array.isArray(journalObject.tags) ? journalObject.tags : [],
+    entryKind: normalizeJournalEntryKind(
+      journalObject.entryKind,
+      journalObject.title
+    ),
+    aiPrompt:
+      typeof journalObject.aiPrompt === "string"
+        ? journalObject.aiPrompt
+        : null,
+    tags: Array.isArray(journalObject.tags)
+      ? filterReservedJournalTags(journalObject.tags)
+      : [],
+    detectedTopics: Array.isArray(journalObject.detectedTopics)
+      ? normalizeDetectedTopics(journalObject.detectedTopics)
+      : [],
+    detectedMood: journalObject.detectedMood || null,
     images: Array.isArray(journalObject.images) ? journalObject.images : [],
     isFavorite: Boolean(journalObject.isFavorite),
     createdAt: new Date(journalObject.createdAt).toISOString(),
@@ -1032,25 +1166,173 @@ const serializeJournal = (journal: IJournal): JournalEntryResponse => {
   };
 };
 
-const getJournals = async (userId: string): Promise<JournalEntryResponse[]> => {
-  const journals = await journalModel
-    .find({ userId })
-    .sort({ createdAt: -1 })
-    .exec();
+class InvalidJournalCursorError extends Error {
+  constructor() {
+    super("The journal cursor is invalid or expired.");
+    this.name = "InvalidJournalCursorError";
+  }
+}
 
-  return journals.map(serializeJournal);
+type JournalCursor = {
+  createdAt: string;
+  id: string;
+};
+
+const encodeJournalCursor = (journal: IJournal) =>
+  Buffer.from(
+    JSON.stringify({
+      createdAt: new Date(journal.createdAt).toISOString(),
+      id: journal._id.toString(),
+    } satisfies JournalCursor)
+  ).toString("base64url");
+
+const decodeJournalCursor = (value: string): JournalCursor => {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8")
+    ) as Partial<JournalCursor>;
+    const createdAt = new Date(parsed.createdAt || "");
+
+    if (
+      !parsed.id ||
+      !mongoose.isValidObjectId(parsed.id) ||
+      Number.isNaN(createdAt.getTime())
+    ) {
+      throw new InvalidJournalCursorError();
+    }
+
+    return {
+      createdAt: createdAt.toISOString(),
+      id: parsed.id,
+    };
+  } catch (error) {
+    if (error instanceof InvalidJournalCursorError) {
+      throw error;
+    }
+    throw new InvalidJournalCursorError();
+  }
+};
+
+const getJournals = async ({
+  userId,
+  limit,
+  cursor,
+  from,
+  to,
+}: JournalListInput): Promise<JournalListResponse> => {
+  const dateFilter: Record<string, Date> = {};
+  if (from) {
+    dateFilter.$gte = new Date(from);
+  }
+  if (to) {
+    dateFilter.$lt = new Date(to);
+  }
+
+  const baseFilter: Record<string, unknown> = {
+    userId,
+    ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+  };
+  const pageFilter: Record<string, unknown> = { ...baseFilter };
+
+  if (cursor) {
+    const decodedCursor = decodeJournalCursor(cursor);
+    const cursorDate = new Date(decodedCursor.createdAt);
+    pageFilter.$or = [
+      { createdAt: { ...dateFilter, $lt: cursorDate } },
+      {
+        createdAt: cursorDate,
+        _id: { $lt: decodedCursor.id },
+      },
+    ];
+    delete pageFilter.createdAt;
+  }
+
+  const [journalRows, matchingCount, totalEntries, favoriteEntries] =
+    await Promise.all([
+      journalModel
+        .find(pageFilter)
+        .select("-sessionAnalysisSnapshot")
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(limit + 1)
+        .exec(),
+      journalModel.countDocuments(baseFilter).exec(),
+      journalModel.countDocuments({ userId }).exec(),
+      journalModel.countDocuments({ userId, isFavorite: true }).exec(),
+    ]);
+
+  const hasMore = journalRows.length > limit;
+  const pageRows = hasMore ? journalRows.slice(0, limit) : journalRows;
+  const lastJournal = pageRows[pageRows.length - 1];
+
+  return {
+    entries: pageRows.map(serializeJournal),
+    pagination: {
+      nextCursor:
+        hasMore && lastJournal ? encodeJournalCursor(lastJournal) : null,
+      hasMore,
+      matchingCount,
+    },
+    summary: {
+      totalEntries,
+      favoriteEntries,
+    },
+  };
+};
+
+// Persist the deterministic per-entry Mind Map score synchronously (so the
+// per-entry map is instantly available) and kick off a non-blocking AI upgrade.
+// Never throws for AI reasons — a journal entry must save even if scoring fails.
+const syncEntryMindMapScore = async ({
+  userId,
+  journalId,
+  entryType,
+  content,
+  aiPrompt,
+  tags,
+  isFavorite,
+  entryCreatedAt,
+}: {
+  userId: string;
+  journalId: string;
+  entryType: "open_ended" | "guided";
+  content: string;
+  aiPrompt: string | null;
+  tags: string[];
+  isFavorite: boolean;
+  entryCreatedAt: Date;
+}) => {
+  await persistEntryScore({
+    userId,
+    journalId,
+    entryType,
+    content,
+    aiPrompt,
+    tags,
+    isFavorite,
+    entryCreatedAt,
+  });
+
+  void runEntryAiScore({ userId, journalId, content, aiPrompt, tags })
+    .then((upgraded) => (upgraded ? markUserMindMapStale(userId) : undefined))
+    .catch((error) => {
+      console.error("Failed to run entry Mind Map AI scoring:", error);
+    });
 };
 
 const createJournal = async (
   input: CreateJournalInput
 ): Promise<JournalEntryResponse> => {
+  const metadata = detectEntryMetadataHeuristically(input.content);
   const journal = await journalModel.create({
     userId: input.userId,
     title: input.title.trim(),
     content: input.content.trim(),
     type: normalizeJournalEntryMode(input.type),
+    entryKind: normalizeJournalEntryKind(input.entryKind, input.title),
     aiPrompt: input.aiPrompt?.trim() || null,
-    tags: input.tags || [],
+    tags: filterReservedJournalTags(input.tags || []),
+    detectedTopics: metadata.detectedTopics,
+    detectedMood: metadata.detectedMood,
     images: input.images || [],
     isFavorite: false,
   });
@@ -1059,12 +1341,33 @@ const createJournal = async (
     await syncJournalCreatedInsights({
       userId: input.userId,
       content: journal.content,
-      tags: journal.tags || [],
+      tags: getJournalAnalysisTags(journal),
       isFavorite: Boolean(journal.isFavorite),
       createdAt: journal.createdAt,
     });
   } catch (error) {
-    console.error("Failed to sync insights cache after journal creation:", error);
+    console.error(
+      "Failed to sync insights cache after journal creation:",
+      error
+    );
+  }
+
+  try {
+    await syncEntryMindMapScore({
+      userId: input.userId,
+      journalId: journal._id.toString(),
+      entryType: journal.type === "guided" ? "guided" : "open_ended",
+      content: journal.content,
+      aiPrompt: journal.aiPrompt,
+      tags: journal.tags || [],
+      isFavorite: Boolean(journal.isFavorite),
+      entryCreatedAt: journal.createdAt,
+    });
+  } catch (error) {
+    console.error(
+      "Failed to persist entry Mind Map score after creation:",
+      error
+    );
   }
 
   return serializeJournal(journal);
@@ -1097,7 +1400,7 @@ const updateJournal = async (
   const previousJournalSnapshot = {
     userId: input.userId,
     content: journal.content,
-    tags: journal.tags || [],
+    tags: getJournalAnalysisTags(journal),
     isFavorite: Boolean(journal.isFavorite),
     createdAt: journal.createdAt,
   };
@@ -1105,13 +1408,16 @@ const updateJournal = async (
   journal.title = input.title.trim();
   journal.content = input.content.trim();
   journal.type = normalizeJournalEntryMode(input.type);
+  const metadata = detectEntryMetadataHeuristically(journal.content);
+  journal.detectedTopics = metadata.detectedTopics;
+  journal.detectedMood = metadata.detectedMood;
 
   if (typeof input.aiPrompt === "string") {
     journal.aiPrompt = input.aiPrompt.trim() || null;
   }
 
   if (input.tags) {
-    journal.tags = input.tags;
+    journal.tags = filterReservedJournalTags(input.tags);
   }
 
   if (input.images) {
@@ -1130,13 +1436,31 @@ const updateJournal = async (
       nextJournal: {
         userId: input.userId,
         content: journal.content,
-        tags: journal.tags || [],
+        tags: getJournalAnalysisTags(journal),
         isFavorite: Boolean(journal.isFavorite),
         createdAt: journal.createdAt,
       },
     });
   } catch (error) {
     console.error("Failed to sync insights cache after journal update:", error);
+  }
+
+  try {
+    await syncEntryMindMapScore({
+      userId: input.userId,
+      journalId: journal._id.toString(),
+      entryType: journal.type === "guided" ? "guided" : "open_ended",
+      content: journal.content,
+      aiPrompt: journal.aiPrompt,
+      tags: journal.tags || [],
+      isFavorite: Boolean(journal.isFavorite),
+      entryCreatedAt: journal.createdAt,
+    });
+  } catch (error) {
+    console.error(
+      "Failed to persist entry Mind Map score after update:",
+      error
+    );
   }
 
   return serializeJournal(journal);
@@ -1156,7 +1480,7 @@ const toggleJournalFavorite = async (
   const previousJournalSnapshot = {
     userId: input.userId,
     content: journal.content,
-    tags: journal.tags || [],
+    tags: getJournalAnalysisTags(journal),
     isFavorite: Boolean(journal.isFavorite),
     createdAt: journal.createdAt,
   };
@@ -1170,7 +1494,7 @@ const toggleJournalFavorite = async (
       nextJournal: {
         userId: input.userId,
         content: journal.content,
-        tags: journal.tags || [],
+        tags: getJournalAnalysisTags(journal),
         isFavorite: Boolean(journal.isFavorite),
         createdAt: journal.createdAt,
       },
@@ -1180,6 +1504,15 @@ const toggleJournalFavorite = async (
       "Failed to sync insights cache after favorite toggle:",
       error
     );
+  }
+
+  try {
+    await setEntryScoreFavorite(
+      journal._id.toString(),
+      Boolean(journal.isFavorite)
+    );
+  } catch (error) {
+    console.error("Failed to update entry Mind Map favorite weight:", error);
   }
 
   return serializeJournal(journal);
@@ -1204,12 +1537,24 @@ const deleteJournal = async ({
     await syncJournalDeletedInsights({
       userId,
       content: journal.content,
-      tags: journal.tags || [],
+      tags: getJournalAnalysisTags(journal),
       isFavorite: Boolean(journal.isFavorite),
       createdAt: journal.createdAt,
     });
   } catch (error) {
-    console.error("Failed to sync insights cache after journal deletion:", error);
+    console.error(
+      "Failed to sync insights cache after journal deletion:",
+      error
+    );
+  }
+
+  try {
+    await deleteEntryScore(journalId, userId);
+  } catch (error) {
+    console.error(
+      "Failed to delete entry Mind Map score after deletion:",
+      error
+    );
   }
 
   return true;
@@ -1233,11 +1578,10 @@ const suggestJournalTags = async ({
     selectedTags,
     ...(mood ? { mood } : {}),
   };
-  const heuristicSuggestions = buildHeuristicJournalTagSuggestions(
-    suggestionInput
-  );
+  const heuristicSuggestions =
+    buildHeuristicJournalTagSuggestions(suggestionInput);
   const mergedTags = [
-    ...(await generateOpenAiJournalTags(suggestionInput)) || [],
+    ...((await generateOpenAiJournalTags(suggestionInput)) || []),
     ...heuristicSuggestions.tags,
   ].filter((tag, index, allTags) => allTags.indexOf(tag) === index);
 
@@ -1269,6 +1613,12 @@ const getJournalQuickAnalysis = async ({
     return baseline;
   }
 
+  const connection =
+    typeof aiAnalysis.connection === "string" &&
+    aiAnalysis.connection.trim().length > 0
+      ? aiAnalysis.connection.trim()
+      : null;
+
   return {
     journalId: journal._id.toString(),
     summary: aiAnalysis.summary,
@@ -1276,8 +1626,81 @@ const getJournalQuickAnalysis = async ({
     patternTags: aiAnalysis.patternTags,
     signals: aiAnalysis.signals,
     nextStep: aiAnalysis.nextStep,
+    connection,
     generatedAt: new Date().toISOString(),
   };
+};
+
+class PremiumSessionAnalysisRequiredError extends Error {
+  constructor() {
+    super("Session analysis is available with Premium.");
+    this.name = "PremiumSessionAnalysisRequiredError";
+  }
+}
+
+class SessionAnalysisUnavailableError extends Error {
+  constructor() {
+    super("Session insights are not available for Quick Notes.");
+    this.name = "SessionAnalysisUnavailableError";
+  }
+}
+
+const ensureSessionAnalysisAccess = async (userId: string) => {
+  const accessState = await getUserAiAccessState(userId);
+
+  if (!accessState.isPremium) {
+    throw new PremiumSessionAnalysisRequiredError();
+  }
+
+};
+
+const getJournalSessionAnalysis = async ({
+  userId,
+  journalId,
+}: JournalSessionAnalysisInput): Promise<GuidedReflectionSessionAnalysisResponse | null> => {
+  await ensureSessionAnalysisAccess(userId);
+
+  const journal = await journalModel.findOne({ _id: journalId, userId }).exec();
+  if (!journal) {
+    return null;
+  }
+
+  if (
+    normalizeJournalEntryKind(journal.entryKind, journal.title) ===
+    "quick_thought"
+  ) {
+    throw new SessionAnalysisUnavailableError();
+  }
+
+  const storedAnalysis = journal.sessionAnalysisSnapshot?.analysis;
+  // A stale snapshot is regenerated on the next read, so entries analysed
+  // during an AI outage — or before the open-ended fallback was fixed — repair
+  // themselves instead of keeping generic copy permanently.
+  const isStale = isStaleSessionAnalysisSnapshot(journal.sessionAnalysisSnapshot);
+
+  if (storedAnalysis && !isStale) {
+    return storedAnalysis;
+  }
+
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    userId,
+    journalId,
+    promptAnswers: [
+      {
+        questionId: "open_ended_entry",
+        question: journal.aiPrompt || "What felt most important today?",
+        answer: journal.content,
+      },
+    ],
+  });
+
+  return persistJournalSessionAnalysisSnapshot({
+    userId,
+    journalId,
+    analysis,
+    source: journal.type === "guided" ? "legacy_backfill" : "open_ended",
+    replaceExisting: isStale,
+  });
 };
 
 export type {
@@ -1285,7 +1708,10 @@ export type {
   JournalTagSuggestionsResponse,
   JournalQuickAnalysisInput,
   JournalQuickAnalysisResponse,
+  JournalSessionAnalysisInput,
   JournalEntryResponse,
+  JournalListInput,
+  JournalListResponse,
   JournalLookupInput,
   SuggestJournalTagsInput,
   ToggleJournalFavoriteInput,
@@ -1296,10 +1722,13 @@ export {
   deleteJournal,
   getJournalDetails,
   getJournalQuickAnalysis,
+  getJournalSessionAnalysis,
   getJournals,
+  InvalidJournalCursorError,
   PremiumTagSuggestionsRequiredError,
   PremiumQuickAnalysisRequiredError,
-  QuickAnalysisDisabledError,
+  PremiumSessionAnalysisRequiredError,
+  SessionAnalysisUnavailableError,
   serializeJournal,
   suggestJournalTags,
   toggleJournalFavorite,

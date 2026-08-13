@@ -9,6 +9,7 @@ import type {
   FirstReflectionGoalsPayload,
   FirstReflectionStreakPayload,
 } from '../screens/onboarding/FirstGuidedReflectionScreen';
+import type { GuidedReflectionSessionAnalysisResponse } from '../services/guidedReflectionService';
 import type { OnboardingV2Draft } from '../types/onboarding';
 
 export type MainAppStackParamList = {
@@ -28,7 +29,20 @@ export type MainAppStackParamList = {
   Subscription: undefined;
   Goals: undefined;
   MindMap: undefined;
+  AskJade: { sessionId?: string } | undefined;
+  // `sessionAnalysis` is fetched inline while the entry saves, so this screen
+  // opens with its data already in hand and plays its reveal immediately.
+  EntrySessionAnalysis: {
+    journalId: string;
+    sessionAnalysis?: GuidedReflectionSessionAnalysisResponse;
+  };
+  EntryMindMap: {
+    journalId: string;
+    sessionAnalysis?: GuidedReflectionSessionAnalysisResponse;
+  };
   NewEntry: { initialPrompt?: string | null } | undefined;
+  GuidedEntry: undefined;
+  QuickThought: undefined;
   EntryDetail: { entryId?: string | null } | undefined;
   EditEntry: { entryId?: string | null } | undefined;
 };
@@ -42,6 +56,7 @@ export type ProfileModalStackParamList = {
   BiometricLock: undefined;
   Reminders: undefined;
   Theme: undefined;
+  Widgets: undefined;
 };
 
 export type RootStackParamList = {
@@ -49,21 +64,38 @@ export type RootStackParamList = {
   FirstGuidedReflection: { draft: OnboardingV2Draft };
   FirstReflectionAnalysis: FirstReflectionAnalysisPayload;
   FirstReflectionGoals: FirstReflectionGoalsPayload;
+  FirstReflectionMindMapLoading: FirstReflectionStreakPayload;
+  FirstReflectionMindMap: FirstReflectionStreakPayload;
+  FirstReflectionRating: FirstReflectionStreakPayload;
   FirstReflectionStreak: FirstReflectionStreakPayload;
+  // `draft` rides through to the final step so the onboarding answers can be
+  // persisted when the journey completes, not just the display name.
+  OnboardingReminders: { displayName?: string; draft?: OnboardingV2Draft };
+  // The widget and commitment steps close out the V2 journey. `draft` keeps
+  // riding along so the commitment step can fold its signed timestamp in before
+  // the answers are persisted on the final screen.
+  OnboardingWidgetSetup: { displayName?: string; draft?: OnboardingV2Draft };
+  OnboardingWidgetActivated: {
+    displayName?: string;
+    draft?: OnboardingV2Draft;
+    didEnableWidget: boolean;
+  };
+  OnboardingCommitment: { displayName?: string; draft?: OnboardingV2Draft };
+  OnboardingTrialIntro: { displayName?: string; draft?: OnboardingV2Draft };
+  OnboardingTrialTimeline: { displayName?: string; draft?: OnboardingV2Draft };
   AuthChoice: undefined;
   SignIn: undefined;
   ForgotPassword: undefined;
   ResetPassword: { token?: string } | undefined;
   CreateAccount: undefined;
   VerifyEmail: undefined;
-  SetupProfile: undefined;
   Paywall: undefined;
   HostedPaywall: undefined;
   LifetimeOffer: undefined;
   Complete: undefined;
   MainApp: NavigatorScreenParams<MainAppStackParamList> | undefined;
   LegalBrowserModal: undefined;
-  ProfileModal: undefined;
+  ProfileModal: NavigatorScreenParams<ProfileModalStackParamList> | undefined;
 };
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
@@ -128,6 +160,15 @@ export function resetRoot<RouteName extends keyof RootStackParamList>(
       ],
     }),
   );
+}
+
+/** Name of the route currently on top of the ROOT stack, if any. */
+export function getCurrentRootRouteName() {
+  if (!navigationRef.isReady()) {
+    return null;
+  }
+
+  return navigationRef.getCurrentRoute()?.name ?? null;
 }
 
 export function goBackOrFallback(fallback: () => void) {

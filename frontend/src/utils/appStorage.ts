@@ -1,5 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { OnboardingCompletionData } from "../types/onboarding";
+import {
+  ONBOARDING_CACHE_SERVICE,
+  clearDeviceOnlyValue,
+  getDeviceOnlyValue,
+  saveDeviceOnlyValue,
+} from "./keychainStorage";
 
 const INSTALL_SEEN_KEY = "journalio.installSeen";
 const ONBOARDING_COMPLETED_KEY = "journalio.onboardingCompleted";
@@ -7,6 +13,8 @@ const ONBOARDING_DATA_KEY = "journalio.onboardingData";
 const HIDE_JOURNAL_PREVIEWS_KEY = "journalio.hideJournalPreviews";
 const HAPTICS_ENABLED_KEY = "journalio.hapticsEnabled";
 const POST_AUTH_PAYWALL_SEEN_KEY = "journalio.postAuthPaywallSeen";
+const LAST_KNOWN_STREAK_KEY = "journalio.home.lastKnownStreak";
+const REFLECTION_SEEN_DATE_KEY = "journalio.home.reflectionSeenDateKey";
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === "string");
@@ -26,7 +34,6 @@ const isStoredOnboardingData = (
     isStringArray(candidate.goals) &&
     isStringArray(candidate.supportFocusAreas) &&
     typeof candidate.reminderPreference === "string" &&
-    typeof candidate.aiComfort === "boolean" &&
     typeof candidate.privacyConsent === "boolean"
   );
 };
@@ -52,7 +59,35 @@ const saveOnboardingCompleted = async (completed: boolean) => {
 
 const getStoredOnboardingData =
   async (): Promise<OnboardingCompletionData | null> => {
-    const rawValue = await AsyncStorage.getItem(ONBOARDING_DATA_KEY);
+    let rawValue = await getDeviceOnlyValue(ONBOARDING_CACHE_SERVICE);
+
+    if (!rawValue) {
+      const legacyValue = await AsyncStorage.getItem(ONBOARDING_DATA_KEY);
+
+      if (!legacyValue) {
+        return null;
+      }
+
+      try {
+        const parsedLegacyValue = JSON.parse(legacyValue);
+
+        if (!isStoredOnboardingData(parsedLegacyValue)) {
+          await AsyncStorage.removeItem(ONBOARDING_DATA_KEY);
+          return null;
+        }
+
+        try {
+          await saveDeviceOnlyValue(ONBOARDING_CACHE_SERVICE, legacyValue);
+        } finally {
+          await AsyncStorage.removeItem(ONBOARDING_DATA_KEY);
+        }
+
+        rawValue = legacyValue;
+      } catch {
+        await AsyncStorage.removeItem(ONBOARDING_DATA_KEY);
+        return null;
+      }
+    }
 
     if (!rawValue) {
       return null;
@@ -67,7 +102,8 @@ const getStoredOnboardingData =
   };
 
 const saveStoredOnboardingData = async (data: OnboardingCompletionData) => {
-  await AsyncStorage.setItem(ONBOARDING_DATA_KEY, JSON.stringify(data));
+  await saveDeviceOnlyValue(ONBOARDING_CACHE_SERVICE, JSON.stringify(data));
+  await AsyncStorage.removeItem(ONBOARDING_DATA_KEY);
 };
 
 const getPostAuthPaywallSeen = async () => {
@@ -109,12 +145,45 @@ const saveHapticsEnabled = async (enabled: boolean) => {
   );
 };
 
+/**
+ * The mood API only reports the current streak, so "it just reset" can only be
+ * inferred by comparing against the last value we saw. Returns null when we have
+ * never stored one — a fresh install cannot know, and the nudge stays quiet.
+ */
+const getLastKnownStreak = async (): Promise<number | null> => {
+  const rawValue = await AsyncStorage.getItem(LAST_KNOWN_STREAK_KEY);
+
+  if (rawValue === null) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const saveLastKnownStreak = async (streak: number) => {
+  await AsyncStorage.setItem(LAST_KNOWN_STREAK_KEY, String(streak));
+};
+
+/** Local date key of the last daily reflection the user actually opened. */
+const getReflectionSeenDateKey = async (): Promise<string | null> => {
+  return AsyncStorage.getItem(REFLECTION_SEEN_DATE_KEY);
+};
+
+const saveReflectionSeenDateKey = async (dateKey: string) => {
+  await AsyncStorage.setItem(REFLECTION_SEEN_DATE_KEY, dateKey);
+};
+
 const clearOnboardingCompleted = async () => {
   await AsyncStorage.removeItem(ONBOARDING_COMPLETED_KEY);
 };
 
 const clearStoredOnboardingData = async () => {
-  await AsyncStorage.removeItem(ONBOARDING_DATA_KEY);
+  await Promise.all([
+    clearDeviceOnlyValue(ONBOARDING_CACHE_SERVICE),
+    AsyncStorage.removeItem(ONBOARDING_DATA_KEY),
+  ]);
 };
 
 const clearPostAuthPaywallSeen = async () => {
@@ -127,6 +196,8 @@ export {
   clearStoredOnboardingData,
   getHapticsEnabled,
   getHideJournalPreviews,
+  getLastKnownStreak,
+  getReflectionSeenDateKey,
   getOnboardingCompleted,
   getPostAuthPaywallSeen,
   getStoredOnboardingData,
@@ -135,6 +206,8 @@ export {
   saveHapticsEnabled,
   saveHideJournalPreviews,
   saveOnboardingCompleted,
+  saveLastKnownStreak,
   savePostAuthPaywallSeen,
+  saveReflectionSeenDateKey,
   saveStoredOnboardingData,
 };

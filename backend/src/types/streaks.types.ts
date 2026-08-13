@@ -17,6 +17,8 @@ export type StreakCurrentResponse = {
   bestStreak: number;
   thisMonthEntries: number;
   totalEntries: number;
+  lastEntryDateKey: string | null;
+  hasEntryToday: boolean;
   achievements: StreakAchievement[];
 };
 

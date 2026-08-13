@@ -86,7 +86,6 @@ function setLockedPremiumSession(overrides: Partial<ReturnType<typeof useAppStor
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         },
       },
       biometricLockEnabled: true,
@@ -159,7 +158,54 @@ test('prompts on authenticated cold launch when the app starts locked', async ()
   expect(unlockAppWithBiometrics).toHaveBeenCalledTimes(1);
 });
 
-test('locks on background and prompts again on return to active', async () => {
+test('covers immediately but skips Face ID during a brief foreground return', async () => {
+  let now = 1_000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const unlockAppWithBiometrics = jest.fn(async () => ({
+    status: 'success',
+    availability: {
+      biometryType: 'face_id',
+      isAvailable: true,
+      isSupported: true,
+      label: 'Face ID lock',
+      reason: 'available',
+      message: '',
+    },
+  }));
+  const lockAppWithBiometrics = jest.fn();
+
+  setLockedPremiumSession({
+    isBiometricAppLocked: false,
+    lockAppWithBiometrics: lockAppWithBiometrics as never,
+    unlockAppWithBiometrics: unlockAppWithBiometrics as never,
+  });
+
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    root = renderOverlay();
+    await Promise.resolve();
+  });
+
+  ReactTestRenderer.act(() => {
+    appStateListener?.('background');
+  });
+  expect(extractText(root!.toJSON())).toContain('Journal.IO is locked');
+
+  now += 30_000;
+  await ReactTestRenderer.act(async () => {
+    appStateListener?.('active');
+    await Promise.resolve();
+  });
+
+  expect(lockAppWithBiometrics).not.toHaveBeenCalled();
+  expect(unlockAppWithBiometrics).not.toHaveBeenCalled();
+  expect(extractText(root!.toJSON())).not.toContain('Journal.IO is locked');
+});
+
+test('requires Face ID after the foreground grace period expires', async () => {
+  let now = 1_000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
   const unlockAppWithBiometrics = jest.fn(async () => ({
     status: 'success',
     availability: {
@@ -188,12 +234,55 @@ test('locks on background and prompts again on return to active', async () => {
 
   await ReactTestRenderer.act(async () => {
     appStateListener?.('background');
+    now += 60_000;
     appStateListener?.('active');
     await Promise.resolve();
   });
 
   expect(lockAppWithBiometrics).toHaveBeenCalledTimes(1);
   expect(unlockAppWithBiometrics.mock.calls.length).toBeGreaterThanOrEqual(1);
+});
+
+test('does not re-prompt when the system Face ID sheet changes app state', async () => {
+  const unlockAppWithBiometrics = jest.fn(async () => ({
+    status: 'cancelled',
+    availability: {
+      biometryType: 'face_id',
+      isAvailable: true,
+      isSupported: true,
+      label: 'Face ID lock',
+      reason: 'available',
+      message: '',
+    },
+  }));
+
+  setLockedPremiumSession({
+    isBiometricAppLocked: true,
+    isBiometricAuthenticating: true,
+    unlockAppWithBiometrics: unlockAppWithBiometrics as never,
+  });
+
+  await ReactTestRenderer.act(async () => {
+    renderOverlay();
+    await Promise.resolve();
+  });
+
+  const authenticationAttemptsBeforeSystemPromptTransition =
+    unlockAppWithBiometrics.mock.calls.length;
+
+  ReactTestRenderer.act(() => {
+    appStateListener?.('inactive');
+    useAppStore.setState({
+      isBiometricAppLocked: true,
+      isBiometricAuthenticating: false,
+      biometricLockFailureReason: 'cancelled',
+    });
+    appStateListener?.('active');
+  });
+
+  expect(unlockAppWithBiometrics).toHaveBeenCalledTimes(
+    authenticationAttemptsBeforeSystemPromptTransition,
+  );
 });
 
 test('keeps the overlay visible after a cancelled unlock and lets the user try again', async () => {
@@ -231,6 +320,7 @@ test('keeps the overlay visible after a cancelled unlock and lets the user try a
   });
 
   expect(extractText(root!.toJSON())).toContain('Try again');
+  expect(root!.root.findByProps({ accessibilityLabel: 'Face ID' })).toBeTruthy();
   const promptAttemptsBeforeRetry = unlockAppWithBiometrics.mock.calls.length;
 
   await ReactTestRenderer.act(async () => {

@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import HapticPressable from './HapticPressable';
+import {
+  useEffect,
+  useRef,
+  useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -6,12 +10,13 @@ import {
   LayoutAnimation,
   Modal,
   Platform,
-  Pressable,
   StyleSheet,
-  Text,
   UIManager,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../infrastructure/reactNative';
 import { CircleAlert } from 'lucide-react-native';
 import PrimaryButton from './PrimaryButton';
 import { useTheme } from '../theme/provider';
@@ -276,7 +281,7 @@ function AuthErrorDialog({
             },
           ]}
         >
-          <Pressable
+          <HapticPressable
             accessibilityLabel={dismissLabel}
             accessibilityRole="button"
             onPress={onDismiss}

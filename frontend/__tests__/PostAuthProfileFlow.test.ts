@@ -5,6 +5,16 @@
 import { act } from "react-test-renderer";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 
+jest.mock("../src/services/reminderNotificationsService", () => ({
+  cancelFreeTrialEndingReminder: jest.fn(async () => undefined),
+  cancelReminderNotifications: jest.fn(async () => undefined),
+  getDefaultReminderTimezone: jest.fn(() => "Asia/Kolkata"),
+  getReminderPermissionGranted: jest.fn(async () => true),
+  syncOnboardingReminderPreference: jest.fn(async () => undefined),
+  syncReminderNotifications: jest.fn(async () => undefined),
+  syncStoredDailyReminderNotifications: jest.fn(async () => null),
+}));
+
 describe("post-auth profile flow", () => {
   beforeEach(() => {
     resetAppStore();
@@ -14,7 +24,7 @@ describe("post-auth profile flow", () => {
     resetAppStore();
   });
 
-  it("continues from the post-auth paywall into profile setup for non-premium users", async () => {
+  it("continues from the post-auth paywall into the main app for non-premium users", async () => {
     act(() => {
       useAppStore.setState({
         stage: "verify-email",
@@ -34,7 +44,6 @@ describe("post-auth profile flow", () => {
             profileSetupCompleted: false,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -45,20 +54,20 @@ describe("post-auth profile flow", () => {
     });
 
     expect(useAppStore.getState().stage).toBe("paywall");
-    expect(useAppStore.getState().paywallReturnStage).toBe("profile");
+    expect(useAppStore.getState().paywallReturnStage).toBe("main-app");
 
     act(() => {
       useAppStore.getState().continueFromPaywall();
     });
 
-    expect(useAppStore.getState().stage).toBe("profile");
+    expect(useAppStore.getState().stage).toBe("main-app");
   });
 
   it("does not show a second purchase prompt after dismissing the hosted post-auth paywall", () => {
     act(() => {
       useAppStore.setState({
         stage: "hosted-paywall",
-        paywallReturnStage: "profile",
+        paywallReturnStage: "main-app",
         activePaywallPlacementKey: "post_auth",
         activePaywallScreenKey: "verify-email",
         activePaywallTriggerMode: "contextual",
@@ -77,7 +86,6 @@ describe("post-auth profile flow", () => {
             profileSetupCompleted: false,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -87,7 +95,7 @@ describe("post-auth profile flow", () => {
       useAppStore.getState().continueFromHostedPaywall("dismiss");
     });
 
-    expect(useAppStore.getState().stage).toBe("profile");
+    expect(useAppStore.getState().stage).toBe("main-app");
     expect(useAppStore.getState().activePaywallPlacementKey).toBeNull();
     expect(useAppStore.getState().activeHostedPaywallTarget).toBeNull();
   });

@@ -4,7 +4,22 @@ import { z } from "zod";
 // GET /get_journals
 const getJournalsSchema = z.object({
   body: z.object({}).optional(),
-  query: z.object({}).optional(),
+  query: z
+    .object({
+      limit: z.coerce.number().int().min(1).max(50).optional(),
+      cursor: z.string().trim().min(1).max(512).optional(),
+      from: z.string().datetime({ offset: true }).optional(),
+      to: z.string().datetime({ offset: true }).optional(),
+    })
+    .superRefine((value, context) => {
+      if (value.from && value.to && new Date(value.from) >= new Date(value.to)) {
+        context.addIssue({
+          code: "custom",
+          message: "from must be earlier than to",
+          path: ["from"],
+        });
+      }
+    }),
   params: z.object({}).optional(),
 });
 
@@ -14,6 +29,7 @@ const createJournalSchema = z.object({
     title: z.string().min(1, "Title is required"),
     content: z.string().min(1, "Content is required"),
     type: z.enum(["open_ended", "guided"]).optional(),
+    entryKind: z.enum(["journal", "quick_thought"]).optional(),
     aiPrompt: z.string().min(1).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
@@ -87,6 +103,14 @@ const getJournalQuickAnalysisSchema = z.object({
   params: z.object({}).optional(),
 });
 
+const getJournalSessionAnalysisSchema = z.object({
+  body: z.object({
+    journalId: z.string().trim().min(1, "Journal ID is required"),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export {
   getJournalsSchema,
   createJournalSchema,
@@ -96,4 +120,5 @@ export {
   deleteJournalSchema,
   suggestJournalTagsSchema,
   getJournalQuickAnalysisSchema,
+  getJournalSessionAnalysisSchema,
 };

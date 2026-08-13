@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 import { insightsModel } from "../../schema/insights.schema";
 import { journalModel } from "../../schema/journal.schema";
+import { mindMapEntryScoreModel } from "../../schema/mindMapEntryScore.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { userModel } from "../../schema/user.schema";
 import {
-  AiAnalysisDisabledError,
+  getInsightsOverview,
   getInsightsAiAnalysis,
   getInsightsMindMap,
   mergeAiAnalysisEnhancement,
@@ -58,6 +59,21 @@ const moodTarget = moodCheckInModel as unknown as {
   };
 };
 
+// The per-entry Mind Map scores collection is not connected in unit tests.
+// Default it to "no stored rows" so global-map aggregation falls back to the
+// deterministic keyword scorer that these tests assert against.
+const emptyMindMapChain = {
+  sort: () => ({
+    select: () => ({ lean: () => ({ exec: async () => [] as unknown[] }) }),
+  }),
+  select: () => ({ lean: () => ({ exec: async () => [] as unknown[] }) }),
+};
+const mindMapEntryScoreTarget = mindMapEntryScoreModel as unknown as {
+  find: (query: unknown) => typeof emptyMindMapChain;
+};
+const emptyMindMapFind = () => emptyMindMapChain;
+mindMapEntryScoreTarget.find = emptyMindMapFind;
+
 const originalFindById = userTarget.findById;
 const originalFindOne = insightsTarget.findOne;
 const originalJournalFind = journalTarget.find;
@@ -79,6 +95,7 @@ afterEach(() => {
   insightsTarget.findOne = originalFindOne;
   journalTarget.find = originalJournalFind;
   moodTarget.find = originalMoodFind;
+  mindMapEntryScoreTarget.find = emptyMindMapFind;
   if (typeof originalNodeEnv === "string") {
     process.env.NODE_ENV = originalNodeEnv;
   } else {
@@ -98,30 +115,28 @@ afterEach(() => {
   }
 });
 
-test("getInsightsAiAnalysis blocks opted-out users before loading AI analysis", async () => {
-  userTarget.findById = () => ({
-    select: () => ({
-      lean: () => ({
-        exec: async () => ({
-          ...VERIFIED_PREMIUM_ACCESS,
-          onboardingContext: {
-            aiOptIn: false,
-          },
-        }),
-      }),
+test("getInsightsOverview hides legacy onboarding tags from cached popular topics", async () => {
+  insightsTarget.findOne = () => ({
+    exec: async () => ({
+      totalEntries: 2,
+      totalWords: 80,
+      totalFavorites: 0,
+      dailyJournalCounts: new Map(),
+      tagCounts: new Map([
+        ["onboarding:first-reflection", 4],
+        ["anxiety", 2],
+        ["loneliness", 1],
+      ]),
+      moodCounts: new Map(),
+      updatedAt: new Date("2026-08-03T10:00:00.000Z"),
     }),
   });
 
-  await assert.rejects(
-    () => getInsightsAiAnalysis("user-123"),
-    (error: unknown) => {
-      assert.ok(error instanceof AiAnalysisDisabledError);
-      assert.equal(
-        (error as Error).message,
-        "AI analysis is turned off for your account."
-      );
-      return true;
-    }
+  const result = await getInsightsOverview("user-123");
+
+  assert.deepEqual(
+    result.popularTopics.map(topic => topic.label),
+    ["Anxiety", "Loneliness"]
   );
 });
 
@@ -132,7 +147,6 @@ test("getInsightsAiAnalysis blocks non-premium users before loading AI analysis"
         exec: async () => ({
           isPremium: false,
           onboardingContext: {
-            aiOptIn: true,
           },
         }),
       }),
@@ -159,7 +173,6 @@ test("getInsightsAiAnalysis returns a collecting payload during the first premiu
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -247,7 +260,6 @@ test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 acti
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -340,7 +352,6 @@ test("getInsightsAiAnalysis ignores the old dev-preview flag in release-safe mod
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -422,7 +433,6 @@ test("getInsightsAiAnalysis recomputes cached dev-preview reports in release mod
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -521,7 +531,6 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -613,7 +622,6 @@ test("getInsightsAiAnalysis uses support-first weekly copy for safety-sensitive 
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -709,7 +717,7 @@ test("getInsightsAiAnalysis uses support-first weekly copy for safety-sensitive 
 
   assert.equal(analysis.freshness.confidenceLabel, "Support-first");
   assert.match(analysis.summary.headline, /support/i);
-  assert.match(analysis.summary.highlight, /988/i);
+  assert.match(analysis.summary.narrative, /988/i);
   assert.equal(analysis.patternTags[0]?.label, "Safety");
   assert.equal(analysis.actionPlan.steps[0]?.focus, "Safety");
   assert.match(analysis.appSupport.headline, /not a crisis-response service/i);
@@ -724,7 +732,6 @@ test("getInsightsMindMap returns a ready latest-week map with exactly 8 ranked r
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -852,7 +859,6 @@ test("getInsightsMindMap returns support-first for safety-sensitive latest-week 
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -962,7 +968,6 @@ test("getInsightsMindMap excludes safety-sensitive entries from all-time aggrega
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -1026,6 +1031,13 @@ test("getInsightsMindMap excludes safety-sensitive entries from all-time aggrega
               createdAt: new Date("2026-04-13T12:00:00.000Z"),
             },
             {
+              content: "I reflected on my values and who I am becoming lately.",
+              aiPrompt: null,
+              tags: ["identity", "values"],
+              isFavorite: false,
+              createdAt: new Date("2026-04-17T12:00:00.000Z"),
+            },
+            {
               content: "I want to kill myself tonight.",
               aiPrompt: null,
               tags: ["mood:terrible"],
@@ -1067,7 +1079,7 @@ test("getInsightsMindMap excludes safety-sensitive entries from all-time aggrega
   }
 
   assert.equal(map.period.range, "all_time");
-  assert.equal(map.period.entryCount, 4);
+  assert.equal(map.period.entryCount, 5);
   assert.equal(map.regions.length, 8);
   assert.ok(
     map.regions.every(region =>
@@ -1085,7 +1097,6 @@ test("getInsightsMindMap reuses a cached all-time map when the cache key matches
         exec: async () => ({
           ...VERIFIED_PREMIUM_ACCESS,
           onboardingContext: {
-            aiOptIn: true,
           },
           premiumActivatedAt: new Date("2026-04-11T05:00:00.000Z"),
           createdAt: new Date("2026-04-03T10:00:00.000Z"),
@@ -1149,7 +1160,7 @@ test("getInsightsMindMap reuses a cached all-time map when the cache key matches
         },
       },
       mindMapAllTimeStale: false,
-      mindMapAllTimeCacheKey: "all_time:Asia/Kolkata:v1:ready",
+      mindMapAllTimeCacheKey: "all_time:Asia/Kolkata:v4:ready",
     }),
   });
   journalTarget.find = () => ({
@@ -1217,7 +1228,6 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
     summary: {
       headline: "Base headline",
       narrative: "Base narrative",
-      highlight: "Base highlight",
     },
     patternTags: [{ label: "Routine Seeking", tone: "amber" as const }],
     scoreboard: {
@@ -1280,25 +1290,13 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
         },
       ],
     },
-    bigFive: [
+    patterns: [
       {
-        trait: "conscientiousness" as const,
-        label: "Conscientiousness",
-        score: 72,
-        band: "pronounced" as const,
-        description: "Base description",
-        evidenceTags: ["Routine"],
-      },
-    ],
-    darkTriad: [
-      {
-        trait: "narcissism" as const,
-        label: "Narcissism",
-        supportiveLabel: "Self-focus signal",
-        score: 18,
-        band: "low" as const,
-        description: "Base watchpoint",
-        supportTip: "Base support tip",
+        label: "Base pattern",
+        insight: "Base pattern insight",
+        evidence: ["Base evidence"],
+        nudge: "Base nudge",
+        tone: "coral" as const,
       },
     ],
     actionPlan: {
@@ -1306,7 +1304,6 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
       steps: [
         { title: "Step 1", description: "Desc 1", focus: "Focus 1" },
         { title: "Step 2", description: "Desc 2", focus: "Focus 2" },
-        { title: "Step 3", description: "Desc 3", focus: "Focus 3" },
       ],
     },
     appSupport: {
@@ -1323,7 +1320,6 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
     summary: {
       headline: "AI headline",
       narrative: "AI narrative",
-      highlight: "AI highlight",
     },
     patternTags: [
       { label: "Stress Load", tone: "slate" },
@@ -1334,7 +1330,6 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
       steps: [
         { title: "AI Step 1", description: "AI Desc 1", focus: "AI Focus 1" },
         { title: "AI Step 2", description: "AI Desc 2", focus: "AI Focus 2" },
-        { title: "AI Step 3", description: "AI Desc 3", focus: "AI Focus 3" },
       ],
     },
     appSupport: {
@@ -1345,11 +1340,20 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
         { title: "AI Item 3", description: "AI Item 3 desc" },
       ],
     },
+    patterns: [
+      {
+        label: "AI pattern",
+        insight: "AI pattern insight",
+        evidence: ["AI evidence"],
+        nudge: "AI nudge",
+        tone: "blue" as const,
+      },
+    ],
   });
 
   assert.equal(merged.summary.headline, "AI headline");
   assert.equal(merged.patternTags[0]?.label, "Stress Load");
   assert.equal(merged.actionPlan.headline, "AI action headline");
-  assert.equal(merged.bigFive[0]?.score, 72);
-  assert.equal(merged.darkTriad[0]?.supportiveLabel, "Self-focus signal");
+  assert.equal(merged.patterns[0]?.label, "AI pattern");
+  assert.equal(merged.patterns[0]?.insight, "AI pattern insight");
 });

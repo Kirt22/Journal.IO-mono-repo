@@ -1,5 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { AuthUser } from "../services/authService";
+import {
+  AUTH_USER_CACHE_SERVICE,
+  clearDeviceOnlyValue,
+  getDeviceOnlyValue,
+  saveDeviceOnlyValue,
+} from "./keychainStorage";
 
 const AUTH_USER_CACHE_KEY = "journalio.auth.user";
 
@@ -38,13 +44,40 @@ const isCachedAuthUser = (value: unknown): value is AuthUser => {
     isOptionalBoolean(candidate.hasJournalEntries) &&
     (candidate.journalCount === undefined ||
       typeof candidate.journalCount === "number") &&
-    isNullableString(candidate.profilePic) &&
-    (candidate.aiOptIn === null || typeof candidate.aiOptIn === "boolean")
+    isNullableString(candidate.profilePic)
   );
 };
 
 const getCachedAuthUser = async (): Promise<AuthUser | null> => {
-  const rawValue = await AsyncStorage.getItem(AUTH_USER_CACHE_KEY);
+  let rawValue = await getDeviceOnlyValue(AUTH_USER_CACHE_SERVICE);
+
+  if (!rawValue) {
+    const legacyValue = await AsyncStorage.getItem(AUTH_USER_CACHE_KEY);
+
+    if (!legacyValue) {
+      return null;
+    }
+
+    try {
+      const parsedLegacyValue = JSON.parse(legacyValue);
+
+      if (!isCachedAuthUser(parsedLegacyValue)) {
+        await AsyncStorage.removeItem(AUTH_USER_CACHE_KEY);
+        return null;
+      }
+
+      try {
+        await saveDeviceOnlyValue(AUTH_USER_CACHE_SERVICE, legacyValue);
+      } finally {
+        await AsyncStorage.removeItem(AUTH_USER_CACHE_KEY);
+      }
+
+      rawValue = legacyValue;
+    } catch {
+      await AsyncStorage.removeItem(AUTH_USER_CACHE_KEY);
+      return null;
+    }
+  }
 
   if (!rawValue) {
     return null;
@@ -59,11 +92,15 @@ const getCachedAuthUser = async (): Promise<AuthUser | null> => {
 };
 
 const saveCachedAuthUser = async (user: AuthUser) => {
-  await AsyncStorage.setItem(AUTH_USER_CACHE_KEY, JSON.stringify(user));
+  await saveDeviceOnlyValue(AUTH_USER_CACHE_SERVICE, JSON.stringify(user));
+  await AsyncStorage.removeItem(AUTH_USER_CACHE_KEY);
 };
 
 const clearCachedAuthUser = async () => {
-  await AsyncStorage.removeItem(AUTH_USER_CACHE_KEY);
+  await Promise.all([
+    clearDeviceOnlyValue(AUTH_USER_CACHE_SERVICE),
+    AsyncStorage.removeItem(AUTH_USER_CACHE_KEY),
+  ]);
 };
 
 export { clearCachedAuthUser, getCachedAuthUser, saveCachedAuthUser };

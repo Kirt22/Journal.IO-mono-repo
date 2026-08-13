@@ -1,18 +1,47 @@
 import type { InsightTone } from "./insights.types";
+import type {
+  DetectedMood,
+  EntryTopic,
+} from "../helpers/entryMetadata.helpers";
 
 export type JournalEntryMode = "open_ended" | "guided";
+export type JournalEntryKind = "journal" | "quick_thought";
 
 export type JournalEntryResponse = {
   _id: string;
   title: string;
   content: string;
   type: JournalEntryMode;
+  entryKind: JournalEntryKind;
   aiPrompt: string | null;
   tags: string[];
+  detectedTopics: EntryTopic[];
+  detectedMood: DetectedMood | null;
   images: string[];
   isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type JournalListInput = {
+  userId: string;
+  limit: number;
+  cursor?: string;
+  from?: string;
+  to?: string;
+};
+
+export type JournalListResponse = {
+  entries: JournalEntryResponse[];
+  pagination: {
+    nextCursor: string | null;
+    hasMore: boolean;
+    matchingCount: number;
+  };
+  summary: {
+    totalEntries: number;
+    favoriteEntries: number;
+  };
 };
 
 export type CreateJournalInput = {
@@ -20,6 +49,7 @@ export type CreateJournalInput = {
   title: string;
   content: string;
   type?: JournalEntryMode;
+  entryKind?: JournalEntryKind;
   aiPrompt?: string;
   tags?: string[];
   images?: string[];
@@ -60,6 +90,11 @@ export type JournalTagSuggestionsResponse = {
 };
 
 export type JournalQuickAnalysisInput = {
+  userId: string;
+  journalId: string;
+};
+
+export type JournalSessionAnalysisInput = {
   userId: string;
   journalId: string;
 };
@@ -110,5 +145,9 @@ export type JournalQuickAnalysisResponse = {
     description: string;
     focus: string;
   };
+  // Optional "this echoes something from before" line drawn from the user's
+  // long-term reflection memory. Null when there is no genuine connection or
+  // memory is unavailable.
+  connection: string | null;
   generatedAt: string | null;
 };

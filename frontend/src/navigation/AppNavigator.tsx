@@ -9,7 +9,8 @@ import {
   createNativeStackNavigator,
   type NativeStackNavigationProp,
 } from '@react-navigation/native-stack';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
+import { Text } from '../infrastructure/reactNative';
 import AuthChoiceScreen from '../screens/auth/AuthChoiceScreen';
 import SignInScreen from '../screens/auth/SignInScreen';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
@@ -19,11 +20,21 @@ import VerifyEmailScreen from '../screens/auth/VerifyEmailScreen';
 import { OnboardingScreen } from '../screens/onboarding/OnboardingScreen';
 import OnboardingV2Screen from '../screens/onboarding/OnboardingV2Screen';
 import FirstGuidedReflectionScreen from '../screens/onboarding/FirstGuidedReflectionScreen';
+import OnboardingMindMapLoaderScreen from '../screens/onboarding/OnboardingMindMapLoaderScreen';
+import OnboardingMindMapScreen from '../screens/onboarding/OnboardingMindMapScreen';
+import FirstReflectionRatingScreen from '../screens/onboarding/FirstReflectionRatingScreen';
+import OnboardingRemindersScreen from '../screens/onboarding/OnboardingRemindersScreen';
+import OnboardingWidgetSetupScreen from '../screens/onboarding/OnboardingWidgetSetupScreen';
+import OnboardingWidgetActivatedScreen from '../screens/onboarding/OnboardingWidgetActivatedScreen';
+import OnboardingCommitmentScreen from '../screens/onboarding/OnboardingCommitmentScreen';
+import OnboardingTrialIntroScreen from '../screens/onboarding/OnboardingTrialIntroScreen';
+import OnboardingTrialTimelineScreen from '../screens/onboarding/OnboardingTrialTimelineScreen';
 import MainAppShell from '../screens/main/MainAppShell';
-import SetupProfileScreen from '../screens/profile/SetupProfileScreen';
+import { saveGoalDrafts } from '../utils/saveGoalDrafts';
 import PaywallScreen from '../screens/profile/PaywallScreen';
 import HostedRevenueCatPaywallScreen from '../screens/profile/HostedRevenueCatPaywallScreen';
 import LifetimeOfferPaywallScreen from '../screens/profile/LifetimeOfferPaywallScreen';
+import YearlyOfferPaywallScreen from '../screens/profile/YearlyOfferPaywallScreen';
 import AboutYouScreen from '../screens/profile/AboutYouScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import PrivacyScreen from '../screens/profile/PrivacyScreen';
@@ -31,6 +42,7 @@ import BiometricLockScreen from '../screens/profile/BiometricLockScreen';
 import AccountScreen from '../screens/profile/AccountScreen';
 import {
   SettingsAccountSection,
+  SettingsAboutLegalSection,
   SettingsMoreSection,
   SettingsPersonalizationSection,
   SettingsPrivacyDataSection,
@@ -39,6 +51,7 @@ import {
 } from '../screens/profile/SettingsScreen';
 import SubscriptionScreen from '../screens/profile/SubscriptionScreen';
 import ThemeSettingsScreen from '../screens/profile/ThemeSettingsScreen';
+import WidgetsScreen from '../screens/profile/WidgetsScreen';
 import RemindersScreen from '../screens/reminders/RemindersScreen';
 import InAppBrowserModal from '../components/InAppBrowserModal';
 import { ENABLE_ONBOARDING_V2 } from '../config/onboarding';
@@ -52,12 +65,50 @@ import {
   type RootStackParamList,
 } from './navigation';
 import { requestPasswordReset, resetPassword } from '../services/authService';
+import {
+  consumePendingWidgetDeepLink,
+  subscribeToPendingWidgetDeepLinks,
+} from '../services/widgetBridge';
+import { clearMoodWidgetSessionLocal } from '../services/widgetService';
+import {
+  consumeWidgetDeepLink,
+  resolveWidgetAwareInitialUrl,
+  subscribeToWidgetAwareUrls,
+} from './widgetDeepLinks';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const ProfileModalStack = createNativeStackNavigator<ProfileModalStackParamList>();
 
 const rootLinkingConfig: LinkingOptions<RootStackParamList> = {
   prefixes: ['journalio://'],
+  getInitialURL: () =>
+    resolveWidgetAwareInitialUrl(
+      Linking.getInitialURL,
+      action => {
+        useAppStore.getState().queueWidgetAction(action);
+      },
+      consumePendingWidgetDeepLink,
+    ),
+  subscribe: listener => {
+    const subscription = subscribeToWidgetAwareUrls(
+      callback => Linking.addEventListener('url', callback),
+      listener,
+      action => useAppStore.getState().queueWidgetAction(action),
+      consumePendingWidgetDeepLink,
+    );
+
+    const pendingSubscription = subscribeToPendingWidgetDeepLinks(url => {
+      consumePendingWidgetDeepLink().catch(() => undefined);
+      consumeWidgetDeepLink(url, action => {
+        useAppStore.getState().queueWidgetAction(action);
+      });
+    });
+
+    return () => {
+      subscription.remove();
+      pendingSubscription.remove();
+    };
+  },
   config: {
     screens: {
       ResetPassword: 'reset-password',
@@ -130,8 +181,62 @@ function FirstReflectionGoalsRoute() {
     <FirstGuidedReflectionScreen
       draft={route.params.draft}
       initialGoalsPayload={route.params}
-      onStreakReady={payload => navigation.replace('FirstReflectionStreak', payload)}
+      // Onboarding used to skip this entirely, so goals accepted during the
+      // first reflection were never created. They go through the same store
+      // action as Home goals, then the flow continues to the mind map.
+      onGoalsSaved={async goalDrafts => {
+        await saveGoalDrafts(goalDrafts);
+      }}
+      onMindMapReady={payload =>
+        navigation.replace('FirstReflectionMindMapLoading', payload)
+      }
       onBackToReady={() => navigation.goBack()}
+    />
+  );
+}
+
+function FirstReflectionMindMapLoadingRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionMindMapLoading'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionMindMapLoading'>
+  >();
+
+  return (
+    <OnboardingMindMapLoaderScreen
+      onComplete={() => navigation.replace('FirstReflectionMindMap', route.params)}
+    />
+  );
+}
+
+function FirstReflectionMindMapRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionMindMap'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionMindMap'>
+  >();
+
+  return (
+    <OnboardingMindMapScreen
+      onContinue={() => navigation.replace('FirstReflectionRating', route.params)}
+      sessionAnalysis={route.params.sessionAnalysis}
+    />
+  );
+}
+
+function FirstReflectionRatingRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionRating'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionRating'>
+  >();
+
+  return (
+    <FirstReflectionRatingScreen
+      onContinue={() => navigation.replace('FirstReflectionStreak', route.params)}
     />
   );
 }
@@ -148,7 +253,130 @@ function FirstReflectionStreakRoute() {
     <FirstGuidedReflectionScreen
       draft={route.params.draft}
       initialStreakPayload={route.params}
+      onRemindersReady={() =>
+        navigation.replace('OnboardingReminders', {
+          displayName: route.params.draft.displayName,
+          draft: route.params.draft,
+        })
+      }
       onBackToReady={() => navigation.goBack()}
+    />
+  );
+}
+
+function OnboardingRemindersRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'OnboardingReminders'>
+  >();
+  const route = useRoute<RouteProp<RootStackParamList, 'OnboardingReminders'>>();
+
+  return (
+    <OnboardingRemindersScreen
+      onComplete={async () => {
+        navigation.replace('OnboardingWidgetSetup', {
+          displayName: route.params.displayName,
+          draft: route.params.draft,
+        });
+      }}
+    />
+  );
+}
+
+function OnboardingWidgetSetupRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'OnboardingWidgetSetup'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'OnboardingWidgetSetup'>
+  >();
+
+  return (
+    <OnboardingWidgetSetupScreen
+      onActivated={didEnableWidget =>
+        navigation.replace('OnboardingWidgetActivated', {
+          displayName: route.params.displayName,
+          draft: route.params.draft,
+          didEnableWidget,
+        })
+      }
+    />
+  );
+}
+
+function OnboardingWidgetActivatedRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'OnboardingWidgetActivated'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'OnboardingWidgetActivated'>
+  >();
+
+  return (
+    <OnboardingWidgetActivatedScreen
+      didEnableWidget={route.params.didEnableWidget}
+      onContinue={() =>
+        navigation.replace('OnboardingCommitment', {
+          displayName: route.params.displayName,
+          draft: route.params.draft,
+        })
+      }
+    />
+  );
+}
+
+function OnboardingCommitmentRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'OnboardingCommitment'>
+  >();
+  const route = useRoute<RouteProp<RootStackParamList, 'OnboardingCommitment'>>();
+  const draft = route.params.draft;
+
+  return (
+    <OnboardingCommitmentScreen
+      displayName={route.params.displayName || draft?.displayName}
+      // The draft is a route param rather than store state, so the signed
+      // timestamp goes into a fresh copy instead of mutating it in place.
+      onSigned={commitmentSignedAt =>
+        navigation.replace('OnboardingTrialIntro', {
+          displayName: route.params.displayName,
+          draft: draft ? { ...draft, commitmentSignedAt } : undefined,
+        })
+      }
+    />
+  );
+}
+
+function OnboardingTrialIntroRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'OnboardingTrialIntro'>
+  >();
+  const route = useRoute<RouteProp<RootStackParamList, 'OnboardingTrialIntro'>>();
+
+  return (
+    <OnboardingTrialIntroScreen
+      onContinue={() =>
+        navigation.replace('OnboardingTrialTimeline', {
+          displayName: route.params.displayName,
+          draft: route.params.draft,
+        })
+      }
+    />
+  );
+}
+
+function OnboardingTrialTimelineRoute() {
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'OnboardingTrialTimeline'>
+  >();
+  const finishOnboardingV2Journey = useAppStore(
+    state => state.finishOnboardingV2Journey,
+  );
+
+  return (
+    <OnboardingTrialTimelineScreen
+      onContinue={() =>
+        finishOnboardingV2Journey(route.params.displayName, route.params.draft)
+      }
     />
   );
 }
@@ -199,11 +427,18 @@ function ForgotPasswordRoute() {
 function ResetPasswordRoute() {
   const route = useRoute<RouteProp<RootStackParamList, 'ResetPassword'>>();
   const goToSignIn = useAppStore(state => state.goToSignIn);
+  const handleResetPassword = async (payload: {
+    token: string;
+    password: string;
+  }) => {
+    await resetPassword(payload);
+    await clearMoodWidgetSessionLocal('reconnectRequired');
+  };
 
   return (
     <ResetPasswordScreen
       token={route.params?.token || ''}
-      onSubmit={resetPassword}
+      onSubmit={handleResetPassword}
       onBackToSignIn={goToSignIn}
     />
   );
@@ -249,34 +484,33 @@ function VerifyEmailRoute() {
   );
 }
 
-function SetupProfileRoute() {
-  const pendingEmail = useAppStore(state => state.pendingEmail);
-  const authSource = useAppStore(state => state.authSource);
-  const onboardingData = useAppStore(state => state.onboardingData);
-  const initialProfileName = useAppStore(state => state.initialProfileName);
-  const completeProfile = useAppStore(state => state.completeProfile);
-  const skipProfileSetup = useAppStore(state => state.skipProfileSetup);
-  const sessionEmail = useAppStore(state => state.session?.user.email || '');
-
-  return (
-    <SetupProfileScreen
-      authEmail={pendingEmail || sessionEmail}
-      authSource={authSource || 'email'}
-      onboardingContext={onboardingData}
-      initialName={initialProfileName}
-      onComplete={completeProfile}
-      onSkip={skipProfileSetup}
-    />
-  );
-}
-
 function PaywallRoute() {
   const continueFromPaywall = useAppStore(state => state.continueFromPaywall);
 
   return <PaywallScreen onBack={continueFromPaywall} />;
 }
 
+// The 'exit' target is the special yearly offer, which is now a native screen.
+// Everything else on this route still falls through to the RevenueCat-hosted
+// surface. Both exit through the same store actions, so the stage stays shared.
 function HostedPaywallRoute() {
+  const hostedTarget = useAppStore(state => state.activeHostedPaywallTarget);
+  const continueFromHostedPaywall = useAppStore(
+    state => state.continueFromHostedPaywall,
+  );
+  const fallbackFromHostedPaywall = useAppStore(
+    state => state.fallbackFromHostedPaywall,
+  );
+
+  if (hostedTarget === 'exit') {
+    return (
+      <YearlyOfferPaywallScreen
+        onBack={continueFromHostedPaywall}
+        onUnavailable={fallbackFromHostedPaywall}
+      />
+    );
+  }
+
   return <HostedRevenueCatPaywallScreen />;
 }
 
@@ -371,14 +605,20 @@ function ProfileHubRoute() {
           <SettingsPrivacyDataSection
             onOpenExport={() => navigation.navigate('Privacy')}
             onOpenBiometricLock={() => navigation.navigate('BiometricLock')}
+            onOpenBiometricLockPaywall={() =>
+              openPaywallFromModal(
+                'settings_biometric_lock_locked',
+                'settings',
+              )
+            }
             onOpenHidePreviewsPaywall={() =>
               openPaywallFromModal('settings_hide_previews_locked', 'settings')
             }
-            onOpenPrivacyModePaywall={() =>
-              openPaywallFromModal('settings_privacy_mode_locked', 'settings')
-            }
           />
-          <SettingsMoreSection />
+          <SettingsMoreSection
+            onOpenWidgets={() => navigation.navigate('Widgets')}
+          />
+          <SettingsAboutLegalSection />
           <SettingsSupportSection />
           <SettingsSignOutSection onSignOut={signOut} />
         </>
@@ -477,6 +717,29 @@ function ThemeModalRoute() {
   );
 }
 
+function WidgetsModalRoute() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<ProfileModalStackParamList>>();
+  const session = useAppStore(state => state.session);
+  const openPaywallForPlacement = useAppStore(
+    state => state.openPaywallForPlacement,
+  );
+
+  return (
+    <WidgetsScreen
+      isPremium={Boolean(session?.user.isPremium)}
+      onBack={() => navigation.goBack()}
+      onOpenPremium={() =>
+        openPaywallForPlacement({
+          placementKey: 'settings_widgets_locked',
+          returnStage: 'main-app',
+          screenKey: 'widgets',
+        })
+      }
+    />
+  );
+}
+
 function ProfileModalRoute() {
   const theme = useTheme();
 
@@ -521,6 +784,10 @@ function ProfileModalRoute() {
           component={RemindersModalRoute}
         />
         <ProfileModalStack.Screen name="Theme" component={ThemeModalRoute} />
+        <ProfileModalStack.Screen
+          name="Widgets"
+          component={WidgetsModalRoute}
+        />
       </ProfileModalStack.Navigator>
       <ThemeTransitionOverlay />
     </View>
@@ -583,8 +850,6 @@ export function getInitialRouteName(stage: string) {
       return 'CreateAccount';
     case 'verify-email':
       return 'VerifyEmail';
-    case 'profile':
-      return 'SetupProfile';
     case 'paywall':
       return 'Paywall';
     case 'hosted-paywall':
@@ -642,22 +907,124 @@ export default function AppNavigator() {
         <RootStack.Screen
           name="FirstGuidedReflection"
           component={FirstGuidedReflectionRoute}
+          // The only step that keeps its back gesture. Nothing is persisted
+          // until "Finish entry" creates the journal entry, so swiping back
+          // here discards nothing — and this screen has no back button, and no
+          // Exit action until something is written, so the gesture is the only
+          // way out. Every later step has a saved entry behind it and stays
+          // locked.
           options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
         />
         <RootStack.Screen
           name="FirstReflectionAnalysis"
           component={FirstReflectionAnalysisRoute}
-          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
         />
         <RootStack.Screen
           name="FirstReflectionGoals"
           component={FirstReflectionGoalsRoute}
-          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionMindMapLoading"
+          component={FirstReflectionMindMapLoadingRoute}
+          options={{
+            animation: 'fade',
+            animationDuration: 240,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionMindMap"
+          component={FirstReflectionMindMapRoute}
+          options={{
+            animation: 'fade',
+            animationDuration: 300,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionRating"
+          component={FirstReflectionRatingRoute}
+          options={{
+            animation: 'fade',
+            animationDuration: 300,
+            gestureEnabled: false,
+          }}
         />
         <RootStack.Screen
           name="FirstReflectionStreak"
           component={FirstReflectionStreakRoute}
-          options={{ animation: 'fade_from_bottom', animationDuration: 280 }}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingReminders"
+          component={OnboardingRemindersRoute}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingWidgetSetup"
+          component={OnboardingWidgetSetupRoute}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingWidgetActivated"
+          component={OnboardingWidgetActivatedRoute}
+          // `fade` so the widget step's opaque pulse dissolves into this screen
+          // as one continuous flash rather than sliding over it.
+          options={{
+            animation: 'fade',
+            animationDuration: 240,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingCommitment"
+          component={OnboardingCommitmentRoute}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingTrialIntro"
+          component={OnboardingTrialIntroRoute}
+          // A timed beat screen, so it dissolves in and out rather than sliding.
+          options={{
+            animation: 'fade',
+            animationDuration: 260,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="OnboardingTrialTimeline"
+          component={OnboardingTrialTimelineRoute}
+          options={{
+            animation: 'fade_from_bottom',
+            animationDuration: 280,
+            gestureEnabled: false,
+          }}
         />
         <RootStack.Screen name="AuthChoice" component={AuthChoiceRoute} />
         <RootStack.Screen name="SignIn" component={SignInRoute} />
@@ -668,8 +1035,11 @@ export default function AppNavigator() {
         <RootStack.Screen name="ResetPassword" component={ResetPasswordRoute} />
         <RootStack.Screen name="CreateAccount" component={CreateAccountRoute} />
         <RootStack.Screen name="VerifyEmail" component={VerifyEmailRoute} />
-        <RootStack.Screen name="SetupProfile" component={SetupProfileRoute} />
-        <RootStack.Screen name="Paywall" component={PaywallRoute} />
+        <RootStack.Screen
+          name="Paywall"
+          component={PaywallRoute}
+          options={{ animation: 'slide_from_bottom', animationDuration: 320 }}
+        />
         <RootStack.Screen name="HostedPaywall" component={HostedPaywallRoute} />
         <RootStack.Screen name="LifetimeOffer" component={LifetimeOfferRoute} />
         <RootStack.Screen name="Complete" component={CompleteRoute} />
@@ -728,6 +1098,7 @@ const appNavigatorStyles = StyleSheet.create({
   },
   completeTitle: {
     fontSize: 24,
+    letterSpacing: -0.5,
     fontWeight: '600',
   },
   completeSubtitle: {

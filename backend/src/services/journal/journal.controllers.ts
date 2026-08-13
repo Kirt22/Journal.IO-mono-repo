@@ -9,10 +9,13 @@ import {
   deleteJournal,
   getJournalDetails,
   getJournalQuickAnalysis,
+  getJournalSessionAnalysis,
   getJournals,
+  InvalidJournalCursorError,
   PremiumQuickAnalysisRequiredError,
+  PremiumSessionAnalysisRequiredError,
   PremiumTagSuggestionsRequiredError,
-  QuickAnalysisDisabledError,
+  SessionAnalysisUnavailableError,
   suggestJournalTags,
   toggleJournalFavorite,
   updateJournal,
@@ -29,10 +32,26 @@ const getJournalsController = async (req: Request, res: Response) => {
       return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
-    const journals = await getJournals(userId.toString());
+    const journals = await getJournals({
+      userId: userId.toString(),
+      limit: Number(req.query.limit || 10),
+      ...(typeof req.query.cursor === "string"
+        ? { cursor: req.query.cursor }
+        : {}),
+      ...(typeof req.query.from === "string" ? { from: req.query.from } : {}),
+      ...(typeof req.query.to === "string" ? { to: req.query.to } : {}),
+    });
 
     return res.status(200).json(apiResponse(true, "Your entries are ready.", journals));
   } catch (error) {
+    if (error instanceof InvalidJournalCursorError) {
+      return res.status(400).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "INVALID_JOURNAL_CURSOR" },
+        })
+      );
+    }
+
     console.error("Error in getJournalsController:", error);
     res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
@@ -49,12 +68,13 @@ const createJournalController = async (
       return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
-    const { title, content, type, aiPrompt, images, tags } = req.body;
+    const { title, content, type, entryKind, aiPrompt, images, tags } = req.body;
     const journal = await createJournal({
       userId,
       title,
       content,
       type,
+      entryKind,
       aiPrompt,
       tags,
       images,
@@ -249,15 +269,52 @@ const getJournalQuickAnalysisController = async (
       );
     }
 
-    if (error instanceof QuickAnalysisDisabledError) {
+    console.error("Error in getJournalQuickAnalysisController:", error);
+    return res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
+  }
+};
+
+const getJournalSessionAnalysisController = async (
+  req: Request & { user?: { _id?: string } },
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
+    }
+
+    const analysis = await getJournalSessionAnalysis({
+      userId,
+      journalId: req.body.journalId,
+    });
+
+    if (!analysis) {
+      return res.status(404).json(apiResponse(false, notFoundMessage("entry"), {}));
+    }
+
+    return res
+      .status(200)
+      .json(apiResponse(true, "Your session analysis is ready.", analysis));
+  } catch (error) {
+    if (error instanceof PremiumSessionAnalysisRequiredError) {
       return res.status(403).json(
         apiResponse(false, error.message, {}, {
-          error: { code: "QUICK_ANALYSIS_DISABLED" },
+          error: { code: "PREMIUM_REQUIRED" },
         })
       );
     }
 
-    console.error("Error in getJournalQuickAnalysisController:", error);
+    if (error instanceof SessionAnalysisUnavailableError) {
+      return res.status(422).json(
+        apiResponse(false, error.message, {}, {
+          error: { code: "SESSION_ANALYSIS_NOT_AVAILABLE" },
+        })
+      );
+    }
+
+    console.error("Error in getJournalSessionAnalysisController:", error);
     return res.status(500).json(apiResponse(false, API_MESSAGES.internalError, {}));
   }
 };
@@ -267,6 +324,7 @@ export {
   createJournalController,
   getJournalDetailsController,
   getJournalQuickAnalysisController,
+  getJournalSessionAnalysisController,
   editJournalController,
   toggleJournalFavoriteController,
   deleteJournalController,

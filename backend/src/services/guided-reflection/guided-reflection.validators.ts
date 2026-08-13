@@ -36,6 +36,7 @@ const guidedThreadMessageSchema = z.object({
   kind: z.string().trim().min(1).max(80),
   text: z.string().trim().min(1).max(1200),
   actionType: guidedSuggestionActionSchema.optional(),
+  promptQuestion: z.string().trim().min(1).max(100).optional(),
 });
 
 const sessionAnalysisPayloadSchema = z
@@ -60,8 +61,9 @@ const createGuidedReflectionGoDeeperSchema = z.object({
   body: z.object({
     promptAnswers: z.array(guidedReflectionPromptAnswerSchema).min(1).max(6),
     aiSummary: z.string().trim().max(1200).optional(),
-    previousDeeperReflections: z.array(z.string().trim().min(1).max(900)).max(3).optional(),
-    threadMessages: z.array(guidedThreadMessageSchema).max(8).optional(),
+    // Adaptive, user-paced deepening can run several turns before wrapping up.
+    previousDeeperReflections: z.array(z.string().trim().min(1).max(900)).max(8).optional(),
+    threadMessages: z.array(guidedThreadMessageSchema).max(24).optional(),
     currentText: z.string().trim().min(2).max(900),
     suggestionAction: guidedSuggestionActionSchema.optional(),
     onboardingContext: onboardingContextSchema,
@@ -72,9 +74,10 @@ const createGuidedReflectionGoDeeperSchema = z.object({
 
 const createGuidedReflectionSessionAnalysisSchema = z.object({
   body: z.object({
+    journalId: z.string().trim().min(1).optional(),
     promptAnswers: z.array(guidedReflectionPromptAnswerSchema).min(3).max(6),
     aiSummary: z.string().trim().max(1200).optional(),
-    threadMessages: z.array(guidedThreadMessageSchema).max(10).optional(),
+    threadMessages: z.array(guidedThreadMessageSchema).max(24).optional(),
     onboardingContext: onboardingContextSchema,
   }),
   query: z.object({}).optional(),
@@ -85,7 +88,7 @@ const createGuidedReflectionGoalSuggestionsSchema = z.object({
   body: z.object({
     promptAnswers: z.array(guidedReflectionPromptAnswerSchema).min(3).max(6),
     aiSummary: z.string().trim().max(1200).optional(),
-    threadMessages: z.array(guidedThreadMessageSchema).max(10).optional(),
+    threadMessages: z.array(guidedThreadMessageSchema).max(24).optional(),
     sessionAnalysis: sessionAnalysisPayloadSchema,
     onboardingContext: onboardingContextSchema,
   }),

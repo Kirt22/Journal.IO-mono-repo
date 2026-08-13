@@ -20,11 +20,27 @@ const reminderTarget = reminderModel as unknown as {
 const originalJournalExists = journalTarget.exists;
 const originalJournalCountDocuments = journalTarget.countDocuments;
 const originalReminderExists = reminderTarget.exists;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalPremiumAccessOverride =
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE;
 
 afterEach(() => {
   journalTarget.exists = originalJournalExists;
   journalTarget.countDocuments = originalJournalCountDocuments;
   reminderTarget.exists = originalReminderExists;
+
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+
+  if (originalPremiumAccessOverride === undefined) {
+    delete process.env.DEV_PREMIUM_ACCESS_OVERRIDE;
+  } else {
+    process.env.DEV_PREMIUM_ACCESS_OVERRIDE =
+      originalPremiumAccessOverride;
+  }
 });
 
 test("buildUserProfilePayload includes premiumActivatedAt as an ISO string", () => {
@@ -61,7 +77,6 @@ test("buildUserProfilePayload includes premiumActivatedAt as an ISO string", () 
       goals: [],
       supportFocus: ["Focus"],
       reminderPreference: "evening",
-      aiOptIn: true,
     },
     onboardingPayload: {
       whatBringsYouHere: ["Build consistency"],
@@ -90,6 +105,49 @@ test("buildUserProfilePayload includes premiumActivatedAt as an ISO string", () 
     reflectionTone: ["Gentle"],
     reminderPreference: "evening",
   });
+});
+
+test("buildUserProfilePayload projects effective development Pro access without mutating stored entitlement data", () => {
+  process.env.NODE_ENV = "development";
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE = "pro";
+
+  const user = {
+    _id: {
+      toString: () => "user-dev-pro",
+    },
+    name: "Development User",
+    phoneNumber: null,
+    email: "dev@example.com",
+    isPremium: false,
+    premiumPlanKey: null,
+    premiumActivatedAt: null,
+    premiumProductId: null,
+    premiumExpiresAt: null,
+    premiumWillRenew: null,
+    premiumVerifiedAt: null,
+    premiumRevenueCatRequestDate: null,
+    revenueCatAppUserId: null,
+    premiumSource: null,
+    avatarColor: null,
+    journalingGoals: [],
+    profileSetupCompleted: true,
+    onboardingCompleted: true,
+    onboardingVersion: 2,
+    onboardingCompletedAt: new Date("2026-07-22T12:00:00.000Z"),
+    profilePic: null,
+    onboardingContext: {
+    },
+    onboardingPayload: null,
+  } as any;
+
+  const payload = buildUserProfilePayload(user);
+
+  assert.equal(payload.isPremium, true);
+  assert.equal(payload.premiumPlanKey, null);
+  assert.equal(payload.premiumSource, null);
+  assert.equal(user.isPremium, false);
+  assert.equal(user.premiumPlanKey, null);
+  assert.equal(user.premiumSource, null);
 });
 
 test("buildAuthenticatedUserProfilePayload lazily migrates existing users with journal entries", async () => {

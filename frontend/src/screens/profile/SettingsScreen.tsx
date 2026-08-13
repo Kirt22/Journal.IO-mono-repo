@@ -1,15 +1,20 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import HapticSwitch from '../../components/HapticSwitch';
+import {
+  useEffect,
+  useState,
+  type ReactNode } from 'react';
 import {
   Alert,
   Image,
   type ImageSourcePropType,
   Platform,
-  Pressable,
   StyleSheet,
-  Switch,
-  Text,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import {
   ChevronRight,
   Crown,
@@ -20,7 +25,6 @@ import { getPrimaryDailyReminder } from '../../services/remindersService';
 import { getReminderPermissionGranted } from '../../services/reminderNotificationsService';
 import { trackPaywallEvent } from '../../services/paywallService';
 import { getBiometricLockLabel } from '../../services/biometricLockService';
-import { updateAiOptOutPreference } from '../../services/privacyService';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useAppStore } from '../../store/appStore';
 import { useTheme } from '../../theme/provider';
@@ -40,7 +44,6 @@ import type { ThemePreference } from '../../theme/theme';
 const SETTINGS_ICONS = {
   aboutMe: require('../../assets/png/settings/icons8-about-me-48.png'),
   account: require('../../assets/png/settings/icons8-account-48.png'),
-  aiAnalysis: require('../../assets/png/settings/icons8-ai-48.png'),
   biometricLock: require('../../assets/png/settings/icons8-biometric-lock-64.png'),
   credits: require('../../assets/png/settings/icons8-giving-48.png'),
   exportData: require('../../assets/png/settings/icons8-export-64.png'),
@@ -49,9 +52,11 @@ const SETTINGS_ICONS = {
   notifications: require('../../assets/png/settings/icons8-notification-64.png'),
   privacyChoices: require('../../assets/png/settings/icons8-privacy-64.png'),
   privacyPolicy: require('../../assets/png/settings/icons8-privacy-policy-64.png'),
+  subscription: require('../../assets/png/settings/icons8-paid-100.png'),
   support: require('../../assets/png/settings/icons8-support-100.png'),
   termsOfService: require('../../assets/png/settings/icons8-terms-and-conditions-64.png'),
   theme: require('../../assets/png/settings/icons8-theme-48.png'),
+  widgets: require('../../assets/png/settings/icons8-color-widgets-48.png'),
 } as const;
 
 type SettingsScreenProps = {
@@ -59,10 +64,11 @@ type SettingsScreenProps = {
   onOpenAboutYou?: () => void;
   onOpenManageAccount?: () => void;
   onOpenNotifications?: () => void;
+  onOpenWidgets?: () => void;
   onOpenPrivacy: () => void;
-  onOpenPrivacyModePaywall: () => void;
   onOpenHidePreviewsPaywall: () => void;
   onOpenBiometricLock: () => void;
+  onOpenBiometricLockPaywall?: () => void;
   onOpenSubscription?: () => void;
   onOpenTheme?: () => void;
   onSignOut: () => Promise<void> | void;
@@ -97,7 +103,7 @@ export type SettingsPrivacyDataSectionProps = {
   onOpenExport: () => void;
   onOpenHidePreviewsPaywall: () => void;
   onOpenBiometricLock: () => void;
-  onOpenPrivacyModePaywall: () => void;
+  onOpenBiometricLockPaywall?: () => void;
 };
 
 function SettingsListRow({
@@ -169,7 +175,7 @@ function SettingsListRow({
   }
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={disabled ? { disabled: true } : undefined}
@@ -182,7 +188,7 @@ function SettingsListRow({
       ]}
     >
       {content}
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -203,9 +209,10 @@ function SettingsToggle({
 
   return (
     <View style={styles.toggleSlot}>
-      <Switch
+      <HapticSwitch
         accessibilityLabel={accessibilityLabel}
         disabled={disabled}
+        hapticEvent={accessibilityLabel === 'Enable haptics' ? false : undefined}
         onValueChange={onValueChange}
         style={styles.toggleControl}
         thumbColor={theme.colors.card}
@@ -252,7 +259,7 @@ export function SettingsAccountSection({
           <SettingsListRow
             accessibilityLabel="Open subscription"
             description="Plan and billing details"
-            icon={Crown}
+            icon={SETTINGS_ICONS.subscription}
             label="Subscription"
             onPress={onOpenSubscription}
           />
@@ -382,7 +389,11 @@ export function SettingsPersonalizationSection({
   );
 }
 
-export function SettingsMoreSection() {
+export function SettingsMoreSection({
+  onOpenWidgets = () => undefined,
+}: {
+  onOpenWidgets?: () => void;
+} = {}) {
   const theme = useTheme();
   const hapticsEnabled = useAppStore(state => state.hapticsEnabled);
   const setHapticsEnabled = useAppStore(state => state.setHapticsEnabled);
@@ -409,6 +420,48 @@ export function SettingsMoreSection() {
     }
   };
 
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        More
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          accessibilityLabel="Open widgets"
+          description="View your available Home Screen widgets"
+          icon={SETTINGS_ICONS.widgets}
+          label="Widgets"
+          onPress={onOpenWidgets}
+        />
+        <SettingsListRow
+          description="Feel touch feedback for actions"
+          icon={SETTINGS_ICONS.haptics}
+          label="Haptics"
+          right={
+            <SettingsToggle
+              accessibilityLabel="Enable haptics"
+              disabled={isUpdatingHaptics}
+              onValueChange={handleHapticsChange}
+              value={hapticsEnabled}
+            />
+          }
+          showChevron={false}
+        />
+      </View>
+    </View>
+  );
+}
+
+export function SettingsAboutLegalSection() {
+  const theme = useTheme();
+
   const openDocument = (url: string, title: string) => {
     openExternalUrl(url, title).catch(error => {
       Alert.alert(
@@ -433,7 +486,7 @@ export function SettingsMoreSection() {
       <Text
         style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
       >
-        More
+        About & Legal
       </Text>
       <View
         style={[
@@ -441,20 +494,6 @@ export function SettingsMoreSection() {
           { borderTopColor: theme.colors.border },
         ]}
       >
-        <SettingsListRow
-          description="Feel touch feedback for actions"
-          icon={SETTINGS_ICONS.haptics}
-          label="Haptics"
-          right={
-            <SettingsToggle
-              accessibilityLabel="Enable haptics"
-              disabled={isUpdatingHaptics}
-              onValueChange={handleHapticsChange}
-              value={hapticsEnabled}
-            />
-          }
-          showChevron={false}
-        />
         <SettingsListRow
           accessibilityLabel="Open privacy policy"
           description="How we handle your data"
@@ -557,7 +596,7 @@ export function SettingsSignOutSection({
   };
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityLabel="Sign out"
       accessibilityRole="button"
       accessibilityState={{ busy: isSigningOut, disabled: isSigningOut }}
@@ -583,7 +622,7 @@ export function SettingsSignOutSection({
           Sign out
         </Text>
       </ButtonLoadingContent>
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -591,34 +630,19 @@ export function SettingsPrivacyDataSection({
   onOpenExport,
   onOpenHidePreviewsPaywall,
   onOpenBiometricLock,
-  onOpenPrivacyModePaywall,
+  onOpenBiometricLockPaywall = onOpenBiometricLock,
 }: SettingsPrivacyDataSectionProps) {
   const theme = useTheme();
   const sessionUser = useAppStore(state => state.session?.user ?? null);
   const isPremiumUser = Boolean(sessionUser?.isPremium);
-  const isAiAnalysisEnabled = useAppStore(
-    state => state.session?.user.aiOptIn !== false,
-  );
   const hideJournalPreviews = useAppStore(state => state.hideJournalPreviews);
   const setHideJournalPreviews = useAppStore(
     state => state.setHideJournalPreviews,
   );
   const biometricLockEnabled = useAppStore(state => state.biometricLockEnabled);
   const biometricLockType = useAppStore(state => state.biometricLockType);
-  const setSessionAiOptIn = useAppStore(state => state.setSessionAiOptIn);
-  const [isUpdatingAiAnalysis, setIsUpdatingAiAnalysis] = useState(false);
   const [isUpdatingPreviewPrivacy, setIsUpdatingPreviewPrivacy] =
     useState(false);
-
-  const handleOpenPrivacyModePaywall = () => {
-    trackPaywallEvent({
-      placementKey: 'settings_privacy_mode_locked',
-      screenKey: 'settings',
-      eventType: 'locked_feature_tap',
-      wasInterruptive: false,
-    }).catch(() => undefined);
-    onOpenPrivacyModePaywall();
-  };
 
   const handleOpenHidePreviewsPaywall = () => {
     trackPaywallEvent({
@@ -630,27 +654,19 @@ export function SettingsPrivacyDataSection({
     onOpenHidePreviewsPaywall();
   };
 
-  const handleAiAnalysisChange = async (nextValue: boolean) => {
-    if (!isPremiumUser) {
-      handleOpenPrivacyModePaywall();
+  const handleOpenBiometricLock = () => {
+    if (isPremiumUser) {
+      onOpenBiometricLock();
       return;
     }
 
-    setIsUpdatingAiAnalysis(true);
-
-    try {
-      const result = await updateAiOptOutPreference(!nextValue);
-      setSessionAiOptIn(result.aiOptIn);
-    } catch (error) {
-      Alert.alert(
-        'AI analysis',
-        error instanceof Error
-          ? error.message
-          : 'Unable to update your AI analysis preference right now.',
-      );
-    } finally {
-      setIsUpdatingAiAnalysis(false);
-    }
+    trackPaywallEvent({
+      placementKey: 'settings_biometric_lock_locked',
+      screenKey: 'settings',
+      eventType: 'locked_feature_tap',
+      wasInterruptive: false,
+    }).catch(() => undefined);
+    onOpenBiometricLockPaywall();
   };
 
   const handlePreviewPrivacyChange = async (nextValue: boolean) => {
@@ -706,13 +722,17 @@ export function SettingsPrivacyDataSection({
       >
         {showBiometricLockRow ? (
           <SettingsListRow
-            accessibilityLabel={`Open ${biometricLockLabel}`}
+            accessibilityLabel={`${
+              isPremiumUser ? 'Open' : 'Unlock'
+            } ${biometricLockLabel}`}
             description="Keep Journal.IO private"
             icon={SETTINGS_ICONS.biometricLock}
             label={biometricLockLabel}
-            onPress={onOpenBiometricLock}
+            onPress={handleOpenBiometricLock}
             right={
-              biometricLockEnabled ? (
+              !isPremiumUser ? (
+                premiumBadge
+              ) : biometricLockEnabled ? (
                 <Text
                   style={[styles.valueText, { color: theme.colors.primary }]}
                 >
@@ -720,27 +740,9 @@ export function SettingsPrivacyDataSection({
                 </Text>
               ) : undefined
             }
+            showChevron={isPremiumUser}
           />
         ) : null}
-        <SettingsListRow
-          description="Use AI for reflections"
-          icon={SETTINGS_ICONS.aiAnalysis}
-          label="Enable AI analysis"
-          onPress={isPremiumUser ? undefined : handleOpenPrivacyModePaywall}
-          accessibilityLabel={isPremiumUser ? undefined : 'Unlock Privacy Mode'}
-          right={
-            isPremiumUser ? (
-              <SettingsToggle
-                disabled={isUpdatingAiAnalysis}
-                onValueChange={handleAiAnalysisChange}
-                value={isAiAnalysisEnabled}
-              />
-            ) : (
-              premiumBadge
-            )
-          }
-          showChevron={false}
-        />
         <SettingsListRow
           description="Mask journal previews"
           icon={SETTINGS_ICONS.hideEntries}
@@ -778,10 +780,11 @@ export default function SettingsScreen({
   onOpenAboutYou = () => undefined,
   onOpenManageAccount = () => undefined,
   onOpenNotifications = () => undefined,
+  onOpenWidgets = () => undefined,
   onOpenPrivacy,
-  onOpenPrivacyModePaywall,
   onOpenHidePreviewsPaywall,
   onOpenBiometricLock,
+  onOpenBiometricLockPaywall = onOpenBiometricLock,
   onOpenSubscription = () => undefined,
   onOpenTheme = () => undefined,
   onSignOut,
@@ -805,10 +808,12 @@ export default function SettingsScreen({
         onOpenExport={onOpenPrivacy}
         onOpenHidePreviewsPaywall={onOpenHidePreviewsPaywall}
         onOpenBiometricLock={onOpenBiometricLock}
-        onOpenPrivacyModePaywall={onOpenPrivacyModePaywall}
+        onOpenBiometricLockPaywall={onOpenBiometricLockPaywall}
       />
 
-      <SettingsMoreSection />
+      <SettingsMoreSection onOpenWidgets={onOpenWidgets} />
+
+      <SettingsAboutLegalSection />
 
       <SettingsSupportSection />
 

@@ -25,7 +25,6 @@ type AuthUser = {
   hasJournalEntries?: boolean;
   journalCount?: number;
   profilePic: string | null;
-  aiOptIn: boolean | null;
   onboardingPreferences?: {
     ageRange: string | null;
     journalingExperience: string | null;
@@ -48,7 +47,6 @@ type AuthOnboardingContext = {
   goals?: string[];
   supportFocus?: string[];
   reminderPreference?: string;
-  aiOptIn?: boolean;
   privacyConsentAccepted?: boolean;
 };
 
@@ -95,7 +93,6 @@ type VerifyEmailPayload = {
 
 type VerifyEmailOptions = {
   onboardingGoals?: string[];
-  onboardingAiOptIn?: boolean;
   onboardingCompleted?: boolean;
 };
 

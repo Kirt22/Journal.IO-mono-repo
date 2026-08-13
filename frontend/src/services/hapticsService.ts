@@ -13,6 +13,7 @@ type HapticEvent =
   | "primaryAction"
   | "secondaryAction"
   | "screenTransition"
+  | "streakFlame"
   | "bottomSheet"
   | "legal"
   | "back";
@@ -82,6 +83,9 @@ const playPulsarPreset = (event: HapticEvent, presets: PulsarPresets) => {
     case "authIntroReveal":
       presets.System.selection();
       break;
+    case "streakFlame":
+      presets.ignition();
+      break;
     case "animationCue":
     case "back":
     case "bottomSheet":
@@ -132,5 +136,21 @@ const triggerHaptic = async (event: HapticEvent) => {
   return undefined;
 };
 
-export { triggerHaptic };
+const stopHaptics = async () => {
+  const { Settings: settings } = getPulsarModule();
+
+  if (!settings) {
+    return undefined;
+  }
+
+  try {
+    settings.stopHaptics();
+  } catch {
+    // Stopping a completed haptic should never affect the celebration flow.
+  }
+
+  return undefined;
+};
+
+export { stopHaptics, triggerHaptic };
 export type { HapticEvent };

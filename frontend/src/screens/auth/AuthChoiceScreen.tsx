@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from '../../infrastructure/reactNative';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView } from 'react-native-safe-area-context';
 import {
   AccessibilityInfo,
   Animated,
@@ -398,13 +403,13 @@ export default function AuthChoiceScreen({
                   >
                     Already have an account?
                   </Text>
-                  <Pressable onPress={onGoToSignIn} style={styles.linkButton}>
+                  <HapticPressable onPress={onGoToSignIn} style={styles.linkButton}>
                     <Text
                       style={[styles.linkText, { color: theme.colors.primary }]}
                     >
                       Sign in
                     </Text>
-                  </Pressable>
+                  </HapticPressable>
                 </View>
               </Animated.View>
 

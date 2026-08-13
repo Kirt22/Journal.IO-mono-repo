@@ -36,7 +36,7 @@ const WWW_HOSTNAME = "www.journalio.app";
 const SUPPORT_PAGE_URL = `${LEGAL_BASE_URL}/support`;
 const SUPPORT_FORM_URL = "https://forms.gle/Y2WSwrtQCmTXtHLUA";
 const APP_STORE_APP_URL = "https://apps.apple.com/app/id6770075245";
-const EFFECTIVE_DATE = "April 22, 2026";
+const EFFECTIVE_DATE = "August 8, 2026";
 
 const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
   privacy: {
@@ -77,9 +77,8 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
       {
         heading: "AI Processing",
         paragraphs: [
-          "When AI-supported features are enabled and available for your account, Journal.IO may use third-party AI providers, including OpenAI, to process limited portions of your journal content and recent-entry context.",
+          "When AI-supported features are available for your account, Journal.IO may use third-party AI providers, including OpenAI, to process limited portions of your journal content and recent-entry context.",
           "We use this processing for features such as prompt generation, tag suggestion, quick reflections, and weekly or trend-based insight summaries.",
-          "If AI-supported features are disabled for your account where that control is available, Journal.IO stops using new content for those AI features on a going-forward basis and may clear cached AI summaries linked to that preference.",
         ],
       },
       {
@@ -106,7 +105,6 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
         bullets: [
           "You can delete your account from within the app.",
           "You can export your data from within the app where that feature is available for your account tier.",
-          "You can manage AI-related privacy settings where that control is available for your account tier.",
           "You can contact Journal.IO to request access, correction, or deletion of your information, subject to applicable law.",
         ],
       },
@@ -253,7 +251,7 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
         bullets: [
           "Delete account: Open Journal.IO, go to Profile, then Privacy & Data, then Delete Account.",
           "Data export: Open Journal.IO, go to Profile, then Privacy & Data, then Export Your Data if that feature is available for your account tier.",
-          "AI privacy setting: Open Journal.IO, go to Settings, then Privacy Mode if that control is available for your account tier.",
+          "Journal previews: Open Journal.IO, go to Settings, then Hide entries if that feature is available for your account tier.",
         ],
       },
       {
@@ -1254,7 +1252,7 @@ export const getLandingPageHtml = (): string => `<!doctype html>
           <article class="trust-card">
             <span>PV</span>
             <strong>User-controlled privacy</strong>
-            <p>Premium privacy controls include AI opt-out, hidden journal previews, data export, and account deletion paths.</p>
+            <p>Privacy controls include hidden journal previews, biometric app lock, data export, and account deletion paths.</p>
           </article>
           <article class="trust-card">
             <span>SF</span>

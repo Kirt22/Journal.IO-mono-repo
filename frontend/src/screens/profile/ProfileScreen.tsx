@@ -1,3 +1,4 @@
+import HapticPressable from '../../components/HapticPressable';
 import {
   useEffect,
   useMemo,
@@ -5,19 +6,20 @@ import {
   useState,
   type ComponentType,
   type ReactNode,
-} from 'react';
+  } from 'react';
 import {
   Alert,
   Animated,
   Easing,
   Image,
   Linking,
-  Pressable,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import {
   Award,
   BookOpen,
@@ -43,6 +45,7 @@ import {
   type StreakAchievement,
   type StreakCurrentSummary,
 } from '../../services/streaksService';
+import { syncStreakWidget } from '../../services/widgetService';
 import { useTheme } from '../../theme/provider';
 import { isApplePrivateRelayEmail } from '../../utils/authEmailDisplay';
 
@@ -211,7 +214,7 @@ function MenuRow({
   const Icon = icon;
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }: { pressed: boolean }) => [
@@ -255,7 +258,7 @@ function MenuRow({
         </Text>
       </View>
       <ChevronRight size={20} color={theme.colors.mutedForeground} />
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -268,7 +271,7 @@ function ContactRow({
   theme: ReturnType<typeof useTheme>;
 }) {
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       onPress={() => handleExternalPhoneAction(phoneNumber, label)}
       style={({ pressed }: { pressed: boolean }) => [
@@ -293,7 +296,7 @@ function ContactRow({
         </Text>
       </View>
       <Phone size={18} color={theme.colors.mutedForeground} />
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -398,6 +401,7 @@ export default function ProfileScreen({
 
         if (isActive) {
           setStreakSummary(summary);
+          syncStreakWidget(summary).catch(() => undefined);
         }
       } catch {
         if (isActive) {
@@ -626,7 +630,7 @@ export default function ProfileScreen({
               >
                 Settings
               </Text>
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 accessibilityLabel="Close account"
                 onPress={onClose}
@@ -640,7 +644,7 @@ export default function ProfileScreen({
                 ]}
               >
                 <X size={18} color={theme.colors.foreground} />
-              </Pressable>
+              </HapticPressable>
             </View>
           </View>
         ) : undefined
@@ -693,7 +697,7 @@ export default function ProfileScreen({
             </Text>
 
             {showPremiumBanner ? (
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 onPress={handleOpenUpgradePaywall}
                 style={({ pressed }) => [
@@ -711,7 +715,7 @@ export default function ProfileScreen({
                 >
                   Unlock Premium
                 </Text>
-              </Pressable>
+              </HapticPressable>
             ) : (
               <View
                 style={[
@@ -801,7 +805,7 @@ export default function ProfileScreen({
       ) : null}
 
       {showPremiumBanner ? (
-        <Pressable
+        <HapticPressable
           accessibilityRole="button"
           onPress={handleOpenUpgradePaywall}
           style={({ pressed }) => [
@@ -889,10 +893,18 @@ export default function ProfileScreen({
               <ChevronRight size={16} color={theme.colors.primaryForeground} />
             </View>
           </View>
-        </Pressable>
+        </HapticPressable>
       ) : null}
 
-      {settingsContent}
+      <View
+        style={
+          !showProfileSummary &&
+          !showPremiumBanner &&
+          styles.modalSettingsContentSpacer
+        }
+      >
+        {settingsContent}
+      </View>
 
       <View
         style={[styles.menuList, !showProfileSummary && styles.modalMenuList]}
@@ -926,7 +938,7 @@ export default function ProfileScreen({
           >
             Recent Achievements
           </Text>
-          <Pressable
+          <HapticPressable
             accessibilityRole="button"
             onPress={() => {
               if (onOpenStreaks) {
@@ -947,7 +959,7 @@ export default function ProfileScreen({
             <Text style={[styles.viewAllText, { color: theme.colors.info }]}>
               View All
             </Text>
-          </Pressable>
+          </HapticPressable>
         </View>
 
         {hasUnlockedAchievements ? (
@@ -1126,15 +1138,16 @@ const styles = StyleSheet.create({
   },
   avatarInitialsCompact: {
     fontSize: 28,
-  },
+    letterSpacing: -0.6,  },
   avatarInitialsDefault: {
     fontSize: 30,
-  },
+    letterSpacing: -0.7,  },
   avatarInitialsWide: {
     fontSize: 32,
-  },
+    letterSpacing: -0.7,  },
   name: {
     fontSize: 25,
+    letterSpacing: -0.5,
     fontWeight: '600',
     marginBottom: 4,
     textAlign: 'center',
@@ -1237,6 +1250,9 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   modalUpgradeBanner: {
+    marginTop: 16,
+  },
+  modalSettingsContentSpacer: {
     marginTop: 16,
   },
   upgradeGlow: {
@@ -1399,6 +1415,7 @@ const styles = StyleSheet.create({
   },
   achievementEmoji: {
     fontSize: 24,
+    letterSpacing: -0.5,
     marginBottom: 8,
   },
   achievementLabel: {
@@ -1417,6 +1434,7 @@ const styles = StyleSheet.create({
   },
   achievementEmptyEmoji: {
     fontSize: 24,
+    letterSpacing: -0.5,
     marginBottom: 10,
   },
   achievementEmptyTitle: {

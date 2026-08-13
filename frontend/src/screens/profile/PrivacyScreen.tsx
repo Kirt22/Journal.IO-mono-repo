@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useState } from 'react';
 import {
   Alert,
-  Pressable,
   Share,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import { Download } from 'lucide-react-native';
 import { exportAllEntries } from '../../services/privacyService';
 import { useTheme } from '../../theme/provider';
@@ -27,7 +30,7 @@ function ExportActionButton({
   const theme = useTheme();
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityLabel={isExporting ? 'Preparing export' : 'Export all data'}
       accessibilityRole="button"
       accessibilityState={{ busy: isExporting, disabled: isExporting }}
@@ -55,7 +58,7 @@ function ExportActionButton({
           Export all data
         </Text>
       </ButtonLoadingContent>
-    </Pressable>
+    </HapticPressable>
   );
 }
 

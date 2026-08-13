@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
 import {
   Animated,
   BackHandler,
@@ -9,27 +14,28 @@ import {
   LayoutAnimation,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   UIManager,
   useWindowDimensions,
   View,
   type ImageSourcePropType,
   type StyleProp,
   type TextStyle,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import ButtonLoadingContent from "../../components/ButtonLoadingContent";
+} from 'react-native';
+import {
+  Text,
+  TextInput,
+} from '../../infrastructure/reactNative';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import ButtonLoadingContent from '../../components/ButtonLoadingContent';
+import ConfirmActionSheet from '../../components/ConfirmActionSheet';
+import GoalSheet from '../../components/GoalSheet';
+import GuidedFinishLoader from '../../components/GuidedFinishLoader';
 import JournalWordmark from '../../components/JournalWordmark';
 import KeyboardDismissAccessory from '../../components/KeyboardDismissAccessory';
-import {
-  Check,
-  Sparkles,
-} from "lucide-react-native";
-import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
+import { Check, Sparkles } from 'lucide-react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   createFirstReflectionSummary,
   createGuidedReflectionDeeperResponse,
@@ -46,18 +52,24 @@ import {
   type GuidedReflectionSessionAnalysisResponse,
   type GuidedReflectionThreadMessagePayload,
   type GuidedSuggestionAction,
-} from "../../services/guidedReflectionService";
-import { createJournalEntry } from "../../services/journalService";
-import { triggerHaptic } from "../../services/hapticsService";
-import { useAppStore } from "../../store/appStore";
-import { useTheme } from "../../theme/provider";
-import type { OnboardingV2Draft } from "../../types/onboarding";
-import { READY_FEATURE_CARDS } from "./onboardingV2.constants";
+} from '../../services/guidedReflectionService';
+import { createJournalEntry } from '../../services/journalService';
+import type {
+  GoalDraft,
+  GoalIconSource,
+  SavedGoal,
+} from '../../services/goalsService';
+import { stopHaptics, triggerHaptic } from '../../services/hapticsService';
+import { useAppStore } from '../../store/appStore';
+import { useTheme } from '../../theme/provider';
+import type { OnboardingV2Draft } from '../../types/onboarding';
+import { READY_FEATURE_CARDS } from './onboardingV2.constants';
 
 export type FirstReflectionAnalysisPayload = {
   answers: FirstReflectionAnswers;
   aiSummary: string | null;
   draft: OnboardingV2Draft;
+  journalId?: string;
   sessionAnalysis: GuidedReflectionSessionAnalysisResponse;
   threadMessages: GuidedThreadMessage[];
 };
@@ -71,108 +83,106 @@ type FirstGuidedReflectionScreenProps = {
   onBackToReady: () => void;
   onAnalysisReady?: (payload: FirstReflectionAnalysisPayload) => void;
   onGoalsReady?: (payload: FirstReflectionGoalsPayload) => void;
-  onStreakReady?: (payload: FirstReflectionStreakPayload) => void;
+  onGoalsSaved?: (goalDrafts: GoalDraft[]) => Promise<void>;
+  onMindMapReady?: (payload: FirstReflectionStreakPayload) => void;
+  onRemindersReady?: () => void;
+  // Open-ended entries have no guided prompt answers, and the guided
+  // goal-suggestion endpoint requires at least three of them. Callers outside
+  // the guided flow supply their own loader (journal-id based) instead.
+  loadGoalSuggestionsOverride?: () => Promise<
+    FirstReflectionGoalSuggestionPayload[]
+  >;
   initialAnalysisPayload?: FirstReflectionAnalysisPayload;
   initialGoalsPayload?: FirstReflectionGoalsPayload;
   initialStreakPayload?: FirstReflectionStreakPayload;
 };
 
 type FirstReflectionMode =
-  | "core_prompts"
-  | "ai_summary_loading"
-  | "optional_deeper"
-  | "deeper_loading"
-  | "session_analysis"
-  | "goals"
-  | "streak_started"
-  | "mind_map"
-  | "mind_map_explanation"
-  | "saved";
+  | 'core_prompts'
+  | 'ai_summary_loading'
+  | 'optional_deeper'
+  | 'deeper_loading'
+  | 'session_analysis'
+  | 'goals'
+  | 'streak_started'
+  | 'saved';
 
 const FIRST_GUIDED_REFLECTION_KEYBOARD_ACCESSORY_ID =
-  "first-guided-reflection-keyboard-actions";
+  'first-guided-reflection-keyboard-actions';
 
 const FIRST_REFLECTION_PROMPTS = [
   {
-    id: "good_exciting",
-    question: "What was one good or exciting thing that happened today?",
-    helper: "It can be big, small, or just one moment that felt a little different.",
+    id: 'good_exciting',
+    question: 'What was one good or exciting thing that happened today?',
+    helper:
+      'It can be big, small, or just one moment that felt a little different.',
     required: true,
   },
   {
-    id: "hurdle",
-    question: "What was one hurdle or stressful moment you faced today?",
-    helper: "Name what felt difficult, frustrating, heavy, or unfinished.",
+    id: 'hurdle',
+    question: 'What was one hurdle or stressful moment you faced today?',
+    helper: 'Name what felt difficult, frustrating, heavy, or unfinished.',
     required: true,
   },
   {
-    id: "carry_tomorrow",
-    question: "What would you like to carry into tomorrow?",
-    helper: "A mindset, reminder, next step, or small promise to yourself is enough.",
+    id: 'carry_tomorrow',
+    question: 'What would you like to carry into tomorrow?',
+    helper:
+      'A mindset, reminder, next step, or small promise to yourself is enough.',
     required: true,
   },
   {
-    id: "anything_else",
-    question: "Anything else you want to add?",
-    helper: "Optional - add any detail that would make this reflection feel complete.",
+    id: 'anything_else',
+    question: 'What feels most important to carry forward?',
+    helper: '',
     required: false,
   },
 ] as const;
 
 type FirstReflectionPrompt = (typeof FIRST_REFLECTION_PROMPTS)[number];
-type FirstReflectionPromptId = FirstReflectionPrompt["id"];
+type FirstReflectionPromptId = FirstReflectionPrompt['id'];
 type FirstReflectionAnswers = Partial<Record<FirstReflectionPromptId, string>>;
-type CoreReflectionPromptId = Exclude<FirstReflectionPromptId, "anything_else">;
+type CoreReflectionPromptId = Exclude<FirstReflectionPromptId, 'anything_else'>;
 type GuidedThreadMessage = {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: 'user' | 'assistant' | 'system';
   kind:
-    | "suggestion_request"
-    | "typed_deeper_request"
-    | "assistant_reflection"
-    | "local_error";
+    | 'suggestion_request'
+    | 'typed_deeper_request'
+    | 'assistant_reflection'
+    | 'local_error';
   text: string;
   actionType?: GuidedSuggestionAction;
+  promptQuestion?: string;
   createdAt: number;
   isStreaming?: boolean;
 };
 
 type SessionAnalysis = GuidedReflectionSessionAnalysisResponse;
 
-export type FirstReflectionGoalSuggestion = FirstReflectionGoalSuggestionPayload & {
-  id: string;
-  source?: "ai" | "fallback";
-  selected: boolean;
-};
+export type FirstReflectionGoalSuggestion =
+  FirstReflectionGoalSuggestionPayload & {
+    id: string;
+    source?: 'ai' | 'fallback';
+    selected: boolean;
+    // Carried so the shared GoalSheet can edit a suggestion with the same
+    // controls as a saved goal, and so those choices survive into the created
+    // goal rather than being reset to defaults.
+    iconSource: GoalIconSource;
+    reminderEnabled: boolean;
+    reminderTime: string | null;
+  };
 
 export type FirstReflectionStreakPayload = FirstReflectionAnalysisPayload & {
   goalSuggestions: FirstReflectionGoalSuggestion[];
 };
 
-type FirstReflectionMindMap = {
-  center: {
-    id: "first_reflection";
-    label: string;
-  };
-  nodes: Array<{
-    id: string;
-    label: string;
-    type: "theme" | "goal" | "pattern" | "tomorrow" | "emotion";
-    weight: number;
-  }>;
-  edges: Array<{
-    from: string;
-    to: string;
-    strength: number;
-  }>;
-};
-
 const TENDER_SUPPORT_FOCUS = new Set([
-  "anger",
-  "loneliness",
-  "low_mood",
-  "overthinking",
-  "stress",
+  'anger',
+  'loneliness',
+  'low_mood',
+  'overthinking',
+  'stress',
 ]);
 
 const SUGGESTION_OPTIONS: Array<{
@@ -181,35 +191,42 @@ const SUGGESTION_OPTIONS: Array<{
   requestText: string;
 }> = [
   {
-    actionType: "gentle_prompt",
-    label: "Give me a gentle prompt",
-    requestText: "Give me a gentle prompt.",
+    actionType: 'gentle_prompt',
+    label: 'Give me a gentle prompt',
+    requestText: 'Give me a gentle prompt.',
   },
   {
-    actionType: "go_deeper",
-    label: "Help me go deeper",
-    requestText: "Help me go deeper.",
+    actionType: 'go_deeper',
+    label: 'Help me go deeper',
+    requestText: 'Help me go deeper.',
   },
   {
-    actionType: "another_perspective",
-    label: "Offer another perspective",
-    requestText: "Offer another perspective.",
+    actionType: 'another_perspective',
+    label: 'Offer another perspective',
+    requestText: 'Offer another perspective.',
   },
   {
-    actionType: "small_next_step",
-    label: "Suggest a small next step",
-    requestText: "Suggest a small next step.",
+    actionType: 'small_next_step',
+    label: 'Suggest a small next step',
+    requestText: 'Suggest a small next step.',
   },
   {
-    actionType: "summarize",
-    label: "Summarize what I wrote",
-    requestText: "Summarize what I wrote.",
+    actionType: 'summarize',
+    label: 'Summarize what I wrote',
+    requestText: 'Summarize what I wrote.',
   },
 ];
 
 const CORE_PROMPT_COUNT = 3;
-const MAX_DEEPER_REFLECTIONS = 3;
-const SESSION_TAG_FALLBACKS = ["Reflection", "Tomorrow", "Habits"];
+// Upper bound on adaptive follow-up turns. The backend's canGoDeeper decides
+// when a session has naturally resolved; this is just a safety ceiling so a
+// The guided thread can run several turns before wrapping up.
+const MAX_DEEPER_REFLECTIONS = 6;
+const REFLECTION_ACTION_ROW_HEIGHT = 82;
+const CORE_TO_TRANSCRIPT_EXIT_MS = 180;
+const TRANSCRIPT_ENTRANCE_MS = 280;
+const SUGGESTION_REQUEST_REVEAL_MS = 220;
+const SESSION_TAG_FALLBACKS = ['Reflection', 'Tomorrow', 'Habits'];
 const BRAIN_CENTER_FALLBACKS: Array<{
   id: BrainReflectionCenterId;
   productName: string;
@@ -217,51 +234,51 @@ const BRAIN_CENTER_FALLBACKS: Array<{
   score: number;
 }> = [
   {
-    id: "self_reflection_identity",
-    productName: "Self-Reflection & Identity",
-    brainRegion: "Default Mode Network",
+    id: 'self_reflection_identity',
+    productName: 'Self-Reflection & Identity',
+    brainRegion: 'Default Mode Network',
     score: 0.55,
   },
   {
-    id: "planning_self_control",
-    productName: "Planning & Self-Control",
-    brainRegion: "Prefrontal Cortex",
+    id: 'planning_self_control',
+    productName: 'Planning & Self-Control',
+    brainRegion: 'Prefrontal Cortex',
     score: 0.45,
   },
   {
-    id: "memory_meaning",
-    productName: "Memory & Meaning",
-    brainRegion: "Hippocampus",
+    id: 'memory_meaning',
+    productName: 'Memory & Meaning',
+    brainRegion: 'Hippocampus',
     score: 0.35,
   },
   {
-    id: "relationships_perspective",
-    productName: "Relationships & Perspective",
-    brainRegion: "Social Brain / Temporoparietal Junction",
+    id: 'relationships_perspective',
+    productName: 'Relationships & Perspective',
+    brainRegion: 'Social Brain / Temporoparietal Junction',
     score: 0.26,
   },
   {
-    id: "conflict_attention",
-    productName: "Conflict & Attention",
-    brainRegion: "Anterior Cingulate Cortex",
+    id: 'conflict_attention',
+    productName: 'Conflict & Attention',
+    brainRegion: 'Anterior Cingulate Cortex',
     score: 0.24,
   },
   {
-    id: "emotional_intensity",
-    productName: "Emotional Intensity",
-    brainRegion: "Amygdala",
+    id: 'emotional_intensity',
+    productName: 'Emotional Intensity',
+    brainRegion: 'Amygdala',
     score: 0.22,
   },
   {
-    id: "motivation_reward",
-    productName: "Motivation & Reward",
-    brainRegion: "Reward Circuit / Ventral Striatum",
+    id: 'motivation_reward',
+    productName: 'Motivation & Reward',
+    brainRegion: 'Reward Circuit / Ventral Striatum',
     score: 0.2,
   },
   {
-    id: "body_inner_signals",
-    productName: "Body & Inner Signals",
-    brainRegion: "Insula",
+    id: 'body_inner_signals',
+    productName: 'Body & Inner Signals',
+    brainRegion: 'Insula',
     score: 0.18,
   },
 ];
@@ -279,8 +296,13 @@ type TypewriterTextProps = {
   text: string;
 };
 
-const TypewriterText = ({ active, onComplete, style, text }: TypewriterTextProps) => {
-  const [visibleText, setVisibleText] = useState("");
+const TypewriterText = ({
+  active,
+  onComplete,
+  style,
+  text,
+}: TypewriterTextProps) => {
+  const [visibleText, setVisibleText] = useState('');
   const onCompleteRef = useRef(onComplete);
 
   useEffect(() => {
@@ -298,7 +320,7 @@ const TypewriterText = ({ active, onComplete, style, text }: TypewriterTextProps
 
     const revealNextChunk = () => {
       index += 1;
-      setVisibleText(chunks.slice(0, index).join(""));
+      setVisibleText(chunks.slice(0, index).join(''));
 
       if (index < chunks.length) {
         timer = setTimeout(revealNextChunk, TYPEWRITER_CHUNK_MS);
@@ -319,71 +341,76 @@ const TypewriterText = ({ active, onComplete, style, text }: TypewriterTextProps
 
   return <Text style={style}>{visibleText}</Text>;
 };
+
 const READY_CARD_INITIAL_DELAY_MS = 620;
 const READY_CARD_STAGGER_MS = 430;
 const READY_CARD_DURATION_MS = 760;
 const GOAL_CATEGORY_LABELS: Record<FirstReflectionGoalCategory, string> = {
-  confidence: "Confidence",
-  focus: "Focus",
-  general: "General",
-  journaling_habit: "Journaling habit",
-  mood: "Mood",
-  relationships: "Relationships",
-  self_awareness: "Self-awareness",
-  sleep: "Sleep",
-  stress: "Stress",
+  confidence: 'Confidence',
+  focus: 'Focus',
+  general: 'General',
+  journaling_habit: 'Journaling habit',
+  mood: 'Mood',
+  relationships: 'Relationships',
+  self_awareness: 'Self-awareness',
+  sleep: 'Sleep',
+  stress: 'Stress',
 };
-const GOAL_FREQUENCY_LABELS: Record<FirstReflectionGoalSuggestion["frequency"], string> = {
-  as_needed: "As needed",
-  daily: "Daily",
-  weekly: "Weekly",
+const GOAL_FREQUENCY_LABELS: Record<
+  FirstReflectionGoalSuggestion['frequency'],
+  string
+> = {
+  as_needed: 'As needed',
+  daily: 'Daily',
+  weekly: 'Weekly',
 };
-const GOAL_FREQUENCIES: FirstReflectionGoalSuggestion["frequency"][] = [
-  "daily",
-  "weekly",
-  "as_needed",
-];
 const STREAK_CONFETTI = [
-  { rotation: "-124deg", x: -78, y: -74 },
-  { rotation: "88deg", x: -46, y: -118 },
-  { rotation: "-82deg", x: -18, y: -92 },
-  { rotation: "122deg", x: 20, y: -122 },
-  { rotation: "-104deg", x: 62, y: -82 },
-  { rotation: "98deg", x: 88, y: -46 },
-  { rotation: "-96deg", x: -96, y: -38 },
-  { rotation: "116deg", x: 42, y: -142 },
+  { rotation: '-124deg', x: -78, y: -74 },
+  { rotation: '88deg', x: -46, y: -118 },
+  { rotation: '-82deg', x: -18, y: -92 },
+  { rotation: '122deg', x: 20, y: -122 },
+  { rotation: '-104deg', x: 62, y: -82 },
+  { rotation: '98deg', x: 88, y: -46 },
+  { rotation: '-96deg', x: -96, y: -38 },
+  { rotation: '116deg', x: 42, y: -142 },
 ] as const;
 const FALLBACK_GOAL_SUGGESTIONS: FirstReflectionGoalSuggestionPayload[] = [
   {
-    title: "Write for 5 minutes",
-    description: "Take five quiet minutes to write what felt most noticeable today.",
-    frequency: "daily",
-    category: "journaling_habit",
+    title: 'Write for 5 minutes',
+    description:
+      'Take five quiet minutes to write what felt most noticeable today.',
+    frequency: 'daily',
+    category: 'journaling_habit',
+    icon: 'journal',
   },
   {
-    title: "Notice one pattern",
-    description: "At the end of the day, name one thought, mood, or habit that repeated.",
-    frequency: "daily",
-    category: "self_awareness",
+    title: 'Notice one pattern',
+    description:
+      'At the end of the day, name one thought, mood, or habit that repeated.',
+    frequency: 'daily',
+    category: 'self_awareness',
+    icon: 'mood',
   },
   {
-    title: "Carry one small step",
-    description: "Choose one small action you want to bring into tomorrow.",
-    frequency: "as_needed",
-    category: "general",
+    title: 'Carry one small step',
+    description: 'Choose one small action you want to bring into tomorrow.',
+    frequency: 'as_needed',
+    category: 'general',
+    icon: 'target',
   },
 ];
+const STREAK_FLAME_ANIMATION_DURATION_MS = 510;
 
-const readyCelebrationIcon = require("../../assets/png/ready-congratulations.png");
+const readyCelebrationIcon = require('../../assets/png/onboarding/ready-congratulations.png');
 const readyFeatureIcons = [
-  require("../../assets/png/ready-question.png"),
-  require("../../assets/png/ready-privacy.png"),
-  require("../../assets/png/ready-growth.png"),
+  require('../../assets/png/onboarding/ready-question.png'),
+  require('../../assets/png/onboarding/ready-privacy.png'),
+  require('../../assets/png/onboarding/ready-growth.png'),
 ] satisfies ImageSourcePropType[];
-const onboardingStreakFireIcon = require("../../assets/png/onboarding-streak-fire.png");
+const onboardingStreakFireIcon = require('../../assets/png/streaks/streak-fire.png');
 
 const hexToRgba = (hex: string, alpha: number) => {
-  const normalized = hex.replace("#", "");
+  const normalized = hex.replace('#', '');
 
   if (normalized.length !== 6) {
     return hex;
@@ -396,81 +423,91 @@ const hexToRgba = (hex: string, alpha: number) => {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 };
 
-const isMeaningfulAnswer = (value?: string) =>
-  Boolean(value && value.trim().replace(/\s+/g, " ").length >= 2);
+const formatTopicLabel = (topic: string) =>
+  topic
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
 
-const getTone = (draft: OnboardingV2Draft) => draft.reflectionTone?.[0] || "neutral";
+const isMeaningfulAnswer = (value?: string) =>
+  Boolean(value && value.trim().replace(/\s+/g, ' ').length >= 2);
+
+const getTone = (draft: OnboardingV2Draft) =>
+  draft.reflectionTone?.[0] || 'neutral';
 
 const hasTenderSupportFocus = (draft: OnboardingV2Draft) =>
-  Boolean(draft.supportFocusAreas?.some(item => TENDER_SUPPORT_FOCUS.has(item)));
+  Boolean(
+    draft.supportFocusAreas?.some(item => TENDER_SUPPORT_FOCUS.has(item)),
+  );
 
 const getContextHint = (draft: OnboardingV2Draft) => {
   switch (draft.primaryContext) {
-    case "student":
-      return "You can include studies, deadlines, routines, or anything outside them.";
-    case "working_professional":
-      return "Work, meetings, responsibilities, or what follows you home can all belong here.";
-    case "founder_builder":
-      return "Building, uncertainty, pressure, and momentum are all fair to name.";
-    case "creative_work":
-      return "Ideas, creative blocks, energy, or the shape of the day can all be part of it.";
-    case "looking_for_work":
-      return "Transition, confidence, applications, and the in-between moments can all fit.";
+    case 'student':
+      return 'You can include studies, deadlines, routines, or anything outside them.';
+    case 'working_professional':
+      return 'Work, meetings, responsibilities, or what follows you home can all belong here.';
+    case 'founder_builder':
+      return 'Building, uncertainty, pressure, and momentum are all fair to name.';
+    case 'creative_work':
+      return 'Ideas, creative blocks, energy, or the shape of the day can all be part of it.';
+    case 'looking_for_work':
+      return 'Transition, confidence, applications, and the in-between moments can all fit.';
     default:
-      return "Keep it simple. Start with what feels true right now.";
+      return 'Keep it simple. Start with what feels true right now.';
   }
 };
 
 const getToneAdjustedHelperText = (
   prompt: FirstReflectionPrompt,
-  draft: OnboardingV2Draft
+  draft: OnboardingV2Draft,
 ) => {
   const tone = getTone(draft);
   const tender = hasTenderSupportFocus(draft);
 
-  if (tender && prompt.id === "hurdle") {
-    return "Name it gently. A few honest words are enough, especially if this part of today felt heavy.";
+  if (tender && prompt.id === 'hurdle') {
+    return 'Name it gently. A few honest words are enough, especially if this part of today felt heavy.';
   }
 
-  if (prompt.id === "good_exciting") {
+  if (prompt.id === 'good_exciting') {
     const contextHint = getContextHint(draft);
 
-    if (tone === "direct") {
-      return "Name one good moment from today. Small counts.";
+    if (tone === 'direct') {
+      return 'Name one good moment from today. Small counts.';
     }
 
-    if (tone === "deep") {
+    if (tone === 'deep') {
       return `Start with the moment that still has a little charge. ${contextHint}`;
     }
 
-    if (tone === "motivating") {
-      return "Start with one small win or spark. A clear sentence counts.";
+    if (tone === 'motivating') {
+      return 'Start with one small win or spark. A clear sentence counts.';
     }
 
     return `${prompt.helper} ${contextHint}`;
   }
 
-  if (tone === "direct") {
-    return prompt.id === "hurdle"
-      ? "Name the hardest part plainly."
-      : prompt.id === "carry_tomorrow"
-        ? "Choose one thing to bring forward."
-        : "Optional. Add only what matters.";
+  if (tone === 'direct') {
+    return prompt.id === 'hurdle'
+      ? 'Name the hardest part plainly.'
+      : prompt.id === 'carry_tomorrow'
+      ? 'Choose one thing to bring forward.'
+      : 'Optional. Add only what matters.';
   }
 
-  if (tone === "practical") {
-    return prompt.id === "carry_tomorrow"
-      ? "A small next step or reminder is enough."
+  if (tone === 'practical') {
+    return prompt.id === 'carry_tomorrow'
+      ? 'A small next step or reminder is enough.'
       : prompt.helper;
   }
 
-  if (tone === "deep") {
-    return prompt.id === "hurdle"
-      ? "Look for the quieter layer underneath the difficult part of the day."
+  if (tone === 'deep') {
+    return prompt.id === 'hurdle'
+      ? 'Look for the quieter layer underneath the difficult part of the day.'
       : prompt.helper;
   }
 
-  if (tone === "gentle" || tender) {
+  if (tone === 'gentle' || tender) {
     return `${prompt.helper} There is no need to force a perfect answer.`;
   }
 
@@ -509,15 +546,17 @@ const composeFirstReflectionEntry = ({
   }
 
   const deeperLines = threadMessages
-    .filter(item => item.kind !== "local_error" && item.text.trim())
+    .filter(item => item.kind !== 'local_error' && item.text.trim())
     .map(item => {
       const text = item.text.trim();
 
-      if (item.role === "user") {
-        return `You asked:\n${text}`;
+      if (item.role === 'user') {
+        return item.promptQuestion
+          ? `Question:\n${item.promptQuestion}\nMy response:\n${text}`
+          : `My response:\n${text}`;
       }
 
-      if (item.role === "assistant") {
+      if (item.role === 'assistant') {
         return `Journal.IO:\n${text}`;
       }
 
@@ -529,10 +568,10 @@ const composeFirstReflectionEntry = ({
   }
 
   if (deeperLines.length) {
-    parts.push(`Going deeper:\n${deeperLines.join("\n\n")}`);
+    parts.push(`Going deeper:\n${deeperLines.join('\n\n')}`);
   }
 
-  return parts.join("\n\n");
+  return parts.join('\n\n');
 };
 
 const getGeneratedTitle = () => "Today's reflection";
@@ -540,27 +579,26 @@ const getGeneratedTitle = () => "Today's reflection";
 const uniq = <T,>(items: T[]) => Array.from(new Set(items));
 
 const toGoalId = (value: string, index: number) =>
-  `${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "goal"}-${index}`;
+  `${
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'goal'
+  }-${index}`;
 
 const createGoalSuggestionsFromPayload = (
   goals: FirstReflectionGoalSuggestionPayload[],
-  source: "ai" | "fallback"
+  source: 'ai' | 'fallback',
 ): FirstReflectionGoalSuggestion[] =>
   goals.slice(0, 4).map((goal, index) => ({
     ...goal,
     id: toGoalId(goal.title, index),
     selected: false,
     source,
+    iconSource: 'automatic' as const,
+    reminderEnabled: false,
+    reminderTime: null,
   }));
-
-const sanitizeMindMapLabel = (value: string) =>
-  value
-    .replace(/^major insight:\s*/i, "")
-    .replace(/[^a-z0-9\s-]/gi, "")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 3)
-    .join(" ");
 
 const getSafeSessionTags = ({
   answers,
@@ -581,7 +619,7 @@ const getSafeSessionTags = ({
     ...(draft.supportFocusAreas || []),
   ]
     .filter(Boolean)
-    .join(" ")
+    .join(' ')
     .toLowerCase();
 
   const candidates: string[] = [];
@@ -591,62 +629,79 @@ const getSafeSessionTags = ({
     }
   };
 
-  addWhen(["discipline", "diet", "habit", "routine", "consistent"], "Discipline");
-  addWhen(["stress", "pressure", "hurdle", "hard", "difficult"], "Stress");
-  addWhen(["family", "dad", "mom", "parent", "brother", "sister"], "Family");
-  addWhen(["work", "meeting", "job", "office"], "Work");
-  addWhen(["study", "student", "exam", "class"], "Study");
-  addWhen(["sleep", "tired", "rest"], "Sleep");
-  addWhen(["energy", "drained", "battery"], "Energy");
-  addWhen(["confidence", "judged", "self-image", "body"], "Confidence");
-  addWhen(["tomorrow", "carry", "next"], "Tomorrow");
+  addWhen(
+    ['discipline', 'diet', 'habit', 'routine', 'consistent'],
+    'Discipline',
+  );
+  addWhen(['stress', 'pressure', 'hurdle', 'hard', 'difficult'], 'Stress');
+  addWhen(['family', 'dad', 'mom', 'parent', 'brother', 'sister'], 'Family');
+  addWhen(['work', 'meeting', 'job', 'office'], 'Work');
+  addWhen(['study', 'student', 'exam', 'class'], 'Study');
+  addWhen(['sleep', 'tired', 'rest'], 'Sleep');
+  addWhen(['energy', 'drained', 'battery'], 'Energy');
+  addWhen(['confidence', 'judged', 'self-image', 'body'], 'Confidence');
+  addWhen(['tomorrow', 'carry', 'next'], 'Tomorrow');
 
   return uniq([...candidates, ...SESSION_TAG_FALLBACKS]).slice(0, 6);
 };
 
-const getBrainCenterIntensity = (score: number): BrainCenterScore["intensity"] => {
+const getBrainCenterIntensity = (
+  score: number,
+): BrainCenterScore['intensity'] => {
   if (score >= 0.67) {
-    return "high";
+    return 'high';
   }
 
   if (score >= 0.34) {
-    return "moderate";
+    return 'moderate';
   }
 
-  return "low";
+  return 'low';
 };
 
 const getFallbackEvidence = (answers: FirstReflectionAnswers) =>
-  [answers.good_exciting, answers.hurdle, answers.carry_tomorrow, answers.anything_else]
+  [
+    answers.good_exciting,
+    answers.hurdle,
+    answers.carry_tomorrow,
+    answers.anything_else,
+  ]
     .map(item => item?.trim())
     .filter((item): item is string => Boolean(item))
-    .map(item => item.split(/\s+/).slice(0, 6).join(" "))
+    .map(item => item.split(/\s+/).slice(0, 6).join(' '))
     .slice(0, 3);
 
-const buildFallbackBrainSessionMap = (answers: FirstReflectionAnswers): BrainSessionMap => {
+const buildFallbackBrainSessionMap = (
+  answers: FirstReflectionAnswers,
+): BrainSessionMap => {
   const fallbackEvidence = getFallbackEvidence(answers);
-  const centers = BRAIN_CENTER_FALLBACKS.map((center, index): BrainCenterScore => ({
-    ...center,
-    confidence: center.id === "self_reflection_identity" ? 0.58 : 0.44,
-    rank: index + 1,
-    intensity: getBrainCenterIntensity(center.score),
-    evidence: center.id === "self_reflection_identity" ? fallbackEvidence : [],
-    shortInsight:
-      center.id === "self_reflection_identity"
-        ? "This first signal is mostly about noticing your inner narrative and what you want to carry forward."
-        : `${center.productName} is present only lightly in this fallback reflection map.`,
-    nuancedDetails: {
-      actionOrientation:
-        center.id === "planning_self_control"
-          ? "planning"
-          : center.id === "motivation_reward"
-            ? "acting"
-            : "reflecting",
-      selfOtherFocus: center.id === "relationships_perspective" ? "others" : "self",
-      timeOrientation: center.id === "planning_self_control" ? "future" : "mixed",
-      repeatedSignal: fallbackEvidence[0],
-    },
-  }));
+  const centers = BRAIN_CENTER_FALLBACKS.map(
+    (center, index): BrainCenterScore => ({
+      ...center,
+      confidence: center.id === 'self_reflection_identity' ? 0.58 : 0.44,
+      rank: index + 1,
+      intensity: getBrainCenterIntensity(center.score),
+      evidence:
+        center.id === 'self_reflection_identity' ? fallbackEvidence : [],
+      shortInsight:
+        center.id === 'self_reflection_identity'
+          ? 'This first signal is mostly about noticing your inner narrative and what you want to carry forward.'
+          : `${center.productName} is present only lightly in this fallback reflection map.`,
+      nuancedDetails: {
+        actionOrientation:
+          center.id === 'planning_self_control'
+            ? 'planning'
+            : center.id === 'motivation_reward'
+            ? 'acting'
+            : 'reflecting',
+        selfOtherFocus:
+          center.id === 'relationships_perspective' ? 'others' : 'self',
+        timeOrientation:
+          center.id === 'planning_self_control' ? 'future' : 'mixed',
+        repeatedSignal: fallbackEvidence[0],
+      },
+    }),
+  );
   const dominantCenter = centers[0];
   const secondaryCenters = centers.slice(1, 4);
 
@@ -657,10 +712,11 @@ const buildFallbackBrainSessionMap = (answers: FirstReflectionAnswers): BrainSes
     secondaryCenters,
     centers,
     neuroscienceSummary:
-      "This reflection has started building your personal Mind Map by capturing what you noticed, what challenged you, and what you want to carry forward.",
+      'This reflection has started building your personal Mind Map by capturing what you noticed, what challenged you, and what you want to carry forward.',
     mostNoticedText:
-      "The strongest center in this session was Self-Reflection & Identity, because this first entry begins with noticing your inner narrative.",
-    mindMapSeedText: "Your first reflection has added its first signal to your Mind Map.",
+      'The strongest center in this session was Self-Reflection & Identity, because this first entry begins with noticing your inner narrative.',
+    mindMapSeedText:
+      'Your first reflection has added its first signal to your Mind Map.',
   };
 };
 
@@ -676,7 +732,11 @@ const createFallbackSessionAnalysis = ({
   const good = answers.good_exciting?.trim();
   const hurdle = answers.hurdle?.trim();
   const carry = answers.carry_tomorrow?.trim();
-  const summaryLead = aiSummary?.trim().split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+  const summaryLead = aiSummary
+    ?.trim()
+    .split(/(?<=[.!?])\s+/)
+    .slice(0, 2)
+    .join(' ');
 
   const body =
     summaryLead ||
@@ -685,67 +745,22 @@ const createFallbackSessionAnalysis = ({
       carry
         ? `The useful signal is what you want to carry into tomorrow: ${carry}.`
         : good && hurdle
-          ? "The useful signal is that both the good moment and the harder moment can belong in the same day."
-          : "The useful signal is that one honest entry is already enough to begin noticing patterns.",
-    ].join(" ");
+        ? 'The useful signal is that both the good moment and the harder moment can belong in the same day.'
+        : 'The useful signal is that one honest entry is already enough to begin noticing patterns.',
+    ].join(' ');
 
   return {
     analysis: body,
     majorInsight:
-      "Major insight: the strongest signal is the move from noticing pressure to choosing one grounded action for tomorrow.",
+      'Major insight: the strongest signal is the move from noticing pressure to choosing one grounded action for tomorrow.',
     observedTrends: getSafeSessionTags({ answers, draft, aiSummary }),
     topicsObserved: getSafeSessionTags({ answers, draft, aiSummary }),
+    detectedTopics: getSafeSessionTags({ answers, draft, aiSummary })
+      .map(topic => topic.toLowerCase())
+      .slice(0, 5),
+    detectedMood: 'okay',
     brainSessionMap: buildFallbackBrainSessionMap(answers),
     hasEnoughSignal: true,
-  };
-};
-
-const buildLocalMindMap = ({
-  sessionAnalysis,
-  goals,
-}: {
-  sessionAnalysis: SessionAnalysis | null;
-  goals: FirstReflectionGoalSuggestion[];
-}): FirstReflectionMindMap => {
-  const selectedGoals = goals.filter(goal => goal.selected);
-  const trendNodes = (sessionAnalysis?.observedTrends?.length
-    ? sessionAnalysis.observedTrends
-    : SESSION_TAG_FALLBACKS
-  )
-    .map(sanitizeMindMapLabel)
-    .filter(Boolean)
-    .filter(label => !/depression|anxiety disorder|adhd|trauma|addiction/i.test(label))
-    .slice(0, 4);
-  const goalNodes = selectedGoals
-    .map(goal => sanitizeMindMapLabel(goal.title))
-    .filter(Boolean)
-    .slice(0, 2);
-  const labels = uniq([...trendNodes, ...goalNodes, "Tomorrow"]).slice(0, 6);
-  const fallbackLabels = labels.length ? labels : ["Reflection", "Tomorrow", "Habit"];
-  const nodes = fallbackLabels.map((label, index) => ({
-    id: toGoalId(label, index),
-    label,
-    type: goalNodes.includes(label)
-      ? ("goal" as const)
-      : /tomorrow|next|carry/i.test(label)
-        ? ("tomorrow" as const)
-        : index % 2 === 0
-          ? ("pattern" as const)
-          : ("theme" as const),
-    weight: Math.max(0.72, 1 - index * 0.06),
-  }));
-
-  return {
-    center: {
-      id: "first_reflection",
-      label: "First reflection",
-    },
-    nodes,
-    edges: nodes.map((node, index) => ({
-      from: "first_reflection",
-      to: node.id,
-      strength: Math.max(0.42, 0.86 - index * 0.08),
-    })),
   };
 };
 
@@ -754,7 +769,10 @@ export default function FirstGuidedReflectionScreen({
   onBackToReady,
   onAnalysisReady,
   onGoalsReady,
-  onStreakReady,
+  onGoalsSaved,
+  onMindMapReady,
+  onRemindersReady,
+  loadGoalSuggestionsOverride,
   initialAnalysisPayload,
   initialGoalsPayload,
   initialStreakPayload,
@@ -762,82 +780,107 @@ export default function FirstGuidedReflectionScreen({
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView | null>(null);
+  const corePagerRef = useRef<ScrollView | null>(null);
+  const coreInputRefs = useRef<Array<TextInput | null>>([]);
   const inputRef = useRef<TextInput | null>(null);
   const shimmerValue = useRef(new Animated.Value(0)).current;
   const typewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const streamingFullTextRef = useRef<{ id: string; fullText: string } | null>(null);
-  const summaryTypewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamingFullTextRef = useRef<{ id: string; fullText: string } | null>(
+    null,
+  );
+  const summaryTypewriterTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const summaryFullTextRef = useRef<string | null>(null);
-  const sessionCardSequenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const finishSheetSlide = useRef(new Animated.Value(0)).current;
-  const finishSheetScrimOpacity = useRef(new Animated.Value(0)).current;
-  const finishSheetMountedRef = useRef(false);
+  const sessionCardSequenceTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const coreActionsReveal = useRef(new Animated.Value(1)).current;
+  const optionalActionsReveal = useRef(new Animated.Value(1)).current;
+  const coreToTranscriptExit = useRef(new Animated.Value(1)).current;
+  const transcriptEntrance = useRef(new Animated.Value(1)).current;
+  const suggestionRequestReveal = useRef(new Animated.Value(1)).current;
+  const suggestionSheetSlide = useRef(new Animated.Value(0)).current;
+  const suggestionSheetScrimOpacity = useRef(new Animated.Value(0)).current;
+  const suggestionSheetMountedRef = useRef(false);
+  const suggestionSheetCloseActionRef = useRef<(() => void) | null>(null);
+  const leaveSheetSlide = useRef(new Animated.Value(0)).current;
+  const leaveSheetScrimOpacity = useRef(new Animated.Value(0)).current;
+  const leaveSheetMountedRef = useRef(false);
+  const leaveAfterSheetCloseRef = useRef(false);
+  const followUpQuestionReveal = useRef(new Animated.Value(0)).current;
   const sessionCardRevealValues = useRef(
-    Array.from({ length: SESSION_ANALYSIS_CARD_COUNT }, () => new Animated.Value(0))
+    Array.from(
+      { length: SESSION_ANALYSIS_CARD_COUNT },
+      () => new Animated.Value(0),
+    ),
   ).current;
-  const sessionTailRevealValues = useRef(
-    [new Animated.Value(0), new Animated.Value(0)]
-  ).current;
+  const sessionTailRevealValues = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
   const goalCardRevealValues = useRef(
-    Array.from({ length: 4 }, () => new Animated.Value(0))
+    Array.from({ length: 4 }, () => new Animated.Value(0)),
   ).current;
   const goalSelectionValues = useRef(
-    Array.from({ length: 4 }, () => new Animated.Value(0))
-  ).current;
-  const goalFrequencySelectionValues = useRef(
-    GOAL_FREQUENCIES.map(() => new Animated.Value(0))
+    Array.from({ length: 4 }, () => new Animated.Value(0)),
   ).current;
   const goalCtaReveal = useRef(new Animated.Value(1)).current;
-  const goalEditorSheetSlide = useRef(new Animated.Value(0)).current;
-  const goalEditorScrimOpacity = useRef(new Animated.Value(0)).current;
-  const goalEditorActionsReveal = useRef(new Animated.Value(0)).current;
-  const goalEditorMountedRef = useRef(false);
   const streakFlameTilt = useRef(new Animated.Value(0)).current;
   const streakFlameReveal = useRef(new Animated.Value(0)).current;
   const streakTextReveal = useRef(new Animated.Value(0)).current;
   const streakCtaReveal = useRef(new Animated.Value(0)).current;
   const streakConfettiValues = useRef(
-    STREAK_CONFETTI.map(() => new Animated.Value(0))
+    STREAK_CONFETTI.map(() => new Animated.Value(0)),
   ).current;
-  const composerExitValue = useRef(new Animated.Value(0)).current;
-  const coreAnswerRevealValue = useRef(new Animated.Value(1)).current;
   const completionFeatureRevealValues = useRef(
-    READY_FEATURE_CARDS.map(() => new Animated.Value(0))
+    READY_FEATURE_CARDS.map(() => new Animated.Value(0)),
   ).current;
   const completionIconShake = useRef(new Animated.Value(0)).current;
   const completionButtonReveal = useRef(new Animated.Value(0)).current;
   const completionButtonPulse = useRef(new Animated.Value(0)).current;
-  const addRecentJournalEntry = useAppStore(state => state.addRecentJournalEntry);
-  const finishOnboardingV2FirstReflection = useAppStore(
-    state => state.finishOnboardingV2FirstReflection
+  const addRecentJournalEntry = useAppStore(
+    state => state.addRecentJournalEntry,
+  );
+  const finishOnboardingV2Journey = useAppStore(
+    state => state.finishOnboardingV2Journey,
   );
   const [mode, setMode] = useState<FirstReflectionMode>(
     initialStreakPayload
-      ? "streak_started"
+      ? 'streak_started'
       : initialGoalsPayload
-        ? "goals"
-        : initialAnalysisPayload
-          ? "session_analysis"
-          : "core_prompts"
+      ? 'goals'
+      : initialAnalysisPayload
+      ? 'session_analysis'
+      : 'core_prompts',
   );
   const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
+  const [visibleCorePromptIndex, setVisibleCorePromptIndex] = useState(0);
   const [isStreakCtaVisible, setIsStreakCtaVisible] = useState(false);
-  const [isCoreAnswerSending, setIsCoreAnswerSending] = useState(false);
-  const [recentlySubmittedPromptId, setRecentlySubmittedPromptId] =
-    useState<FirstReflectionPromptId | null>(null);
   const [answers, setAnswers] = useState<FirstReflectionAnswers>(
-    initialStreakPayload?.answers || initialGoalsPayload?.answers || initialAnalysisPayload?.answers || {}
+    initialStreakPayload?.answers ||
+      initialGoalsPayload?.answers ||
+      initialAnalysisPayload?.answers ||
+      {},
   );
   const answersRef = useRef<FirstReflectionAnswers>(answers);
-  const [currentInput, setCurrentInput] = useState("");
-  const [isSuggestionSheetVisible, setIsSuggestionSheetVisible] = useState(false);
+  const [currentInput, setCurrentInput] = useState('');
+  const [isCoreInputFocused, setIsCoreInputFocused] = useState(false);
+  const [isOptionalInputFocused, setIsOptionalInputFocused] = useState(false);
+  const [isSuggestionSheetVisible, setIsSuggestionSheetVisible] =
+    useState(false);
+  const [isSuggestionSheetMounted, setIsSuggestionSheetMounted] =
+    useState(false);
+  const [isSuggestionSelectionPending, setIsSuggestionSelectionPending] =
+    useState(false);
+  const [revealedSuggestionMessageId, setRevealedSuggestionMessageId] =
+    useState<string | null>(null);
   const [isFinishConfirmVisible, setIsFinishConfirmVisible] = useState(false);
-  const [isFinishConfirmMounted, setIsFinishConfirmMounted] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(
     initialStreakPayload?.aiSummary ||
       initialGoalsPayload?.aiSummary ||
       initialAnalysisPayload?.aiSummary ||
-      null
+      null,
   );
   const [visibleAiSummary, setVisibleAiSummary] = useState<string | null>(null);
   const [isAiSummaryStreaming, setIsAiSummaryStreaming] = useState(false);
@@ -847,10 +890,12 @@ export default function FirstGuidedReflectionScreen({
     initialStreakPayload?.threadMessages ||
       initialGoalsPayload?.threadMessages ||
       initialAnalysisPayload?.threadMessages ||
-      []
+      [],
   );
   const [isThreadLoading, setIsThreadLoading] = useState(false);
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
+    null,
+  );
   const [deeperRequestCount, setDeeperRequestCount] = useState(0);
   const [deeperError, setDeeperError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -859,31 +904,43 @@ export default function FirstGuidedReflectionScreen({
     initialStreakPayload?.sessionAnalysis ||
       initialGoalsPayload?.sessionAnalysis ||
       initialAnalysisPayload?.sessionAnalysis ||
-      null
+      null,
   );
   const [visibleSessionCardCount, setVisibleSessionCardCount] = useState(0);
   const [activeSessionTextCard, setActiveSessionTextCard] = useState(0);
-  const [completedSessionTextCards, setCompletedSessionTextCards] = useState<number[]>([]);
-  const [visibleCenterBreakdownRows, setVisibleCenterBreakdownRows] = useState(0);
-  const [isCenterBreakdownExpanded, setIsCenterBreakdownExpanded] = useState(false);
+  const [completedSessionTextCards, setCompletedSessionTextCards] = useState<
+    number[]
+  >([]);
+  const [visibleCenterBreakdownRows, setVisibleCenterBreakdownRows] =
+    useState(0);
+  const [isCenterBreakdownExpanded, setIsCenterBreakdownExpanded] =
+    useState(false);
   const [visibleSessionTailStage, setVisibleSessionTailStage] = useState(0);
   const [isLeaveConfirmVisible, setIsLeaveConfirmVisible] = useState(false);
+  const [isLeaveConfirmMounted, setIsLeaveConfirmMounted] = useState(false);
+  const [currentFollowUpQuestion, setCurrentFollowUpQuestion] = useState<
+    string | null
+  >(null);
+  const [canContinueDeeper, setCanContinueDeeper] = useState(true);
   const [isCompletionCtaEnabled, setIsCompletionCtaEnabled] = useState(false);
-  const [goalSuggestions, setGoalSuggestions] = useState<FirstReflectionGoalSuggestion[]>(() =>
-    initialStreakPayload?.goalSuggestions ||
-    (initialGoalsPayload
-      ? createGoalSuggestionsFromPayload(initialGoalsPayload.goalSuggestions, "ai")
-      : [])
+  const [goalSuggestions, setGoalSuggestions] = useState<
+    FirstReflectionGoalSuggestion[]
+  >(
+    () =>
+      initialStreakPayload?.goalSuggestions ||
+      (initialGoalsPayload
+        ? createGoalSuggestionsFromPayload(
+            initialGoalsPayload.goalSuggestions,
+            'ai',
+          )
+        : []),
   );
   const [goalsError, setGoalsError] = useState<string | null>(null);
   const [isLoadingGoals, setIsLoadingGoals] = useState(false);
+  const [isSavingGoals, setIsSavingGoals] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
-  const [editingGoalDraft, setEditingGoalDraft] =
-    useState<FirstReflectionGoalSuggestion | null>(null);
   const [visibleGoalCardCount, setVisibleGoalCardCount] = useState(0);
   const [isGoalEditorVisible, setIsGoalEditorVisible] = useState(false);
-  const [isGoalEditorMounted, setIsGoalEditorMounted] = useState(false);
-  const [mindMap, setMindMap] = useState<FirstReflectionMindMap | null>(null);
 
   const currentPrompt =
     FIRST_REFLECTION_PROMPTS[currentPromptIndex] || FIRST_REFLECTION_PROMPTS[0];
@@ -891,77 +948,113 @@ export default function FirstGuidedReflectionScreen({
   const answeredPrompts = useMemo(
     () =>
       FIRST_REFLECTION_PROMPTS.filter(prompt =>
-        isMeaningfulAnswer(answers[prompt.id])
+        isMeaningfulAnswer(answers[prompt.id]),
       ),
-    [answers]
+    [answers],
   );
   const corePrompts = FIRST_REFLECTION_PROMPTS.slice(0, CORE_PROMPT_COUNT);
   const optionalPrompt = FIRST_REFLECTION_PROMPTS[3];
-  const currentAnswerIsMeaningful = isMeaningfulAnswer(currentInput);
+  const currentAnswerIsMeaningful =
+    mode === 'core_prompts'
+      ? isMeaningfulAnswer(answers[currentPrompt.id])
+      : isMeaningfulAnswer(currentInput);
   const hasReachedDeeperLimit = deeperRequestCount >= MAX_DEEPER_REFLECTIONS;
   const isSummaryFailed = Boolean(aiSummaryError && !aiSummary);
   const isAssistantStreaming = Boolean(streamingMessageId);
-  const isAiBusy = isThreadLoading || isAssistantStreaming || isAiSummaryStreaming;
+  const isAiBusy =
+    isThreadLoading || isAssistantStreaming || isAiSummaryStreaming;
   const canShowOptionalPrompt =
-    mode === "optional_deeper" &&
+    mode === 'optional_deeper' &&
     Boolean(aiSummary) &&
     isAiSummaryComplete &&
     !isAiBusy &&
     !isSummaryFailed;
+  const hasAnyEntryContent =
+    currentAnswerIsMeaningful ||
+    answeredPrompts.length > 0 ||
+    threadMessages.some(message => message.text.trim());
   const canUsePrimary =
-    mode === "core_prompts"
+    mode === 'core_prompts'
       ? currentPrompt.required
-        ? currentAnswerIsMeaningful && !isCoreAnswerSending
-        : !isCoreAnswerSending
-      : mode === "optional_deeper"
-        ? !isAiBusy &&
-          (isSummaryFailed || hasReachedDeeperLimit || currentAnswerIsMeaningful || !hasReachedDeeperLimit)
-        : false;
+        ? currentAnswerIsMeaningful
+        : true
+      : mode === 'optional_deeper'
+      ? !isAiBusy &&
+        canContinueDeeper &&
+        (isSummaryFailed ||
+          hasReachedDeeperLimit ||
+          currentAnswerIsMeaningful ||
+          !hasReachedDeeperLimit)
+      : false;
   const canFinishEntry =
-    !isThreadLoading &&
-    !isAiSummaryStreaming &&
-    (currentAnswerIsMeaningful ||
-      answeredPrompts.length > 0 ||
-      threadMessages.some(message => message.text.trim()));
+    !isThreadLoading && !isAiSummaryStreaming && hasAnyEntryContent;
   const activePromptForInput =
-    mode === "optional_deeper" || mode === "deeper_loading"
+    mode === 'optional_deeper' || mode === 'deeper_loading'
       ? optionalPrompt
       : currentPrompt;
+  const activeQuestion =
+    mode === 'optional_deeper' || mode === 'deeper_loading'
+      ? currentFollowUpQuestion || optionalPrompt.question
+      : activePromptForInput.question;
+  const finishActionLabel = hasAnyEntryContent ? 'Finish entry' : 'Exit';
   const primaryButtonLabel =
-    mode === "deeper_loading" || isThreadLoading || isAssistantStreaming
-      ? "Writing..."
-      : mode === "core_prompts"
-        ? currentPromptIndex === CORE_PROMPT_COUNT - 1
-          ? "Go deeper"
-          : "Next prompt"
-      : mode === "optional_deeper"
-          ? isSummaryFailed
-            ? "Try again"
-            : hasReachedDeeperLimit
-            ? "Review entry"
-            : currentAnswerIsMeaningful
-              ? "Go deeper"
-              : "Suggest"
-          : "Go deeper";
-  const visibleAnsweredPrompts =
-    mode === "core_prompts" ? corePrompts.slice(0, currentPromptIndex) : corePrompts;
+    mode === 'deeper_loading' || isThreadLoading || isAssistantStreaming
+      ? 'Writing...'
+      : mode === 'core_prompts'
+      ? currentPromptIndex === CORE_PROMPT_COUNT - 1
+        ? 'Go deeper'
+        : 'Next prompt'
+      : mode === 'optional_deeper'
+      ? isSummaryFailed
+        ? 'Try again'
+        : hasReachedDeeperLimit || !canContinueDeeper
+        ? 'Review entry'
+        : currentAnswerIsMeaningful
+        ? 'Go deeper'
+        : 'Suggest'
+      : 'Go deeper';
+
   const activePromptFontSize =
-    mode === "optional_deeper" || mode === "deeper_loading"
+    mode === 'optional_deeper' || mode === 'deeper_loading'
       ? width < 380
         ? 22
         : 25
       : width < 380
-        ? 25
-        : 30;
-  const selectedGoalCount = goalSuggestions.filter(goal => goal.selected).length;
-  const goalSuggestionKey = goalSuggestions.map(goal => goal.id).join("|");
-  const goalRevealCount = goalSuggestionKey ? goalSuggestionKey.split("|").length : 0;
-
-  useEffect(() => {
-    if (mode === "core_prompts") {
-      setCurrentInput(answers[currentPrompt.id] || "");
-    }
-  }, [answers, currentPrompt.id, mode]);
+      ? 25
+      : 30;
+  const selectedGoalCount = goalSuggestions.filter(
+    goal => goal.selected,
+  ).length;
+  const editingGoal =
+    goalSuggestions.find(goal => goal.id === editingGoalId) || null;
+  // GoalSheet prefills from a SavedGoal. A suggestion has not been created yet,
+  // so the persistence-only fields are filler — and with no lifecycle handlers
+  // passed, the sheet never surfaces them.
+  const editingGoalAsSavedGoal: SavedGoal | null = editingGoal
+    ? {
+        id: editingGoal.id,
+        title: editingGoal.title,
+        description: editingGoal.description,
+        icon: editingGoal.icon,
+        iconSource: editingGoal.iconSource,
+        frequency: editingGoal.frequency,
+        status: 'active',
+        reminderEnabled: editingGoal.reminderEnabled,
+        reminderTime: editingGoal.reminderTime,
+        lastCompletedLocalDate: null,
+        isCompletedForPeriod: false,
+        createdAt: '',
+        updatedAt: '',
+      }
+    : null;
+  // Keeps automatic icon selection from colliding with the other suggestions.
+  const unavailableGoalIcons = goalSuggestions
+    .filter(goal => goal.id !== editingGoalId)
+    .map(goal => goal.icon);
+  const goalSuggestionKey = goalSuggestions.map(goal => goal.id).join('|');
+  const goalRevealCount = goalSuggestionKey
+    ? goalSuggestionKey.split('|').length
+    : 0;
 
   useEffect(() => {
     answersRef.current = answers;
@@ -971,7 +1064,6 @@ export default function FirstGuidedReflectionScreen({
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [
     answers,
-    currentPromptIndex,
     mode,
     visibleAiSummary,
     threadMessages,
@@ -980,8 +1072,7 @@ export default function FirstGuidedReflectionScreen({
   ]);
 
   useEffect(() => {
-    const shouldShimmer =
-      mode === "ai_summary_loading" || isThreadLoading;
+    const shouldShimmer = mode === 'ai_summary_loading' || isThreadLoading;
 
     if (!shouldShimmer) {
       shimmerValue.stopAnimation();
@@ -1001,7 +1092,7 @@ export default function FirstGuidedReflectionScreen({
           toValue: 0,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     animation.start();
@@ -1010,25 +1101,85 @@ export default function FirstGuidedReflectionScreen({
   }, [isThreadLoading, mode, shimmerValue]);
 
   useEffect(() => {
-    if (Platform.OS === "android") {
+    if (Platform.OS === 'android') {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
 
   useEffect(() => {
-    if (!isFinishConfirmVisible) {
-      if (!finishSheetMountedRef.current) {
+    const animation = Animated.spring(coreActionsReveal, {
+      toValue: isCoreInputFocused ? 0 : 1,
+      damping: 16,
+      mass: 0.85,
+      stiffness: 220,
+      useNativeDriver: false,
+    });
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [coreActionsReveal, isCoreInputFocused]);
+
+  useEffect(() => {
+    const animation = Animated.spring(optionalActionsReveal, {
+      toValue: isOptionalInputFocused ? 0 : 1,
+      damping: 16,
+      mass: 0.85,
+      stiffness: 220,
+      useNativeDriver: false,
+    });
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [isOptionalInputFocused, optionalActionsReveal]);
+
+  useEffect(() => {
+    if (mode !== 'ai_summary_loading') {
+      return undefined;
+    }
+
+    transcriptEntrance.setValue(0);
+    const frameId = requestAnimationFrame(() => {
+      Animated.timing(transcriptEntrance, {
+        toValue: 1,
+        duration: TRANSCRIPT_ENTRANCE_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [mode, transcriptEntrance]);
+
+  useEffect(() => {
+    const keyboardDidHideSubscription = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setIsCoreInputFocused(false);
+        setIsOptionalInputFocused(false);
+      },
+    );
+
+    return () => {
+      keyboardDidHideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isSuggestionSheetVisible) {
+      if (!suggestionSheetMountedRef.current) {
         return undefined;
       }
 
       const closingAnimation = Animated.parallel([
-        Animated.timing(finishSheetSlide, {
+        Animated.timing(suggestionSheetSlide, {
           toValue: 0,
           duration: 230,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(finishSheetScrimOpacity, {
+        Animated.timing(suggestionSheetScrimOpacity, {
           toValue: 0,
           duration: 200,
           easing: Easing.inOut(Easing.ease),
@@ -1041,30 +1192,33 @@ export default function FirstGuidedReflectionScreen({
           return;
         }
 
-        finishSheetMountedRef.current = false;
-        setIsFinishConfirmMounted(false);
+        suggestionSheetMountedRef.current = false;
+        setIsSuggestionSheetMounted(false);
+        const onClosed = suggestionSheetCloseActionRef.current;
+        suggestionSheetCloseActionRef.current = null;
+        onClosed?.();
       });
 
       return () => closingAnimation.stop();
     }
 
-    if (finishSheetMountedRef.current) {
+    if (suggestionSheetMountedRef.current) {
       return undefined;
     }
 
-    finishSheetMountedRef.current = true;
-    finishSheetSlide.setValue(0);
-    finishSheetScrimOpacity.setValue(0);
-    setIsFinishConfirmMounted(true);
-    let frameId = requestAnimationFrame(() => {
+    suggestionSheetMountedRef.current = true;
+    suggestionSheetSlide.setValue(0);
+    suggestionSheetScrimOpacity.setValue(0);
+    setIsSuggestionSheetMounted(true);
+    const frameId = requestAnimationFrame(() => {
       Animated.parallel([
-        Animated.timing(finishSheetSlide, {
+        Animated.timing(suggestionSheetSlide, {
           toValue: 1,
           duration: 320,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(finishSheetScrimOpacity, {
+        Animated.timing(suggestionSheetScrimOpacity, {
           toValue: 1,
           duration: 260,
           easing: Easing.inOut(Easing.ease),
@@ -1074,10 +1228,96 @@ export default function FirstGuidedReflectionScreen({
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [finishSheetScrimOpacity, finishSheetSlide, isFinishConfirmVisible]);
+  }, [
+    isSuggestionSheetVisible,
+    suggestionSheetScrimOpacity,
+    suggestionSheetSlide,
+  ]);
 
   useEffect(() => {
-    if (mode !== "session_analysis") {
+    if (!isLeaveConfirmVisible) {
+      if (!leaveSheetMountedRef.current) {
+        return undefined;
+      }
+
+      const closingAnimation = Animated.parallel([
+        Animated.timing(leaveSheetSlide, {
+          toValue: 0,
+          duration: 230,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(leaveSheetScrimOpacity, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]);
+      closingAnimation.start(({ finished }) => {
+        if (finished) {
+          leaveSheetMountedRef.current = false;
+          setIsLeaveConfirmMounted(false);
+          if (leaveAfterSheetCloseRef.current) {
+            leaveAfterSheetCloseRef.current = false;
+            onBackToReady();
+          }
+        }
+      });
+      return () => closingAnimation.stop();
+    }
+
+    if (leaveSheetMountedRef.current) {
+      return undefined;
+    }
+
+    leaveSheetMountedRef.current = true;
+    leaveSheetSlide.setValue(0);
+    leaveSheetScrimOpacity.setValue(0);
+    setIsLeaveConfirmMounted(true);
+    const frameId = requestAnimationFrame(() => {
+      Animated.parallel([
+        Animated.timing(leaveSheetSlide, {
+          toValue: 1,
+          duration: 320,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(leaveSheetScrimOpacity, {
+          toValue: 1,
+          duration: 260,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [
+    isLeaveConfirmVisible,
+    leaveSheetScrimOpacity,
+    leaveSheetSlide,
+    onBackToReady,
+  ]);
+
+  useEffect(() => {
+    if (!canShowOptionalPrompt || !currentFollowUpQuestion) {
+      followUpQuestionReveal.setValue(0);
+      return undefined;
+    }
+
+    followUpQuestionReveal.setValue(0);
+    const animation = Animated.timing(followUpQuestionReveal, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [canShowOptionalPrompt, currentFollowUpQuestion, followUpQuestionReveal]);
+
+  useEffect(() => {
+    if (mode !== 'session_analysis') {
       sessionCardRevealValues.forEach(value => value.setValue(0));
       setVisibleSessionCardCount(0);
       setActiveSessionTextCard(0);
@@ -1107,17 +1347,20 @@ export default function FirstGuidedReflectionScreen({
   }, [mode, sessionCardRevealValues, sessionTailRevealValues]);
 
   useEffect(() => {
-    if (mode !== "session_analysis" || visibleSessionCardCount <= 0) {
+    if (mode !== 'session_analysis' || visibleSessionCardCount <= 0) {
       return undefined;
     }
 
     const cardIndex = visibleSessionCardCount - 1;
-    const revealAnimation = Animated.timing(sessionCardRevealValues[cardIndex], {
-      toValue: 1,
-      duration: SESSION_ANALYSIS_CARD_REVEAL_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
+    const revealAnimation = Animated.timing(
+      sessionCardRevealValues[cardIndex],
+      {
+        toValue: 1,
+        duration: SESSION_ANALYSIS_CARD_REVEAL_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      },
+    );
 
     revealAnimation.start();
     const textStartTimer = setTimeout(() => {
@@ -1131,17 +1374,20 @@ export default function FirstGuidedReflectionScreen({
   }, [mode, sessionCardRevealValues, visibleSessionCardCount]);
 
   useEffect(() => {
-    if (mode !== "session_analysis" || visibleSessionTailStage <= 0) {
+    if (mode !== 'session_analysis' || visibleSessionTailStage <= 0) {
       return undefined;
     }
 
     const tailIndex = visibleSessionTailStage - 1;
-    const revealAnimation = Animated.timing(sessionTailRevealValues[tailIndex], {
-      toValue: 1,
-      duration: SESSION_ANALYSIS_CARD_REVEAL_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
+    const revealAnimation = Animated.timing(
+      sessionTailRevealValues[tailIndex],
+      {
+        toValue: 1,
+        duration: SESSION_ANALYSIS_CARD_REVEAL_MS,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      },
+    );
 
     revealAnimation.start();
 
@@ -1149,7 +1395,7 @@ export default function FirstGuidedReflectionScreen({
   }, [mode, sessionTailRevealValues, visibleSessionTailStage]);
 
   useEffect(() => {
-    if (mode !== "goals" || !goalRevealCount) {
+    if (mode !== 'goals' || !goalRevealCount) {
       goalCardRevealValues.forEach(value => value.setValue(0));
       setVisibleGoalCardCount(0);
       return undefined;
@@ -1157,23 +1403,25 @@ export default function FirstGuidedReflectionScreen({
 
     goalCardRevealValues.forEach(value => value.setValue(0));
     setVisibleGoalCardCount(0);
-    const timers = Array.from({ length: Math.min(goalRevealCount, 4) }, (_, index) =>
-      setTimeout(() => {
-        setVisibleGoalCardCount(index + 1);
-        Animated.timing(goalCardRevealValues[index], {
-          toValue: 1,
-          duration: GOAL_CARD_REVEAL_MS,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }).start();
-      }, index * (GOAL_CARD_REVEAL_MS + GOAL_CARD_GAP_MS))
+    const timers = Array.from(
+      { length: Math.min(goalRevealCount, 4) },
+      (_, index) =>
+        setTimeout(() => {
+          setVisibleGoalCardCount(index + 1);
+          Animated.timing(goalCardRevealValues[index], {
+            toValue: 1,
+            duration: GOAL_CARD_REVEAL_MS,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
+        }, index * (GOAL_CARD_REVEAL_MS + GOAL_CARD_GAP_MS)),
     );
 
     return () => timers.forEach(timer => clearTimeout(timer));
   }, [goalCardRevealValues, goalRevealCount, mode]);
 
   useEffect(() => {
-    if (mode !== "goals") {
+    if (mode !== 'goals') {
       return undefined;
     }
 
@@ -1184,7 +1432,7 @@ export default function FirstGuidedReflectionScreen({
         stiffness: 220,
         mass: 0.85,
         useNativeDriver: true,
-      })
+      }),
     );
 
     animations.forEach(animation => animation.start());
@@ -1193,28 +1441,7 @@ export default function FirstGuidedReflectionScreen({
   }, [goalSelectionValues, goalSuggestions, mode]);
 
   useEffect(() => {
-    if (!isGoalEditorVisible) {
-      goalFrequencySelectionValues.forEach(value => value.setValue(0));
-      return undefined;
-    }
-
-    const animations = GOAL_FREQUENCIES.map((frequency, index) =>
-      Animated.spring(goalFrequencySelectionValues[index], {
-        toValue: editingGoalDraft?.frequency === frequency ? 1 : 0,
-        damping: 16,
-        stiffness: 220,
-        mass: 0.85,
-        useNativeDriver: true,
-      })
-    );
-
-    animations.forEach(animation => animation.start());
-
-    return () => animations.forEach(animation => animation.stop());
-  }, [editingGoalDraft?.frequency, goalFrequencySelectionValues, isGoalEditorVisible]);
-
-  useEffect(() => {
-    if (mode !== "streak_started") {
+    if (mode !== 'streak_started') {
       streakFlameTilt.setValue(0);
       streakFlameReveal.setValue(0);
       streakTextReveal.setValue(0);
@@ -1287,10 +1514,17 @@ export default function FirstGuidedReflectionScreen({
           duration: 640,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-        })
-      )
+        }),
+      ),
     );
-    const entranceAnimation = Animated.sequence([flameAnimation, textAnimation]);
+    const entranceAnimation = Animated.sequence([
+      flameAnimation,
+      textAnimation,
+    ]);
+    triggerHaptic('streakFlame').catch(() => undefined);
+    const flameHapticStopTimer = setTimeout(() => {
+      stopHaptics().catch(() => undefined);
+    }, STREAK_FLAME_ANIMATION_DURATION_MS);
 
     entranceAnimation.start(({ finished }) => {
       if (!finished) {
@@ -1309,6 +1543,8 @@ export default function FirstGuidedReflectionScreen({
       entranceAnimation.stop();
       ctaAnimation.stop();
       confettiAnimation.stop();
+      clearTimeout(flameHapticStopTimer);
+      stopHaptics().catch(() => undefined);
     };
   }, [
     mode,
@@ -1320,7 +1556,7 @@ export default function FirstGuidedReflectionScreen({
   ]);
 
   useEffect(() => {
-    if (mode !== "goals") {
+    if (mode !== 'goals') {
       goalCtaReveal.setValue(1);
       return undefined;
     }
@@ -1339,85 +1575,7 @@ export default function FirstGuidedReflectionScreen({
   }, [goalCtaReveal, mode, selectedGoalCount]);
 
   useEffect(() => {
-    if (!isGoalEditorVisible) {
-      if (!goalEditorMountedRef.current) {
-        return undefined;
-      }
-
-      const closingAnimation = Animated.parallel([
-        Animated.timing(goalEditorSheetSlide, {
-          toValue: 0,
-          duration: 230,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(goalEditorScrimOpacity, {
-          toValue: 0,
-          duration: 200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]);
-
-      closingAnimation.start(({ finished }) => {
-        if (!finished) {
-          return;
-        }
-
-        goalEditorMountedRef.current = false;
-        setIsGoalEditorMounted(false);
-        setEditingGoalId(null);
-        setEditingGoalDraft(null);
-      });
-
-      return () => closingAnimation.stop();
-    }
-
-    if (goalEditorMountedRef.current) {
-      return undefined;
-    }
-
-    goalEditorMountedRef.current = true;
-    goalEditorSheetSlide.setValue(0);
-    goalEditorScrimOpacity.setValue(0);
-    goalEditorActionsReveal.setValue(0);
-    setIsGoalEditorMounted(true);
-    const frameId = requestAnimationFrame(() => {
-      Animated.parallel([
-        Animated.timing(goalEditorSheetSlide, {
-          toValue: 1,
-          duration: 320,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(goalEditorScrimOpacity, {
-          toValue: 1,
-          duration: 260,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.sequence([
-          Animated.delay(130),
-          Animated.timing(goalEditorActionsReveal, {
-            toValue: 1,
-            duration: 220,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start();
-    });
-
-    return () => cancelAnimationFrame(frameId);
-  }, [
-    goalEditorActionsReveal,
-    goalEditorScrimOpacity,
-    goalEditorSheetSlide,
-    isGoalEditorVisible,
-  ]);
-
-  useEffect(() => {
-    if (mode !== "saved") {
+    if (mode !== 'saved') {
       completionFeatureRevealValues.forEach(value => value.setValue(0));
       completionIconShake.setValue(0);
       completionButtonReveal.setValue(0);
@@ -1463,8 +1621,8 @@ export default function FirstGuidedReflectionScreen({
             duration: READY_CARD_DURATION_MS,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          })
-        )
+          }),
+        ),
       ),
     ]);
     const introAnimation = Animated.parallel([iconAnimation, cardAnimation]);
@@ -1485,7 +1643,7 @@ export default function FirstGuidedReflectionScreen({
     ]);
     let pulseAnimation: Animated.CompositeAnimation | null = null;
 
-    triggerHaptic("personalizationComplete").catch(() => undefined);
+    triggerHaptic('personalizationComplete').catch(() => undefined);
     introAnimation.start();
     buttonAnimation.start(({ finished }) => {
       if (!finished) {
@@ -1508,7 +1666,7 @@ export default function FirstGuidedReflectionScreen({
             useNativeDriver: true,
           }),
           Animated.delay(420),
-        ])
+        ]),
       );
       pulseAnimation.start();
     });
@@ -1527,11 +1685,14 @@ export default function FirstGuidedReflectionScreen({
   ]);
 
   useEffect(() => {
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      setIsLeaveConfirmVisible(true);
-      triggerHaptic("back").catch(() => undefined);
-      return true;
-    });
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        setIsLeaveConfirmVisible(true);
+        triggerHaptic('back').catch(() => undefined);
+        return true;
+      },
+    );
 
     return () => subscription.remove();
   }, []);
@@ -1548,7 +1709,7 @@ export default function FirstGuidedReflectionScreen({
         clearTimeout(sessionCardSequenceTimerRef.current);
       }
     },
-    []
+    [],
   );
 
   const getOnboardingContext = (): GuidedReflectionOnboardingContext => ({
@@ -1561,39 +1722,46 @@ export default function FirstGuidedReflectionScreen({
   });
 
   const getCorePromptAnswers = (
-    nextAnswers: FirstReflectionAnswers
+    nextAnswers: FirstReflectionAnswers,
   ): FirstReflectionPromptAnswer[] =>
     corePrompts.map(prompt => ({
       questionId: prompt.id as CoreReflectionPromptId,
       question: prompt.question,
-      answer: nextAnswers[prompt.id]?.trim() || "",
+      answer: nextAnswers[prompt.id]?.trim() || '',
     }));
 
   const getPromptAnswersForDeeper = (
-    sourceAnswers: FirstReflectionAnswers = answers
+    sourceAnswers: FirstReflectionAnswers = answers,
   ): GuidedReflectionPromptAnswer[] =>
     FIRST_REFLECTION_PROMPTS.map(prompt => ({
       questionId: prompt.id,
       question: prompt.question,
-      answer: sourceAnswers[prompt.id]?.trim() || "",
+      answer: sourceAnswers[prompt.id]?.trim() || '',
     })).filter(prompt => isMeaningfulAnswer(prompt.answer));
 
   const createThreadMessageId = () =>
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const getThreadPayload = (
-    messages: GuidedThreadMessage[]
+    messages: GuidedThreadMessage[],
   ): GuidedReflectionThreadMessagePayload[] =>
     messages
       .filter(
-        (message): message is GuidedThreadMessage & { role: "user" | "assistant" } =>
-          message.role !== "system" && message.kind !== "local_error" && Boolean(message.text.trim())
+        (
+          message,
+        ): message is GuidedThreadMessage & { role: 'user' | 'assistant' } =>
+          message.role !== 'system' &&
+          message.kind !== 'local_error' &&
+          Boolean(message.text.trim()),
       )
       .map(message => ({
         role: message.role,
         kind: message.kind,
         text: message.text.trim(),
         ...(message.actionType ? { actionType: message.actionType } : {}),
+        ...(message.promptQuestion
+          ? { promptQuestion: message.promptQuestion.trim() }
+          : {}),
       }));
 
   const finishStreamingMessage = () => {
@@ -1615,7 +1783,7 @@ export default function FirstGuidedReflectionScreen({
             text: streaming.fullText,
             isStreaming: false,
           }
-        : message
+        : message,
     );
 
     setThreadMessages(nextMessages);
@@ -1633,20 +1801,20 @@ export default function FirstGuidedReflectionScreen({
     }
 
     summaryFullTextRef.current = fullText;
-    setVisibleAiSummary("");
+    setVisibleAiSummary('');
     setIsAiSummaryComplete(false);
     setIsAiSummaryStreaming(true);
 
     let index = 0;
     const revealNextChunk = () => {
       index += 1;
-      setVisibleAiSummary(chunks.slice(0, index).join(""));
+      setVisibleAiSummary(chunks.slice(0, index).join(''));
       scrollRef.current?.scrollToEnd({ animated: true });
 
       if (index < chunks.length) {
         summaryTypewriterTimerRef.current = setTimeout(
           revealNextChunk,
-          TYPEWRITER_CHUNK_MS
+          TYPEWRITER_CHUNK_MS,
         );
         return;
       }
@@ -1655,8 +1823,7 @@ export default function FirstGuidedReflectionScreen({
       summaryFullTextRef.current = null;
       setIsAiSummaryStreaming(false);
       setIsAiSummaryComplete(true);
-      triggerHaptic("animationCue").catch(() => undefined);
-      setTimeout(() => inputRef.current?.focus(), 120);
+      triggerHaptic('animationCue').catch(() => undefined);
     };
 
     summaryTypewriterTimerRef.current = setTimeout(revealNextChunk, 140);
@@ -1680,9 +1847,9 @@ export default function FirstGuidedReflectionScreen({
       ...currentMessages,
       {
         id: messageId,
-        role: "assistant",
-        kind: "assistant_reflection",
-        text: "",
+        role: 'assistant',
+        kind: 'assistant_reflection',
+        text: '',
         createdAt,
         isStreaming: true,
       },
@@ -1691,7 +1858,7 @@ export default function FirstGuidedReflectionScreen({
     let index = 0;
     const revealNextChunk = () => {
       index += 1;
-      const visibleText = chunks.slice(0, index).join("");
+      const visibleText = chunks.slice(0, index).join('');
 
       setThreadMessages(currentMessages =>
         currentMessages.map(message =>
@@ -1701,14 +1868,17 @@ export default function FirstGuidedReflectionScreen({
                 text: visibleText,
                 isStreaming: index < chunks.length,
               }
-            : message
-        )
+            : message,
+        ),
       );
 
       scrollRef.current?.scrollToEnd({ animated: true });
 
       if (index < chunks.length) {
-        typewriterTimerRef.current = setTimeout(revealNextChunk, TYPEWRITER_CHUNK_MS);
+        typewriterTimerRef.current = setTimeout(
+          revealNextChunk,
+          TYPEWRITER_CHUNK_MS,
+        );
         return;
       }
 
@@ -1716,28 +1886,27 @@ export default function FirstGuidedReflectionScreen({
       streamingFullTextRef.current = null;
       setStreamingMessageId(null);
       setDeeperRequestCount(count => count + 1);
-      setTimeout(() => inputRef.current?.focus(), 120);
     };
 
     typewriterTimerRef.current = setTimeout(revealNextChunk, 60);
   };
 
-  const saveCurrentAnswer = () => {
-    const trimmedInput = currentInput.trim();
+  const updateCoreAnswer = (
+    promptId: FirstReflectionPromptId,
+    value: string,
+  ) => {
     const nextAnswers = {
       ...answersRef.current,
-      [currentPrompt.id]: trimmedInput,
+      [promptId]: value,
     };
 
     answersRef.current = nextAnswers;
     setAnswers(nextAnswers);
-
-    return nextAnswers;
   };
 
   const submitFirstReflection = async (
     nextAnswers: FirstReflectionAnswers,
-    nextThreadMessages: GuidedThreadMessage[]
+    nextThreadMessages: GuidedThreadMessage[],
   ) => {
     const content = composeFirstReflectionEntry({
       answers: nextAnswers,
@@ -1746,7 +1915,7 @@ export default function FirstGuidedReflectionScreen({
     });
 
     if (!content.trim() || isSubmittingEntry) {
-      setSaveError("Add a little more before finishing this reflection.");
+      setSaveError('Add a little more before finishing this reflection.');
       return;
     }
 
@@ -1755,15 +1924,14 @@ export default function FirstGuidedReflectionScreen({
     setAnswers(nextAnswers);
     setSaveError(null);
     setIsSubmittingEntry(true);
-    triggerHaptic("primaryAction").catch(() => undefined);
+    triggerHaptic('primaryAction').catch(() => undefined);
 
     try {
       const savedEntry = await createJournalEntry({
         title: getGeneratedTitle(),
         content,
-        type: "guided",
-        aiPrompt: "Onboarding first guided reflection",
-        tags: ["onboarding:first-reflection"],
+        type: 'guided',
+        aiPrompt: 'Onboarding first guided reflection',
       });
 
       addRecentJournalEntry(savedEntry);
@@ -1776,6 +1944,7 @@ export default function FirstGuidedReflectionScreen({
 
       try {
         analysis = await createGuidedReflectionSessionAnalysis({
+          journalId: savedEntry._id,
           promptAnswers: getPromptAnswersForDeeper(nextAnswers),
           aiSummary: aiSummary || undefined,
           threadMessages: getThreadPayload(nextThreadMessages),
@@ -1790,11 +1959,12 @@ export default function FirstGuidedReflectionScreen({
       }
 
       setIsSubmittingEntry(false);
-      triggerHaptic("personalizationComplete").catch(() => undefined);
+      triggerHaptic('personalizationComplete').catch(() => undefined);
       onAnalysisReady?.({
         answers: nextAnswers,
         aiSummary,
         draft,
+        journalId: savedEntry._id,
         sessionAnalysis: analysis,
         threadMessages: nextThreadMessages,
       });
@@ -1804,14 +1974,30 @@ export default function FirstGuidedReflectionScreen({
     }
   };
 
-  const loadFirstSummary = async (nextAnswers: FirstReflectionAnswers) => {
-    setMode("ai_summary_loading");
+  const loadFirstSummary = async (
+    nextAnswers: FirstReflectionAnswers,
+    animateCoreExit = false,
+  ) => {
+    if (animateCoreExit) {
+      await new Promise<void>(resolve => {
+        Animated.timing(coreToTranscriptExit, {
+          toValue: 0.62,
+          duration: Math.min(CORE_TO_TRANSCRIPT_EXIT_MS, 120),
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => resolve());
+      });
+      coreToTranscriptExit.setValue(1);
+    }
+
+    transcriptEntrance.setValue(0.72);
+    setMode('ai_summary_loading');
     setAiSummaryError(null);
     setVisibleAiSummary(null);
     setIsAiSummaryComplete(false);
     setIsAiSummaryStreaming(false);
-    setCurrentInput("");
-    triggerHaptic("primaryAction").catch(() => undefined);
+    setCurrentInput('');
+    triggerHaptic('primaryAction').catch(() => undefined);
 
     try {
       const summary = await createFirstReflectionSummary({
@@ -1820,16 +2006,18 @@ export default function FirstGuidedReflectionScreen({
       });
 
       setAiSummary(summary.reflection);
-      setCurrentInput("");
-      setMode("optional_deeper");
-      startSummaryTypewriter(summary.reflection);
+      setCurrentFollowUpQuestion(summary.followUpQuestion.trim());
+      setCanContinueDeeper(true);
+      setCurrentInput('');
+      setMode('optional_deeper');
+      startSummaryTypewriter(summary.reflection.trim());
     } catch {
       setAiSummaryError(
-        "We couldn't create a deeper reflection right now. You can try again or finish your entry."
+        "We couldn't create a deeper reflection right now. You can try again or finish your entry.",
       );
       setIsAiSummaryStreaming(false);
       setIsAiSummaryComplete(false);
-      setMode("optional_deeper");
+      setMode('optional_deeper');
     }
   };
 
@@ -1853,43 +2041,59 @@ export default function FirstGuidedReflectionScreen({
 
     const userMessage: GuidedThreadMessage = {
       id: createThreadMessageId(),
-      role: "user",
-      kind: actionType ? "suggestion_request" : "typed_deeper_request",
+      role: 'user',
+      kind: actionType ? 'suggestion_request' : 'typed_deeper_request',
       text: trimmedText,
       actionType,
+      ...(currentFollowUpQuestion
+        ? { promptQuestion: currentFollowUpQuestion }
+        : {}),
       createdAt: Date.now(),
     };
     const nextThreadMessages = [...threadMessages, userMessage];
 
+    if (actionType) {
+      suggestionRequestReveal.setValue(0);
+      setRevealedSuggestionMessageId(userMessage.id);
+      requestAnimationFrame(() => {
+        Animated.timing(suggestionRequestReveal, {
+          toValue: 1,
+          duration: SUGGESTION_REQUEST_REVEAL_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+    }
+
     setThreadMessages(nextThreadMessages);
-    setMode("deeper_loading");
+    setMode('deeper_loading');
     setIsThreadLoading(true);
     setDeeperError(null);
-    setCurrentInput("");
-    triggerHaptic("primaryAction").catch(() => undefined);
+    setCurrentInput('');
+    setCurrentFollowUpQuestion(null);
+    triggerHaptic('primaryAction').catch(() => undefined);
 
     try {
       const deeper = await createGuidedReflectionDeeperResponse({
         promptAnswers: getPromptAnswersForDeeper(),
         aiSummary: aiSummary || undefined,
         previousDeeperReflections: nextThreadMessages
-          .filter(message => message.role === "assistant" && message.kind === "assistant_reflection")
+          .filter(
+            message =>
+              message.role === 'assistant' &&
+              message.kind === 'assistant_reflection',
+          )
           .map(message => message.text),
         threadMessages: getThreadPayload(nextThreadMessages),
         currentText: trimmedText,
         suggestionAction: actionType,
         onboardingContext: getOnboardingContext(),
       });
-      const assistantText = [
-        deeper.reflection.trim(),
-        deeper.followUpPrompt ? `Try this: ${deeper.followUpPrompt.trim()}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
       setIsThreadLoading(false);
-      setMode("optional_deeper");
-      startAssistantTypewriter(assistantText);
+      setCurrentFollowUpQuestion(deeper.nextQuestion.trim());
+      setCanContinueDeeper(deeper.canGoDeeper);
+      setMode('optional_deeper');
+      startAssistantTypewriter(deeper.reflection.trim());
     } catch {
       const errorMessage = actionType
         ? "Journal.IO couldn't respond right now. Your writing is still safe here."
@@ -1899,8 +2103,8 @@ export default function FirstGuidedReflectionScreen({
         ...nextThreadMessages,
         {
           id: createThreadMessageId(),
-          role: "system",
-          kind: "local_error",
+          role: 'system',
+          kind: 'local_error',
           text: errorMessage,
           createdAt: Date.now(),
         },
@@ -1908,80 +2112,71 @@ export default function FirstGuidedReflectionScreen({
       if (!actionType) {
         setCurrentInput(trimmedText);
       }
+      setCurrentFollowUpQuestion(userMessage.promptQuestion || null);
       setDeeperError(errorMessage);
       setIsThreadLoading(false);
-      setMode("optional_deeper");
+      setMode('optional_deeper');
     }
   };
 
-  const submitCoreAnswer = (nextAnswers: FirstReflectionAnswers) => {
-    const submittedPromptId = currentPrompt.id;
-    const isLastCorePrompt = currentPromptIndex === CORE_PROMPT_COUNT - 1;
-
-    Keyboard.dismiss();
-    setIsCoreAnswerSending(true);
-    composerExitValue.setValue(0);
-    // A previously submitted card must never inherit the next card's hidden state.
-    coreAnswerRevealValue.stopAnimation();
-    coreAnswerRevealValue.setValue(1);
-    setRecentlySubmittedPromptId(null);
-
-    const exitAnimation = Animated.parallel([
-      Animated.timing(composerExitValue, {
-        toValue: 1,
-        duration: 190,
-        easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]);
-
-    exitAnimation.start(({ finished }) => {
-      if (!finished) {
-        return;
-      }
-
-      setRecentlySubmittedPromptId(submittedPromptId);
-      setCurrentPromptIndex(index => index + 1);
-      setIsCoreAnswerSending(false);
-      composerExitValue.setValue(0);
-      coreAnswerRevealValue.setValue(0);
-
-      Animated.spring(coreAnswerRevealValue, {
-        toValue: 1,
-        damping: 16,
-        stiffness: 220,
-        mass: 0.85,
-        useNativeDriver: true,
-      }).start(() => {
-        setRecentlySubmittedPromptId(currentId =>
-          currentId === submittedPromptId ? null : currentId,
-        );
-      });
-
-      if (isLastCorePrompt) {
-        loadFirstSummary(nextAnswers).catch(() => undefined);
-      }
+  const scrollToCorePrompt = (index: number, focusInput = false) => {
+    const nextIndex = Math.max(0, Math.min(index, currentPromptIndex));
+    if (nextIndex < currentPromptIndex && !focusInput) {
+      Keyboard.dismiss();
+    }
+    setVisibleCorePromptIndex(nextIndex);
+    corePagerRef.current?.scrollTo({
+      x: nextIndex * contentMaxWidth,
+      animated: true,
     });
 
-    triggerHaptic("primaryAction").catch(() => undefined);
+    if (focusInput) {
+      setTimeout(() => coreInputRefs.current[nextIndex]?.focus(), 280);
+    }
+  };
+
+  const submitCoreAnswer = () => {
+    const isLastCorePrompt = currentPromptIndex === CORE_PROMPT_COUNT - 1;
+    triggerHaptic('primaryAction').catch(() => undefined);
+
+    if (isLastCorePrompt) {
+      Keyboard.dismiss();
+      loadFirstSummary(answersRef.current, true).catch(() => undefined);
+      return;
+    }
+
+    const nextIndex = currentPromptIndex + 1;
+    setCurrentPromptIndex(nextIndex);
+    setVisibleCorePromptIndex(nextIndex);
+    requestAnimationFrame(() => {
+      corePagerRef.current?.scrollTo({
+        x: nextIndex * contentMaxWidth,
+        animated: true,
+      });
+    });
+
+    Keyboard.dismiss();
   };
 
   const handlePrimaryPress = () => {
-    if (mode === "optional_deeper") {
+    if (mode === 'optional_deeper') {
       if (isSummaryFailed) {
         loadFirstSummary(answers).catch(() => undefined);
         return;
       }
 
       if (hasReachedDeeperLimit) {
-        submitFirstReflection(answers, finishStreamingMessage()).catch(() => undefined);
+        submitFirstReflection(answers, finishStreamingMessage()).catch(
+          () => undefined,
+        );
         return;
       }
 
       if (!currentAnswerIsMeaningful) {
         Keyboard.dismiss();
+        suggestionSheetCloseActionRef.current = null;
         setIsSuggestionSheetVisible(true);
-        triggerHaptic("bottomSheet").catch(() => undefined);
+        triggerHaptic('bottomSheet').catch(() => undefined);
         return;
       }
 
@@ -1989,7 +2184,7 @@ export default function FirstGuidedReflectionScreen({
       return;
     }
 
-    if (mode !== "core_prompts") {
+    if (mode !== 'core_prompts') {
       return;
     }
 
@@ -1997,64 +2192,92 @@ export default function FirstGuidedReflectionScreen({
       return;
     }
 
-    const nextAnswers = saveCurrentAnswer();
-    submitCoreAnswer(nextAnswers);
+    submitCoreAnswer();
   };
 
   const handleFinishEntryPress = () => {
+    if (!hasAnyEntryContent) {
+      Keyboard.dismiss();
+      setIsLeaveConfirmVisible(true);
+      triggerHaptic('bottomSheet').catch(() => undefined);
+      return;
+    }
+
     if (!canFinishEntry) {
       return;
     }
 
-    const nextThreadMessages = finishStreamingMessage();
-    const nextAnswers =
-      mode === "optional_deeper" && currentInput.trim()
-        ? {
-            ...answers,
-            anything_else: [
-              answers.anything_else?.trim(),
-              currentInput.trim(),
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-          }
-        : mode === "core_prompts"
-          ? saveCurrentAnswer()
-          : answers;
+    const completedThreadMessages = finishStreamingMessage();
+    const nextThreadMessages =
+      mode === 'optional_deeper' && currentInput.trim()
+        ? [
+            ...completedThreadMessages,
+            {
+              id: createThreadMessageId(),
+              role: 'user' as const,
+              kind: 'typed_deeper_request' as const,
+              text: currentInput.trim(),
+              ...(currentFollowUpQuestion
+                ? { promptQuestion: currentFollowUpQuestion }
+                : {}),
+              createdAt: Date.now(),
+            },
+          ]
+        : completedThreadMessages;
+    const nextAnswers = answers;
     const nextRequiredCount = FIRST_REFLECTION_PROMPTS.filter(
-      prompt => prompt.required && isMeaningfulAnswer(nextAnswers[prompt.id])
+      prompt => prompt.required && isMeaningfulAnswer(nextAnswers[prompt.id]),
     ).length;
 
     if (nextRequiredCount < 3) {
       setIsFinishConfirmVisible(true);
-      triggerHaptic("secondaryAction").catch(() => undefined);
+      triggerHaptic('secondaryAction').catch(() => undefined);
       return;
     }
 
-    submitFirstReflection(nextAnswers, nextThreadMessages).catch(() => undefined);
+    submitFirstReflection(nextAnswers, nextThreadMessages).catch(
+      () => undefined,
+    );
   };
 
   const handleConfirmFinish = () => {
     setIsFinishConfirmVisible(false);
-    const nextAnswers =
-      mode === "core_prompts"
-        ? { ...answers, [currentPrompt.id]: currentInput.trim() }
-        : answers;
-    submitFirstReflection(nextAnswers, finishStreamingMessage()).catch(() => undefined);
+    const nextAnswers = answers;
+    submitFirstReflection(nextAnswers, finishStreamingMessage()).catch(
+      () => undefined,
+    );
   };
 
-  const handleSelectSuggestion = (option: (typeof SUGGESTION_OPTIONS)[number]) => {
+  const dismissSuggestionSheet = (onClosed?: () => void) => {
+    if (!onClosed) {
+      setIsSuggestionSelectionPending(false);
+    }
+    suggestionSheetCloseActionRef.current = onClosed || null;
     setIsSuggestionSheetVisible(false);
-    triggerHaptic("optionSelected").catch(() => undefined);
-    runDeeperThreadRequest({
-      text: option.requestText,
-      actionType: option.actionType,
-    }).catch(() => undefined);
+  };
+
+  const handleSelectSuggestion = (
+    option: (typeof SUGGESTION_OPTIONS)[number],
+  ) => {
+    if (isSuggestionSelectionPending) {
+      return;
+    }
+
+    setIsSuggestionSelectionPending(true);
+    dismissSuggestionSheet(() => {
+      runDeeperThreadRequest({
+        text: option.requestText,
+        actionType: option.actionType,
+      })
+        .catch(() => undefined)
+        .finally(() => setIsSuggestionSelectionPending(false));
+    });
+    triggerHaptic('optionSelected').catch(() => undefined);
   };
 
   const handleContinueAfterSave = () => {
-    finishOnboardingV2FirstReflection().catch(() => {
-      setSaveError("Your reflection is saved. Please try continuing again.");
+    finishOnboardingV2Journey(draft.displayName, draft).catch(() => {
+      setSaveError('Your reflection is saved. Please try continuing again.');
     });
   };
 
@@ -2063,18 +2286,21 @@ export default function FirstGuidedReflectionScreen({
 
     setIsLoadingGoals(true);
     setGoalsError(null);
-    triggerHaptic("primaryAction").catch(() => undefined);
+    triggerHaptic('primaryAction').catch(() => undefined);
 
     try {
-      const suggestions = await createGuidedReflectionGoalSuggestions({
-        promptAnswers: getPromptAnswersForDeeper(),
-        aiSummary: aiSummary || undefined,
-        threadMessages: getThreadPayload(threadMessages),
-        sessionAnalysis: sessionAnalysis || undefined,
-        onboardingContext: getOnboardingContext(),
-      });
-      nextGoalPayload =
-        suggestions.goals.length ? suggestions.goals : FALLBACK_GOAL_SUGGESTIONS;
+      const goals = loadGoalSuggestionsOverride
+        ? await loadGoalSuggestionsOverride()
+        : (
+            await createGuidedReflectionGoalSuggestions({
+              promptAnswers: getPromptAnswersForDeeper(),
+              aiSummary: aiSummary || undefined,
+              threadMessages: getThreadPayload(threadMessages),
+              sessionAnalysis: sessionAnalysis || undefined,
+              onboardingContext: getOnboardingContext(),
+            })
+          ).goals;
+      nextGoalPayload = goals.length ? goals : FALLBACK_GOAL_SUGGESTIONS;
     } catch {
       nextGoalPayload = FALLBACK_GOAL_SUGGESTIONS;
     }
@@ -2086,6 +2312,8 @@ export default function FirstGuidedReflectionScreen({
         answers,
         aiSummary,
         draft,
+        journalId:
+          initialGoalsPayload?.journalId || initialAnalysisPayload?.journalId,
         goalSuggestions: nextGoalPayload,
         sessionAnalysis,
         threadMessages,
@@ -2093,32 +2321,37 @@ export default function FirstGuidedReflectionScreen({
       return;
     }
 
-    setGoalSuggestions(createGoalSuggestionsFromPayload(nextGoalPayload, "fallback"));
-    setMode("goals");
+    setGoalSuggestions(
+      createGoalSuggestionsFromPayload(nextGoalPayload, 'fallback'),
+    );
+    setMode('goals');
   };
 
   const toggleGoalSelection = (goalId: string) => {
     setGoalSuggestions(currentGoals =>
       currentGoals.map(goal =>
-        goal.id === goalId ? { ...goal, selected: !goal.selected } : goal
-      )
+        goal.id === goalId ? { ...goal, selected: !goal.selected } : goal,
+      ),
     );
-    triggerHaptic("optionSelected").catch(() => undefined);
+    triggerHaptic('optionSelected').catch(() => undefined);
   };
 
   const openGoalEditor = (goal: FirstReflectionGoalSuggestion) => {
     setEditingGoalId(goal.id);
-    setEditingGoalDraft({ ...goal });
     setIsGoalEditorVisible(true);
-    triggerHaptic("secondaryAction").catch(() => undefined);
+    triggerHaptic('secondaryAction').catch(() => undefined);
   };
 
   const closeGoalEditor = () => {
     setIsGoalEditorVisible(false);
+    setEditingGoalId(null);
   };
 
-  const saveEditedGoal = () => {
-    if (!editingGoalId || !editingGoalDraft) {
+  // GoalSheet emits the same GoalDraft the Home card does, so an edited
+  // suggestion carries its icon, frequency and reminder straight into the goal
+  // that gets created.
+  const applyEditedGoal = (goalDraft: GoalDraft) => {
+    if (!editingGoalId) {
       return;
     }
 
@@ -2127,24 +2360,64 @@ export default function FirstGuidedReflectionScreen({
         goal.id === editingGoalId
           ? {
               ...goal,
-              title: editingGoalDraft.title.trim() || goal.title,
-              description: editingGoalDraft.description.trim() || goal.description,
-              frequency: editingGoalDraft.frequency,
+              title: goalDraft.title.trim() || goal.title,
+              description: goalDraft.description?.trim() || goal.description,
+              icon: goalDraft.icon ?? goal.icon,
+              iconSource: goalDraft.iconSource ?? goal.iconSource,
+              frequency: goalDraft.frequency ?? goal.frequency,
+              reminderEnabled: goalDraft.reminderEnabled ?? false,
+              reminderTime: goalDraft.reminderTime ?? null,
               selected: true,
             }
-          : goal
-      )
+          : goal,
+      ),
     );
     closeGoalEditor();
-    triggerHaptic("primaryAction").catch(() => undefined);
+    triggerHaptic('primaryAction').catch(() => undefined);
   };
 
-  const continueFromGoals = () => {
-    // TODO Phase 3D: persist selected onboarding goals once the goals backend/model is designed.
-    triggerHaptic("primaryAction").catch(() => undefined);
+  const continueFromGoals = async () => {
+    if (isSavingGoals) {
+      return;
+    }
 
-    if (onStreakReady && sessionAnalysis) {
-      onStreakReady({
+    triggerHaptic('primaryAction').catch(() => undefined);
+
+    if (onGoalsSaved) {
+      setIsSavingGoals(true);
+      setGoalsError(null);
+
+      try {
+        await onGoalsSaved(
+          goalSuggestions
+            .filter(goal => goal.selected && goal.title.trim())
+            .map(goal => ({
+              title: goal.title.trim(),
+              description: goal.description?.trim() || null,
+              icon: goal.icon,
+              iconSource: goal.iconSource,
+              frequency: goal.frequency,
+              reminderEnabled: goal.reminderEnabled,
+              reminderTime: goal.reminderTime,
+            })),
+        );
+      } catch {
+        setGoalsError(
+          "Your reflection is saved, but we couldn't add those goals yet. Please try again.",
+        );
+        setIsSavingGoals(false);
+        return;
+      }
+
+      // Callers that navigate from inside onGoalsSaved pass no onMindMapReady,
+      // so falling through lets onboarding both save and continue.
+      if (!onMindMapReady) {
+        return;
+      }
+    }
+
+    if (onMindMapReady && sessionAnalysis) {
+      onMindMapReady({
         answers,
         aiSummary,
         draft,
@@ -2155,35 +2428,18 @@ export default function FirstGuidedReflectionScreen({
       return;
     }
 
-    setMode("streak_started");
+    setMode('streak_started');
   };
 
   const continueFromStreak = () => {
-    // TODO Phase 3D: persist streak once streak backend/model is finalized.
-    // TODO MindMapBrain: aggregate BrainSessionMap scores across entries.
-    // TODO MindMapBrain: build lightweight 3D brain-region model.
-    // TODO MindMapBrain: color/opacity regions based on accumulated center scores.
-    // TODO MindMapBackend: persist per-entry brain center scores.
-    // TODO MindMapUI: let users tap a brain region and see related entries.
-    const nextMap = buildLocalMindMap({
-      sessionAnalysis,
-      goals: goalSuggestions,
-    });
+    if (onRemindersReady) {
+      onRemindersReady();
+      triggerHaptic('primaryAction').catch(() => undefined);
+      return;
+    }
 
-    setMindMap(nextMap);
-    setMode("mind_map");
-    triggerHaptic("primaryAction").catch(() => undefined);
-  };
-
-  const continueFromMindMap = () => {
-    setMode("mind_map_explanation");
-    triggerHaptic("primaryAction").catch(() => undefined);
-  };
-
-  const continueFromMindMapExplanation = () => {
-    // Phase 3C: We route Home after post-entry value chain without calling /onboarding/complete
-    // because the existing completion path may trigger post-auth paywall. Revisit in Phase 3D.
-    handleContinueAfterSave();
+    setMode('saved');
+    triggerHaptic('primaryAction').catch(() => undefined);
   };
 
   const renderAssistantCard = ({
@@ -2202,8 +2458,14 @@ export default function FirstGuidedReflectionScreen({
       style={[
         styles.reflectionCard,
         {
-          backgroundColor: hexToRgba(theme.colors.card, theme.mode === "dark" ? 0.76 : 0.94),
-          borderColor: hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.24 : 0.16),
+          backgroundColor: hexToRgba(
+            theme.colors.card,
+            theme.mode === 'dark' ? 0.76 : 0.94,
+          ),
+          borderColor: hexToRgba(
+            theme.colors.primary,
+            theme.mode === 'dark' ? 0.24 : 0.16,
+          ),
           marginTop,
         },
       ]}
@@ -2217,18 +2479,30 @@ export default function FirstGuidedReflectionScreen({
         <Sparkles color={theme.colors.primary} size={15} strokeWidth={1.8} />
       </View>
       <View style={styles.reflectionCardBody}>
-        <Text style={[styles.reflectionCardEyebrow, { color: theme.colors.primary }]}>
+        <Text
+          style={[
+            styles.reflectionCardEyebrow,
+            { color: theme.colors.primary },
+          ]}
+        >
           JOURNAL.IO
         </Text>
-        <Text style={[styles.reflectionCardText, { color: theme.colors.foreground }]}>
+        <Text
+          style={[
+            styles.reflectionCardText,
+            { color: theme.colors.foreground },
+          ]}
+        >
           {text}
-          {isStreaming ? " " : ""}
+          {isStreaming ? ' ' : ''}
         </Text>
       </View>
     </View>
   );
 
-  const renderAssistantShimmerCard = ({ marginTop = 20 }: { marginTop?: number } = {}) => {
+  const renderAssistantShimmerCard = ({
+    marginTop = 20,
+  }: { marginTop?: number } = {}) => {
     const shimmerOpacity = shimmerValue.interpolate({
       inputRange: [0, 1],
       outputRange: [0.42, 0.82],
@@ -2239,8 +2513,14 @@ export default function FirstGuidedReflectionScreen({
         style={[
           styles.reflectionCard,
           {
-            backgroundColor: hexToRgba(theme.colors.card, theme.mode === "dark" ? 0.7 : 0.92),
-            borderColor: hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.2 : 0.14),
+            backgroundColor: hexToRgba(
+              theme.colors.card,
+              theme.mode === 'dark' ? 0.7 : 0.92,
+            ),
+            borderColor: hexToRgba(
+              theme.colors.primary,
+              theme.mode === 'dark' ? 0.2 : 0.14,
+            ),
             marginTop,
           },
         ]}
@@ -2271,7 +2551,10 @@ export default function FirstGuidedReflectionScreen({
                 styles.skeletonLine,
                 index === 3 ? styles.skeletonLineShort : undefined,
                 {
-                  backgroundColor: hexToRgba(theme.colors.foreground, theme.mode === "dark" ? 0.14 : 0.1),
+                  backgroundColor: hexToRgba(
+                    theme.colors.foreground,
+                    theme.mode === 'dark' ? 0.14 : 0.1,
+                  ),
                   opacity: shimmerOpacity,
                 },
               ]}
@@ -2284,38 +2567,16 @@ export default function FirstGuidedReflectionScreen({
 
   const renderAnsweredPrompt = (prompt: FirstReflectionPrompt) => {
     const answer = answers[prompt.id]?.trim();
-    const isRecentlySubmitted = recentlySubmittedPromptId === prompt.id;
 
     if (!answer) {
       return null;
     }
 
     return (
-      <Animated.View
+      <View
         key={prompt.id}
         testID={`guided-answer-${prompt.id}`}
-        style={[
-          styles.entryBlock,
-          isRecentlySubmitted
-            ? {
-                opacity: coreAnswerRevealValue,
-                transform: [
-                  {
-                    translateY: coreAnswerRevealValue.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [10, 0],
-                    }),
-                  },
-                  {
-                    scale: coreAnswerRevealValue.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.985, 1],
-                    }),
-                  },
-                ],
-              }
-            : undefined,
-        ]}
+        style={styles.entryBlock}
       >
         <Text style={[styles.promptText, { color: theme.colors.primary }]}>
           {prompt.question}
@@ -2323,7 +2584,7 @@ export default function FirstGuidedReflectionScreen({
         <Text style={[styles.answerText, { color: theme.colors.foreground }]}>
           {answer}
         </Text>
-      </Animated.View>
+      </View>
     );
   };
 
@@ -2337,68 +2598,332 @@ export default function FirstGuidedReflectionScreen({
     </View>
   );
 
-  const renderWritingMode = () => (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.keyboardRoot}
-    >
-      {renderTopBar()}
-      <ScrollView
-        ref={scrollRef}
-        automaticallyAdjustKeyboardInsets
-        contentContainerStyle={[styles.scrollContent, { maxWidth: contentMaxWidth }]}
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        keyboardShouldPersistTaps="handled"
-        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-        showsVerticalScrollIndicator={false}
-      >
-        {visibleAnsweredPrompts.map(renderAnsweredPrompt)}
+  const renderCorePromptPager = () => {
+    const unlockedPrompts = corePrompts.slice(0, currentPromptIndex + 1);
+    const isViewingEarlierAnswer = visibleCorePromptIndex < currentPromptIndex;
+    const primaryLabel = isViewingEarlierAnswer
+      ? 'Continue writing'
+      : currentPromptIndex === CORE_PROMPT_COUNT - 1
+      ? 'Go deeper'
+      : 'Next prompt';
 
-        {mode === "ai_summary_loading" ? renderAssistantShimmerCard({ marginTop: 28 }) : null}
-
-        {visibleAiSummary !== null
-          ? renderAssistantCard({
-              text: visibleAiSummary,
-              isStreaming: isAiSummaryStreaming,
-              marginTop: 20,
-            })
-          : null}
-
-        {aiSummaryError ? (
-          <View
-            style={[
-              styles.errorCard,
+    return (
+      <Animated.View
+        style={[
+          styles.coreReflectionShell,
+          {
+            maxWidth: contentMaxWidth,
+            opacity: coreToTranscriptExit,
+            transform: [
               {
-                backgroundColor: hexToRgba(theme.colors.destructive, 0.08),
-                borderColor: hexToRgba(theme.colors.destructive, 0.2),
+                translateY: coreToTranscriptExit.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-14, 0],
+                }),
               },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.coreProgressRow}>
+          <Text
+            style={[
+              styles.coreProgressText,
+              { color: theme.colors.mutedForeground },
             ]}
           >
-            <Text style={[styles.errorCardText, { color: theme.colors.foreground }]}>
-              {aiSummaryError}
-            </Text>
-            <Pressable
-              accessibilityLabel="Try deeper reflection again"
+            Question {visibleCorePromptIndex + 1} of {CORE_PROMPT_COUNT}
+          </Text>
+          <View
+            accessibilityLabel="Guided reflection progress"
+            style={styles.coreProgressDots}
+          >
+            {corePrompts.map((prompt, index) => {
+              const isUnlocked = index <= currentPromptIndex;
+              const isActive = index === visibleCorePromptIndex;
+
+              return (
+                <HapticPressable
+                  key={prompt.id}
+                  accessibilityLabel={`Go to question ${index + 1}`}
+                  accessibilityRole="button"
+                  disabled={!isUnlocked}
+                  onPress={() => isUnlocked && scrollToCorePrompt(index)}
+                  style={({ pressed }) => [
+                    styles.coreProgressDot,
+                    {
+                      backgroundColor: isActive
+                        ? theme.colors.primary
+                        : isUnlocked
+                        ? hexToRgba(theme.colors.primary, 0.35)
+                        : hexToRgba(theme.colors.border, 0.8),
+                      opacity: isUnlocked ? 1 : 0.55,
+                    },
+                    pressed && isUnlocked && styles.pressed,
+                  ]}
+                />
+              );
+            })}
+          </View>
+        </View>
+
+        <ScrollView
+          ref={corePagerRef}
+          horizontal
+          pagingEnabled
+          keyboardDismissMode={
+            Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+          }
+          keyboardShouldPersistTaps="never"
+          onMomentumScrollEnd={({ nativeEvent }) => {
+            const index = Math.max(
+              0,
+              Math.min(
+                Math.round(nativeEvent.contentOffset.x / contentMaxWidth),
+                currentPromptIndex,
+              ),
+            );
+            if (index < currentPromptIndex) {
+              Keyboard.dismiss();
+            }
+            setVisibleCorePromptIndex(index);
+          }}
+          showsHorizontalScrollIndicator={false}
+          style={styles.corePager}
+          testID="guided-core-pager"
+        >
+          {unlockedPrompts.map((prompt, index) => (
+            <View
+              key={prompt.id}
+              style={[styles.corePromptPage, { width: contentMaxWidth }]}
+            >
+              <View style={styles.corePromptPageContent}>
+                <Text
+                  style={[
+                    styles.corePromptTitle,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  {prompt.question}
+                </Text>
+                <Text
+                  style={[
+                    styles.corePromptHelper,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  {getToneAdjustedHelperText(prompt, draft)}
+                </Text>
+                <View style={styles.corePromptInputWrap}>
+                  <TextInput
+                    accessibilityLabel={`Write your answer to: ${prompt.question}`}
+                    editable={!isSubmittingEntry}
+                    inputAccessoryViewID={
+                      FIRST_GUIDED_REFLECTION_KEYBOARD_ACCESSORY_ID
+                    }
+                    multiline
+                    onBlur={() => setIsCoreInputFocused(false)}
+                    onChangeText={value => updateCoreAnswer(prompt.id, value)}
+                    onEndEditing={() => setIsCoreInputFocused(false)}
+                    onFocus={() => {
+                      setVisibleCorePromptIndex(index);
+                      setIsCoreInputFocused(true);
+                    }}
+                    placeholder="Write"
+                    placeholderTextColor={theme.colors.mutedForeground}
+                    ref={element => {
+                      coreInputRefs.current[index] = element;
+                    }}
+                    returnKeyType="default"
+                    scrollEnabled
+                    style={[
+                      styles.corePromptInput,
+                      { color: theme.colors.foreground },
+                    ]}
+                    textAlignVertical="top"
+                    value={answers[prompt.id] || ''}
+                  />
+                </View>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+
+        <Animated.View
+          pointerEvents={isCoreInputFocused ? 'none' : 'auto'}
+          testID="guided-core-actions"
+          style={[
+            styles.reflectionActionReveal,
+            {
+              height: coreActionsReveal.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, REFLECTION_ACTION_ROW_HEIGHT],
+              }),
+              opacity: coreActionsReveal,
+              transform: [
+                {
+                  translateY: coreActionsReveal.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [10, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.coreActionRow}>
+            {/* Before anything is written this action is only an "Exit", which
+                offers a way out of onboarding at the exact moment the user has
+                nothing invested yet. It appears once there is something to
+                finish. */}
+            {hasAnyEntryContent ? (
+              <HapticPressable
+                accessibilityLabel={
+                  isSubmittingEntry ? 'Finishing entry' : finishActionLabel
+                }
+                accessibilityRole="button"
+                accessibilityState={{ busy: isSubmittingEntry }}
+                disabled={isSubmittingEntry}
+                onPress={handleFinishEntryPress}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  {
+                    backgroundColor: theme.colors.secondary,
+                    borderColor: theme.colors.border,
+                    opacity: isSubmittingEntry ? 0.72 : 1,
+                  },
+                  pressed && !isSubmittingEntry && styles.pressed,
+                ]}
+              >
+                <ButtonLoadingContent
+                  loaderColor={theme.colors.foreground}
+                  loading={isSubmittingEntry}
+                  loader={
+                    <GuidedFinishLoader
+                      active={isSubmittingEntry}
+                      color={theme.colors.foreground}
+                    />
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
+                    {finishActionLabel}
+                  </Text>
+                </ButtonLoadingContent>
+              </HapticPressable>
+            ) : null}
+            <HapticPressable
+              accessibilityLabel={primaryLabel}
               accessibilityRole="button"
-              onPress={() => loadFirstSummary(answers).catch(() => undefined)}
+              disabled={!isViewingEarlierAnswer && !canUsePrimary}
+              onPress={() => {
+                if (isViewingEarlierAnswer) {
+                  scrollToCorePrompt(currentPromptIndex, true);
+                  return;
+                }
+                handlePrimaryPress();
+              }}
               style={({ pressed }) => [
-                styles.inlineRetryButton,
-                { borderColor: theme.colors.border },
-                pressed && styles.pressed,
+                styles.primaryButton,
+                {
+                  backgroundColor:
+                    isViewingEarlierAnswer || canUsePrimary
+                      ? theme.colors.primary
+                      : theme.colors.muted,
+                  opacity: isViewingEarlierAnswer || canUsePrimary ? 1 : 0.62,
+                },
+                pressed &&
+                  (isViewingEarlierAnswer || canUsePrimary) &&
+                  styles.pressed,
               ]}
             >
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                Try again
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  {
+                    color:
+                      isViewingEarlierAnswer || canUsePrimary
+                        ? theme.colors.primaryForeground
+                        : theme.colors.mutedForeground,
+                  },
+                ]}
+              >
+                {primaryLabel}
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
-        ) : null}
+        </Animated.View>
+      </Animated.View>
+    );
+  };
 
-        {threadMessages.map(item => {
-          if (item.kind === "local_error") {
-            return (
+  const renderWritingMode = () => (
+    <>
+      {renderTopBar()}
+      <KeyboardAvoidingView
+        behavior={
+          Platform.OS === 'ios' && mode === 'core_prompts'
+            ? 'padding'
+            : undefined
+        }
+        style={styles.keyboardRoot}
+      >
+      {mode === 'core_prompts' ? (
+        renderCorePromptPager()
+      ) : (
+        <Animated.View
+          testID="guided-reflection-transcript"
+          style={[
+            styles.transcriptTransition,
+            {
+              opacity: transcriptEntrance,
+              transform: [
+                {
+                  translateY: transcriptEntrance.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <ScrollView
+            ref={scrollRef}
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={[
+              styles.scrollContent,
+              { maxWidth: contentMaxWidth },
+            ]}
+            keyboardDismissMode={
+              Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+            }
+            keyboardShouldPersistTaps="never"
+            onContentSizeChange={() =>
+              scrollRef.current?.scrollToEnd({ animated: true })
+            }
+            showsVerticalScrollIndicator={false}
+          >
+            {corePrompts.map(renderAnsweredPrompt)}
+
+            {mode === 'ai_summary_loading'
+              ? renderAssistantShimmerCard({ marginTop: 28 })
+              : null}
+
+            {visibleAiSummary !== null
+              ? renderAssistantCard({
+                  text: visibleAiSummary,
+                  isStreaming: isAiSummaryStreaming,
+                  marginTop: 20,
+                })
+              : null}
+
+            {aiSummaryError ? (
               <View
-                key={item.id}
                 style={[
                   styles.errorCard,
                   {
@@ -2407,236 +2932,359 @@ export default function FirstGuidedReflectionScreen({
                   },
                 ]}
               >
-                <Text style={[styles.errorCardText, { color: theme.colors.foreground }]}>
-                  {item.text}
+                <Text
+                  style={[
+                    styles.errorCardText,
+                    { color: theme.colors.foreground },
+                  ]}
+                >
+                  {aiSummaryError}
                 </Text>
+                <HapticPressable
+                  accessibilityLabel="Try deeper reflection again"
+                  accessibilityRole="button"
+                  onPress={() =>
+                    loadFirstSummary(answers).catch(() => undefined)
+                  }
+                  style={({ pressed }) => [
+                    styles.inlineRetryButton,
+                    { borderColor: theme.colors.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
+                    Try again
+                  </Text>
+                </HapticPressable>
               </View>
-            );
-          }
+            ) : null}
 
-          if (item.role === "user") {
-            return (
-              <View
-                key={item.id}
+            {threadMessages.map(item => {
+              if (item.kind === 'local_error') {
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.errorCard,
+                      {
+                        backgroundColor: hexToRgba(
+                          theme.colors.destructive,
+                          0.08,
+                        ),
+                        borderColor: hexToRgba(theme.colors.destructive, 0.2),
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.errorCardText,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      {item.text}
+                    </Text>
+                  </View>
+                );
+              }
+
+              if (item.role === 'user') {
+                const isRevealingSuggestion =
+                  item.id === revealedSuggestionMessageId;
+
+                return (
+                  <Animated.View
+                    key={item.id}
+                    testID={
+                      isRevealingSuggestion
+                        ? 'guided-suggestion-request'
+                        : undefined
+                    }
+                    style={
+                      isRevealingSuggestion
+                        ? {
+                            opacity: suggestionRequestReveal,
+                            transform: [
+                              {
+                                translateY: suggestionRequestReveal.interpolate(
+                                  {
+                                    inputRange: [0, 1],
+                                    outputRange: [12, 0],
+                                  },
+                                ),
+                              },
+                            ],
+                          }
+                        : undefined
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.threadUserLine,
+                        {
+                          backgroundColor: hexToRgba(
+                            theme.colors.secondary,
+                            theme.mode === 'dark' ? 0.72 : 0.9,
+                          ),
+                          borderColor: hexToRgba(theme.colors.border, 0.76),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          item.promptQuestion
+                            ? styles.threadQuestionText
+                            : styles.threadUserText,
+                          {
+                            color: item.promptQuestion
+                              ? theme.colors.primary
+                              : theme.colors.mutedForeground,
+                          },
+                        ]}
+                      >
+                        {item.promptQuestion || 'YOUR RESPONSE'}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.threadUserRequestText,
+                          { color: theme.colors.foreground },
+                        ]}
+                      >
+                        {item.text}
+                      </Text>
+                    </View>
+                  </Animated.View>
+                );
+              }
+
+              return renderAssistantCard({
+                text: item.text,
+                isStreaming: item.isStreaming,
+                marginTop: 18,
+                cardKey: item.id,
+              });
+            })}
+
+            {isThreadLoading
+              ? renderAssistantShimmerCard({ marginTop: 18 })
+              : null}
+
+            {deeperError ? (
+              <Text
+                style={[styles.errorText, { color: theme.colors.destructive }]}
+              >
+                {deeperError}
+              </Text>
+            ) : null}
+
+            {canShowOptionalPrompt && !isSummaryFailed ? (
+              <Animated.View
                 style={[
-                  styles.threadUserLine,
-                  {
-                    backgroundColor: hexToRgba(theme.colors.secondary, theme.mode === "dark" ? 0.72 : 0.9),
-                    borderColor: hexToRgba(theme.colors.border, 0.76),
-                  },
+                  styles.activePromptWrap,
+                  currentFollowUpQuestion
+                    ? {
+                        opacity: followUpQuestionReveal,
+                        transform: [
+                          {
+                            translateY: followUpQuestionReveal.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [8, 0],
+                            }),
+                          },
+                        ],
+                      }
+                    : undefined,
                 ]}
               >
-                <Text style={[styles.threadUserText, { color: theme.colors.mutedForeground }]}>
-                  You asked:
+                <Text
+                  style={[
+                    currentFollowUpQuestion
+                      ? styles.followUpPrompt
+                      : styles.activePrompt,
+                    {
+                      color: theme.colors.primary,
+                      fontSize: currentFollowUpQuestion
+                        ? width < 380
+                          ? 19
+                          : 21
+                        : activePromptFontSize,
+                      lineHeight: currentFollowUpQuestion
+                        ? width < 380
+                          ? 25
+                          : 27
+                        : activePromptFontSize + 6,
+                    },
+                  ]}
+                >
+                  {activeQuestion}
                 </Text>
-                <Text style={[styles.threadUserRequestText, { color: theme.colors.foreground }]}>
-                  {item.text}
-                </Text>
-              </View>
-            );
-          }
+                <TextInput
+                  accessibilityLabel={`Write your answer to: ${activeQuestion}`}
+                  editable={!isAssistantStreaming}
+                  inputAccessoryViewID={
+                    FIRST_GUIDED_REFLECTION_KEYBOARD_ACCESSORY_ID
+                  }
+                  ref={inputRef}
+                  multiline
+                  onBlur={() => setIsOptionalInputFocused(false)}
+                  onFocus={() => {
+                    setIsOptionalInputFocused(true);
+                    setTimeout(
+                      () => scrollRef.current?.scrollToEnd({ animated: true }),
+                      80,
+                    );
+                  }}
+                  onChangeText={setCurrentInput}
+                  onEndEditing={() => setIsOptionalInputFocused(false)}
+                  placeholder="Write"
+                  placeholderTextColor={theme.colors.mutedForeground}
+                  returnKeyType="default"
+                  scrollEnabled
+                  style={[
+                    styles.optionalInlineInput,
+                    { color: theme.colors.foreground },
+                  ]}
+                  textAlignVertical="top"
+                  value={currentInput}
+                />
+              </Animated.View>
+            ) : null}
+          </ScrollView>
 
-          return renderAssistantCard({
-            text: item.text,
-            isStreaming: item.isStreaming,
-            marginTop: 18,
-            cardKey: item.id,
-          });
-        })}
-
-        {isThreadLoading ? renderAssistantShimmerCard({ marginTop: 18 }) : null}
-
-        {deeperError ? (
-          <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
-            {deeperError}
-          </Text>
-        ) : null}
-
-        {(mode === "core_prompts" || canShowOptionalPrompt) && !isSummaryFailed ? (
-        <View style={styles.activePromptWrap}>
-          <Text
-            style={[
-              styles.activePrompt,
-              {
-                color: theme.colors.primary,
-                fontSize: activePromptFontSize,
-                lineHeight: activePromptFontSize + 6,
-              },
-            ]}
-          >
-            {activePromptForInput.question}
-          </Text>
-          <Text style={[styles.activeHelper, { color: theme.colors.mutedForeground }]}>
-            {mode === "optional_deeper"
-              ? getToneAdjustedHelperText(optionalPrompt, draft)
-              : getToneAdjustedHelperText(currentPrompt, draft)}
-            {hasReachedDeeperLimit && mode === "optional_deeper"
-              ? " You can finish this entry now, or save what you've reflected on."
-              : ""}
-          </Text>
-        </View>
-        ) : null}
-      </ScrollView>
-
-      {(mode === "core_prompts" || canShowOptionalPrompt || isSummaryFailed) ? (
-        <Animated.View
-        pointerEvents={isCoreAnswerSending ? "none" : "auto"}
-        style={[
-          styles.composer,
-          {
-            backgroundColor: hexToRgba(theme.colors.card, theme.mode === "dark" ? 0.96 : 0.98),
-            borderColor: hexToRgba(theme.colors.border, 0.86),
-            shadowColor: theme.colors.primary,
-            opacity: composerExitValue.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 0],
-            }),
-            transform: [
-              {
-                translateY: composerExitValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 20],
-                }),
-              },
-              {
-                scale: composerExitValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, 0.985],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        {!isSummaryFailed ? (
-        <TextInput
-          accessibilityLabel={`Write your answer to: ${activePromptForInput.question}`}
-          editable={mode !== "deeper_loading" && !isAssistantStreaming && !isCoreAnswerSending}
-          inputAccessoryViewID={FIRST_GUIDED_REFLECTION_KEYBOARD_ACCESSORY_ID}
-          ref={inputRef}
-          multiline
-          onFocus={() => {
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
-          }}
-          onBlur={() => {
-            if (mode === "core_prompts" && currentInput.trim()) {
-              saveCurrentAnswer();
-            }
-          }}
-          onChangeText={setCurrentInput}
-          placeholder="Write"
-          placeholderTextColor={theme.colors.mutedForeground}
-          returnKeyType="default"
-          scrollEnabled
-          style={[
-            styles.composeInput,
-            {
-              backgroundColor: theme.colors.inputBackground,
-              borderColor: hexToRgba(theme.colors.border, 0.9),
-              color: theme.colors.foreground,
-            },
-          ]}
-          textAlignVertical="top"
-          value={currentInput}
-        />
-        ) : null}
-        {!isSummaryFailed ? (
-        <Text style={[styles.composerHint, { color: theme.colors.mutedForeground }]}>
-          Take your time. A few honest words are enough.
-        </Text>
-        ) : null}
-        <View style={styles.actionRow}>
-          <Pressable
-            accessibilityLabel={isSubmittingEntry ? "Finishing entry" : "Finish entry"}
-            accessibilityRole="button"
-            accessibilityState={{ busy: isSubmittingEntry }}
-            disabled={!canFinishEntry || isThreadLoading || isSubmittingEntry || isCoreAnswerSending}
-            onPress={handleFinishEntryPress}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              {
-                backgroundColor: canFinishEntry && mode !== "deeper_loading"
-                  ? theme.colors.secondary
-                  : theme.colors.muted,
-                borderColor: theme.colors.border,
-                opacity:
-                  canFinishEntry && !isThreadLoading && !isSubmittingEntry && !isCoreAnswerSending
-                    ? 1
-                    : 0.58,
-              },
-              pressed &&
-                canFinishEntry &&
-                !isThreadLoading &&
-                !isSubmittingEntry &&
-                !isCoreAnswerSending &&
-                styles.pressed,
-            ]}
-          >
-            <ButtonLoadingContent
-              loaderColor={theme.colors.foreground}
-              loading={isSubmittingEntry}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                Finish entry
-              </Text>
-            </ButtonLoadingContent>
-          </Pressable>
-          <Pressable
-            accessibilityLabel={
-              primaryButtonLabel === "Suggest"
-                ? "Open writing suggestions"
-                : primaryButtonLabel
-            }
-            accessibilityRole="button"
-            disabled={
-              !canUsePrimary ||
-              mode === "deeper_loading" ||
-              isThreadLoading ||
-              isSubmittingEntry ||
-              isCoreAnswerSending
-            }
-            onPress={handlePrimaryPress}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              {
-                backgroundColor:
-                  canUsePrimary && mode !== "deeper_loading" && !isThreadLoading && !isCoreAnswerSending
-                    ? theme.colors.primary
-                    : theme.colors.muted,
-                opacity:
-                  canUsePrimary &&
-                  mode !== "deeper_loading" &&
-                  !isThreadLoading &&
-                  !isCoreAnswerSending
-                    ? 1
-                    : 0.62,
-              },
-              pressed &&
-                canUsePrimary &&
-                mode !== "deeper_loading" &&
-                !isThreadLoading &&
-                !isSubmittingEntry &&
-                !isCoreAnswerSending &&
-                styles.pressed,
-            ]}
-          >
-            <Text
+          {canShowOptionalPrompt || isSummaryFailed ? (
+            <Animated.View
+              pointerEvents={isOptionalInputFocused ? 'none' : 'auto'}
+              testID="guided-reflection-actions"
               style={[
-                styles.primaryButtonText,
+                styles.reflectionActionReveal,
                 {
-                  color: canUsePrimary
-                    ? theme.colors.primaryForeground
-                    : theme.colors.mutedForeground,
+                  height: optionalActionsReveal.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, REFLECTION_ACTION_ROW_HEIGHT],
+                  }),
+                  opacity: optionalActionsReveal,
+                  transform: [
+                    {
+                      translateY: optionalActionsReveal.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
+                    },
+                  ],
                 },
               ]}
             >
-              {primaryButtonLabel}
-            </Text>
-          </Pressable>
-        </View>
-      </Animated.View>
-      ) : null}
-    </KeyboardAvoidingView>
+              <View style={styles.actionRow}>
+                <HapticPressable
+                  accessibilityLabel={
+                    isSubmittingEntry ? 'Finishing entry' : finishActionLabel
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ busy: isSubmittingEntry }}
+                  disabled={isThreadLoading || isSubmittingEntry}
+                  onPress={handleFinishEntryPress}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    {
+                      backgroundColor:
+                        mode !== 'deeper_loading'
+                          ? theme.colors.secondary
+                          : theme.colors.muted,
+                      borderColor: theme.colors.border,
+                      opacity:
+                        !isThreadLoading && !isSubmittingEntry ? 1 : 0.58,
+                    },
+                    pressed &&
+                      !isThreadLoading &&
+                      !isSubmittingEntry &&
+                      styles.pressed,
+                  ]}
+                >
+                  <ButtonLoadingContent
+                    loaderColor={theme.colors.foreground}
+                    loading={isSubmittingEntry}
+                    loader={
+                      <GuidedFinishLoader
+                        active={isSubmittingEntry}
+                        color={theme.colors.foreground}
+                      />
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.secondaryButtonText,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      {finishActionLabel}
+                    </Text>
+                  </ButtonLoadingContent>
+                </HapticPressable>
+                {isSummaryFailed ||
+                (canContinueDeeper && !hasReachedDeeperLimit) ? (
+                  <HapticPressable
+                    accessibilityLabel={
+                      primaryButtonLabel === 'Suggest'
+                        ? 'Open writing suggestions'
+                        : primaryButtonLabel
+                    }
+                    accessibilityRole="button"
+                    disabled={
+                      !canUsePrimary ||
+                      mode === 'deeper_loading' ||
+                      isThreadLoading ||
+                      isSubmittingEntry
+                    }
+                    onPress={handlePrimaryPress}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      {
+                        backgroundColor:
+                          canUsePrimary &&
+                          mode !== 'deeper_loading' &&
+                          !isThreadLoading
+                            ? theme.colors.primary
+                            : theme.colors.muted,
+                        opacity:
+                          canUsePrimary &&
+                          mode !== 'deeper_loading' &&
+                          !isThreadLoading
+                            ? 1
+                            : 0.62,
+                      },
+                      pressed &&
+                        canUsePrimary &&
+                        mode !== 'deeper_loading' &&
+                        !isThreadLoading &&
+                        !isSubmittingEntry &&
+                        styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        {
+                          color: canUsePrimary
+                            ? theme.colors.primaryForeground
+                            : theme.colors.mutedForeground,
+                        },
+                      ]}
+                    >
+                      {primaryButtonLabel}
+                    </Text>
+                  </HapticPressable>
+                ) : null}
+              </View>
+            </Animated.View>
+          ) : null}
+        </Animated.View>
+      )}
+      </KeyboardAvoidingView>
+    </>
   );
 
   const formatSignalPercent = (value: number) =>
@@ -2644,7 +3292,7 @@ export default function FirstGuidedReflectionScreen({
 
   const handleSessionCardTextComplete = (cardNumber: number) => {
     setCompletedSessionTextCards(current =>
-      current.includes(cardNumber) ? current : [...current, cardNumber]
+      current.includes(cardNumber) ? current : [...current, cardNumber],
     );
 
     if (cardNumber === SESSION_ANALYSIS_CARD_COUNT) {
@@ -2692,7 +3340,7 @@ export default function FirstGuidedReflectionScreen({
       },
     });
     setIsCenterBreakdownExpanded(current => !current);
-    triggerHaptic("secondaryAction").catch(() => undefined);
+    triggerHaptic('secondaryAction').catch(() => undefined);
   };
 
   const renderCenterEvidenceChips = (evidence: string[]) => {
@@ -2710,12 +3358,20 @@ export default function FirstGuidedReflectionScreen({
             style={[
               styles.centerEvidenceChip,
               {
-                backgroundColor: hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.18 : 0.1),
+                backgroundColor: hexToRgba(
+                  theme.colors.primary,
+                  theme.mode === 'dark' ? 0.18 : 0.1,
+                ),
                 borderColor: hexToRgba(theme.colors.primary, 0.18),
               },
             ]}
           >
-            <Text style={[styles.centerEvidenceText, { color: theme.colors.foreground }]}>
+            <Text
+              style={[
+                styles.centerEvidenceText,
+                { color: theme.colors.foreground },
+              ]}
+            >
               {item}
             </Text>
           </View>
@@ -2726,15 +3382,15 @@ export default function FirstGuidedReflectionScreen({
 
   const renderCenterBreakdownRow = (
     center: BrainCenterScore,
-    brainSessionMap: BrainSessionMap
+    brainSessionMap: BrainSessionMap,
   ) => {
     const isDominant = center.id === brainSessionMap.dominantCenterId;
     const isSecondary = brainSessionMap.secondaryCenterIds.includes(center.id);
     const barColor = isDominant
       ? theme.colors.primary
       : isSecondary
-        ? hexToRgba(theme.colors.primary, 0.58)
-        : hexToRgba(theme.colors.mutedForeground, 0.36);
+      ? hexToRgba(theme.colors.primary, 0.58)
+      : hexToRgba(theme.colors.mutedForeground, 0.36);
 
     return (
       <View
@@ -2743,10 +3399,16 @@ export default function FirstGuidedReflectionScreen({
           styles.centerBreakdownRow,
           {
             backgroundColor: isDominant
-              ? hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.18 : 0.09)
+              ? hexToRgba(
+                  theme.colors.primary,
+                  theme.mode === 'dark' ? 0.18 : 0.09,
+                )
               : isSecondary
-                ? hexToRgba(theme.colors.secondary, theme.mode === "dark" ? 0.72 : 0.86)
-                : "transparent",
+              ? hexToRgba(
+                  theme.colors.secondary,
+                  theme.mode === 'dark' ? 0.72 : 0.86,
+                )
+              : 'transparent',
             borderColor: isDominant
               ? hexToRgba(theme.colors.primary, 0.32)
               : hexToRgba(theme.colors.border, 0.7),
@@ -2777,7 +3439,11 @@ export default function FirstGuidedReflectionScreen({
           <Text
             style={[
               styles.centerBreakdownPercent,
-              { color: isDominant ? theme.colors.primary : theme.colors.mutedForeground },
+              {
+                color: isDominant
+                  ? theme.colors.primary
+                  : theme.colors.mutedForeground,
+              },
             ]}
           >
             {formatSignalPercent(center.score)}
@@ -2786,7 +3452,12 @@ export default function FirstGuidedReflectionScreen({
         <View
           style={[
             styles.centerBarTrack,
-            { backgroundColor: hexToRgba(theme.colors.border, theme.mode === "dark" ? 0.5 : 0.76) },
+            {
+              backgroundColor: hexToRgba(
+                theme.colors.border,
+                theme.mode === 'dark' ? 0.5 : 0.76,
+              ),
+            },
           ]}
         >
           <View
@@ -2809,26 +3480,42 @@ export default function FirstGuidedReflectionScreen({
     const dominantCenter = brainSessionMap.dominantCenter;
     const sessionAnalysisText =
       sessionAnalysis?.analysis ||
-      "Your entry is saved. As you keep writing, Journal.IO will help you notice patterns in your thoughts, mood, and habits.";
+      'Your entry is saved. As you keep writing, Journal.IO will help you notice patterns in your thoughts, mood, and habits.';
     const majorInsight =
       sessionAnalysis?.majorInsight ||
-      "Major insight: there is not enough clear detail yet to identify a reliable pattern.";
+      'Major insight: there is not enough clear detail yet to identify a reliable pattern.';
     const visibleCenters = isCenterBreakdownExpanded
       ? brainSessionMap.centers
       : brainSessionMap.centers.slice(0, visibleCenterBreakdownRows);
     const hasAdditionalCenters = brainSessionMap.centers.length > 3;
     const isFirstCardTextComplete = completedSessionTextCards.includes(1);
     const isSecondCardTextComplete = completedSessionTextCards.includes(2);
+    const detectedTopics = (
+      sessionAnalysis?.detectedTopics ||
+      sessionAnalysis?.topicsObserved ||
+      []
+    ).slice(0, 5);
+    // Only an explicit `false` is a low-signal session — a missing flag means
+    // the analysis predates the field, not that the entry was thin.
+    const hasEnoughSignal = sessionAnalysis?.hasEnoughSignal !== false;
 
     return (
       <ScrollView
         bounces={false}
-        contentContainerStyle={[styles.sessionContent, { maxWidth: contentMaxWidth }]}
+        contentContainerStyle={[
+          styles.sessionContent,
+          { maxWidth: contentMaxWidth },
+        ]}
         showsVerticalScrollIndicator={false}
         style={styles.sessionScroll}
       >
         {visibleSessionCardCount >= 1 ? (
-          <Text style={[styles.sessionAnalysisTitle, { color: theme.colors.foreground }]}>
+          <Text
+            style={[
+              styles.sessionAnalysisTitle,
+              { color: theme.colors.foreground },
+            ]}
+          >
             Session analysis
           </Text>
         ) : null}
@@ -2851,20 +3538,34 @@ export default function FirstGuidedReflectionScreen({
               },
             ]}
           >
-            <Text style={[styles.insightEyebrow, { color: theme.colors.primary }]}>
-              SESSION ANALYSIS
+            <Text
+              style={[styles.insightEyebrow, { color: theme.colors.primary }]}
+            >
+              {hasEnoughSignal ? 'SESSION ANALYSIS' : 'NOT ENOUGH DETAIL YET'}
             </Text>
-            <Text style={[styles.insightTitle, { color: theme.colors.foreground }]}>
-              A quick read on today
+            <Text
+              style={[styles.insightTitle, { color: theme.colors.foreground }]}
+            >
+              {hasEnoughSignal
+                ? 'A quick read on today'
+                : 'Not enough to read from yet'}
             </Text>
             <TypewriterText
               active={activeSessionTextCard === 1}
               onComplete={() => handleSessionCardTextComplete(1)}
-              style={[styles.insightBody, { color: theme.colors.mutedForeground }]}
+              style={[
+                styles.insightBody,
+                { color: theme.colors.mutedForeground },
+              ]}
               text={sessionAnalysisText}
             />
             {isFirstCardTextComplete ? (
-              <Text style={[styles.majorInsightText, { color: theme.colors.foreground }]}>
+              <Text
+                style={[
+                  styles.majorInsightText,
+                  { color: theme.colors.foreground },
+                ]}
+              >
                 {majorInsight}
               </Text>
             ) : null}
@@ -2892,13 +3593,28 @@ export default function FirstGuidedReflectionScreen({
           >
             <View style={styles.centerFeatureHeader}>
               <View style={styles.centerFeatureCopy}>
-                <Text style={[styles.insightEyebrow, { color: theme.colors.primary }]}>
+                <Text
+                  style={[
+                    styles.insightEyebrow,
+                    { color: theme.colors.primary },
+                  ]}
+                >
                   MOST NOTICED CENTER
                 </Text>
-                <Text style={[styles.insightTitle, { color: theme.colors.foreground }]}>
+                <Text
+                  style={[
+                    styles.insightTitle,
+                    { color: theme.colors.foreground },
+                  ]}
+                >
                   {dominantCenter.productName}
                 </Text>
-                <Text style={[styles.centerRegionText, { color: theme.colors.mutedForeground }]}>
+                <Text
+                  style={[
+                    styles.centerRegionText,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
                   {dominantCenter.brainRegion}
                 </Text>
               </View>
@@ -2906,12 +3622,20 @@ export default function FirstGuidedReflectionScreen({
                 style={[
                   styles.centerSignalPill,
                   {
-                    backgroundColor: hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.2 : 0.11),
+                    backgroundColor: hexToRgba(
+                      theme.colors.primary,
+                      theme.mode === 'dark' ? 0.2 : 0.11,
+                    ),
                     borderColor: hexToRgba(theme.colors.primary, 0.24),
                   },
                 ]}
               >
-                <Text style={[styles.centerSignalText, { color: theme.colors.primary }]}>
+                <Text
+                  style={[
+                    styles.centerSignalText,
+                    { color: theme.colors.primary },
+                  ]}
+                >
                   {formatSignalPercent(dominantCenter.score)} signal
                 </Text>
               </View>
@@ -2919,16 +3643,31 @@ export default function FirstGuidedReflectionScreen({
             <TypewriterText
               active={activeSessionTextCard === 2}
               onComplete={() => handleSessionCardTextComplete(2)}
-              style={[styles.insightBody, { color: theme.colors.mutedForeground }]}
-              text={dominantCenter.shortInsight || brainSessionMap.mostNoticedText}
+              style={[
+                styles.insightBody,
+                { color: theme.colors.mutedForeground },
+              ]}
+              text={
+                dominantCenter.shortInsight || brainSessionMap.mostNoticedText
+              }
             />
             {isSecondCardTextComplete ? (
               <>
                 <View style={styles.centerMetricRow}>
-                  <Text style={[styles.centerMetricText, { color: theme.colors.foreground }]}>
+                  <Text
+                    style={[
+                      styles.centerMetricText,
+                      { color: theme.colors.foreground },
+                    ]}
+                  >
                     {formatSignalPercent(dominantCenter.confidence)} confidence
                   </Text>
-                  <Text style={[styles.centerMetricText, { color: theme.colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.centerMetricText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
                     {dominantCenter.intensity} intensity
                   </Text>
                 </View>
@@ -2956,21 +3695,30 @@ export default function FirstGuidedReflectionScreen({
               },
             ]}
           >
-            <Text style={[styles.insightEyebrow, { color: theme.colors.primary }]}>
+            <Text
+              style={[styles.insightEyebrow, { color: theme.colors.primary }]}
+            >
               CENTER BREAKDOWN
             </Text>
-            <Text style={[styles.insightTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[styles.insightTitle, { color: theme.colors.foreground }]}
+            >
               Your reflection map
             </Text>
             <TypewriterText
               active={activeSessionTextCard === 3}
               onComplete={() => handleSessionCardTextComplete(3)}
-              style={[styles.centerBreakdownIntro, { color: theme.colors.mutedForeground }]}
+              style={[
+                styles.centerBreakdownIntro,
+                { color: theme.colors.mutedForeground },
+              ]}
               text="The strongest signals are shown first."
             />
             <View style={styles.centerBreakdownCollapsedWrap}>
               <View style={styles.centerBreakdownList}>
-                {visibleCenters.map(center => renderCenterBreakdownRow(center, brainSessionMap))}
+                {visibleCenters.map(center =>
+                  renderCenterBreakdownRow(center, brainSessionMap),
+                )}
               </View>
               {!isCenterBreakdownExpanded &&
               visibleCenterBreakdownRows >= 3 &&
@@ -2978,30 +3726,116 @@ export default function FirstGuidedReflectionScreen({
                 <View pointerEvents="none" style={styles.centerBreakdownFade}>
                   <Svg height="58" width="100%">
                     <Defs>
-                      <LinearGradient id="center-breakdown-fade" x1="0" x2="0" y1="0" y2="1">
-                        <Stop offset="0" stopColor={theme.colors.card} stopOpacity={0} />
-                        <Stop offset="1" stopColor={theme.colors.card} stopOpacity={0.98} />
+                      <LinearGradient
+                        id="center-breakdown-fade"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                      >
+                        <Stop
+                          offset="0"
+                          stopColor={theme.colors.card}
+                          stopOpacity={0}
+                        />
+                        <Stop
+                          offset="1"
+                          stopColor={theme.colors.card}
+                          stopOpacity={0.98}
+                        />
                       </LinearGradient>
                     </Defs>
-                    <Rect fill="url(#center-breakdown-fade)" height="58" width="100%" />
+                    <Rect
+                      fill="url(#center-breakdown-fade)"
+                      height="58"
+                      width="100%"
+                    />
                   </Svg>
                 </View>
               ) : null}
             </View>
             {visibleCenterBreakdownRows >= 3 && hasAdditionalCenters ? (
-              <Pressable
+              <HapticPressable
                 accessibilityLabel={
-                  isCenterBreakdownExpanded ? "Show less" : "Show more"
+                  isCenterBreakdownExpanded ? 'Show less' : 'Show more'
                 }
                 accessibilityRole="button"
                 onPress={toggleCenterBreakdown}
-                style={({ pressed }) => [styles.centerBreakdownTextButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.centerBreakdownTextButton,
+                  pressed && styles.pressed,
+                ]}
               >
-                <Text style={[styles.centerBreakdownToggleText, { color: theme.colors.primary }]}>
-                  {isCenterBreakdownExpanded ? "Show less" : "Show more"}
+                <Text
+                  style={[
+                    styles.centerBreakdownToggleText,
+                    { color: theme.colors.primary },
+                  ]}
+                >
+                  {isCenterBreakdownExpanded ? 'Show less' : 'Show more'}
                 </Text>
-              </Pressable>
+              </HapticPressable>
             ) : null}
+          </Animated.View>
+        ) : null}
+        {visibleSessionTailStage >= 1 ? (
+          <Animated.View
+            style={[
+              styles.analysisCard,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: hexToRgba(theme.colors.border, 0.84),
+                opacity: sessionTailRevealValues[0],
+                transform: [
+                  {
+                    translateY: sessionTailRevealValues[0].interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [12, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Text
+              style={[styles.insightEyebrow, { color: theme.colors.primary }]}
+            >
+              TOPICS DETECTED
+            </Text>
+            {detectedTopics.length === 0 ? (
+              <Text
+                style={[
+                  styles.topicEmptyText,
+                  { color: theme.colors.mutedForeground },
+                ]}
+              >
+                No clear topics stood out in this entry yet.
+              </Text>
+            ) : (
+              <View style={styles.tagRow}>
+                {detectedTopics.map(topic => (
+                  <View
+                    key={topic}
+                    style={[
+                      styles.topicChip,
+                      {
+                        backgroundColor: theme.colors.secondary,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.topicChipText,
+                        { color: theme.colors.foreground },
+                      ]}
+                    >
+                      {formatTopicLabel(topic)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </Animated.View>
         ) : null}
         {visibleSessionTailStage >= 1 ? (
@@ -3021,13 +3855,21 @@ export default function FirstGuidedReflectionScreen({
               },
             ]}
           >
-            <Text style={[styles.mindMapBuildTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[
+                styles.mindMapBuildTitle,
+                { color: theme.colors.foreground },
+              ]}
+            >
               Your Mind Map is slowly building.
             </Text>
             <TypewriterText
               active={visibleSessionTailStage === 1}
               onComplete={handleMindMapBuildTextComplete}
-              style={[styles.mindMapBuildSubtitle, { color: theme.colors.mutedForeground }]}
+              style={[
+                styles.mindMapBuildSubtitle,
+                { color: theme.colors.mutedForeground },
+              ]}
               text="Each reflection adds a new signal to your brain-inspired reflection map."
             />
           </Animated.View>
@@ -3046,8 +3888,10 @@ export default function FirstGuidedReflectionScreen({
               ],
             }}
           >
-            <Pressable
-              accessibilityLabel={isLoadingGoals ? "Preparing goals" : "Continue to goals"}
+            <HapticPressable
+              accessibilityLabel={
+                isLoadingGoals ? 'Preparing goals' : 'Continue to goals'
+              }
               accessibilityRole="button"
               accessibilityState={{ busy: isLoadingGoals }}
               disabled={isLoadingGoals}
@@ -3073,14 +3917,17 @@ export default function FirstGuidedReflectionScreen({
                   Continue
                 </Text>
               </ButtonLoadingContent>
-            </Pressable>
+            </HapticPressable>
           </Animated.View>
         ) : null}
       </ScrollView>
     );
   };
 
-  const renderGoalCard = (goal: FirstReflectionGoalSuggestion, index: number) => {
+  const renderGoalCard = (
+    goal: FirstReflectionGoalSuggestion,
+    index: number,
+  ) => {
     if (index >= visibleGoalCardCount) {
       return null;
     }
@@ -3089,137 +3936,181 @@ export default function FirstGuidedReflectionScreen({
     const selectionReveal = goalSelectionValues[index];
 
     return (
-    <Animated.View
-      key={goal.id}
-      style={{
-        opacity: cardReveal,
-        transform: [
-          {
-            translateY: cardReveal.interpolate({
-              inputRange: [0, 1],
-              outputRange: [12, 0],
-            }),
-          },
-        ],
-      }}
-    >
-      <View
-        style={[
-          styles.goalCard,
-          {
-            backgroundColor: goal.selected
-              ? hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.18 : 0.09)
-              : theme.colors.card,
-            borderColor: goal.selected
-              ? hexToRgba(theme.colors.primary, 0.34)
-              : hexToRgba(theme.colors.border, 0.86),
-          },
-        ]}
+      <Animated.View
+        key={goal.id}
+        style={{
+          opacity: cardReveal,
+          transform: [
+            {
+              translateY: cardReveal.interpolate({
+                inputRange: [0, 1],
+                outputRange: [12, 0],
+              }),
+            },
+          ],
+        }}
       >
-      <Pressable
-        accessibilityLabel={`${goal.selected ? "Remove" : "Add"} goal ${goal.title}`}
-        accessibilityRole="button"
-        onPress={() => toggleGoalSelection(goal.id)}
-        style={styles.goalMainPressable}
-      >
-        <View style={styles.goalHeaderRow}>
-          <View style={styles.goalTitleWrap}>
-            <Text
-              numberOfLines={2}
-              style={[styles.goalTitle, { color: theme.colors.foreground }]}
-            >
-              {goal.title}
-            </Text>
-            <View style={styles.goalMetaRow}>
-              <Text style={[styles.goalMetaText, { color: theme.colors.primary }]}>
-                {GOAL_FREQUENCY_LABELS[goal.frequency]}
-              </Text>
-              <Text style={[styles.goalMetaDot, { color: theme.colors.mutedForeground }]}>
-                /
-              </Text>
-              <Text style={[styles.goalMetaText, { color: theme.colors.mutedForeground }]}>
-                {GOAL_CATEGORY_LABELS[goal.category]}
-              </Text>
-            </View>
-          </View>
-          <Animated.View
-            style={[
-              styles.goalSelectPill,
-              {
-                backgroundColor: goal.selected ? theme.colors.primary : theme.colors.secondary,
-                borderColor: goal.selected ? theme.colors.primary : theme.colors.border,
-                transform: [
-                  {
-                    scale: selectionReveal.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.9, 1],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Animated.View style={{ opacity: selectionReveal }}>
-              <Check color={theme.colors.primaryForeground} size={14} strokeWidth={2.4} />
-            </Animated.View>
-          </Animated.View>
-        </View>
         <View
           style={[
-            styles.goalDivider,
+            styles.goalCard,
             {
-              backgroundColor: hexToRgba(theme.colors.border, 0.82),
+              backgroundColor: goal.selected
+                ? hexToRgba(
+                    theme.colors.primary,
+                    theme.mode === 'dark' ? 0.18 : 0.09,
+                  )
+                : theme.colors.card,
+              borderColor: goal.selected
+                ? hexToRgba(theme.colors.primary, 0.34)
+                : hexToRgba(theme.colors.border, 0.86),
             },
           ]}
-        />
-        <Text
-          numberOfLines={3}
-          style={[styles.goalDescription, { color: theme.colors.mutedForeground }]}
         >
-          {goal.description}
-        </Text>
-      </Pressable>
-      <View
-        style={[
-          styles.goalDivider,
-          styles.goalContentDivider,
-          {
-            backgroundColor: hexToRgba(theme.colors.border, 0.82),
-          },
-        ]}
-      />
-      <Pressable
-        accessibilityLabel={`Edit goal ${goal.title}`}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={() => openGoalEditor(goal)}
-        style={({ pressed }) => [styles.goalEditButton, pressed && styles.pressed]}
-      >
-        <Text style={[styles.goalEditText, { color: theme.colors.primary }]}>
-          Edit
-        </Text>
-      </Pressable>
-      </View>
-    </Animated.View>
+          <HapticPressable
+            accessibilityLabel={`${goal.selected ? 'Remove' : 'Add'} goal ${
+              goal.title
+            }`}
+            accessibilityRole="button"
+            onPress={() => toggleGoalSelection(goal.id)}
+            style={styles.goalMainPressable}
+          >
+            <View style={styles.goalHeaderRow}>
+              <View style={styles.goalTitleWrap}>
+                <Text
+                  numberOfLines={2}
+                  style={[styles.goalTitle, { color: theme.colors.foreground }]}
+                >
+                  {goal.title}
+                </Text>
+                <View style={styles.goalMetaRow}>
+                  <Text
+                    style={[
+                      styles.goalMetaText,
+                      { color: theme.colors.primary },
+                    ]}
+                  >
+                    {GOAL_FREQUENCY_LABELS[goal.frequency]}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.goalMetaDot,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    /
+                  </Text>
+                  <Text
+                    style={[
+                      styles.goalMetaText,
+                      { color: theme.colors.mutedForeground },
+                    ]}
+                  >
+                    {GOAL_CATEGORY_LABELS[goal.category]}
+                  </Text>
+                </View>
+              </View>
+              <Animated.View
+                style={[
+                  styles.goalSelectPill,
+                  {
+                    backgroundColor: goal.selected
+                      ? theme.colors.primary
+                      : theme.colors.secondary,
+                    borderColor: goal.selected
+                      ? theme.colors.primary
+                      : theme.colors.border,
+                    transform: [
+                      {
+                        scale: selectionReveal.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.9, 1],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Animated.View style={{ opacity: selectionReveal }}>
+                  <Check
+                    color={theme.colors.primaryForeground}
+                    size={14}
+                    strokeWidth={2.4}
+                  />
+                </Animated.View>
+              </Animated.View>
+            </View>
+            <View
+              style={[
+                styles.goalDivider,
+                {
+                  backgroundColor: hexToRgba(theme.colors.border, 0.82),
+                },
+              ]}
+            />
+            <Text
+              numberOfLines={3}
+              style={[
+                styles.goalDescription,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              {goal.description}
+            </Text>
+          </HapticPressable>
+          <View
+            style={[
+              styles.goalDivider,
+              styles.goalContentDivider,
+              {
+                backgroundColor: hexToRgba(theme.colors.border, 0.82),
+              },
+            ]}
+          />
+          <HapticPressable
+            accessibilityLabel={`Edit goal ${goal.title}`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => openGoalEditor(goal)}
+            style={({ pressed }) => [
+              styles.goalEditButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[styles.goalEditText, { color: theme.colors.primary }]}
+            >
+              Edit
+            </Text>
+          </HapticPressable>
+        </View>
+      </Animated.View>
     );
   };
 
   const renderGoalsMode = () => (
     <ScrollView
       bounces={false}
-      contentContainerStyle={[styles.goalsContent, { maxWidth: contentMaxWidth }]}
+      contentContainerStyle={[
+        styles.goalsContent,
+        { maxWidth: contentMaxWidth },
+      ]}
       showsVerticalScrollIndicator={false}
       style={styles.goalsScroll}
     >
       <View style={styles.valueScreen}>
-        <Text style={[styles.metadata, { color: theme.colors.mutedForeground }]}>
+        <Text
+          style={[styles.metadata, { color: theme.colors.mutedForeground }]}
+        >
           STARTER GOALS
         </Text>
         <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
           A few goals to start with
         </Text>
-        <Text style={[styles.screenBody, { color: theme.colors.mutedForeground }]}>
-          Based on your first reflection, Journal.IO suggested small goals you can edit or keep.
+        <Text
+          style={[styles.screenBody, { color: theme.colors.mutedForeground }]}
+        >
+          Based on your first reflection, Journal.IO suggested small goals you
+          can edit or keep.
         </Text>
         {goalsError ? (
           <Text style={[styles.errorText, { color: theme.colors.destructive }]}>
@@ -3239,29 +4130,46 @@ export default function FirstGuidedReflectionScreen({
             ],
           }}
         >
-          <Pressable
-            accessibilityLabel={selectedGoalCount ? "Add selected goals" : "Skip goals for now"}
+          <HapticPressable
+            accessibilityLabel={
+              selectedGoalCount ? 'Add selected goals' : 'Skip goals for now'
+            }
             accessibilityRole="button"
-            onPress={continueFromGoals}
+            accessibilityState={{ busy: isSavingGoals }}
+            disabled={isSavingGoals}
+            onPress={() => continueFromGoals().catch(() => undefined)}
             style={({ pressed }) => [
               styles.savedPrimaryButton,
-              { backgroundColor: selectedGoalCount ? theme.colors.primary : theme.colors.secondary },
-              pressed && styles.pressed,
+              {
+                backgroundColor: selectedGoalCount
+                  ? theme.colors.primary
+                  : theme.colors.secondary,
+              },
+              pressed && !isSavingGoals && styles.pressed,
             ]}
           >
-            <Text
-              style={[
-                styles.primaryButtonText,
-                {
-                  color: selectedGoalCount
-                    ? theme.colors.primaryForeground
-                    : theme.colors.foreground,
-                },
-              ]}
+            <ButtonLoadingContent
+              loaderColor={
+                selectedGoalCount
+                  ? theme.colors.primaryForeground
+                  : theme.colors.foreground
+              }
+              loading={isSavingGoals}
             >
-              {selectedGoalCount ? "Add selected goals" : "Skip for now"}
-            </Text>
-          </Pressable>
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  {
+                    color: selectedGoalCount
+                      ? theme.colors.primaryForeground
+                      : theme.colors.foreground,
+                  },
+                ]}
+              >
+                {selectedGoalCount ? 'Add selected goals' : 'Skip for now'}
+              </Text>
+            </ButtonLoadingContent>
+          </HapticPressable>
         </Animated.View>
       </View>
     </ScrollView>
@@ -3270,9 +4178,7 @@ export default function FirstGuidedReflectionScreen({
   const renderStreakStartedMode = () => (
     <View style={[styles.streakShell, { maxWidth: contentMaxWidth }]}>
       <View style={styles.streakContent}>
-        <View
-          style={styles.streakHero}
-        >
+        <View style={styles.streakHero}>
           <View style={styles.streakIconStage}>
             <View pointerEvents="none" style={styles.streakConfettiLayer}>
               {STREAK_CONFETTI.map((piece, index) => {
@@ -3310,7 +4216,7 @@ export default function FirstGuidedReflectionScreen({
                           {
                             rotate: confettiValue.interpolate({
                               inputRange: [0, 1],
-                              outputRange: ["0deg", piece.rotation],
+                              outputRange: ['0deg', piece.rotation],
                             }),
                           },
                         ],
@@ -3349,7 +4255,13 @@ export default function FirstGuidedReflectionScreen({
                       {
                         rotate: streakFlameTilt.interpolate({
                           inputRange: [0, 1, 2, 3, 4],
-                          outputRange: ["0deg", "-8deg", "7deg", "-5deg", "0deg"],
+                          outputRange: [
+                            '0deg',
+                            '-8deg',
+                            '7deg',
+                            '-5deg',
+                            '0deg',
+                          ],
                         }),
                       },
                     ],
@@ -3371,17 +4283,24 @@ export default function FirstGuidedReflectionScreen({
               ],
             }}
           >
-            <Text style={[styles.streakTitle, { color: theme.colors.foreground }]}>
+            <Text
+              style={[styles.streakTitle, { color: theme.colors.foreground }]}
+            >
               A steady start.
             </Text>
-            <Text style={[styles.streakCopy, { color: theme.colors.mutedForeground }]}>
+            <Text
+              style={[
+                styles.streakCopy,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
               One reflection is enough to begin.
             </Text>
           </Animated.View>
         </View>
       </View>
       <Animated.View
-        pointerEvents={isStreakCtaVisible ? "auto" : "none"}
+        pointerEvents={isStreakCtaVisible ? 'auto' : 'none'}
         style={{
           opacity: streakCtaReveal,
           transform: [
@@ -3400,8 +4319,8 @@ export default function FirstGuidedReflectionScreen({
           ],
         }}
       >
-        <Pressable
-          accessibilityLabel="I am excited"
+        <HapticPressable
+          accessibilityLabel="Let's go!"
           accessibilityRole="button"
           onPress={continueFromStreak}
           style={({ pressed }) => [
@@ -3411,194 +4330,18 @@ export default function FirstGuidedReflectionScreen({
             pressed && styles.pressed,
           ]}
         >
-          <Text style={[styles.primaryButtonText, { color: theme.colors.primaryForeground }]}>
-            I am excited
+          <Text
+            style={[
+              styles.primaryButtonText,
+              { color: theme.colors.primaryForeground },
+            ]}
+          >
+            Let's go!
           </Text>
-        </Pressable>
+        </HapticPressable>
       </Animated.View>
     </View>
   );
-
-  const renderMindMapGraphic = () => {
-    const map = mindMap || buildLocalMindMap({ sessionAnalysis, goals: goalSuggestions });
-    const size = Math.min(contentMaxWidth, 340);
-    const center = size / 2;
-    const radius = size * 0.34;
-    const nodePositions = map.nodes.map((node, index) => {
-      const angle = -Math.PI / 2 + (index / Math.max(map.nodes.length, 1)) * Math.PI * 2;
-      return {
-        ...node,
-        x: center + Math.cos(angle) * radius,
-        y: center + Math.sin(angle) * radius,
-      };
-    });
-
-    return (
-      <View style={[styles.mindMapCanvas, { height: size, width: size }]}>
-        <Svg height={size} width={size} style={StyleSheet.absoluteFill}>
-          {nodePositions.map(node => (
-            <Line
-              key={`${map.center.id}-${node.id}`}
-              stroke={hexToRgba(theme.colors.primary, 0.22)}
-              strokeLinecap="round"
-              strokeWidth={1.4 + node.weight}
-              x1={center}
-              x2={node.x}
-              y1={center}
-              y2={node.y}
-            />
-          ))}
-        </Svg>
-        <View
-          style={[
-            styles.mindMapCenterNode,
-            {
-              backgroundColor: theme.colors.primary,
-              left: center - 54,
-              top: center - 30,
-            },
-          ]}
-        >
-          <Text style={[styles.mindMapCenterText, { color: theme.colors.primaryForeground }]}>
-            {map.center.label}
-          </Text>
-        </View>
-        {nodePositions.map(node => {
-          const nodeSize = 78 * node.weight;
-
-          return (
-            <View
-              key={node.id}
-              style={[
-                styles.mindMapNode,
-                {
-                  backgroundColor: theme.mode === "dark"
-                    ? hexToRgba(theme.colors.secondary, 0.84)
-                    : hexToRgba(theme.colors.card, 0.94),
-                  borderColor: hexToRgba(theme.colors.primary, 0.22),
-                  height: nodeSize,
-                  left: node.x - nodeSize / 2,
-                  top: node.y - nodeSize / 2,
-                  width: nodeSize,
-                },
-              ]}
-            >
-              <Text
-                numberOfLines={2}
-                style={[styles.mindMapNodeText, { color: theme.colors.foreground }]}
-              >
-                {node.label}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-    );
-  };
-
-  const renderMindMapMode = () => (
-    <View style={[styles.valueScreen, { maxWidth: contentMaxWidth }]}>
-      <Text style={[styles.metadata, { color: theme.colors.mutedForeground }]}>
-        MIND MAP PREVIEW
-      </Text>
-      <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
-        Your first Mind Map
-      </Text>
-      <Text style={[styles.screenBody, { color: theme.colors.mutedForeground }]}>
-        Journal.IO turns reflections, goals, and patterns into signals over time.
-      </Text>
-      <Text style={[styles.valueHelper, { color: theme.colors.mutedForeground }]}>
-        This starts simple. It becomes clearer as you write more.
-      </Text>
-      {renderMindMapGraphic()}
-      <Pressable
-        accessibilityLabel="Learn how the Mind Map works"
-        accessibilityRole="button"
-        onPress={continueFromMindMap}
-        style={({ pressed }) => [
-          styles.savedPrimaryButton,
-          { backgroundColor: theme.colors.primary },
-          pressed && styles.pressed,
-        ]}
-      >
-        <Text style={[styles.primaryButtonText, { color: theme.colors.primaryForeground }]}>
-          How it works
-        </Text>
-      </Pressable>
-    </View>
-  );
-
-  const renderMindMapExplanationMode = () => {
-    const cards = [
-      {
-        title: "Entries become signals",
-        body: "Each journal entry adds a small signal to your reflection map.",
-      },
-      {
-        title: "Patterns become clearer",
-        body: "Related themes, goals, and moods become easier to notice when they repeat.",
-      },
-      {
-        title: "You stay in control",
-        body: "Your map is for reflection, not diagnosis. You can edit or delete entries anytime.",
-      },
-    ];
-
-    return (
-      <View style={[styles.valueScreen, { maxWidth: contentMaxWidth }]}>
-        <View
-          style={[
-            styles.explanationIcon,
-            { backgroundColor: hexToRgba(theme.colors.primary, 0.12) },
-          ]}
-        >
-          <Sparkles color={theme.colors.primary} size={28} strokeWidth={1.8} />
-        </View>
-        <Text style={[styles.screenTitle, { color: theme.colors.foreground }]}>
-          How your Mind Map works
-        </Text>
-        <Text style={[styles.screenBody, { color: theme.colors.mutedForeground }]}>
-          Each reflection can become part of your private map. Journal.IO organizes themes,
-          goals, moods, and repeated patterns so you can see what keeps coming back over time.
-        </Text>
-        <View style={styles.explanationCardList}>
-          {cards.map(card => (
-            <View
-              key={card.title}
-              style={[
-                styles.explanationCard,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: hexToRgba(theme.colors.border, 0.84),
-                },
-              ]}
-            >
-              <Text style={[styles.explanationCardTitle, { color: theme.colors.foreground }]}>
-                {card.title}
-              </Text>
-              <Text style={[styles.explanationCardBody, { color: theme.colors.mutedForeground }]}>
-                {card.body}
-              </Text>
-            </View>
-          ))}
-        </View>
-        <Pressable
-          accessibilityLabel="Enter Journal.IO"
-          accessibilityRole="button"
-          onPress={continueFromMindMapExplanation}
-          style={({ pressed }) => [
-            styles.savedPrimaryButton,
-            { backgroundColor: theme.colors.primary },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={[styles.primaryButtonText, { color: theme.colors.primaryForeground }]}>
-            Enter Journal.IO
-          </Text>
-        </Pressable>
-      </View>
-    );
-  };
 
   const completionButtonAnimatedStyle = {
     opacity: completionButtonReveal,
@@ -3622,7 +4365,7 @@ export default function FirstGuidedReflectionScreen({
     <View style={styles.completionFeatureList}>
       {READY_FEATURE_CARDS.map((feature, index) => {
         const revealValue = completionFeatureRevealValues[index];
-        const isDark = theme.mode === "dark";
+        const isDark = theme.mode === 'dark';
 
         return (
           <Animated.View
@@ -3633,7 +4376,10 @@ export default function FirstGuidedReflectionScreen({
                 backgroundColor: isDark
                   ? hexToRgba(theme.colors.secondary, 0.78)
                   : hexToRgba(theme.colors.card, 0.86),
-                borderColor: hexToRgba(theme.colors.primary, isDark ? 0.24 : 0.16),
+                borderColor: hexToRgba(
+                  theme.colors.primary,
+                  isDark ? 0.24 : 0.16,
+                ),
                 opacity: revealValue,
                 transform: [
                   {
@@ -3655,7 +4401,12 @@ export default function FirstGuidedReflectionScreen({
             <View
               style={[
                 styles.completionFeatureIconWrap,
-                { backgroundColor: hexToRgba(theme.colors.primary, isDark ? 0.18 : 0.1) },
+                {
+                  backgroundColor: hexToRgba(
+                    theme.colors.primary,
+                    isDark ? 0.18 : 0.1,
+                  ),
+                },
               ]}
             >
               <Image
@@ -3665,7 +4416,12 @@ export default function FirstGuidedReflectionScreen({
                 style={styles.completionFeatureIcon}
               />
             </View>
-            <Text style={[styles.completionFeatureText, { color: theme.colors.foreground }]}>
+            <Text
+              style={[
+                styles.completionFeatureText,
+                { color: theme.colors.foreground },
+              ]}
+            >
               {feature.text}
             </Text>
           </Animated.View>
@@ -3690,7 +4446,7 @@ export default function FirstGuidedReflectionScreen({
                   {
                     rotate: completionIconShake.interpolate({
                       inputRange: [0, 1, 2, 3],
-                      outputRange: ["0deg", "-8deg", "8deg", "0deg"],
+                      outputRange: ['0deg', '-8deg', '8deg', '0deg'],
                     }),
                   },
                   {
@@ -3710,7 +4466,12 @@ export default function FirstGuidedReflectionScreen({
           >
             Your first entry is complete!
           </Text>
-          <Text style={[styles.completionBody, { color: theme.colors.mutedForeground }]}>
+          <Text
+            style={[
+              styles.completionBody,
+              { color: theme.colors.mutedForeground },
+            ]}
+          >
             Journal.IO is ready to grow with your reflections.
           </Text>
         </View>
@@ -3718,7 +4479,7 @@ export default function FirstGuidedReflectionScreen({
       </View>
       <View style={styles.completionFooter}>
         <Animated.View
-          pointerEvents={isCompletionCtaEnabled ? "auto" : "none"}
+          pointerEvents={isCompletionCtaEnabled ? 'auto' : 'none'}
           style={[styles.completionButtonWrap, completionButtonAnimatedStyle]}
         >
           <Animated.View
@@ -3748,7 +4509,7 @@ export default function FirstGuidedReflectionScreen({
               },
             ]}
           />
-          <Pressable
+          <HapticPressable
             accessibilityLabel="Continue to Home"
             accessibilityRole="button"
             disabled={!isCompletionCtaEnabled}
@@ -3767,7 +4528,7 @@ export default function FirstGuidedReflectionScreen({
             >
               Continue
             </Text>
-          </Pressable>
+          </HapticPressable>
         </Animated.View>
       </View>
       {saveError ? (
@@ -3781,14 +4542,17 @@ export default function FirstGuidedReflectionScreen({
   return (
     <SafeAreaView
       style={[styles.root, { backgroundColor: theme.colors.background }]}
-      edges={["top", "bottom"]}
+      edges={['top', 'bottom']}
     >
       <View
         pointerEvents="none"
         style={[
           styles.backgroundOrb,
           {
-            backgroundColor: hexToRgba(theme.colors.primary, theme.mode === "dark" ? 0.2 : 0.16),
+            backgroundColor: hexToRgba(
+              theme.colors.primary,
+              theme.mode === 'dark' ? 0.2 : 0.16,
+            ),
           },
         ]}
       />
@@ -3797,26 +4561,25 @@ export default function FirstGuidedReflectionScreen({
         style={[
           styles.backgroundOrbSecondary,
           {
-            backgroundColor: hexToRgba(theme.colors.accent, theme.mode === "dark" ? 0.22 : 0.72),
+            backgroundColor: hexToRgba(
+              theme.colors.accent,
+              theme.mode === 'dark' ? 0.22 : 0.72,
+            ),
           },
         ]}
       />
-      {mode === "core_prompts" ||
-      mode === "ai_summary_loading" ||
-      mode === "optional_deeper" ||
-      mode === "deeper_loading"
+      {mode === 'core_prompts' ||
+      mode === 'ai_summary_loading' ||
+      mode === 'optional_deeper' ||
+      mode === 'deeper_loading'
         ? renderWritingMode()
-        : mode === "session_analysis"
-          ? renderSessionAnalysisMode()
-          : mode === "goals"
-            ? renderGoalsMode()
-            : mode === "streak_started"
-              ? renderStreakStartedMode()
-              : mode === "mind_map"
-                ? renderMindMapMode()
-                : mode === "mind_map_explanation"
-                  ? renderMindMapExplanationMode()
-                  : renderSavedMode()}
+        : mode === 'session_analysis'
+        ? renderSessionAnalysisMode()
+        : mode === 'goals'
+        ? renderGoalsMode()
+        : mode === 'streak_started'
+        ? renderStreakStartedMode()
+        : renderSavedMode()}
 
       <KeyboardDismissAccessory
         nativeID={FIRST_GUIDED_REFLECTION_KEYBOARD_ACCESSORY_ID}
@@ -3826,36 +4589,62 @@ export default function FirstGuidedReflectionScreen({
       />
 
       <Modal
-        animationType="fade"
-        onRequestClose={() => setIsSuggestionSheetVisible(false)}
+        animationType="none"
+        onRequestClose={() => dismissSuggestionSheet()}
         transparent
-        visible={isSuggestionSheetVisible}
+        visible={isSuggestionSheetMounted}
       >
         <View style={styles.modalRoot}>
-          <Pressable
-            accessibilityLabel="Dismiss suggestions"
-            style={styles.modalScrim}
-            onPress={() => setIsSuggestionSheetVisible(false)}
-          />
-          <View
+          <Animated.View
+            style={[
+              styles.modalScrim,
+              { opacity: suggestionSheetScrimOpacity },
+            ]}
+          >
+            <HapticPressable
+              accessibilityLabel="Dismiss suggestions"
+              style={StyleSheet.absoluteFill}
+              onPress={() => dismissSuggestionSheet()}
+            />
+          </Animated.View>
+          <Animated.View
             style={[
               styles.bottomSheet,
               {
                 backgroundColor: theme.colors.card,
                 borderColor: theme.colors.border,
+                transform: [
+                  {
+                    translateY: suggestionSheetSlide.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [340, 0],
+                    }),
+                  },
+                ],
               },
             ]}
           >
-            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
-            <Text style={[styles.sheetTitle, { color: theme.colors.foreground }]}>
+            <View
+              style={[styles.grabber, { backgroundColor: theme.colors.border }]}
+            />
+            <Text
+              style={[styles.sheetTitle, { color: theme.colors.foreground }]}
+            >
               What would help right now?
             </Text>
-            <Text style={[styles.sheetBody, { color: theme.colors.mutedForeground }]}>
+            <Text
+              style={[
+                styles.sheetBody,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
               Choose what you want Journal.IO to respond to.
             </Text>
             {SUGGESTION_OPTIONS.map(option => (
-              <Pressable
+              <HapticPressable
+                accessibilityLabel={option.label}
                 accessibilityRole="button"
+                disabled={isSuggestionSelectionPending}
                 key={option.actionType}
                 onPress={() => handleSelectSuggestion(option)}
                 style={({ pressed }) => [
@@ -3863,324 +4652,133 @@ export default function FirstGuidedReflectionScreen({
                   {
                     backgroundColor: theme.colors.secondary,
                     borderColor: theme.colors.border,
+                    opacity: isSuggestionSelectionPending ? 0.58 : 1,
                   },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={[styles.sheetOptionText, { color: theme.colors.foreground }]}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="none"
-        onRequestClose={() => setIsFinishConfirmVisible(false)}
-        transparent
-        visible={isFinishConfirmMounted}
-      >
-        <View style={styles.modalRoot}>
-          <Animated.View style={[styles.modalScrim, { opacity: finishSheetScrimOpacity }]}>
-            <Pressable
-              accessibilityLabel="Dismiss finish confirmation"
-              style={StyleSheet.absoluteFill}
-              onPress={() => setIsFinishConfirmVisible(false)}
-            />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.bottomSheet,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-                transform: [
-                  {
-                    translateY: finishSheetSlide.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [340, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
-            <Text style={[styles.sheetTitle, { color: theme.colors.foreground }]}>
-              Finish this reflection?
-            </Text>
-            <Text style={[styles.sheetBody, { color: theme.colors.mutedForeground }]}>
-              You can save what you have now, or answer a few more prompts to make
-              your first entry more complete.
-            </Text>
-            <Pressable
-              accessibilityLabel="Keep writing"
-              accessibilityRole="button"
-              onPress={() => {
-                setIsFinishConfirmVisible(false);
-                triggerHaptic("secondaryAction").catch(() => undefined);
-              }}
-              style={({ pressed }) => [
-                styles.sheetPrimaryButton,
-                { backgroundColor: theme.colors.primary },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.primaryButtonText,
-                  { color: theme.colors.primaryForeground },
-                ]}
-              >
-                Keep writing
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Finish session"
-              accessibilityRole="button"
-              onPress={handleConfirmFinish}
-              style={({ pressed }) => [
-                styles.sheetSecondaryButton,
-                {
-                  backgroundColor: theme.colors.secondary,
-                  borderColor: theme.colors.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                Finish session
-              </Text>
-            </Pressable>
-          </Animated.View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="none"
-        onRequestClose={closeGoalEditor}
-        transparent
-        visible={isGoalEditorMounted}
-      >
-        <View style={styles.modalRoot}>
-          <Animated.View style={[styles.modalScrim, { opacity: goalEditorScrimOpacity }]}>
-            <Pressable
-              accessibilityLabel="Cancel editing goal"
-              style={StyleSheet.absoluteFill}
-              onPress={closeGoalEditor}
-            />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.bottomSheet,
-              {
-                backgroundColor: theme.colors.card,
-                borderColor: theme.colors.border,
-                transform: [
-                  {
-                    translateY: goalEditorSheetSlide.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [340, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
-            <Text style={[styles.sheetTitle, { color: theme.colors.foreground }]}>
-              Edit goal
-            </Text>
-            <TextInput
-              accessibilityLabel="Edit goal title"
-              onChangeText={value =>
-                setEditingGoalDraft(current =>
-                  current ? { ...current, title: value } : current
-                )
-              }
-              placeholder="Goal title"
-              placeholderTextColor={theme.colors.mutedForeground}
-              style={[
-                styles.goalEditInput,
-                {
-                  backgroundColor: theme.colors.inputBackground,
-                  borderColor: theme.colors.border,
-                  color: theme.colors.foreground,
-                },
-              ]}
-              value={editingGoalDraft?.title || ""}
-            />
-            <TextInput
-              accessibilityLabel="Edit goal description"
-              multiline
-              onChangeText={value =>
-                setEditingGoalDraft(current =>
-                  current ? { ...current, description: value } : current
-                )
-              }
-              placeholder="Goal description"
-              placeholderTextColor={theme.colors.mutedForeground}
-              style={[
-                styles.goalEditDescriptionInput,
-                {
-                  backgroundColor: theme.colors.inputBackground,
-                  borderColor: theme.colors.border,
-                  color: theme.colors.foreground,
-                },
-              ]}
-              textAlignVertical="top"
-              value={editingGoalDraft?.description || ""}
-            />
-            <Animated.View
-              style={{
-                opacity: goalEditorActionsReveal,
-                transform: [
-                  {
-                    translateY: goalEditorActionsReveal.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [10, 0],
-                    }),
-                  },
-                ],
-              }}
-            >
-              <View style={styles.frequencyRow}>
-                {GOAL_FREQUENCIES.map((frequency, index) => {
-                  const selected = editingGoalDraft?.frequency === frequency;
-
-                  return (
-                    <Animated.View
-                      key={frequency}
-                      style={{
-                        transform: [
-                          {
-                            scale: goalFrequencySelectionValues[index].interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [1, 1.045],
-                            }),
-                          },
-                          {
-                            translateY: goalFrequencySelectionValues[index].interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, -1],
-                            }),
-                          },
-                        ],
-                      }}
-                    >
-                      <Pressable
-                        accessibilityLabel={`Set frequency ${GOAL_FREQUENCY_LABELS[frequency]}`}
-                        accessibilityRole="button"
-                        onPress={() =>
-                          setEditingGoalDraft(current =>
-                            current ? { ...current, frequency } : current
-                          )
-                        }
-                        style={({ pressed }) => [
-                          styles.frequencyChip,
-                          {
-                            backgroundColor: selected
-                              ? theme.colors.primary
-                              : theme.colors.secondary,
-                            borderColor: selected
-                              ? theme.colors.primary
-                              : theme.colors.border,
-                          },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.frequencyChipText,
-                            {
-                              color: selected
-                                ? theme.colors.primaryForeground
-                                : theme.colors.foreground,
-                            },
-                          ]}
-                        >
-                          {GOAL_FREQUENCY_LABELS[frequency]}
-                        </Text>
-                      </Pressable>
-                    </Animated.View>
-                  );
-                })}
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                onPress={saveEditedGoal}
-                style={({ pressed }) => [
-                  styles.sheetPrimaryButton,
-                  { backgroundColor: theme.colors.primary },
-                  pressed && styles.pressed,
+                  pressed && !isSuggestionSelectionPending && styles.pressed,
                 ]}
               >
                 <Text
                   style={[
-                    styles.primaryButtonText,
-                    { color: theme.colors.primaryForeground },
+                    styles.sheetOptionText,
+                    { color: theme.colors.foreground },
                   ]}
                 >
-                  Save changes
+                  {option.label}
                 </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={closeGoalEditor}
-                style={({ pressed }) => [
-                  styles.sheetSecondaryButton,
-                  {
-                    backgroundColor: theme.colors.secondary,
-                    borderColor: theme.colors.border,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                  Cancel
-                </Text>
-              </Pressable>
-            </Animated.View>
+              </HapticPressable>
+            ))}
           </Animated.View>
         </View>
       </Modal>
 
+      <ConfirmActionSheet
+        body="You can save what you have now, or answer a few more prompts to make your first entry more complete."
+        dismissAccessibilityLabel="Dismiss finish confirmation"
+        onDismiss={() => setIsFinishConfirmVisible(false)}
+        onPrimary={() => {
+          setIsFinishConfirmVisible(false);
+          triggerHaptic('secondaryAction').catch(() => undefined);
+        }}
+        onSecondary={handleConfirmFinish}
+        primaryLabel="Keep writing"
+        secondaryLabel="Finish session"
+        title="Finish this reflection?"
+        visible={isFinishConfirmVisible}
+      />
+
+      <GoalSheet
+        goal={editingGoalAsSavedGoal}
+        isSubmitting={false}
+        mode="edit"
+        onClose={closeGoalEditor}
+        onSubmit={applyEditedGoal}
+        unavailableIcons={unavailableGoalIcons}
+        visible={isGoalEditorVisible && Boolean(editingGoalAsSavedGoal)}
+      />
+
       <Modal
-        animationType="fade"
+        animationType="none"
         onRequestClose={() => setIsLeaveConfirmVisible(false)}
         transparent
-        visible={isLeaveConfirmVisible}
+        visible={isLeaveConfirmMounted}
       >
         <View style={styles.modalRoot}>
-          <Pressable
-            accessibilityLabel="Keep writing"
-            style={styles.modalScrim}
-            onPress={() => setIsLeaveConfirmVisible(false)}
-          />
-          <View
+          <Animated.View
+            style={[styles.modalScrim, { opacity: leaveSheetScrimOpacity }]}
+          >
+            <HapticPressable
+              accessibilityLabel="Dismiss exit confirmation"
+              style={StyleSheet.absoluteFill}
+              onPress={() => setIsLeaveConfirmVisible(false)}
+            />
+          </Animated.View>
+          <Animated.View
             style={[
               styles.bottomSheet,
               {
                 backgroundColor: theme.colors.card,
                 borderColor: theme.colors.border,
+                transform: [
+                  {
+                    translateY: leaveSheetSlide.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [340, 0],
+                    }),
+                  },
+                ],
               },
             ]}
           >
-            <View style={[styles.grabber, { backgroundColor: theme.colors.border }]} />
-            <Text style={[styles.sheetTitle, { color: theme.colors.foreground }]}>
-              Leave this reflection?
+            <View
+              style={[styles.grabber, { backgroundColor: theme.colors.border }]}
+            />
+            <Text
+              style={[styles.sheetTitle, { color: theme.colors.foreground }]}
+            >
+              Are you sure?
             </Text>
-            <Text style={[styles.sheetBody, { color: theme.colors.mutedForeground }]}>
-              Your progress may be lost if you leave before saving.
+            <Text
+              style={[
+                styles.sheetBody,
+                { color: theme.colors.mutedForeground },
+              ]}
+            >
+              Every entry matters. Staying with this moment can bring you one
+              step closer to understanding yourself, but you can always return
+              when it feels right.
             </Text>
-            <Pressable
+            <HapticPressable
+              accessibilityLabel="Exit guided reflection"
+              accessibilityRole="button"
+              onPress={() => {
+                leaveAfterSheetCloseRef.current = true;
+                setIsLeaveConfirmVisible(false);
+                triggerHaptic('secondaryAction').catch(() => undefined);
+              }}
+              style={({ pressed }) => [
+                styles.sheetSecondaryButton,
+                {
+                  backgroundColor: theme.colors.secondary,
+                  borderColor: theme.colors.border,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.secondaryButtonText,
+                  { color: theme.colors.foreground },
+                ]}
+              >
+                Exit
+              </Text>
+            </HapticPressable>
+            <HapticPressable
+              accessibilityLabel="Cancel exit"
               accessibilityRole="button"
               onPress={() => {
                 setIsLeaveConfirmVisible(false);
-                triggerHaptic("primaryAction").catch(() => undefined);
-                onBackToReady();
+                triggerHaptic('primaryAction').catch(() => undefined);
               }}
               style={({ pressed }) => [
                 styles.sheetPrimaryButton,
@@ -4194,26 +4792,10 @@ export default function FirstGuidedReflectionScreen({
                   { color: theme.colors.primaryForeground },
                 ]}
               >
-                Leave reflection
+                Cancel
               </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setIsLeaveConfirmVisible(false)}
-              style={({ pressed }) => [
-                styles.sheetSecondaryButton,
-                {
-                  backgroundColor: theme.colors.secondary,
-                  borderColor: theme.colors.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.foreground }]}>
-                Keep writing
-              </Text>
-            </Pressable>
-          </View>
+            </HapticPressable>
+          </Animated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -4222,24 +4804,24 @@ export default function FirstGuidedReflectionScreen({
 
 const styles = StyleSheet.create({
   actionRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 8,
-    marginTop: 12,
-  },
-  activeHelper: {
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingTop: 14,
   },
   activePrompt: {
     fontSize: 30,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.65,
     lineHeight: 36,
   },
   activePromptWrap: {
     marginTop: 18,
     paddingBottom: 18,
+  },
+  followUpPrompt: {
+    fontWeight: '600',
+    letterSpacing: -0.3,
   },
   answerText: {
     fontSize: 18,
@@ -4251,30 +4833,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 18,
     padding: 18,
-    width: "100%",
+    width: '100%',
   },
   centerBarFill: {
     borderRadius: 999,
-    height: "100%",
+    height: '100%',
   },
   centerBarTrack: {
     borderRadius: 999,
     height: 6,
     marginTop: 9,
-    overflow: "hidden",
-    width: "100%",
+    overflow: 'hidden',
+    width: '100%',
   },
   assistantIcon: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 13,
     height: 28,
-    justifyContent: "center",
+    justifyContent: 'center',
     width: 28,
   },
   backgroundOrb: {
     borderRadius: 160,
     height: 320,
-    position: "absolute",
+    position: 'absolute',
     right: -120,
     top: -130,
     width: 320,
@@ -4284,7 +4866,7 @@ const styles = StyleSheet.create({
     bottom: 90,
     height: 280,
     left: -140,
-    position: "absolute",
+    position: 'absolute',
     width: 280,
   },
   bodyInput: {
@@ -4300,7 +4882,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
-    marginTop: "auto",
+    marginTop: 'auto',
     paddingBottom: 28,
     paddingHorizontal: 20,
     paddingTop: 10,
@@ -4310,22 +4892,22 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginTop: 12,
     maxWidth: 340,
-    textAlign: "center",
+    textAlign: 'center',
   },
   centerBreakdownHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
+    alignItems: 'flex-start',
+    flexDirection: 'row',
     gap: 10,
-    justifyContent: "space-between",
+    justifyContent: 'space-between',
   },
   centerBreakdownCollapsedWrap: {
-    position: "relative",
+    position: 'relative',
   },
   centerBreakdownFade: {
     bottom: 0,
     height: 58,
     left: 0,
-    position: "absolute",
+    position: 'absolute',
     right: 0,
   },
   centerBreakdownIntro: {
@@ -4339,18 +4921,18 @@ const styles = StyleSheet.create({
   },
   centerBreakdownName: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: '600',
     letterSpacing: -0.1,
     lineHeight: 17,
   },
   centerBreakdownPercent: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: '600',
     lineHeight: 17,
   },
   centerBreakdownRegion: {
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 15,
     marginTop: 2,
   },
@@ -4364,16 +4946,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   centerBreakdownTextButton: {
-    alignSelf: "center",
+    alignSelf: 'center',
     marginTop: 14,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
   centerBreakdownToggleText: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: '600',
     lineHeight: 18,
-    textAlign: "center",
+    textAlign: 'center',
   },
   centerEvidenceChip: {
     borderRadius: 999,
@@ -4382,14 +4964,14 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   centerEvidenceRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 7,
     marginTop: 14,
   },
   centerEvidenceText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: -0.05,
   },
   centerFeatureCard: {
@@ -4400,39 +4982,39 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   centerFeatureHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
+    alignItems: 'flex-start',
+    flexDirection: 'row',
     gap: 10,
-    justifyContent: "space-between",
+    justifyContent: 'space-between',
   },
   centerIcon: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 28,
     height: 56,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginBottom: 18,
     width: 56,
   },
   centerShimmerWrap: {
     maxWidth: 360,
-    width: "100%",
+    width: '100%',
   },
   centerMetricRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 13,
   },
   centerMetricText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: '600',
     lineHeight: 16,
-    textTransform: "capitalize",
+    textTransform: 'capitalize',
   },
   centerRegionText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: '600',
     lineHeight: 17,
     marginTop: 4,
   },
@@ -4444,83 +5026,138 @@ const styles = StyleSheet.create({
   },
   centerSignalText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: '600',
     letterSpacing: -0.05,
   },
   centerState: {
-    alignItems: "center",
-    alignSelf: "center",
+    alignItems: 'center',
+    alignSelf: 'center',
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     paddingHorizontal: 24,
   },
   centerTitle: {
     fontSize: 30,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.7,
     lineHeight: 36,
-    textAlign: "center",
+    textAlign: 'center',
   },
-  composeInput: {
-    borderRadius: 22,
-    borderWidth: 1,
-    fontSize: 17,
-    lineHeight: 25,
-    maxHeight: 128,
-    minHeight: 74,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  composer: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    borderWidth: 1,
-    elevation: 10,
-    paddingBottom: 12,
+  coreActionRow: {
+    flexDirection: 'row',
+    gap: 8,
     paddingHorizontal: 14,
     paddingTop: 14,
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
   },
-  composerHint: {
+  corePager: {
+    flex: 1,
+    width: '100%',
+  },
+  coreProgressDot: {
+    borderRadius: 999,
+    height: 7,
+    width: 7,
+  },
+  coreProgressDots: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  coreProgressRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
+  coreProgressText: {
     fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 16,
-    marginTop: 8,
-    paddingHorizontal: 4,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    lineHeight: 18,
+  },
+  corePromptHelper: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 12,
+  },
+  corePromptInput: {
+    fontSize: 17,
+    lineHeight: 25,
+    maxHeight: 176,
+    minHeight: 112,
+    paddingHorizontal: 2,
+    paddingVertical: 12,
+  },
+  corePromptInputWrap: {
+    marginTop: 24,
+    position: 'relative',
+  },
+  corePromptPage: {
+    flex: 1,
+  },
+  corePromptPageContent: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    paddingBottom: 22,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  corePromptTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.65,
+    lineHeight: 34,
+  },
+  coreReflectionShell: {
+    alignSelf: 'center',
+    flex: 1,
+    width: '100%',
+  },
+  optionalInlineInput: {
+    fontSize: 17,
+    lineHeight: 25,
+    marginTop: 14,
+    maxHeight: 144,
+    minHeight: 72,
+    paddingHorizontal: 2,
+    paddingVertical: 8,
+  },
+  reflectionActionReveal: {
+    alignSelf: 'stretch',
+    overflow: 'hidden',
   },
   completionBody: {
     fontSize: 15,
-    fontWeight: "500",
+    fontWeight: '500',
     lineHeight: 22,
     maxWidth: 320,
-    textAlign: "center",
+    textAlign: 'center',
   },
   completionButtonHalo: {
     borderRadius: 24,
     height: 66,
     maxWidth: 280,
-    position: "absolute",
+    position: 'absolute',
     top: -8,
-    width: "76%",
+    width: '76%',
   },
   completionButtonWrap: {
-    alignItems: "center",
-    width: "100%",
+    alignItems: 'center',
+    width: '100%',
   },
   completionCopy: {
-    alignItems: "center",
+    alignItems: 'center',
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     paddingBottom: 8,
-    width: "100%",
+    width: '100%',
   },
   completionFeatureCard: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 15,
     borderWidth: 1,
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 11,
     minHeight: 50,
     paddingHorizontal: 12,
@@ -4531,31 +5168,31 @@ const styles = StyleSheet.create({
     width: 25,
   },
   completionFeatureIconWrap: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 13,
     height: 38,
-    justifyContent: "center",
+    justifyContent: 'center',
     width: 38,
   },
   completionFeatureList: {
     gap: 9,
     marginTop: 12,
-    width: "100%",
+    width: '100%',
   },
   completionFeatureText: {
     flex: 1,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: '600',
     lineHeight: 18,
   },
   completionFooter: {
-    alignItems: "center",
+    alignItems: 'center',
     paddingBottom: 4,
     paddingTop: 8,
-    width: "100%",
+    width: '100%',
   },
   completionHeaderGroup: {
-    alignItems: "center",
+    alignItems: 'center',
     gap: 12,
     marginBottom: 20,
   },
@@ -4565,33 +5202,33 @@ const styles = StyleSheet.create({
     width: 62,
   },
   completionPrimaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
-    justifyContent: "center",
+    justifyContent: 'center',
     maxWidth: 280,
     minHeight: 50,
-    shadowColor: "#8E4636",
+    shadowColor: '#8E4636',
     shadowOffset: {
       width: 0,
       height: 10,
     },
     shadowOpacity: 0.13,
     shadowRadius: 16,
-    width: "76%",
+    width: '76%',
   },
   completionShell: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flex: 1,
     paddingHorizontal: 18,
-    width: "100%",
+    width: '100%',
   },
   completionTitle: {
     fontSize: 24,
-    fontWeight: "900",
+    fontWeight: '700',
     letterSpacing: -0.45,
     lineHeight: 30,
     maxWidth: 350,
-    textAlign: "center",
+    textAlign: 'center',
   },
   entryBlock: {
     marginTop: 24,
@@ -4604,19 +5241,19 @@ const styles = StyleSheet.create({
   },
   errorCardText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 20,
-    textAlign: "center",
+    textAlign: 'center',
   },
   errorText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 20,
     marginTop: 14,
-    textAlign: "center",
+    textAlign: 'center',
   },
   grabber: {
-    alignSelf: "center",
+    alignSelf: 'center',
     borderRadius: 999,
     height: 4,
     marginBottom: 18,
@@ -4635,40 +5272,21 @@ const styles = StyleSheet.create({
   explanationCardList: {
     gap: 10,
     marginTop: 22,
-    width: "100%",
+    width: '100%',
   },
   explanationCardTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.15,
     lineHeight: 22,
   },
   explanationIcon: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 22,
     height: 48,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginBottom: 20,
     width: 48,
-  },
-  frequencyChip: {
-    alignItems: "center",
-    borderRadius: 999,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 38,
-    paddingHorizontal: 14,
-  },
-  frequencyChipText: {
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  frequencyRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 14,
-    marginTop: 2,
   },
   goalCard: {
     borderRadius: 18,
@@ -4688,94 +5306,75 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     marginBottom: 10,
     marginTop: 10,
-    width: "100%",
+    width: '100%',
   },
   goalEditButton: {
-    alignItems: "center",
-    alignSelf: "stretch",
-    justifyContent: "center",
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    justifyContent: 'center',
     minHeight: 32,
-  },
-  goalEditDescriptionInput: {
-    borderRadius: 18,
-    borderWidth: 1,
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 12,
-    minHeight: 92,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  goalEditInput: {
-    borderRadius: 16,
-    borderWidth: 1,
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
   },
   goalEditText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: 0.1,
   },
   goalHeaderRow: {
-    alignItems: "center",
-    flexDirection: "row",
+    alignItems: 'center',
+    flexDirection: 'row',
     gap: 10,
-    justifyContent: "space-between",
+    justifyContent: 'space-between',
   },
   goalList: {
     gap: 8,
     marginTop: 18,
-    width: "100%",
+    width: '100%',
   },
   goalsContent: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flexGrow: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     paddingBottom: 28,
     paddingTop: 24,
-    width: "100%",
+    width: '100%',
   },
   goalsScroll: {
     flex: 1,
-    width: "100%",
+    width: '100%',
   },
   goalMainPressable: {
-    width: "100%",
+    width: '100%',
   },
   goalMetaDot: {
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 14,
   },
   goalMetaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 5,
     marginTop: 3,
   },
   goalMetaText: {
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 14,
   },
   goalSelectPill: {
-    alignItems: "center",
-    alignSelf: "center",
+    alignItems: 'center',
+    alignSelf: 'center',
     borderRadius: 999,
     borderWidth: 1,
     flexShrink: 0,
     height: 24,
-    justifyContent: "center",
+    justifyContent: 'center',
     width: 24,
   },
   goalTitle: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: -0.15,
     lineHeight: 20,
   },
@@ -4783,11 +5382,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
     height: 38,
-    justifyContent: "center",
+    justifyContent: 'center',
     width: 38,
   },
   iconButtonSpacer: {
@@ -4804,25 +5403,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 24,
     padding: 18,
-    width: "100%",
+    width: '100%',
   },
   insightEyebrow: {
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: '600',
     letterSpacing: 1.2,
   },
   insightTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: '700',
     lineHeight: 24,
     marginTop: 10,
   },
   inlineRetryButton: {
-    alignItems: "center",
-    alignSelf: "center",
+    alignItems: 'center',
+    alignSelf: 'center',
     borderRadius: 16,
     borderWidth: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginTop: 12,
     minHeight: 40,
     paddingHorizontal: 18,
@@ -4832,110 +5431,70 @@ const styles = StyleSheet.create({
   },
   majorInsightText: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: '600',
     lineHeight: 21,
     marginTop: 14,
   },
-  mindMapCanvas: {
-    alignSelf: "center",
-    marginBottom: 8,
-    marginTop: 26,
-    position: "relative",
-  },
-  mindMapCenterNode: {
-    alignItems: "center",
-    borderRadius: 22,
-    justifyContent: "center",
-    minHeight: 60,
-    paddingHorizontal: 14,
-    position: "absolute",
-    width: 108,
-  },
-  mindMapCenterText: {
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: -0.05,
-    lineHeight: 17,
-    textAlign: "center",
-  },
-  mindMapNode: {
-    alignItems: "center",
-    borderRadius: 999,
-    borderWidth: 1,
-    justifyContent: "center",
-    paddingHorizontal: 8,
-    position: "absolute",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-  },
-  mindMapNodeText: {
-    fontSize: 11,
-    fontWeight: "900",
-    lineHeight: 14,
-    textAlign: "center",
-  },
   mindMapBuildCopy: {
-    alignItems: "flex-start",
+    alignItems: 'flex-start',
     marginTop: 24,
-    width: "100%",
+    width: '100%',
   },
   mindMapBuildSubtitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: '400',
     lineHeight: 21,
     marginTop: 8,
   },
   mindMapBuildTitle: {
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: '700',
     letterSpacing: -0.3,
     lineHeight: 25,
   },
   metadata: {
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: '400',
     letterSpacing: 1.35,
     marginBottom: 18,
   },
   modalRoot: {
-    backgroundColor: "transparent",
+    backgroundColor: 'transparent',
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: 'flex-end',
   },
   modalScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.36)",
+    backgroundColor: 'rgba(0,0,0,0.36)',
   },
   pressed: {
     opacity: 0.78,
     transform: [{ scale: 0.985 }],
   },
   primaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     flex: 1.15,
-    justifyContent: "center",
+    justifyContent: 'center',
     minHeight: 48,
     paddingHorizontal: 14,
   },
   primaryButtonText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: -0.1,
   },
   promptText: {
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.35,
     lineHeight: 28,
   },
   reflectionCard: {
-    alignItems: "flex-start",
+    alignItems: 'flex-start',
     borderRadius: 22,
     borderWidth: 1,
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
     marginTop: 20,
     padding: 16,
@@ -4945,13 +5504,13 @@ const styles = StyleSheet.create({
   },
   reflectionCardEyebrow: {
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: '600',
     letterSpacing: 1.1,
     marginBottom: 8,
   },
   reflectionCardTakeaway: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 19,
     marginTop: 10,
   },
@@ -4963,43 +5522,43 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
     paddingBottom: 12,
     paddingHorizontal: 14,
     paddingTop: 14,
   },
   reviewContent: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flexGrow: 1,
     paddingBottom: 24,
     paddingHorizontal: 2,
     paddingTop: 18,
-    width: "100%",
+    width: '100%',
   },
   reviewPrimaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     minHeight: 52,
   },
   reviewSecondaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     minHeight: 52,
   },
   root: {
     flex: 1,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   savedPrimaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginTop: 26,
     minHeight: 52,
     paddingHorizontal: 42,
@@ -5011,7 +5570,7 @@ const styles = StyleSheet.create({
   },
   screenTitle: {
     fontSize: 25,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.55,
     lineHeight: 31,
   },
@@ -5019,31 +5578,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginTop: 8,
-    textAlign: "center",
+    textAlign: 'center',
   },
   streakContent: {
-    alignItems: "center",
+    alignItems: 'center',
     flex: 1,
-    justifyContent: "center",
-    width: "100%",
+    justifyContent: 'center',
+    width: '100%',
   },
   streakConfettiLayer: {
     height: 190,
-    left: "50%",
+    left: '50%',
     marginLeft: -120,
     marginTop: -95,
-    position: "absolute",
-    top: "50%",
+    position: 'absolute',
+    top: '50%',
     width: 240,
   },
   streakConfettiPiece: {
     borderRadius: 2,
     height: 8,
-    left: "50%",
+    left: '50%',
     marginLeft: -3,
     marginTop: -4,
-    position: "absolute",
-    top: "58%",
+    position: 'absolute',
+    top: '58%',
     width: 6,
   },
   streakContinueButton: {
@@ -5054,71 +5613,71 @@ const styles = StyleSheet.create({
     width: 76,
   },
   streakFlameWrap: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 48,
     height: 96,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginBottom: 20,
     width: 96,
   },
   streakHero: {
-    alignItems: "center",
+    alignItems: 'center',
     maxWidth: 320,
     paddingHorizontal: 20,
-    width: "100%",
+    width: '100%',
   },
   streakIconStage: {
-    alignItems: "center",
+    alignItems: 'center',
     height: 124,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginBottom: 18,
-    position: "relative",
-    width: "100%",
+    position: 'relative',
+    width: '100%',
   },
   streakShell: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flex: 1,
     paddingBottom: 28,
     paddingTop: 24,
-    width: "100%",
+    width: '100%',
   },
   streakTitle: {
     fontSize: 25,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.55,
     lineHeight: 31,
-    textAlign: "center",
+    textAlign: 'center',
   },
   scrollContent: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flexGrow: 1,
-    justifyContent: "flex-end",
-    paddingBottom: 210,
+    justifyContent: 'flex-end',
+    paddingBottom: 112,
     paddingHorizontal: 2,
     paddingTop: 8,
-    width: "100%",
+    width: '100%',
   },
   secondaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
     flex: 1,
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 6,
-    justifyContent: "center",
+    justifyContent: 'center',
     minHeight: 48,
     paddingHorizontal: 10,
   },
   secondaryButtonText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: -0.1,
   },
   sheetBody: {
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 16,
-    textAlign: "center",
+    textAlign: 'center',
   },
   sheetOption: {
     borderRadius: 18,
@@ -5129,31 +5688,31 @@ const styles = StyleSheet.create({
   },
   sheetOptionText: {
     fontSize: 15,
-    fontWeight: "700",
-    textAlign: "center",
+    fontWeight: '700',
+    textAlign: 'center',
   },
   sheetPrimaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginTop: 6,
     minHeight: 52,
   },
   sheetSecondaryButton: {
-    alignItems: "center",
+    alignItems: 'center',
     borderRadius: 18,
     borderWidth: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginTop: 10,
     minHeight: 52,
   },
   sheetTitle: {
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.35,
     lineHeight: 28,
     marginBottom: 8,
-    textAlign: "center",
+    textAlign: 'center',
   },
   shimmerIcon: {
     borderRadius: 13,
@@ -5170,37 +5729,37 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     height: 11,
     marginTop: 9,
-    width: "100%",
+    width: '100%',
   },
   skeletonLineShort: {
-    width: "62%",
+    width: '62%',
   },
   sessionContent: {
-    alignSelf: "center",
+    alignSelf: 'center',
     flexGrow: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
     paddingBottom: 32,
     paddingHorizontal: 24,
     paddingTop: 24,
-    width: "100%",
+    width: '100%',
   },
   sessionAnalysisTitle: {
     fontSize: 28,
-    fontWeight: "900",
+    fontWeight: '700',
     letterSpacing: -0.55,
     lineHeight: 34,
     marginTop: 20,
-    width: "100%",
+    width: '100%',
   },
   sessionScroll: {
     flex: 1,
-    width: "100%",
+    width: '100%',
   },
   supportiveNote: {
-    alignItems: "flex-start",
+    alignItems: 'flex-start',
     borderRadius: 22,
     borderWidth: 1,
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: 10,
     marginTop: 28,
     padding: 16,
@@ -5211,17 +5770,22 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   tagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 14,
   },
+  topicEmptyText: {
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 12,
+  },
   threadUserLine: {
-    alignSelf: "flex-start",
+    alignSelf: 'flex-start',
     borderRadius: 16,
     borderWidth: 1,
     marginTop: 18,
-    maxWidth: "94%",
+    maxWidth: '94%',
     paddingHorizontal: 13,
     paddingVertical: 10,
   },
@@ -5233,26 +5797,35 @@ const styles = StyleSheet.create({
   },
   topicChipText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: '600',
     letterSpacing: -0.05,
   },
   threadUserRequestText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: '600',
     lineHeight: 20,
     marginTop: 2,
   },
+  threadQuestionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: -0.15,
+    lineHeight: 21,
+  },
   threadUserText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: '600',
     letterSpacing: 0.55,
     lineHeight: 15,
-    textTransform: "uppercase",
+    textTransform: 'uppercase',
+  },
+  transcriptTransition: {
+    flex: 1,
   },
   titleInput: {
     borderBottomWidth: 1,
     fontSize: 28,
-    fontWeight: "800",
+    fontWeight: '700',
     letterSpacing: -0.65,
     lineHeight: 34,
     marginBottom: 16,
@@ -5261,19 +5834,19 @@ const styles = StyleSheet.create({
   },
   valueHelper: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: '700',
     lineHeight: 20,
     marginTop: 10,
   },
   valueScreen: {
-    alignSelf: "center",
+    alignSelf: 'center',
     paddingHorizontal: 24,
-    width: "100%",
+    width: '100%',
   },
   topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingBottom: 10,
     paddingHorizontal: 16,
     paddingTop: 6,

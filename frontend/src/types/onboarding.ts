@@ -4,12 +4,12 @@ export type OnboardingCompletionData = {
   goals: string[];
   supportFocusAreas: string[];
   reminderPreference: string;
-  aiComfort: boolean;
   privacyConsent: boolean;
 };
 
 export type OnboardingV2Draft = {
   version: 2;
+  displayName?: string;
   referralSource?: string;
   referralSourceOther?: string;
   whatBringsYouHere?: string[];
@@ -19,6 +19,7 @@ export type OnboardingV2Draft = {
   ageRange?: string;
   reflectionTone?: string[];
   preferredTheme?: string;
-  aiComfort?: boolean;
   privacyConsent?: boolean;
+  /** ISO timestamp captured when the user signs the onboarding commitment. */
+  commitmentSignedAt?: string;
 };

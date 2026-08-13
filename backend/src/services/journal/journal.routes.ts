@@ -97,4 +97,11 @@ journalRouter.post(
   journalController.getJournalQuickAnalysisController
 );
 
+journalRouter.post(
+  "/session_analysis",
+  verifyJwtToken,
+  validateRequest(journalValidators.getJournalSessionAnalysisSchema),
+  journalController.getJournalSessionAnalysisController
+);
+
 export default journalRouter;

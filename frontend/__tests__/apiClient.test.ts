@@ -598,4 +598,95 @@ describe('apiClient', () => {
     expect(getConnectivitySnapshot().status).toBe('offline');
     expect(alertSpy).not.toHaveBeenCalled();
   });
+
+  test('refreshes the access token once and retries the original request after a 401', async () => {
+    const saveTokens = jest.fn(async () => undefined);
+    const clearTokens = jest.fn(async () => undefined);
+
+    jest.doMock('react-native', () => ({
+      Alert: {
+        alert: alertSpy,
+      },
+      NativeModules: {
+        SourceCode: {
+          scriptURL:
+            'http://192.168.1.24:8081/index.bundle?platform=ios&dev=true',
+        },
+      },
+      Platform: { OS: 'ios' },
+    }));
+    jest.doMock('../src/utils/devLaunchConfig.json', () => ({
+      __esModule: true,
+      default: {
+        stage: 'onboarding',
+        activeTab: 'home',
+        email: null,
+        apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
+      },
+    }));
+    jest.doMock('../src/utils/tokenStorage', () => ({
+      clearTokens,
+      getAccessToken: jest.fn(async () => 'stale-access-token'),
+      getTokens: jest.fn(async () => ({
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+      })),
+      saveTokens,
+    }));
+
+    globalWithFetch.fetch!
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          success: false,
+          message: 'Please sign in to continue.',
+          error: {},
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          message: 'refreshed',
+          data: { accessToken: 'fresh-access-token' },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          message: 'ok',
+          data: { userId: 'user-123' },
+        }),
+      });
+
+    const { request } = require('../src/utils/apiClient');
+
+    await expect(request('/users/profile')).resolves.toMatchObject({
+      data: { userId: 'user-123' },
+    });
+
+    expect(saveTokens).toHaveBeenCalledWith({
+      accessToken: 'fresh-access-token',
+      refreshToken: 'refresh-token',
+    });
+    expect(clearTokens).not.toHaveBeenCalled();
+    expect(globalWithFetch.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://127.0.0.1:5050/api/v1/auth/refresh',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(globalWithFetch.fetch).toHaveBeenNthCalledWith(
+      3,
+      'http://127.0.0.1:5050/api/v1/users/profile',
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      }),
+    );
+  });
 });

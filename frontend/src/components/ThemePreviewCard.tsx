@@ -1,12 +1,14 @@
+import HapticPressable from './HapticPressable';
 import {
-  Pressable,
   StyleSheet,
-  Text,
   View,
   type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 import { useTheme } from "../theme/provider";
 
 type ThemePreview = {
@@ -59,7 +61,7 @@ export default function ThemePreviewCard({
     : theme.colors.secondary;
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="radio"
       accessibilityState={{ selected }}
       onPress={onPress}
@@ -84,7 +86,7 @@ export default function ThemePreviewCard({
       <Text style={[styles.label, { color: theme.colors.foreground }]}>
         {themeOption.label}
       </Text>
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -108,7 +110,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     textAlign: "center",
   },
   pressed: {

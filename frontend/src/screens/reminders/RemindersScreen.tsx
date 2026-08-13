@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import HapticSwitch from '../../components/HapticSwitch';
 import {
-  ActivityIndicator,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
+import {
   Alert,
   AppState,
   Animated,
@@ -8,17 +14,19 @@ import {
   LayoutAnimation,
   Linking,
   Platform,
-  Pressable,
   StyleSheet,
-  Switch,
-  Text,
   UIManager,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import { Bell, Check, ChevronDown, Clock3 } from 'lucide-react-native';
 import PrimaryButton from '../../components/PrimaryButton';
+import JournalLoader from '../../components/JournalLoader';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useAppStore } from '../../store/appStore';
+import { REMINDER_TIME_OPTIONS } from '../../constants/reminderTimes';
 import { useTheme } from '../../theme/provider';
 import {
   createReminder,
@@ -50,14 +58,7 @@ type ReminderFormState = {
   includeWeekends: boolean;
 };
 
-const TIME_OPTIONS = [
-  { label: '8:00 AM', value: '08:00' },
-  { label: '9:00 AM', value: '09:00' },
-  { label: '12:00 PM', value: '12:00' },
-  { label: '6:00 PM', value: '18:00' },
-  { label: '8:00 PM', value: '20:00' },
-  { label: '9:00 PM', value: '21:00' },
-];
+const TIME_OPTIONS = REMINDER_TIME_OPTIONS;
 
 const onboardingReminderToTime: Record<string, string> = {
   morning: '08:00',
@@ -109,7 +110,7 @@ function SmartToggleRow({
           {description}
         </Text>
       </View>
-      <Switch
+      <HapticSwitch
         value={value}
         onValueChange={onValueChange}
         trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
@@ -481,7 +482,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
       {isLoading ? (
         <SectionCard>
           <View style={styles.loadingState}>
-            <ActivityIndicator color={theme.colors.primary} />
+            <JournalLoader color={theme.colors.primary} />
             <Text
               style={[
                 styles.loadingText,
@@ -512,7 +513,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
         <>
           {hasNotificationPermission === false ? (
             <Animated.View style={[buildEntranceStyle(10), styles.baseSection]}>
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 accessibilityLabel="Open device notification settings"
                 onPress={handleOpenNotificationSettings}
@@ -560,7 +561,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                     Open device settings
                   </Text>
                 </View>
-              </Pressable>
+              </HapticPressable>
             </Animated.View>
           ) : null}
 
@@ -621,7 +622,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                     Daily prompts at your chosen time
                   </Text>
                 </View>
-                <Switch
+                <HapticSwitch
                   value={formState.enabled}
                   onValueChange={handleToggleEnabled}
                   disabled={isSaving}
@@ -650,7 +651,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                   </Text>
 
                   <View style={styles.selectWrapper}>
-                    <Pressable
+                    <HapticPressable
                       accessibilityRole="button"
                       onPress={() => setIsTimeMenuOpen(previous => !previous)}
                       style={({ pressed }) => [
@@ -684,7 +685,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                           isTimeMenuOpen ? styles.chevronOpen : null,
                         ]}
                       />
-                    </Pressable>
+                    </HapticPressable>
 
                     {isTimeMenuRendered ? (
                       <Animated.View
@@ -716,7 +717,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                           const isSelected = option.value === formState.time;
 
                           return (
-                            <Pressable
+                            <HapticPressable
                               key={option.value}
                               accessibilityRole="button"
                               onPress={() => {
@@ -755,7 +756,7 @@ export default function RemindersScreen({ onBack }: RemindersScreenProps) {
                               {isSelected ? (
                                 <Check size={16} color={theme.colors.primary} />
                               ) : null}
-                            </Pressable>
+                            </HapticPressable>
                           );
                         })}
                       </Animated.View>

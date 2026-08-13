@@ -15,6 +15,7 @@ import {
   signUpWithEmail,
   verifyEmail,
 } from "./auth.service";
+import { revokeAllWidgetSessions } from "../widgets/widgets.service";
 
 const maskEmail = (email: string) => {
   const trimmed = email.trim().toLowerCase();
@@ -567,7 +568,10 @@ const logoutController = async (
       return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
-    await invalidateRefreshToken(userId);
+    await Promise.all([
+      invalidateRefreshToken(userId),
+      revokeAllWidgetSessions(userId),
+    ]);
 
     return res.status(200).json(apiResponse(true, "You're signed out.", {}));
   } catch (error) {

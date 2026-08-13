@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import HapticPressable from './HapticPressable';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from "react";
 import {
   Animated,
   Easing,
   Modal,
   PanResponder,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 import { Check } from "lucide-react-native";
 import { triggerHaptic } from "../services/hapticsService";
 import { useTheme } from "../theme/provider";
@@ -328,7 +334,7 @@ export default function OnboardingBottomSheet({
             },
           ]}
         >
-          <Pressable
+          <HapticPressable
             accessibilityLabel="Dismiss disclaimer"
             style={StyleSheet.absoluteFill}
             onPress={onDismiss ? handleDismiss : undefined}
@@ -373,7 +379,7 @@ export default function OnboardingBottomSheet({
           </View>
           {requireConsent ? (
             <View style={styles.consentRow}>
-              <Pressable
+              <HapticPressable
                 accessibilityLabel="Agree to Privacy Policy and Terms"
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: consentAccepted }}
@@ -401,7 +407,7 @@ export default function OnboardingBottomSheet({
                     <Check color={theme.colors.primaryForeground} size={12} />
                   ) : null}
                 </Animated.View>
-              </Pressable>
+              </HapticPressable>
               <Text
                 style={[
                   styles.consentText,
@@ -455,7 +461,7 @@ export default function OnboardingBottomSheet({
             </Text>
           )}
           <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel={isSubmitting ? "Starting your first reflection" : primaryLabel}
               accessibilityState={{ busy: isSubmitting, disabled: !canContinue || isSubmitting }}
@@ -507,7 +513,7 @@ export default function OnboardingBottomSheet({
                   {primaryLabel}
                 </Text>
               </ButtonLoadingContent>
-            </Pressable>
+            </HapticPressable>
           </Animated.View>
         </Animated.View>
       </View>
@@ -551,7 +557,7 @@ const styles = StyleSheet.create({
   },
   legalLink: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: 18,
   },
   modalRoot: {
@@ -607,7 +613,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
@@ -629,7 +635,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: -0.3,
     textAlign: "center",
   },

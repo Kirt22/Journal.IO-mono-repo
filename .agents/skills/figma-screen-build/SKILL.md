@@ -40,7 +40,7 @@ If a Figma MCP server is configured, use it. If not, fall back to the design art
 
 ## Journal.IO-specific design rules
 
-- Favor Manrope for headlines and DM Sans for body text when the repo styling supports it.
+- Use the `typography` presets in `src/theme/typography.ts`: Bricolage Grotesque for display type, Schibsted Grotesk for UI and body. Do not set `fontFamily` by hand, and do not introduce weights above 700.
 - Match the documented colors and emotionally safe tone.
 - Keep cards and flows simple, readable, and low-noise.
 - Avoid flashy motion, harsh alerts, or copy that sounds clinical or diagnostic.

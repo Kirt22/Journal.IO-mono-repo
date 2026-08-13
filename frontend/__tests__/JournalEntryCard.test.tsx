@@ -3,22 +3,24 @@
  */
 
 import React from "react";
-import { Platform } from "react-native";
 import ReactTestRenderer from "react-test-renderer";
 import JournalEntryCard from "../src/components/JournalEntryCard";
+import { triggerHaptic } from "../src/services/hapticsService";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import { ThemeProvider } from "../src/theme/provider";
 
+jest.mock("../src/services/hapticsService", () => ({
+  triggerHaptic: jest.fn(async () => undefined),
+}));
+
 let root: ReactTestRenderer.ReactTestRenderer | null = null;
-const originalOS = Platform.OS;
-const testPlatform = Platform as typeof Platform & { isPad?: boolean };
-const originalIsPad = testPlatform.isPad;
 
 const entry = {
   _id: "entry-1",
   title: "Morning Reflections",
   content: "Started the day with a calm walk.",
-  type: "journal",
+  type: "open_ended",
+  entryKind: "journal" as const,
   tags: ["gratitude", "morning"],
   createdAt: "2026-03-30T08:00:00.000Z",
   updatedAt: "2026-03-30T08:00:00.000Z",
@@ -29,6 +31,7 @@ beforeEach(() => {
   ReactTestRenderer.act(() => {
     resetAppStore();
   });
+  jest.mocked(triggerHaptic).mockClear();
 });
 
 afterEach(() => {
@@ -36,15 +39,6 @@ afterEach(() => {
     root?.unmount();
     root = null;
     resetAppStore();
-  });
-
-  Object.defineProperty(testPlatform, "isPad", {
-    configurable: true,
-    value: originalIsPad,
-  });
-  Object.defineProperty(testPlatform, "OS", {
-    configurable: true,
-    value: originalOS,
   });
   jest.useRealTimers();
 });
@@ -71,6 +65,7 @@ test("favorite star is clickable on the journal card", () => {
   });
 
   expect(onFavoritePress).toHaveBeenCalledTimes(1);
+  expect(triggerHaptic).toHaveBeenCalledWith("primaryAction");
 });
 
 test("renders a date fallback for untitled journal entries", () => {
@@ -91,17 +86,7 @@ test("renders a date fallback for untitled journal entries", () => {
   expect(JSON.stringify(root!.toJSON())).not.toContain("Untitled");
 });
 
-test("uses vector markers instead of native emoji text for entry visuals", () => {
-  jest.useFakeTimers();
-  Object.defineProperty(testPlatform, "OS", {
-    configurable: true,
-    value: "ios",
-  });
-  Object.defineProperty(testPlatform, "isPad", {
-    configurable: true,
-    value: true,
-  });
-
+test("uses the open-ended journal artwork regardless of mood tags", () => {
   ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <ThemeProvider modeOverride="light">
@@ -115,50 +100,304 @@ test("uses vector markers instead of native emoji text for entry visuals", () =>
     );
   });
 
-  const rendered = JSON.stringify(root!.toJSON());
-
-  expect(rendered).toContain("Morning Reflections");
-  expect(rendered).toContain("😊");
-
-  ReactTestRenderer.act(() => {
-    jest.advanceTimersByTime(180);
-  });
-
-  const fallbackRendered = JSON.stringify(root!.toJSON());
-
-  expect(fallbackRendered).toContain("Morning Reflections");
-  expect(fallbackRendered).not.toContain("😊");
-
-  jest.useRealTimers();
+  expect(root!.root.findByProps({ testID: "entry-type-icon-open-ended" })).toBeTruthy();
+  expect(JSON.stringify(root!.toJSON())).not.toContain("😊");
 });
 
-test("keeps native emoji text for entry visuals outside iPad fallback", () => {
-  Object.defineProperty(testPlatform, "OS", {
-    configurable: true,
-    value: "ios",
-  });
-  Object.defineProperty(testPlatform, "isPad", {
-    configurable: true,
-    value: false,
-  });
-
+test("uses the supplied guided-reflection artwork", () => {
   ReactTestRenderer.act(() => {
     root = ReactTestRenderer.create(
       <ThemeProvider modeOverride="light">
         <JournalEntryCard
           entry={{
             ...entry,
-            tags: ["mood:good", "gratitude"],
+            type: "guided",
           }}
         />
       </ThemeProvider>
     );
   });
 
-  const rendered = JSON.stringify(root!.toJSON());
+  expect(root!.root.findByProps({ testID: "entry-type-icon-guided" })).toBeTruthy();
+});
 
-  expect(rendered).toContain("Morning Reflections");
-  expect(rendered).toContain("😊");
+test("uses the current placeholder icon for persisted and legacy Quick Thoughts", () => {
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          entry={{
+            ...entry,
+            entryKind: "quick_thought",
+            title: "Renamed thought",
+          }}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  expect(
+    root!.root.findByProps({ testID: "entry-type-icon-quick-thought" })
+  ).toBeTruthy();
+  // The quill PNG replaced the lucide glyph, so the other entry types are no
+  // longer the only ones drawn from an asset.
+  expect(JSON.stringify(root!.toJSON())).toContain("quill-pen.png");
+  expect(JSON.stringify(root!.toJSON())).toContain("Quick Thought");
+
+  ReactTestRenderer.act(() => {
+    root?.update(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          entry={{
+            ...entry,
+            entryKind: undefined,
+            title: "Quick Thought",
+          }}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  expect(
+    root!.root.findByProps({ testID: "entry-type-icon-quick-thought" })
+  ).toBeTruthy();
+});
+
+test("shows detected topics instead of raw journal metadata tags", () => {
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          entry={{
+            ...entry,
+            tags: ["onboarding:first-reflection", "legacy-user-tag"],
+            detectedTopics: [
+              "anxiety",
+              "loneliness",
+              "self-care",
+              "confidence",
+            ],
+          }}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  const tree = JSON.stringify(root!.toJSON());
+  expect(tree).toContain("Anxiety");
+  expect(tree).toContain("Loneliness");
+  expect(tree).toContain("Self Care");
+  expect(tree).not.toContain("Confidence");
+  expect(tree).not.toContain("legacy-user-tag");
+  expect(tree).not.toContain("onboarding:first-reflection");
+});
+
+test("keeps non-internal Quick Note tags", () => {
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          entry={{
+            ...entry,
+            entryKind: "quick_thought",
+            tags: ["idea", "mood:good", "onboarding:first-reflection"],
+            detectedTopics: ["anxiety"],
+          }}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  const tree = JSON.stringify(root!.toJSON());
+  expect(tree).toContain("Idea");
+  expect(tree).not.toContain("Anxiety");
+  expect(tree).not.toContain("mood:good");
+  expect(tree).not.toContain("onboarding:first-reflection");
+});
+
+test("exposes favorite and delete controls when card actions are open", async () => {
+  const onFavoritePress = jest.fn(async () => undefined);
+  const onDeletePress = jest.fn();
+
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          actionsOpen
+          enableEntryActions
+          entry={entry}
+          onDeletePress={onDeletePress}
+          onFavoritePress={onFavoritePress}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await root!.root.findByProps({ accessibilityLabel: "Favorite entry" }).props.onPress();
+  });
+  ReactTestRenderer.act(() => {
+    root!.root.findByProps({ accessibilityLabel: "Delete entry" }).props.onPress();
+  });
+
+  expect(onFavoritePress).toHaveBeenCalledWith(true);
+  expect(onDeletePress).toHaveBeenCalledTimes(1);
+  expect(triggerHaptic).toHaveBeenNthCalledWith(1, "primaryAction");
+  expect(triggerHaptic).toHaveBeenNthCalledWith(2, "secondaryAction");
+});
+
+test("fills the rounded gap beside the open favorite action", async () => {
+  await ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          actionsOpen
+          enableEntryActions
+          entry={entry}
+          onDeletePress={jest.fn()}
+          onFavoritePress={jest.fn()}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  const seam = root!.root.findByProps({ testID: "journal-entry-action-seam" });
+  const favoriteButton = root!.root.findByProps({ accessibilityLabel: "Favorite entry" });
+  const seamStyle = seam.props.style.find((style: { backgroundColor?: string }) =>
+    Boolean(style?.backgroundColor)
+  );
+  const favoriteStyle = favoriteButton.props
+    .style({ pressed: false })
+    .find((style: { backgroundColor?: string }) => Boolean(style?.backgroundColor));
+
+  expect(seam.props.pointerEvents).toBe("none");
+  expect(seam.props.accessible).toBe(false);
+  expect(seamStyle.backgroundColor).toBe(favoriteStyle.backgroundColor);
+});
+
+test("opening an entry card emits navigation haptic feedback", () => {
+  const onPress = jest.fn();
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard entry={entry} onPress={onPress} />
+      </ThemeProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Open entry Morning Reflections" })
+      .props.onPress();
+  });
+
+  expect(onPress).toHaveBeenCalledTimes(1);
+  expect(triggerHaptic).toHaveBeenCalledWith("screenTransition");
+});
+
+test("double tap favorites once and shows the large-star celebration", () => {
+  const onFavoritePress = jest.fn(async () => undefined);
+  const onPress = jest.fn();
+
+  jest.useFakeTimers();
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          enableEntryActions
+          entry={entry}
+          onDeletePress={jest.fn()}
+          onFavoritePress={onFavoritePress}
+          onPress={onPress}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  const cardButton = root!.root.findByProps({
+    accessibilityLabel: "Open entry Morning Reflections",
+  });
+
+  ReactTestRenderer.act(() => {
+    cardButton.props.onPress();
+    cardButton.props.onPress();
+  });
+
+  expect(onFavoritePress).toHaveBeenCalledTimes(1);
+  expect(onFavoritePress).toHaveBeenCalledWith(true);
+  expect(triggerHaptic).toHaveBeenCalledWith("primaryAction");
+  expect(onPress).not.toHaveBeenCalled();
+  expect(root!.root.findByProps({ testID: "favorite-celebration-star" })).toBeTruthy();
+});
+
+test("single tap waits for the double-tap window before opening an entry", () => {
+  const onPress = jest.fn();
+
+  jest.useFakeTimers();
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          enableEntryActions
+          entry={entry}
+          onDeletePress={jest.fn()}
+          onFavoritePress={jest.fn()}
+          onPress={onPress}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  const cardButton = root!.root.findByProps({
+    accessibilityLabel: "Open entry Morning Reflections",
+  });
+
+  ReactTestRenderer.act(() => {
+    cardButton.props.onPress();
+  });
+  expect(onPress).not.toHaveBeenCalled();
+
+  ReactTestRenderer.act(() => {
+    jest.advanceTimersByTime(300);
+  });
+
+  expect(onPress).toHaveBeenCalledTimes(1);
+  expect(triggerHaptic).toHaveBeenCalledWith("screenTransition");
+});
+
+test("double tap on an existing favorite pulses without changing it", () => {
+  const onFavoritePress = jest.fn();
+
+  jest.useFakeTimers();
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalEntryCard
+          enableEntryActions
+          entry={{ ...entry, isFavorite: true }}
+          onDeletePress={jest.fn()}
+          onFavoritePress={onFavoritePress}
+          onPress={jest.fn()}
+        />
+      </ThemeProvider>
+    );
+  });
+
+  ReactTestRenderer.act(() => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Open entry Morning Reflections" })
+      .props.onPress();
+    root!.root
+      .findByProps({ accessibilityLabel: "Open entry Morning Reflections" })
+      .props.onPress();
+  });
+
+  expect(onFavoritePress).not.toHaveBeenCalled();
+  expect(triggerHaptic).toHaveBeenCalledWith("primaryAction");
 });
 
 test("masks journal previews when the device privacy setting is enabled", () => {

@@ -1,41 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import HapticPressable from '../components/HapticPressable';
 import {
-  ActivityIndicator,
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from "react";
+import {
+  AccessibilityInfo,
   Animated,
   Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
 import {
-  ArrowLeft,
-  Check,
-  Frown,
-  Heart,
-  Lock,
-  Save,
-  Smile,
-  SmilePlus,
-  Sparkles,
-  Tag,
-  X,
-  Wand2,
-  Meh,
-} from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import ButtonLoadingContent from "../components/ButtonLoadingContent";
+  Text,
+  TextInput,
+} from "../infrastructure/reactNative";
+import { ArrowLeft, RefreshCw, Save } from "lucide-react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import ConfirmActionSheet from "../components/ConfirmActionSheet";
+import GuidedFinishLoader from "../components/GuidedFinishLoader";
 import KeyboardDismissAccessory from "../components/KeyboardDismissAccessory";
+import ShimmerBlock from "../components/ShimmerBlock";
 import {
   createJournalEntry,
-  suggestJournalTags as fetchSuggestedJournalTags,
+  getJournalSessionAnalysis,
 } from "../services/journalService";
-import { trackPaywallEvent } from "../services/paywallService";
+import type { GuidedReflectionSessionAnalysisResponse } from "../services/guidedReflectionService";
 import {
   getWritingPrompts,
   type WritingPrompt,
@@ -45,97 +40,55 @@ import {
   cancelWeeklyInsightNotifications,
   syncReminderNotifications,
 } from "../services/reminderNotificationsService";
+import { triggerHaptic } from "../services/hapticsService";
 import { useAppStore } from "../store/appStore";
+import { navigateMainApp } from "../navigation/navigation";
 import { useTheme } from "../theme/provider";
-import { ApiError } from "../utils/apiClient";
 import { useConnectivity } from "../hooks/useConnectivity";
-
-type MoodKey = "amazing" | "good" | "okay" | "bad" | "terrible";
 
 type NewEntryScreenProps = {
   onBack: () => void;
   initialPrompt?: string | null;
 };
 
-type MoodOption = {
-  value: MoodKey;
-  icon: typeof Smile;
-  label: string;
-};
-
+// Offline/error fallback only. Kept short so it reads the same as the
+// AI-generated prompts in the single-line prompt slot.
 const DEFAULT_WRITING_PROMPTS: WritingPrompt[] = [
   {
     id: "reflection-1",
     topic: "Reflection",
-    text: "What felt most steady or grounding in your day?",
+    text: "What felt steady today?",
   },
   {
     id: "patterns-2",
     topic: "Patterns",
-    text: "Where did your mood shift, and what seemed to influence it?",
+    text: "Where did your mood shift?",
   },
   {
     id: "next-step-3",
     topic: "Next Step",
-    text: "What is one small thing you want to carry into tomorrow?",
+    text: "What do you want to carry into tomorrow?",
   },
 ];
 
-const tagKeywords: Record<string, string[]> = {
-  gratitude: ["grateful", "thankful", "appreciate", "blessed", "thanks"],
-  anxiety: ["anxious", "worried", "nervous", "stress", "panic", "overwhelm"],
-  happiness: ["happy", "joy", "excited", "wonderful", "amazing", "great"],
-  sadness: ["sad", "cry", "lonely", "grief", "down", "upset"],
-  reflection: ["think", "reflect", "realize", "learn", "insight", "looking back"],
-  goals: ["goal", "plan", "achieve", "dream", "hope to", "aim"],
-  mindfulness: ["mindful", "present", "breathe", "meditate", "calm", "peace"],
-  "self-care": [
-    "self-care",
-    "rest",
-    "relax",
-    "recharge",
-    "sleep",
-    "boundary",
-    "tired",
-    "exhausted",
-    "drained",
-    "burned out",
-    "burnt out",
-    "not feeling well",
-    "unwell",
-    "sick",
-  ],
-  relationships: ["friend", "family", "partner", "relationship", "connection"],
-  work: ["work", "job", "career", "meeting", "project", "deadline"],
-  growth: ["grow", "improve", "better", "progress", "change", "overcome"],
-  morning: ["morning", "woke up", "sunrise", "breakfast", "early"],
-  evening: ["evening", "night", "sunset", "dinner", "bedtime", "tonight"],
-  anger: ["angry", "furious", "frustrated", "annoyed", "irritated", "mad"],
-};
-const positiveMoodTags = new Set(["gratitude", "happiness", "mindfulness", "growth"]);
-const negativeCueExpressions = [
-  /\bnot\s+(?:that\s+)?(grateful|thankful|happy|excited|calm|good|great|well)\b/gi,
-  /\b(?:no|never)\s+(gratitude|joy|energy|motivation|hope)\b/gi,
-  /\btoo\s+(tired|drained|exhausted)\b/gi,
-  /\b(?:don't|do not|didn't|did not|can't|cannot|couldn't|could not)\s+feel\s+(good|well|calm|happy)\b/gi,
-];
-const moodBoosts: Record<MoodKey, string[]> = {
-  amazing: [],
-  good: [],
-  okay: [],
-  bad: ["sadness", "self-care"],
-  terrible: ["sadness", "anxiety", "self-care"],
-};
-
-const moods: MoodOption[] = [
-  { value: "amazing", icon: Heart, label: "Amazing" },
-  { value: "good", icon: SmilePlus, label: "Good" },
-  { value: "okay", icon: Smile, label: "Okay" },
-  { value: "bad", icon: Meh, label: "Bad" },
-  { value: "terrible", icon: Frown, label: "Terrible" },
-];
+const TODAYS_REFLECTION_PROMPT_ID = "todays-reflection";
 const UNTITLED_ENTRY_TITLE = "Untitled";
 const NEW_ENTRY_KEYBOARD_ACCESSORY_ID = "new-entry-keyboard-actions";
+const PROMPT_SLOT_HEIGHT = 26;
+const PROMPT_WHEEL_DURATION_MS = 320;
+const PROMPT_INSERT_PULSE_MS = 520;
+const SAVE_HIGHLIGHT_DURATION_MS = 220;
+const MIN_FINISH_DWELL_MS = 1500;
+
+function waitOutFinishDwell(startedAt: number) {
+  const remaining = MIN_FINISH_DWELL_MS - (Date.now() - startedAt);
+
+  if (remaining <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>(resolve => setTimeout(resolve, remaining));
+}
 
 function toRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
@@ -151,90 +104,24 @@ function toRgba(hex: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+function mergePrompts(existing: WritingPrompt[], incoming: WritingPrompt[]) {
+  const seen = new Set(
+    existing.map(prompt => prompt.text.trim().toLowerCase())
+  );
 
-function scoreKeywordMatches(content: string, keyword: string) {
-  const expression = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "gi");
-  const matches = [...content.matchAll(expression)];
-  let positiveMatches = 0;
-  let negatedMatches = 0;
+  return [
+    ...existing,
+    ...incoming.filter(prompt => {
+      const key = prompt.text.trim().toLowerCase();
 
-  for (const match of matches) {
-    const startIndex = match.index ?? 0;
-    const contextWindow = content.slice(Math.max(0, startIndex - 18), startIndex);
-    const negatedContext =
-      /\b(?:not|no|never|hardly|barely)\s+$/.test(contextWindow) ||
-      /\bnot\s+that\s+$/.test(contextWindow);
-
-    if (negatedContext) {
-      negatedMatches += 1;
-      continue;
-    }
-
-    positiveMatches += 1;
-  }
-
-  return { positiveMatches, negatedMatches };
-}
-
-function countNegativeCues(content: string) {
-  return negativeCueExpressions.reduce((total, expression) => {
-    const matches = content.match(expression);
-    return total + (matches?.length || 0);
-  }, 0);
-}
-
-function analyzeContentForTags(text: string, mood?: MoodKey | null): string[] {
-  const lowerText = text.toLowerCase();
-  const negativeCueCount = countNegativeCues(lowerText);
-
-  const scored = Object.entries(tagKeywords)
-    .map(([tag, keywords]) => {
-      const score = keywords.reduce((total, keyword) => {
-        const { positiveMatches, negatedMatches } = scoreKeywordMatches(
-          lowerText,
-          keyword
-        );
-
-        return total + positiveMatches - negatedMatches;
-      }, 0);
-
-      let nextScore = score;
-
-      if (positiveMoodTags.has(tag) && negativeCueCount > 0) {
-        nextScore -= negativeCueCount;
+      if (!key || seen.has(key)) {
+        return false;
       }
 
-      if (mood && moodBoosts[mood].includes(tag)) {
-        nextScore += 1;
-      }
-
-      return { tag, score: nextScore };
-    })
-    .filter(item => item.score > 0);
-
-  const ranked = scored
-    .sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score;
-      }
-
-      return a.tag.localeCompare(b.tag);
-    })
-    .slice(0, 5)
-    .map(item => item.tag);
-
-  if (ranked.length > 0) {
-    return ranked;
-  }
-
-  if (lowerText.trim().length >= 40) {
-    return ["reflection"];
-  }
-
-  return [];
+      seen.add(key);
+      return true;
+    }),
+  ];
 }
 
 export default function NewEntryScreen({
@@ -242,6 +129,7 @@ export default function NewEntryScreen({
   initialPrompt,
 }: NewEntryScreenProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { status: connectivityStatus } = useConnectivity();
   const isOnline = connectivityStatus === "online";
   const { width } = useWindowDimensions();
@@ -251,81 +139,250 @@ export default function NewEntryScreen({
   const returnHomeFromJournalFlow = useAppStore(
     state => state.returnHomeFromJournalFlow
   );
-  const openPaywallForPlacement = useAppStore(
-    state => state.openPaywallForPlacement
+  const isPremium = useAppStore(state =>
+    Boolean(state.session?.user.isPremium)
   );
-  const isPremiumUser = useAppStore(state => Boolean(state.session?.user.isPremium));
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [selectedMood, setSelectedMood] = useState<MoodKey | null>(null);
-  const [showPrompts, setShowPrompts] = useState(false);
-  const [tagInput, setTagInput] = useState("");
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
-  const [writingPrompts, setWritingPrompts] =
-    useState<WritingPrompt[]>(DEFAULT_WRITING_PROMPTS);
+  // Starts empty so the card shimmers instead of flashing a placeholder prompt
+  // the user never asked for.
+  const [writingPrompts, setWritingPrompts] = useState<WritingPrompt[]>([]);
+  const [hasResolvedPrompts, setHasResolvedPrompts] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
+  // The prompt that is on its way out of the slot. The prompt that stays is
+  // always `writingPrompts[promptIndex]`, committed the instant the wheel
+  // starts — see `advancePrompt`.
+  const [outgoingPrompt, setOutgoingPrompt] = useState<WritingPrompt | null>(
+    null
+  );
   const [isSaving, setIsSaving] = useState(false);
-  const [isAutoTagging, setIsAutoTagging] = useState(false);
-  const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
-  const [promptsError, setPromptsError] = useState<string | null>(null);
+  const [isConfirmVisible, setIsConfirmVisible] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const promptListProgress = useRef(new Animated.Value(0)).current;
-  const suggestionCardProgress = useRef(new Animated.Value(0)).current;
+  // 1 is the resting state: the visible prompt sits still in the slot. Each
+  // advance drops it to 0 and animates back to 1, so the wheel never has to be
+  // reset after the fact.
+  const promptWheel = useRef(new Animated.Value(1)).current;
+  const promptInsert = useRef(new Animated.Value(0)).current;
+  const saveHighlight = useRef(new Animated.Value(0)).current;
+  const contentInputRef = useRef<TextInput | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const isFetchingPromptsRef = useRef(false);
+  const hasLoadedPromptsRef = useRef(false);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
   const horizontalPadding = isCompact ? 16 : isWide ? 28 : 20;
   const sheetMaxWidth = isWide ? 460 : 420;
 
+  const activePrompt = writingPrompts[promptIndex] ?? null;
+  const hasContent = content.trim().length > 0;
+  const isSaveReady = isOnline && !isSaving && hasContent;
+  const isLoadingPrompt = !hasResolvedPrompts && !activePrompt;
+
   useEffect(() => {
-    if (!showPrompts) {
-      promptListProgress.setValue(0);
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(enabled => mounted && setReduceMotion(enabled))
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const fetchPrompts = useCallback(async () => {
+    if (isFetchingPromptsRef.current) {
       return;
     }
 
-    Animated.timing(promptListProgress, {
-      toValue: 1,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [promptListProgress, showPrompts]);
+    isFetchingPromptsRef.current = true;
+
+    try {
+      const response = await getWritingPrompts();
+
+      if (response.prompts.length === 0) {
+        return;
+      }
+
+      setWritingPrompts(previous => {
+        // The first successful load fills the empty slot; later background
+        // refills append so the wheel keeps producing text the user has not
+        // seen. Either way a seeded reflection keeps its place at the front.
+        if (!hasLoadedPromptsRef.current) {
+          hasLoadedPromptsRef.current = true;
+          const seeded = previous.filter(
+            prompt => prompt.id === TODAYS_REFLECTION_PROMPT_ID
+          );
+          return mergePrompts(seeded, response.prompts);
+        }
+
+        return mergePrompts(previous, response.prompts);
+      });
+    } catch {
+      // The composer must stay usable offline, so the local prompts stand in —
+      // but only on failure, never as a placeholder before the first response.
+      setWritingPrompts(previous =>
+        hasLoadedPromptsRef.current
+          ? previous
+          : mergePrompts(previous, DEFAULT_WRITING_PROMPTS)
+      );
+      hasLoadedPromptsRef.current = true;
+    } finally {
+      isFetchingPromptsRef.current = false;
+      setHasResolvedPrompts(true);
+    }
+  }, []);
 
   useEffect(() => {
-    if (suggestedTags.length === 0) {
-      suggestionCardProgress.setValue(0);
+    fetchPrompts().catch(() => undefined);
+  }, [fetchPrompts]);
+
+  // "Today's reflection" from Home now seeds the prompt slot rather than the
+  // body, so the user chooses whether it becomes part of the entry.
+  useEffect(() => {
+    const trimmedPrompt = initialPrompt?.trim();
+
+    if (!trimmedPrompt) {
       return;
     }
 
-    suggestionCardProgress.setValue(0);
-    Animated.spring(suggestionCardProgress, {
-      toValue: 1,
-      speed: 16,
-      bounciness: 5,
-      useNativeDriver: true,
-    }).start();
-  }, [suggestedTags.length, suggestionCardProgress]);
-
-  useEffect(() => {
-    if (!initialPrompt?.trim()) {
-      return;
-    }
-
-    setSelectedPrompt(previous => previous || initialPrompt.trim());
-    setContent(previous => {
-      if (previous.includes(initialPrompt.trim())) {
+    setWritingPrompts(previous => {
+      if (previous.some(prompt => prompt.id === TODAYS_REFLECTION_PROMPT_ID)) {
         return previous;
       }
 
-      if (!previous.trim()) {
-        return `${initialPrompt.trim()}\n`;
+      return [
+        {
+          id: TODAYS_REFLECTION_PROMPT_ID,
+          topic: "Today's reflection",
+          text: trimmedPrompt,
+        },
+        ...previous,
+      ];
+    });
+    setPromptIndex(0);
+  }, [initialPrompt]);
+
+  useEffect(() => {
+    Animated.timing(saveHighlight, {
+      toValue: isSaveReady ? 1 : 0,
+      duration: reduceMotion ? 0 : SAVE_HIGHLIGHT_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isSaveReady, reduceMotion, saveHighlight]);
+
+  /**
+   * The slot-machine step: the outgoing prompt travels down out of the slot
+   * while the new one drops in from above.
+   *
+   * The new prompt is committed to state *before* the animation runs, and the
+   * layer that keeps it lands exactly on the resting style. Swapping the text
+   * in the animation's end callback instead meant a React commit and a
+   * native-driver reset landing in different UI transactions, so the new prompt
+   * painted for a frame at the old transform and then snapped into place.
+   */
+  const advancePrompt = useCallback(() => {
+    if (writingPrompts.length === 0) {
+      return;
+    }
+
+    const current = writingPrompts[promptIndex] ?? null;
+    const nextIndex = (promptIndex + 1) % writingPrompts.length;
+
+    // Wrapping means the batch is spent — quietly top it up so repeated taps
+    // keep surfacing prompts the user has not seen.
+    if (nextIndex === 0) {
+      fetchPrompts().catch(() => undefined);
+    }
+
+    // Committed straight away, so back-to-back taps each advance by one rather
+    // than recomputing the same index off a value that has not landed yet.
+    setPromptIndex(nextIndex);
+
+    if (reduceMotion) {
+      setOutgoingPrompt(null);
+      promptWheel.setValue(1);
+      return;
+    }
+
+    promptWheel.stopAnimation();
+    setOutgoingPrompt(current);
+    promptWheel.setValue(0);
+    Animated.timing(promptWheel, {
+      toValue: 1,
+      duration: PROMPT_WHEEL_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        return;
       }
 
-      return `${initialPrompt.trim()}\n\n${previous.trimStart()}`;
+      // Only drops the (already invisible) outgoing copy — the prompt on show
+      // is untouched, so nothing moves when the wheel lands.
+      setOutgoingPrompt(null);
     });
-  }, [initialPrompt]);
+  }, [
+    fetchPrompts,
+    promptIndex,
+    promptWheel,
+    reduceMotion,
+    writingPrompts,
+  ]);
+
+  const handleRefreshPrompt = () => {
+    triggerHaptic("secondaryAction").catch(() => undefined);
+    advancePrompt();
+  };
+
+  const handleUsePrompt = () => {
+    if (!activePrompt) {
+      return;
+    }
+
+    const promptText = activePrompt.text.trim();
+    triggerHaptic("optionSelected").catch(() => undefined);
+
+    // The text lands in the entry on the tap itself; the motion below shows
+    // where it went rather than gating the insert behind an animation.
+    setSelectedPrompt(promptText);
+    setContent(previous =>
+      previous.trim()
+        ? `${previous.trimEnd()}\n\n${promptText}\n`
+        : `${promptText}\n`
+    );
+    advancePrompt();
+
+    if (reduceMotion) {
+      return;
+    }
+
+    // The prompt slot clips, so the arrival is signalled on the destination:
+    // the entry field pulses a primary ring as the text lands in it.
+    promptInsert.setValue(0);
+    Animated.sequence([
+      Animated.timing(promptInsert, {
+        toValue: 1,
+        duration: PROMPT_INSERT_PULSE_MS * 0.35,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(promptInsert, {
+        toValue: 0,
+        duration: PROMPT_INSERT_PULSE_MS * 0.65,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   const maybeSkipTodaysReminder = async () => {
     try {
@@ -343,50 +400,26 @@ export default function NewEntryScreen({
     }
   };
 
-  const moodTone = (mood: MoodKey) => {
-    if (mood === "amazing") {
-      return {
-        color: theme.colors.primary,
-        backgroundColor: toRgba(theme.colors.primary, 0.1),
-        selectedBackgroundColor: toRgba(theme.colors.primary, 0.14),
-      };
+  const handleSavePress = () => {
+    if (!isSaveReady) {
+      return;
     }
 
-    if (mood === "good") {
-      return {
-        color: theme.colors.success,
-        backgroundColor: toRgba(theme.colors.success, 0.1),
-        selectedBackgroundColor: toRgba(theme.colors.success, 0.14),
-      };
-    }
+    Keyboard.dismiss();
+    setIsConfirmVisible(true);
+    triggerHaptic("bottomSheet").catch(() => undefined);
+  };
 
-    if (mood === "okay") {
-      return {
-        color: theme.colors.warning,
-        backgroundColor: toRgba(theme.colors.warning, 0.1),
-        selectedBackgroundColor: toRgba(theme.colors.warning, 0.14),
-      };
-    }
-
-    if (mood === "bad") {
-      return {
-        color: theme.colors.mutedForeground,
-        backgroundColor: toRgba(theme.colors.mutedForeground, 0.1),
-        selectedBackgroundColor: toRgba(theme.colors.mutedForeground, 0.14),
-      };
-    }
-
-    return {
-      color: theme.colors.destructive,
-      backgroundColor: toRgba(theme.colors.destructive, 0.1),
-      selectedBackgroundColor: toRgba(theme.colors.destructive, 0.14),
-    };
+  const handleWriteMore = () => {
+    setIsConfirmVisible(false);
+    triggerHaptic("secondaryAction").catch(() => undefined);
+    setTimeout(() => contentInputRef.current?.focus(), 220);
   };
 
   const handleSave = async () => {
     const trimmedContent = content.trim();
 
-    if (!isOnline) {
+    if (!isOnline || isSaving) {
       return;
     }
 
@@ -397,214 +430,121 @@ export default function NewEntryScreen({
 
     setIsSaving(true);
     setError(null);
-
-    const optimisticTags = selectedMood
-      ? [...selectedTags, `mood:${selectedMood}`]
-      : selectedTags;
-
-    const optimisticEntry = {
-      _id: `entry-${Date.now()}`,
-      title: title.trim() || UNTITLED_ENTRY_TITLE,
-      content: trimmedContent,
-      type: "open_ended" as const,
-      aiPrompt: selectedPrompt,
-      images: [],
-      tags: optimisticTags,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    triggerHaptic("primaryAction").catch(() => undefined);
+    const finishStartedAt = Date.now();
 
     try {
       const savedEntry = await createJournalEntry({
-        title: optimisticEntry.title,
-        content: optimisticEntry.content,
-        type: optimisticEntry.type,
-        aiPrompt: optimisticEntry.aiPrompt || undefined,
-        tags: optimisticEntry.tags,
+        title: title.trim() || UNTITLED_ENTRY_TITLE,
+        content: trimmedContent,
+        type: "open_ended",
+        aiPrompt: selectedPrompt || undefined,
+        tags: [],
       });
 
       addRecentJournalEntry(savedEntry);
-      await maybeSkipTodaysReminder();
-      await cancelWeeklyInsightNotifications();
+      // The entry is already persisted, so notification bookkeeping must never
+      // reach the catch below — a rejection there showed a save error on a
+      // saved entry and invited a duplicate save.
+      maybeSkipTodaysReminder().catch(() => undefined);
+      cancelWeeklyInsightNotifications().catch(() => undefined);
 
+      // Mirrors the guided reflection finish step: the analysis is fetched here,
+      // behind the inline button loader, so the next screen opens with its data
+      // already in hand and plays its reveal instead of a loading spinner.
+      let sessionAnalysis: GuidedReflectionSessionAnalysisResponse | undefined;
+
+      if (Platform.OS === "ios" && savedEntry._id && isPremium) {
+        try {
+          sessionAnalysis = await getJournalSessionAnalysis(savedEntry._id);
+        } catch {
+          // The entry is saved either way — the analysis screen falls back to
+          // its own fetch/retry rather than blocking the save.
+        }
+      }
+
+      // Free users have no analysis call to wait on, so without a floor the
+      // lock screen would snap in the instant the entry saves. This holds the
+      // finish loader for the remainder of the beat; a slower premium fetch
+      // has already covered it and waits no longer.
+      await waitOutFinishDwell(finishStartedAt);
+
+      setIsConfirmVisible(false);
+      setIsSaving(false);
       returnHomeFromJournalFlow();
+
+      // iOS keeps the post-save analysis beat in the journal flow. Free users
+      // receive the local obscured preview; Android intentionally returns Home.
+      if (Platform.OS === "ios" && savedEntry._id) {
+        triggerHaptic("personalizationComplete").catch(() => undefined);
+        navigateMainApp("EntrySessionAnalysis", {
+          journalId: savedEntry._id,
+          sessionAnalysis,
+        });
+      }
     } catch (saveError) {
+      setIsSaving(false);
+      setIsConfirmVisible(false);
       setError(
         saveError instanceof Error
           ? saveError.message
           : "Unable to save this entry right now."
       );
-    } finally {
-      setIsSaving(false);
     }
   };
-
-  const handleAddTag = () => {
-    const nextTag = tagInput.trim().toLowerCase();
-
-    if (!nextTag || selectedTags.includes(nextTag)) {
-      return;
-    }
-
-    setSelectedTags(previous => [...previous, nextTag]);
-    setTagInput("");
-  };
-
-  const handleRemoveTag = (tag: string) => {
-    setSelectedTags(previous => previous.filter(current => current !== tag));
-  };
-
-  const handlePromptPress = (prompt: string) => {
-    setSelectedPrompt(prompt);
-    setContent(previous =>
-      previous.trim() ? `${previous.trimEnd()}\n\n${prompt}\n` : `${prompt}\n`
-    );
-    setShowPrompts(false);
-  };
-
-  const loadWritingPrompts = async () => {
-    setIsLoadingPrompts(true);
-    setPromptsError(null);
-
-    try {
-      const response = await getWritingPrompts();
-      setWritingPrompts(
-        response.prompts.length > 0 ? response.prompts : DEFAULT_WRITING_PROMPTS
-      );
-    } catch {
-      setWritingPrompts(DEFAULT_WRITING_PROMPTS);
-      setPromptsError("Unable to load writing prompts right now.");
-    } finally {
-      setIsLoadingPrompts(false);
-    }
-  };
-
-  const handleTogglePrompts = () => {
-    const nextShowPrompts = !showPrompts;
-    setShowPrompts(nextShowPrompts);
-
-    if (nextShowPrompts) {
-      loadWritingPrompts().catch(() => undefined);
-    }
-  };
-
-  const handleAutoTag = async () => {
-    if (!isPremiumUser) {
-      trackPaywallEvent({
-        placementKey: "new_entry_auto_tag_locked",
-        screenKey: "new-entry",
-        eventType: "locked_feature_tap",
-        wasInterruptive: false,
-      }).catch(() => undefined);
-      openPaywallForPlacement({
-        placementKey: "new_entry_auto_tag_locked",
-        returnStage: "new-entry",
-        screenKey: "new-entry",
-      });
-      return;
-    }
-
-    if (!content.trim()) {
-      setError("Write something first so AI can analyze it.");
-      return;
-    }
-
-    setIsAutoTagging(true);
-    setError(null);
-
-    try {
-      const response = await fetchSuggestedJournalTags({
-        content,
-        selectedTags,
-        mood: selectedMood,
-      });
-      const aiTags = response.tags.filter(tag => Boolean(tag?.trim()));
-      setSuggestedTags(aiTags);
-    } catch (autoTagError) {
-      if (autoTagError instanceof ApiError && autoTagError.status === 403) {
-        setSuggestedTags([]);
-        setError("Premium membership is required for AI tag suggestions.");
-        return;
-      }
-
-      const fallbackSuggestions = analyzeContentForTags(content, selectedMood).filter(
-        tag => !selectedTags.includes(tag)
-      );
-
-      if (fallbackSuggestions.length > 0) {
-        setSuggestedTags(fallbackSuggestions);
-      } else {
-        setError(
-          autoTagError instanceof Error
-            ? autoTagError.message
-            : "Unable to suggest tags right now."
-        );
-      }
-    } finally {
-      setIsAutoTagging(false);
-    }
-  };
-
-  const handleAcceptSuggestedTag = (tag: string) => {
-    setSelectedTags(previous =>
-      previous.includes(tag) ? previous : [...previous, tag]
-    );
-    setSuggestedTags(previous => previous.filter(current => current !== tag));
-  };
-
-  const handleAcceptAllSuggested = () => {
-    setSelectedTags(previous => {
-      const merged = new Set([...previous, ...suggestedTags]);
-      return Array.from(merged);
-    });
-    setSuggestedTags([]);
-  };
-
-  const handleDismissSuggested = (tag: string) => {
-    setSuggestedTags(previous => previous.filter(current => current !== tag));
-  };
-
-  const promptListAnimatedStyle = {
-    opacity: promptListProgress,
-    transform: [
-      {
-        translateY: promptListProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [-10, 0],
-        }),
-      },
-      {
-        scale: promptListProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.98, 1],
-        }),
-      },
-    ],
-  } as const;
-
-  const suggestionCardAnimatedStyle = {
-    opacity: suggestionCardProgress,
-    transform: [
-      {
-        translateY: suggestionCardProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [10, 0],
-        }),
-      },
-      {
-        scale: suggestionCardProgress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.98, 1],
-        }),
-      },
-    ],
-  } as const;
 
   const revealWritingArea = () => {
     setTimeout(() => {
       scrollViewRef.current?.scrollTo({ y: 310, animated: true });
     }, 120);
   };
+
+  // The prompt that stays: drops in from above and settles at the resting
+  // style, which is where the wheel already sits between advances.
+  const activePromptStyle = {
+    opacity: promptWheel,
+    transform: [
+      {
+        translateY: promptWheel.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-PROMPT_SLOT_HEIGHT, 0],
+        }),
+      },
+    ],
+  } as const;
+
+  // The copy of the previous prompt, mounted only while the wheel is turning.
+  const outgoingPromptStyle = {
+    opacity: promptWheel.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0],
+    }),
+    transform: [
+      {
+        translateY: promptWheel.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, PROMPT_SLOT_HEIGHT],
+        }),
+      },
+      {
+        scale: promptWheel.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1, 0.96],
+        }),
+      },
+    ],
+  } as const;
+
+  const refreshSpinStyle = {
+    transform: [
+      {
+        rotate: promptWheel.interpolate({
+          inputRange: [0, 1],
+          outputRange: ["0deg", "360deg"],
+        }),
+      },
+    ],
+  } as const;
 
   return (
     <SafeAreaView
@@ -625,7 +565,7 @@ export default function NewEntryScreen({
               },
             ]}
           >
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel="Back"
               onPress={onBack}
@@ -639,41 +579,15 @@ export default function NewEntryScreen({
               ]}
             >
               <ArrowLeft size={18} color={theme.colors.foreground} />
-            </Pressable>
+            </HapticPressable>
 
             <Text style={[styles.headerTitle, { color: theme.colors.foreground }]}>
-              New Entry
+              Open Entry
             </Text>
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Save entry"
-              accessibilityState={{ busy: isSaving, disabled: !isOnline || isSaving }}
-              onPress={handleSave}
-              disabled={!isOnline || isSaving}
-              style={({ pressed }) => [
-                styles.saveButton,
-                {
-                  backgroundColor: theme.colors.card,
-                  borderColor: theme.colors.border,
-                },
-                pressed && isOnline && !isSaving && styles.pressed,
-                (!isOnline || isSaving) && styles.saveButtonSaving,
-              ]}
-            >
-              <ButtonLoadingContent
-                contentStyle={styles.saveButtonContent}
-                loaderColor={theme.colors.primary}
-                loading={isSaving}
-              >
-                <Save size={14} color={theme.colors.primary} />
-                <Text
-                  style={[styles.saveButtonText, { color: theme.colors.primary }]}
-                >
-                  Save
-                </Text>
-              </ButtonLoadingContent>
-            </Pressable>
+            {/* Balances the back button so the title stays optically centred
+                now that Save has moved to the bottom of the screen. */}
+            <View style={styles.headerSpacer} />
           </View>
 
           <ScrollView
@@ -691,47 +605,6 @@ export default function NewEntryScreen({
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.sheet, { maxWidth: sheetMaxWidth }]}>
-              <View style={styles.section}>
-                <Text
-                  style={[styles.sectionLabel, { color: theme.colors.foreground }]}
-                >
-                  How are you feeling?
-                </Text>
-                <View style={styles.moodRow}>
-                  {moods.map(mood => {
-                    const Icon = mood.icon;
-                    const isSelected = selectedMood === mood.value;
-                    const tone = moodTone(mood.value);
-
-                    return (
-                      <Pressable
-                        key={mood.value}
-                        accessibilityRole="button"
-                        accessibilityLabel={mood.label}
-                        onPress={() => setSelectedMood(mood.value)}
-                        style={({ pressed }) => [
-                          styles.moodButton,
-                          {
-                            borderColor: isSelected
-                              ? theme.colors.primary
-                              : theme.colors.border,
-                            backgroundColor: isSelected
-                              ? tone.selectedBackgroundColor
-                              : tone.backgroundColor,
-                          },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <Icon
-                          size={24}
-                          color={isSelected ? tone.color : theme.colors.mutedForeground}
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-
               <View style={styles.section}>
                 <TextInput
                   accessibilityLabel="Entry title"
@@ -752,104 +625,105 @@ export default function NewEntryScreen({
               </View>
 
               <View style={styles.section}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={showPrompts ? "Hide writing prompts" : "Show writing prompts"}
-                  onPress={handleTogglePrompts}
-                  style={({ pressed }) => [
-                    styles.promptToggle,
-                    {
-                      borderColor: theme.colors.border,
-                      backgroundColor: theme.colors.card,
-                    },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Sparkles size={16} color={theme.colors.primary} />
-                  <Text
-                    style={[styles.promptToggleText, { color: theme.colors.foreground }]}
+                <View style={styles.promptRow}>
+                  <HapticPressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      activePrompt
+                        ? `Add writing prompt to your entry: ${activePrompt.text}`
+                        : "Writing prompt"
+                    }
+                    disabled={!activePrompt}
+                    onPress={handleUsePrompt}
+                    style={({ pressed }) => [
+                      styles.promptCard,
+                      {
+                        backgroundColor: theme.colors.accent,
+                        borderColor: theme.colors.border,
+                      },
+                      pressed && activePrompt && styles.pressed,
+                    ]}
                   >
-                    {showPrompts ? "Hide Writing Prompts" : "Show Writing Prompts"}
-                  </Text>
-                </Pressable>
-
-                {showPrompts ? (
-                  <Animated.View style={[styles.promptList, promptListAnimatedStyle]}>
-                    {isLoadingPrompts ? (
-                      <View
+                    <View style={styles.promptSlot}>
+                      {isLoadingPrompt ? (
+                        <View
+                          accessibilityLabel="Loading a writing prompt"
+                          style={styles.promptShimmerStack}
+                        >
+                          <ShimmerBlock
+                            baseColor={theme.colors.border}
+                            highlightColor={theme.colors.card}
+                            style={styles.promptShimmerLine}
+                          />
+                          <ShimmerBlock
+                            baseColor={theme.colors.border}
+                            highlightColor={theme.colors.card}
+                            style={[
+                              styles.promptShimmerLine,
+                              styles.promptShimmerLineShort,
+                            ]}
+                          />
+                        </View>
+                      ) : null}
+                      <Animated.Text
+                        numberOfLines={1}
                         style={[
-                          styles.promptStatusCard,
-                          {
-                            backgroundColor: theme.colors.accent,
-                            borderColor: theme.colors.border,
-                          },
+                          styles.promptText,
+                          { color: theme.colors.foreground },
+                          activePromptStyle,
                         ]}
                       >
-                        <ActivityIndicator
-                          accessibilityLabel="Loading writing prompts"
-                          color={theme.colors.primary}
-                          size="small"
-                        />
-                        <Text
+                        {activePrompt?.text ?? ""}
+                      </Animated.Text>
+                      {outgoingPrompt ? (
+                        <Animated.Text
+                          numberOfLines={1}
                           style={[
-                            styles.promptStatusText,
-                            { color: theme.colors.mutedForeground },
+                            styles.promptText,
+                            styles.promptTextOverlay,
+                            { color: theme.colors.foreground },
+                            outgoingPromptStyle,
                           ]}
                         >
-                          Loading personalized prompts...
-                        </Text>
-                      </View>
-                    ) : (
-                      writingPrompts.map(prompt => (
-                        <Pressable
-                          key={prompt.id}
-                          accessibilityRole="button"
-                          accessibilityLabel={prompt.text}
-                          onPress={() => handlePromptPress(prompt.text)}
-                          style={({ pressed }) => [
-                            styles.promptButton,
-                            {
-                              backgroundColor: theme.colors.accent,
-                              borderColor: theme.colors.border,
-                            },
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.promptButtonTopic,
-                              { color: theme.colors.primary },
-                            ]}
-                          >
-                            {prompt.topic}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.promptButtonText,
-                              { color: theme.colors.foreground },
-                            ]}
-                          >
-                            {prompt.text}
-                          </Text>
-                        </Pressable>
-                      ))
-                    )}
-                    {promptsError ? (
-                      <Text
-                        style={[
-                          styles.promptErrorText,
-                          { color: theme.colors.mutedForeground },
-                        ]}
-                      >
-                        {promptsError}
-                      </Text>
-                    ) : null}
-                  </Animated.View>
-                ) : null}
+                          {outgoingPrompt.text}
+                        </Animated.Text>
+                      ) : null}
+                    </View>
+                  </HapticPressable>
+
+                  <HapticPressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Show another writing prompt"
+                    onPress={handleRefreshPrompt}
+                    style={({ pressed }) => [
+                      styles.promptRefreshButton,
+                      {
+                        borderColor: theme.colors.border,
+                        backgroundColor: theme.colors.card,
+                      },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Animated.View style={refreshSpinStyle}>
+                      <RefreshCw size={15} color={theme.colors.primary} />
+                    </Animated.View>
+                  </HapticPressable>
+                </View>
               </View>
 
               <View style={styles.section}>
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.contentPulseRing,
+                    {
+                      borderColor: theme.colors.primary,
+                      opacity: promptInsert,
+                    },
+                  ]}
+                />
                 <TextInput
+                  ref={contentInputRef}
                   accessibilityLabel="Entry content"
                   value={content}
                   onChangeText={setContent}
@@ -871,237 +745,6 @@ export default function NewEntryScreen({
                 />
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Auto-tag with AI"
-                accessibilityState={{ busy: isAutoTagging, disabled: isAutoTagging }}
-                onPress={handleAutoTag}
-                disabled={isAutoTagging}
-                style={({ pressed }) => [
-                  styles.autoTagCard,
-                  {
-                    borderColor: isPremiumUser
-                      ? theme.colors.primary
-                      : theme.colors.border,
-                    backgroundColor: isPremiumUser
-                      ? toRgba(theme.colors.primary, 0.05)
-                      : theme.colors.card,
-                  },
-                  pressed && !isAutoTagging && styles.pressed,
-                  (isAutoTagging || !isPremiumUser) && styles.autoTagCardDisabled,
-                ]}
-              >
-                <ButtonLoadingContent
-                  contentStyle={styles.autoTagContent}
-                  loaderColor={theme.colors.primary}
-                  loading={isAutoTagging}
-                  style={styles.autoTagLoadingContent}
-                >
-                <View
-                  style={[
-                    styles.autoTagIconWrap,
-                    {
-                      backgroundColor: isPremiumUser
-                        ? toRgba(theme.colors.primary, 0.1)
-                        : theme.colors.accent,
-                    },
-                  ]}
-                >
-                  {!isPremiumUser ? (
-                    <Lock size={18} color={theme.colors.mutedForeground} />
-                  ) : (
-                    <Wand2 size={18} color={theme.colors.primary} />
-                  )}
-                </View>
-                <View style={styles.autoTagCopy}>
-                  <Text
-                    style={[styles.autoTagTitle, { color: theme.colors.foreground }]}
-                  >
-                    Auto-tag with AI
-                  </Text>
-                  <Text
-                    style={[
-                      styles.autoTagSubtitle,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    {isPremiumUser
-                      ? "Analyze your thoughts and suggest tags"
-                      : "Premium unlocks AI tag suggestions for your entries"}
-                  </Text>
-                </View>
-                {isPremiumUser ? (
-                  <Sparkles size={16} color={theme.colors.primary} />
-                ) : (
-                  <Text
-                    style={[
-                      styles.autoTagSubtitle,
-                      styles.autoTagPremiumText,
-                      { color: theme.colors.primary },
-                    ]}
-                  >
-                    Premium
-                  </Text>
-                )}
-                </ButtonLoadingContent>
-              </Pressable>
-
-              <View style={styles.section}>
-                <Text
-                  style={[styles.sectionLabel, { color: theme.colors.foreground }]}
-                >
-                  Tags
-                </Text>
-                <View style={styles.tagInputRow}>
-                  <TextInput
-                    accessibilityLabel="Add tag"
-                    value={tagInput}
-                    onChangeText={setTagInput}
-                    placeholder="Add a tag..."
-                    placeholderTextColor={theme.colors.mutedForeground}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    inputAccessoryViewID={NEW_ENTRY_KEYBOARD_ACCESSORY_ID}
-                    returnKeyType="done"
-                    onSubmitEditing={handleAddTag}
-                    style={[
-                      styles.tagInput,
-                      {
-                        color: theme.colors.foreground,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.card,
-                      },
-                    ]}
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Add tag"
-                    onPress={handleAddTag}
-                    style={({ pressed }) => [
-                      styles.addTagButton,
-                      {
-                        backgroundColor: theme.colors.primary,
-                      },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Tag size={16} color={theme.colors.primaryForeground} />
-                  </Pressable>
-                </View>
-
-                {selectedTags.length > 0 ? (
-                  <View style={styles.tagWrap}>
-                    {selectedTags.map(tag => (
-                      <View
-                        key={tag}
-                        style={[
-                          styles.tagPill,
-                          {
-                            backgroundColor: theme.colors.secondary,
-                            borderColor: theme.colors.border,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[styles.tagText, { color: theme.colors.foreground }]}
-                        >
-                          {tag}
-                        </Text>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${tag}`}
-                          onPress={() => handleRemoveTag(tag)}
-                          style={styles.tagRemoveButton}
-                        >
-                          <X size={12} color={theme.colors.mutedForeground} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                {suggestedTags.length > 0 ? (
-                  <Animated.View
-                    style={[
-                      styles.suggestionCard,
-                      suggestionCardAnimatedStyle,
-                      {
-                        borderColor: theme.colors.primary,
-                        backgroundColor: toRgba(theme.colors.primary, 0.05),
-                      },
-                    ]}
-                  >
-                    <View style={styles.suggestionHeader}>
-                      <View style={styles.suggestionHeaderLeft}>
-                        <Wand2 size={14} color={theme.colors.primary} />
-                        <Text
-                          style={[
-                            styles.suggestionKicker,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          AI Suggested Tags
-                        </Text>
-                      </View>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Add all suggested tags"
-                        onPress={handleAcceptAllSuggested}
-                      >
-                        <Text
-                          style={[
-                            styles.suggestionAction,
-                            { color: theme.colors.primary },
-                          ]}
-                        >
-                          Add all
-                        </Text>
-                      </Pressable>
-                    </View>
-
-                    <View style={styles.tagWrap}>
-                      {suggestedTags.map(tag => (
-                        <View
-                          key={tag}
-                          style={[
-                            styles.suggestionPill,
-                            {
-                              borderColor: theme.colors.primary,
-                              backgroundColor: toRgba(theme.colors.primary, 0.1),
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.suggestionText,
-                              { color: theme.colors.primary },
-                            ]}
-                          >
-                            {tag}
-                          </Text>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Add ${tag}`}
-                            onPress={() => handleAcceptSuggestedTag(tag)}
-                            style={styles.suggestionIconButton}
-                          >
-                            <Check size={12} color={theme.colors.primary} />
-                          </Pressable>
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={`Dismiss ${tag}`}
-                            onPress={() => handleDismissSuggested(tag)}
-                            style={styles.suggestionIconButton}
-                          >
-                            <X size={12} color={theme.colors.mutedForeground} />
-                          </Pressable>
-                        </View>
-                      ))}
-                    </View>
-                  </Animated.View>
-                ) : null}
-              </View>
-
               {error ? (
                 <View
                   style={[
@@ -1121,6 +764,111 @@ export default function NewEntryScreen({
               ) : null}
             </View>
           </ScrollView>
+
+          <Animated.View
+            pointerEvents="box-none"
+            style={[
+              styles.saveDock,
+              {
+                bottom: insets.bottom + 16,
+                right: horizontalPadding,
+                transform: [
+                  {
+                    scale: saveHighlight.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.96, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <HapticPressable
+              accessibilityRole="button"
+              accessibilityLabel="Save entry"
+              accessibilityState={{ busy: isSaving, disabled: !isSaveReady }}
+              onPress={handleSavePress}
+              disabled={!isSaveReady}
+              style={({ pressed }) => [
+                styles.saveButton,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                },
+                pressed && isSaveReady && styles.pressed,
+              ]}
+            >
+              {/* backgroundColor cannot be driven natively, so the highlight is
+                  a primary-coloured layer cross-fading over the muted base. */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.saveButtonFill,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: saveHighlight,
+                  },
+                ]}
+              />
+              {isSaving ? (
+                <GuidedFinishLoader
+                  active={isSaving}
+                  color={theme.colors.primaryForeground}
+                />
+              ) : (
+                <View style={styles.saveButtonContent}>
+                  <View style={styles.saveIconStack}>
+                    <Animated.View
+                      style={{
+                        opacity: saveHighlight.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 0],
+                        }),
+                      }}
+                    >
+                      <Save size={14} color={theme.colors.mutedForeground} />
+                    </Animated.View>
+                    <Animated.View
+                      style={[
+                        styles.saveIconOverlay,
+                        { opacity: saveHighlight },
+                      ]}
+                    >
+                      <Save size={14} color={theme.colors.primaryForeground} />
+                    </Animated.View>
+                  </View>
+                  <View>
+                    <Animated.Text
+                      style={[
+                        styles.saveButtonText,
+                        { color: theme.colors.mutedForeground },
+                        {
+                          opacity: saveHighlight.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 0],
+                          }),
+                        },
+                      ]}
+                    >
+                      Save
+                    </Animated.Text>
+                    <Animated.Text
+                      style={[
+                        styles.saveButtonText,
+                        styles.saveButtonTextOverlay,
+                        {
+                          color: theme.colors.primaryForeground,
+                          opacity: saveHighlight,
+                        },
+                      ]}
+                    >
+                      Save
+                    </Animated.Text>
+                  </View>
+                </View>
+              )}
+            </HapticPressable>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
       <KeyboardDismissAccessory
@@ -1128,6 +876,32 @@ export default function NewEntryScreen({
         backgroundColor={theme.colors.card}
         borderColor={theme.colors.border}
         actionColor={theme.colors.primary}
+      />
+      <ConfirmActionSheet
+        body="You can keep adding to this entry, or finish and see what stood out."
+        dismissAccessibilityLabel="Dismiss save confirmation"
+        isSecondaryLoading={isSaving}
+        onDismiss={() => {
+          if (!isSaving) {
+            setIsConfirmVisible(false);
+          }
+        }}
+        onPrimary={handleWriteMore}
+        onSecondary={() => {
+          handleSave().catch(() => undefined);
+        }}
+        primaryLabel="Write more"
+        secondaryLabel="Finish entry"
+        // Same inline save progress the guided reflection finish step shows,
+        // in place of a full-screen loader between here and the analysis.
+        secondaryLoader={
+          <GuidedFinishLoader
+            active={isSaving}
+            color={theme.colors.foreground}
+          />
+        }
+        title="Finish this entry?"
+        visible={isConfirmVisible}
       />
     </SafeAreaView>
   );
@@ -1162,6 +936,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  headerSpacer: {
+    width: 40,
+    height: 40,
+    flexShrink: 0,
+  },
   headerTitle: {
     flex: 1,
     textAlign: "center",
@@ -1169,20 +948,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: -0.2,
   },
+  saveDock: {
+    position: "absolute",
+  },
   saveButton: {
-    minWidth: 76,
-    paddingHorizontal: 12,
-    height: 40,
-    borderRadius: 20,
+    minWidth: 92,
+    paddingHorizontal: 14,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    flexShrink: 0,
+    overflow: "hidden",
   },
-  saveButtonSaving: {
-    opacity: 0.8,
+  saveButtonFill: {
+    ...StyleSheet.absoluteFillObject,
   },
   saveButtonContent: {
     alignItems: "center",
@@ -1190,16 +972,28 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: "center",
   },
+  saveIconStack: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveIconOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   saveButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
+  },
+  saveButtonTextOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   content: {
     flexGrow: 1,
     paddingTop: 4,
   },
   contentInset: {
-    paddingBottom: 24,
+    paddingBottom: 96,
   },
   sheet: {
     width: "100%",
@@ -1208,83 +1002,65 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 16,
   },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 10,
-  },
-  moodRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 12,
-    flexWrap: "wrap",
-  },
-  moodButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   titleInput: {
     borderBottomWidth: 1,
     fontSize: 18,
     paddingHorizontal: 0,
     paddingVertical: 10,
   },
-  promptToggle: {
+  promptRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  promptCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  promptSlot: {
+    height: PROMPT_SLOT_HEIGHT,
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  promptText: {
+    fontSize: 13,
+    lineHeight: PROMPT_SLOT_HEIGHT,
+  },
+  promptShimmerStack: {
+    ...StyleSheet.absoluteFillObject,
+    gap: 6,
+    justifyContent: "center",
+  },
+  promptShimmerLine: {
+    borderRadius: 999,
+    height: 8,
     width: "100%",
-    borderRadius: 16,
+  },
+  promptShimmerLineShort: {
+    width: "62%",
+  },
+  // The leaving copy is taken out of the flow so the slot's height is set by
+  // the prompt that stays — the card can never resize mid-turn.
+  promptTextOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  promptRefreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "center",
+    flexShrink: 0,
   },
-  promptToggleText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  promptList: {
-    marginTop: 10,
-    gap: 8,
-  },
-  promptStatusCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  promptStatusText: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  promptButton: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  promptButtonTopic: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  promptButtonText: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  promptErrorText: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 2,
+  contentPulseRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 2,
+    zIndex: 1,
   },
   contentInput: {
     minHeight: 300,
@@ -1294,167 +1070,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 15,
     lineHeight: 22,
-  },
-  autoTagCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
-  },
-  autoTagCardDisabled: {
-    opacity: 0.7,
-  },
-  autoTagLoadingContent: {
-    alignSelf: "stretch",
-    flex: 1,
-  },
-  autoTagContent: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: 12,
-  },
-  autoTagIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  autoTagCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  autoTagTitle: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  autoTagSubtitle: {
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  autoTagPremiumText: {
-    fontWeight: "700",
-  },
-  tagInputRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 12,
-  },
-  tagInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-  },
-  addTagButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tagWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  tagPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 6,
-  },
-  tagText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  tagRemoveButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  suggestionCard: {
-    marginTop: 14,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-  },
-  suggestionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 12,
-  },
-  suggestionHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  suggestionKicker: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
-  suggestionAction: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  suggestionPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 6,
-  },
-  suggestionText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  suggestionIconButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  successCopy: {
-    flex: 1,
-  },
-  successTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  successSubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
   },
   errorCard: {
     borderWidth: 1,

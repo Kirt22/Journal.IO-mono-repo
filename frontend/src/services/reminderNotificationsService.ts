@@ -146,6 +146,14 @@ const cancelFreeTrialEndingReminder = async () => {
   await notifee.cancelTriggerNotifications([FREE_TRIAL_ENDING_REMINDER_ID]);
 };
 
+/**
+ * NOTE: `skipToday` is effectively a no-op on iOS. notifee maps a
+ * TimestampTrigger + repeatFrequency onto a UNCalendarNotificationTrigger built
+ * from only the matching calendar components, so the *date* part of the
+ * timestamp is discarded and only weekday/hour/minute survive. Pre-existing
+ * behaviour, left as-is; it is also why goal reminders use discrete
+ * non-repeating triggers instead (see `goalRemindersService`).
+ */
 const scheduleWeeklyNotification = async ({
   notificationId,
   weekday,
@@ -438,6 +446,7 @@ export {
   cancelReminderNotifications,
   cancelWeeklyInsightNotifications,
   getDefaultReminderTimezone,
+  parseTime,
   getReminderPermissionGranted,
   requestReminderPermission,
   requestAndSyncOnboardingReminderPreference,

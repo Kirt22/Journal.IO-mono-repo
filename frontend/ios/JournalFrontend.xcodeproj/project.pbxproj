@@ -7,16 +7,73 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		015332B3B17F420D8848D5BC /* SchibstedGrotesk-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */; };
 		05821628018620E2E27AE8F0 /* JournalMindMapViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-JournalFrontend.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */; };
 		0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */; };
 		0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		28A42F2099664DE4948CA683 /* OFL-SchibstedGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */; };
 		3DD881B1D11F439086A4D4B5 /* JournalMindMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */; };
+		4D1E41B704424FB593CFAADB /* OFL-SchibstedGrotesk.txt in Resources */ = {isa = PBXBuildFile; fileRef = EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */; };
+		4F2E2082EFC24847A29EF44B /* SchibstedGrotesk-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */; };
+		695E8E0C7F8C477F8E7CA7E3 /* BricolageGrotesque-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */; };
+		6CC32504BC624B09957A8121 /* SchibstedGrotesk-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
+		7649B91025154D5D92075541 /* BricolageGrotesque-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */; };
+		7B0F9832CC0D41859CC256E2 /* BricolageGrotesque-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */; };
+		7C686353FB6245D8A8D9159B /* OFL-BricolageGrotesque.txt in Resources */ = {isa = PBXBuildFile; fileRef = 409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		871A7431BBD84868B50EA13E /* OFL-BricolageGrotesque.txt in Resources */ = {isa = PBXBuildFile; fileRef = 409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */; };
+		9A587D58907A4BA1B94F039F /* SchibstedGrotesk-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */; };
+		9C8DD2291ECF4F68A071045B /* SchibstedGrotesk-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */; };
+		A10000000000000000000001 /* JournalWidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* JournalWidgetShared.swift */; };
+		A10000000000000000000002 /* WidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* WidgetBridge.swift */; };
+		A10000000000000000000003 /* WidgetBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* WidgetBridge.m */; };
+		A10000000000000000000004 /* JournalWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* JournalWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000005 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* PrivacyInfo.xcprivacy */; };
+		A10000000000000000000006 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* SwiftUI.framework */; };
+		A10000000000000000000007 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* WidgetKit.framework */; };
+		A10000000000000000000008 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* AppIntents.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		A10000000000000000000009 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* Security.framework */; };
+		A1000000000000000000000A /* JournalWidgetShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* JournalWidgetShared.swift */; };
+		A1000000000000000000000B /* JournalWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* JournalWidgets.swift */; };
+		A1000000000000000000000C /* QuickThoughtWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* QuickThoughtWidget.swift */; };
+		A1000000000000000000000D /* MoodCheckInWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* MoodCheckInWidget.swift */; };
+		A1000000000000000000000E /* LogMoodIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* LogMoodIntent.swift */; };
+		A1000000000000000000000F /* StreakWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* StreakWidget.swift */; };
+		AB4081B5F5CC4A2FA52BC696 /* SchibstedGrotesk-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */; };
+		BC4F5F100FDD424C8728CA10 /* SchibstedGrotesk-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */; };
+		BC709479A97942FA9973D035 /* SchibstedGrotesk-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */; };
+		C53636CB6CFC45AFA2317862 /* BricolageGrotesque-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */; };
 		C6130DAD94EBC3CEE00FCB05 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		CB90D78097D445F19F58710F /* SchibstedGrotesk-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */; };
+		ED4A388FCEEE47EFB3231766 /* SchibstedGrotesk-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D10000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10000000000000000000001;
+			remoteInfo = JournalWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E10000000000000000000004 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A10000000000000000000004 /* JournalWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JournalMindMapViewManager.m; path = JournalFrontend/JournalMindMapViewManager.m; sourceTree = "<group>"; };
@@ -26,13 +83,38 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = JournalFrontend/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalFrontend/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = JournalFrontend/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-SemiBold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-SemiBold.ttf"; sourceTree = "<group>"; };
 		1E75643E2C9B4F5400AB1A01 /* JournalFrontend.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = JournalFrontend.entitlements; path = JournalFrontend/JournalFrontend.entitlements; sourceTree = "<group>"; };
+		3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-Bold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-Bold.ttf"; sourceTree = "<group>"; };
 		3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalMindMapView.swift; path = JournalFrontend/JournalMindMapView.swift; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-JournalFrontend.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.debug.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.debug.xcconfig"; sourceTree = "<group>"; };
+		409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-BricolageGrotesque.txt"; path = "../src/assets/fonts/OFL-BricolageGrotesque.txt"; sourceTree = "<group>"; };
+		4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Medium.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Medium.ttf"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-JournalFrontend.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.release.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-JournalFrontend.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Italic.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Italic.ttf"; sourceTree = "<group>"; };
+		723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-SemiBold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-SemiBold.ttf"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = JournalFrontend/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = JournalFrontend/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Regular.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Regular.ttf"; sourceTree = "<group>"; };
+		B10000000000000000000001 /* WidgetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WidgetBridge.swift; path = JournalFrontend/WidgetBridge.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* WidgetBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WidgetBridge.m; path = JournalFrontend/WidgetBridge.m; sourceTree = "<group>"; };
+		B10000000000000000000003 /* JournalWidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalWidgetShared.swift; path = JournalWidgets/Shared/JournalWidgetShared.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* JournalWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalWidgets.swift; path = JournalWidgets/JournalWidgets.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* QuickThoughtWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickThoughtWidget.swift; path = JournalWidgets/QuickThoughtWidget.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* MoodCheckInWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MoodCheckInWidget.swift; path = JournalWidgets/MoodCheckInWidget.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* LogMoodIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LogMoodIntent.swift; path = JournalWidgets/LogMoodIntent.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* JournalWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = JournalWidgets.entitlements; path = JournalWidgets/JournalWidgets.entitlements; sourceTree = "<group>"; };
+		B10000000000000000000009 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = JournalWidgets/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B1000000000000000000000A /* JournalWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JournalWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000000000000000000000B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		B1000000000000000000000C /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		B1000000000000000000000D /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
+		B1000000000000000000000E /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		B1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalWidgets/Info.plist; sourceTree = "<group>"; };
+		B10000000000000000000010 /* StreakWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreakWidget.swift; path = JournalWidgets/StreakWidget.swift; sourceTree = "<group>"; };
+		E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Bold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Bold.ttf"; sourceTree = "<group>"; };
+		EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-SchibstedGrotesk.txt"; path = "../src/assets/fonts/OFL-SchibstedGrotesk.txt"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -45,6 +127,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E10000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000008 /* AppIntents.framework in Frameworks */,
+				A10000000000000000000009 /* Security.framework in Frameworks */,
+				A10000000000000000000006 /* SwiftUI.framework in Frameworks */,
+				A10000000000000000000007 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -54,6 +147,8 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				0D2A4E691A6C4D4FA8422301 /* AppRatingModule.swift */,
 				0D2A4E6A1A6C4D4FA8422301 /* AppRatingModule.m */,
+				B10000000000000000000001 /* WidgetBridge.swift */,
+				B10000000000000000000002 /* WidgetBridge.m */,
 				3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */,
 				0AAD1DC89EDFA17B21085B55 /* JournalMindMapViewManager.m */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
@@ -68,6 +163,10 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				B1000000000000000000000D /* AppIntents.framework */,
+				B1000000000000000000000E /* Security.framework */,
+				B1000000000000000000000B /* SwiftUI.framework */,
+				B1000000000000000000000C /* WidgetKit.framework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */,
 			);
@@ -85,10 +184,12 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* JournalFrontend */,
+				C10000000000000000000001 /* JournalWidgets */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				99A4C44C2CAB4CBB91E3764E /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -99,8 +200,26 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* JournalFrontend.app */,
+				B1000000000000000000000A /* JournalWidgets.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		99A4C44C2CAB4CBB91E3764E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */,
+				723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */,
+				6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */,
+				1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */,
+				E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */,
+				3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */,
+				4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */,
+				409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */,
+				EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */,
+			);
+			name = Resources;
+			path = "";
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -110,6 +229,30 @@
 				5709B34CF0A7D63546082F79 /* Pods-JournalFrontend.release.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000001 /* JournalWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000004 /* JournalWidgets.swift */,
+				B10000000000000000000005 /* QuickThoughtWidget.swift */,
+				B10000000000000000000006 /* MoodCheckInWidget.swift */,
+				B10000000000000000000010 /* StreakWidget.swift */,
+				B10000000000000000000007 /* LogMoodIntent.swift */,
+				C10000000000000000000002 /* Shared */,
+				B1000000000000000000000F /* Info.plist */,
+				B10000000000000000000009 /* PrivacyInfo.xcprivacy */,
+				B10000000000000000000008 /* JournalWidgets.entitlements */,
+			);
+			name = JournalWidgets;
+			sourceTree = "<group>";
+		};
+		C10000000000000000000002 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B10000000000000000000003 /* JournalWidgetShared.swift */,
+			);
+			name = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -123,6 +266,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				E10000000000000000000004 /* Embed App Extensions */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
@@ -130,11 +274,29 @@
 			buildRules = (
 			);
 			dependencies = (
+				D10000000000000000000002 /* PBXTargetDependency */,
 			);
 			name = JournalFrontend;
 			productName = JournalFrontend;
 			productReference = 13B07F961A680F5B00A75B9A /* JournalFrontend.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F10000000000000000000001 /* JournalWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000000000000000000004 /* Build configuration list for PBXNativeTarget "JournalWidgets" */;
+			buildPhases = (
+				E10000000000000000000001 /* Sources */,
+				E10000000000000000000002 /* Frameworks */,
+				E10000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JournalWidgets;
+			productName = JournalWidgets;
+			productReference = B1000000000000000000000A /* JournalWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -152,6 +314,10 @@
 							};
 						};
 					};
+					F10000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						DevelopmentTeam = U5BP5WRA82;
+					};
 				};
 			};
 			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "JournalFrontend" */;
@@ -168,6 +334,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* JournalFrontend */,
+				F10000000000000000000001 /* JournalWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -180,6 +347,32 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				C6130DAD94EBC3CEE00FCB05 /* PrivacyInfo.xcprivacy in Resources */,
+				BC4F5F100FDD424C8728CA10 /* SchibstedGrotesk-Regular.ttf in Resources */,
+				9A587D58907A4BA1B94F039F /* SchibstedGrotesk-SemiBold.ttf in Resources */,
+				CB90D78097D445F19F58710F /* SchibstedGrotesk-Italic.ttf in Resources */,
+				C53636CB6CFC45AFA2317862 /* BricolageGrotesque-SemiBold.ttf in Resources */,
+				9C8DD2291ECF4F68A071045B /* SchibstedGrotesk-Bold.ttf in Resources */,
+				7649B91025154D5D92075541 /* BricolageGrotesque-Bold.ttf in Resources */,
+				AB4081B5F5CC4A2FA52BC696 /* SchibstedGrotesk-Medium.ttf in Resources */,
+				871A7431BBD84868B50EA13E /* OFL-BricolageGrotesque.txt in Resources */,
+				4D1E41B704424FB593CFAADB /* OFL-SchibstedGrotesk.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E10000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000005 /* PrivacyInfo.xcprivacy in Resources */,
+				015332B3B17F420D8848D5BC /* SchibstedGrotesk-Regular.ttf in Resources */,
+				ED4A388FCEEE47EFB3231766 /* SchibstedGrotesk-SemiBold.ttf in Resources */,
+				BC709479A97942FA9973D035 /* SchibstedGrotesk-Italic.ttf in Resources */,
+				695E8E0C7F8C477F8E7CA7E3 /* BricolageGrotesque-SemiBold.ttf in Resources */,
+				4F2E2082EFC24847A29EF44B /* SchibstedGrotesk-Bold.ttf in Resources */,
+				7B0F9832CC0D41859CC256E2 /* BricolageGrotesque-Bold.ttf in Resources */,
+				6CC32504BC624B09957A8121 /* SchibstedGrotesk-Medium.ttf in Resources */,
+				7C686353FB6245D8A8D9159B /* OFL-BricolageGrotesque.txt in Resources */,
+				28A42F2099664DE4948CA683 /* OFL-SchibstedGrotesk.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +458,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000003 /* WidgetBridge.m in Sources */,
+				A10000000000000000000002 /* WidgetBridge.swift in Sources */,
+				A10000000000000000000001 /* JournalWidgetShared.swift in Sources */,
 				0D2A4E6C1A6C4D4FA8422301 /* AppRatingModule.m in Sources */,
 				0D2A4E6B1A6C4D4FA8422301 /* AppRatingModule.swift in Sources */,
 				05821628018620E2E27AE8F0 /* JournalMindMapViewManager.m in Sources */,
@@ -273,7 +469,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000000E /* LogMoodIntent.swift in Sources */,
+				A1000000000000000000000D /* MoodCheckInWidget.swift in Sources */,
+				A1000000000000000000000C /* QuickThoughtWidget.swift in Sources */,
+				A1000000000000000000000F /* StreakWidget.swift in Sources */,
+				A1000000000000000000000A /* JournalWidgetShared.swift in Sources */,
+				A1000000000000000000000B /* JournalWidgets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D10000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F10000000000000000000001 /* JournalWidgets */;
+			targetProxy = D10000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -284,7 +501,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
@@ -293,7 +510,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -317,7 +534,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -325,7 +542,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -484,6 +701,63 @@
 			};
 			name = Release;
 		};
+		F10000000000000000000002 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = JournalWidgets/JournalWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = U5BP5WRA82;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JournalWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = app.journalio.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F10000000000000000000003 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = JournalWidgets/JournalWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = U5BP5WRA82;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = JournalWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.3;
+				PRODUCT_BUNDLE_IDENTIFIER = app.journalio.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -501,6 +775,15 @@
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F10000000000000000000004 /* Build configuration list for PBXNativeTarget "JournalWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F10000000000000000000002 /* Debug */,
+				F10000000000000000000003 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

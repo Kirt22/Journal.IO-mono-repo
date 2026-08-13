@@ -4,11 +4,13 @@ import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import {
   getInsightsAiAnalysisController,
   getInsightsMindMapController,
+  getInsightsMindMapRegionSeriesController,
   getInsightsOverviewController,
 } from "./insights.controllers";
 import {
   getInsightsAiAnalysisSchema,
   getInsightsMindMapSchema,
+  getInsightsMindMapRegionSeriesSchema,
   getInsightsOverviewSchema,
 } from "./insights.validators";
 
@@ -33,6 +35,13 @@ insightsRouter.get(
   verifyJwtToken,
   validateRequest(getInsightsMindMapSchema),
   getInsightsMindMapController
+);
+
+insightsRouter.get(
+  "/mind-map/region/:regionId/series",
+  verifyJwtToken,
+  validateRequest(getInsightsMindMapRegionSeriesSchema),
+  getInsightsMindMapRegionSeriesController
 );
 
 export default insightsRouter;

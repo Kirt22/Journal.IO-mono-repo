@@ -16,7 +16,7 @@ The user schema now keeps legacy `onboardingContext` and adds optional onboardin
 
 - `onboardingVersion?: number`
 - `onboardingCompletedAt?: Date`
-- `onboardingPayload?: { version, whatBringsYouHere, supportFocusAreas, primaryContext, ageRange, reflectionTone, preferredTheme, reminderPreference, aiComfort, privacyConsent, firstReflectionId, firstReflectionSummary, personalGoals, migratedFromLegacy }`
+- `onboardingPayload?: { version, whatBringsYouHere, supportFocusAreas, primaryContext, ageRange, reflectionTone, preferredTheme, reminderPreference, privacyConsent, firstReflectionId, firstReflectionSummary, personalGoals, migratedFromLegacy }`
 
 ## Endpoint Added
 
@@ -26,7 +26,7 @@ The user schema now keeps legacy `onboardingContext` and adds optional onboardin
 - Validates the request body with Zod.
 - Stores a sanitized v2 onboarding payload on the authenticated user.
 - Sets `onboardingCompleted: true`, `onboardingVersion: 2`, and `onboardingCompletedAt`.
-- Preserves legacy `onboardingContext` compatibility for existing AI opt-in/profile logic.
+- Preserves legacy `onboardingContext` compatibility for existing profile personalization logic.
 - Does not touch journals, subscription records, RevenueCat fields, or reminder records.
 - Returns the updated safe user profile payload.
 

@@ -6,7 +6,7 @@ Implement features sequentially as complete vertical slices.
 
 ## Current Revamp Slice
 
-Completed: normalized `open_ended`/`guided` journal modes; authenticated manual Goals CRUD; Pro/AI-opt-in journal-context suggestion retrieval; Home Goals/settings entry points; iOS Mind Map tab; educational Free/AI-off Mind Map state.
+Completed: normalized `open_ended`/`guided` journal modes; authenticated manual Goals CRUD; Pro journal-context suggestion retrieval; Home Goals/settings entry points; iOS Mind Map tab; educational Free Mind Map state; V2 first-reflection journey through an interactive session Mind Map, streak, optional reminders, and post-auth paywall.
 
 Next: reusable entry-type chooser and guided paywall gate, unified post-entry/paywall-resume result shell, explicit AI-goal review, per-entry reflection contexts and entry-detail access, historical backfill and entitlement pause/restore, then full manual iOS verification.
 
@@ -23,7 +23,7 @@ Scope:
 - goal selection capture
 - support-focus capture
 - reminder preference capture
-- AI comfort / opt-in explanation
+- AI processing disclosure within privacy consent
 - excitement rating screen
 - privacy agreement capture
 
@@ -120,6 +120,13 @@ Includes:
 
 - backend support for summary payloads where needed
 - frontend loading/empty/error states
+- an iOS small Quick Thought widget that opens and focuses the existing Home composer
+- an iOS medium Mood Check-in widget with direct iOS 17+ actions and an iOS 15/16 in-app confirmation fallback
+- scoped widget-session authentication, neutral shared state, foreground reconciliation, and no offline write queue
+
+Widget packaging rule:
+
+- ship Quick Thought and Mood Check-in as separate gallery entries from one WidgetKit extension; keep a combined Daily Check-in widget out of the initial slice
 
 ---
 
@@ -177,7 +184,7 @@ Scope:
 
 - data export
 - delete request
-- AI opt-out
+- hidden journal previews
 - safety escalation pathways
 
 ---

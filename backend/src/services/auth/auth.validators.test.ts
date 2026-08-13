@@ -14,7 +14,6 @@ test("googleMobileSignInSchema accepts a valid mobile token payload", () => {
       idToken: "google-id-token",
       onboardingContext: {
         reminderPreference: "Evening",
-        aiOptIn: false,
       },
       onboardingCompleted: true,
     },
@@ -45,7 +44,6 @@ test("appleMobileSignInSchema accepts a valid mobile token payload", () => {
       },
       onboardingContext: {
         reminderPreference: "Evening",
-        aiOptIn: false,
       },
       onboardingCompleted: true,
     },

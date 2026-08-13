@@ -1,17 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import HapticPressable from '../../components/HapticPressable';
 import {
-  ActivityIndicator,
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from "react";
+import {
   Animated,
   Easing,
-  Image,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
+import {
+  Text,
+  TextInput,
+} from "../../infrastructure/reactNative";
 import {
   ArrowLeft,
   Filter,
@@ -21,13 +25,13 @@ import {
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import JournalEntryCard from "../../components/JournalEntryCard";
+import JournalLoader from '../../components/JournalLoader';
 import { useAppStore } from "../../store/appStore";
 import { useTheme } from "../../theme/provider";
 import { getJournalEntries } from "../../services/journalService";
 import type { JournalEntry } from "../../models/journalModels";
 import { buildSearchTags, filterSearchEntries } from "./searchUtils";
 import { BOTTOM_NAV_CONTENT_PADDING } from "../../components/BottomNav";
-import mascotImage from "../../assets/png/Masscott.png";
 import { useConnectivity } from "../../hooks/useConnectivity";
 
 type SearchScreenProps = {
@@ -58,7 +62,7 @@ function TagChip({ label, selected, onPress }: TagChipProps) {
   const theme = useTheme();
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
@@ -85,7 +89,7 @@ function TagChip({ label, selected, onPress }: TagChipProps) {
       >
         {label}
       </Text>
-    </Pressable>
+    </HapticPressable>
   );
 }
 
@@ -93,29 +97,23 @@ function EmptyResults({
   title,
   description,
   onClearFilters,
-  showMascot = true,
 }: {
   title: string;
   description: string;
   onClearFilters?: () => void;
-  showMascot?: boolean;
 }) {
   const theme = useTheme();
 
   return (
     <View style={styles.emptyState}>
-      {showMascot ? (
-        <Image source={mascotImage} style={styles.emptyMascot} resizeMode="contain" />
-      ) : (
-        <View
-          style={[
-            styles.emptyIconWrap,
-            { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
-          ]}
-        >
-          <SearchIcon size={28} color={theme.colors.primary} />
-        </View>
-      )}
+      <View
+        style={[
+          styles.emptyIconWrap,
+          { backgroundColor: hexToRgba(theme.colors.primary, 0.08) },
+        ]}
+      >
+        <SearchIcon size={28} color={theme.colors.primary} />
+      </View>
       <Text style={[styles.emptyTitle, { color: theme.colors.foreground }]}>
         {title}
       </Text>
@@ -123,7 +121,7 @@ function EmptyResults({
         {description}
       </Text>
       {onClearFilters ? (
-        <Pressable
+        <HapticPressable
           accessibilityRole="button"
           onPress={onClearFilters}
           style={({ pressed }) => [
@@ -135,7 +133,7 @@ function EmptyResults({
           <Text style={[styles.emptyActionText, { color: theme.colors.primaryForeground }]}>
             Clear filters
           </Text>
-        </Pressable>
+        </HapticPressable>
       ) : null}
     </View>
   );
@@ -325,14 +323,14 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
           ]}
         >
           <View style={[styles.headerRow, { maxWidth: layoutMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel="Go back"
               onPress={onBack}
               style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
             >
               <ArrowLeft size={20} color={theme.colors.foreground} />
-            </Pressable>
+            </HapticPressable>
 
             <View
               style={[
@@ -360,7 +358,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
           </View>
 
           <View style={[styles.filterBar, { maxWidth: layoutMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               onPress={() => setShowFilters(previous => !previous)}
               style={({ pressed }) => [
@@ -385,10 +383,10 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
                   </Text>
                 </View>
               ) : null}
-            </Pressable>
+            </HapticPressable>
 
             {hasActiveFilters ? (
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 onPress={clearAll}
                 style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}
@@ -396,7 +394,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
                 <Text style={[styles.clearButtonText, { color: theme.colors.foreground }]}>
                   Clear all
                 </Text>
-              </Pressable>
+              </HapticPressable>
             ) : null}
           </View>
         </View>
@@ -440,7 +438,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
               </View>
 
               <View style={styles.filterToggleRow}>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   onPress={() => setFavoritesOnly(previous => !previous)}
                   style={({ pressed }) => [
@@ -469,7 +467,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
                   >
                     Favorites
                   </Text>
-                </Pressable>
+                </HapticPressable>
               </View>
 
               <View style={styles.tagGrid}>
@@ -486,7 +484,7 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
 
             {isLoading ? (
               <View style={styles.loadingState}>
-                <ActivityIndicator color={theme.colors.primary} />
+                <JournalLoader color={theme.colors.primary} />
                 <Text style={[styles.loadingText, { color: theme.colors.mutedForeground }]}>
                   Loading entries...
                 </Text>
@@ -495,7 +493,6 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
               <EmptyResults
                 title="Something went wrong"
                 description={errorMessage}
-                showMascot={false}
                 onClearFilters={undefined}
               />
             ) : filteredEntries.length === 0 ? (
@@ -715,12 +712,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 38,
     paddingHorizontal: 20,
-  },
-  emptyMascot: {
-    width: 82,
-    height: 82,
-    marginBottom: 14,
-    opacity: 0.9,
   },
   emptyIconWrap: {
     width: 64,

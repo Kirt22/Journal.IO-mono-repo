@@ -1,5 +1,6 @@
 jest.mock("react-native-keychain", () => ({
   ACCESSIBLE: {
+    WHEN_UNLOCKED_THIS_DEVICE_ONLY: "AccessibleWhenUnlockedThisDeviceOnly",
     WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: "AccessibleWhenPasscodeSetThisDeviceOnly",
   },
   ACCESS_CONTROL: {
@@ -79,6 +80,55 @@ jest.mock("react-native-webview", () => ({
   __esModule: true,
   default: jest.fn(() => null),
 }));
+
+jest.mock("react-native-video", () => ({
+  __esModule: true,
+  default: jest.fn(() => null),
+}));
+
+jest.mock("react-native-svg", () => {
+  const ReactModule = require("react");
+  const component = (name: string) =>
+    jest.fn(({ children, ...props }: { children?: unknown }) =>
+      ReactModule.createElement(name, props, children ?? null),
+    );
+
+  return {
+    __esModule: true,
+    default: component("Svg"),
+    Svg: component("Svg"),
+    Circle: component("SvgCircle"),
+    ClipPath: component("SvgClipPath"),
+    Defs: component("SvgDefs"),
+    Ellipse: component("SvgEllipse"),
+    G: component("SvgG"),
+    Line: component("SvgLine"),
+    LinearGradient: component("SvgLinearGradient"),
+    Mask: component("SvgMask"),
+    Path: component("SvgPath"),
+    Polygon: component("SvgPolygon"),
+    Polyline: component("SvgPolyline"),
+    RadialGradient: component("SvgRadialGradient"),
+    Rect: component("SvgRect"),
+    Stop: component("SvgStop"),
+    Symbol: component("SvgSymbol"),
+    Use: component("SvgUse"),
+  };
+});
+
+jest.mock(
+  "react-native/Libraries/ReactPrivate/ReactNativePrivateInterface",
+  () => {
+    const actual = jest.requireActual(
+      "react-native/Libraries/ReactPrivate/ReactNativePrivateInterface",
+    );
+
+    return {
+      ...actual,
+      getNativeTagFromPublicInstance: jest.fn(() => 1),
+    };
+  },
+);
 
 jest.mock("react-native-purchases", () => {
   const mockModule = {
@@ -184,3 +234,56 @@ jest.mock("@invertase/react-native-apple-authentication", () => {
     AppleButton,
   };
 });
+
+// Skia needs a native binding, so the whole module is stubbed. The canvas tree
+// renders as plain views; what the Orb tests actually assert is the SkSL source
+// text, the accessibility props, and the scroll interpolation.
+jest.mock("@shopify/react-native-skia", () => {
+  const ReactModule = require("react");
+
+  const passthrough = (name: string) =>
+    jest.fn(({ children }: { children?: unknown }) =>
+      ReactModule.createElement(name, null, children ?? null),
+    );
+
+  return {
+    __esModule: true,
+    Canvas: passthrough("SkiaCanvas"),
+    Fill: passthrough("SkiaFill"),
+    Shader: passthrough("SkiaShader"),
+    Group: passthrough("SkiaGroup"),
+    Circle: passthrough("SkiaCircle"),
+    Blur: passthrough("SkiaBlur"),
+    Paint: passthrough("SkiaPaint"),
+    Skia: {
+      RuntimeEffect: {
+        Make: jest.fn(() => ({ __mockRuntimeEffect: true })),
+      },
+    },
+  };
+});
+
+jest.mock("react-native-reanimated", () => ({
+  __esModule: true,
+  useSharedValue: jest.fn((initial: unknown) => ({ value: initial })),
+  useDerivedValue: jest.fn((factory: () => unknown) => ({ value: factory() })),
+  useFrameCallback: jest.fn(() => ({
+    setActive: jest.fn(),
+    isActive: false,
+  })),
+  withTiming: jest.fn((value: unknown) => value),
+  // Resolves to the FIRST step so a test can observe the peak of a sequence —
+  // the settle back to rest is the part that needs a real clock, and asserting
+  // on the resting value would prove nothing.
+  withSequence: jest.fn((...steps: unknown[]) => steps[0]),
+  cancelAnimation: jest.fn(),
+  runOnJS: jest.fn((fn: unknown) => fn),
+  Easing: {
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    out: jest.fn((easing: unknown) => easing),
+    in: jest.fn((easing: unknown) => easing),
+    inOut: jest.fn((easing: unknown) => easing),
+  },
+}));

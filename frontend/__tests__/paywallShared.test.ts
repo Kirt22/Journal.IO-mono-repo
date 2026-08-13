@@ -1,7 +1,50 @@
 import { PURCHASES_ERROR_CODE } from "react-native-purchases";
-import { getPurchaseErrorMessage } from "../src/screens/profile/paywallShared";
+import {
+  getPlanPriceLabel,
+  getPurchaseErrorMessage,
+  getTrialFootnote,
+  type PaywallPlan,
+} from "../src/screens/profile/paywallShared";
+
+const createPlan = (overrides: Partial<PaywallPlan> = {}): PaywallPlan => ({
+  id: "yearly",
+  durationLabel: "Rp 1.499.000",
+  title: "YEARLY",
+  price: "Rp 1.499.000",
+  periodLabel: "per year",
+  subtitle: "Rp 124.917/mo",
+  planKey: "annual",
+  ...overrides,
+});
 
 describe("paywallShared", () => {
+  it("rejoins price and period for prose contexts", () => {
+    expect(getPlanPriceLabel(createPlan())).toBe("Rp 1.499.000 per year");
+  });
+
+  it("omits the period when a plan has none", () => {
+    expect(getPlanPriceLabel(createPlan({ periodLabel: "" }))).toBe(
+      "Rp 1.499.000"
+    );
+  });
+
+  it("keeps the trial footnote grammatical with a split price", () => {
+    const footnote = getTrialFootnote(createPlan(), {
+      price: "Rp 0",
+      period: "P7D",
+      unitCount: 7,
+      unitLabel: "day",
+      durationCount: 7,
+      durationLabel: "7 days",
+      cycles: 1,
+      isFreeTrial: true,
+    });
+
+    expect(footnote).toBe(
+      "If eligible, 7 days free, then Rp 1.499.000 per year. Apple confirms final introductory terms before purchase."
+    );
+  });
+
   it("sanitizes RevenueCat Test Store simulated purchase failures", () => {
     const message = getPurchaseErrorMessage({
       code: PURCHASES_ERROR_CODE.TEST_STORE_SIMULATED_PURCHASE_ERROR,

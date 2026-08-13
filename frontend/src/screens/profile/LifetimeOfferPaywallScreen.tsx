@@ -1,37 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ComponentType } from "react";
+import HapticPressable from '../../components/HapticPressable';
 import {
-  ActivityIndicator,
+  useCallback,
+  useEffect,
+  useRef,
+  useState } from "react";
+import {
   Alert,
   Animated,
   Easing,
-  Pressable,
+  Image,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
+  type ImageSourcePropType,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import {
+  Text,
+} from "../../infrastructure/reactNative";
 import {
   PURCHASES_ERROR_CODE,
   type CustomerInfo,
   type PurchasesOfferings,
 } from "react-native-purchases";
-import {
-  BarChart3,
-  Brain,
-  Check,
-  Crown,
-  Download,
-  Sparkles,
-  Star,
-  X,
-} from "lucide-react-native";
+import { Check, Crown, Sparkles, Star, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ActionSuccessScreen from "../../components/ActionSuccessScreen";
 import ButtonLoadingContent from "../../components/ButtonLoadingContent";
+import JournalLoader from '../../components/JournalLoader';
+import PriceText from "../../components/PriceText";
 import {
   getRevenueCatActiveEntitlement,
   getRevenueCatConfigurationError,
@@ -62,6 +61,7 @@ import {
   PURCHASE_UPDATING_SUCCESS_MESSAGE,
   PURCHASE_UPDATING_SUCCESS_TITLE,
 } from "./paywallShared";
+import { PREMIUM_FEATURES } from "./paywallContent";
 
 type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
 
@@ -72,10 +72,11 @@ type LifetimeOfferPaywallScreenProps = {
 
 type LifetimeScreenPlan = RevenueCatPaywallPlan;
 
-type FeatureRow = {
-  icon: ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
-  title: string;
-};
+/**
+ * The lifetime offer sells the same product as the subscription paywall, so it
+ * lists the same features — a shorter list here read as the cheaper deal.
+ */
+const FEATURE_ROWS = PREMIUM_FEATURES;
 
 type Testimonial = {
   name: string;
@@ -99,21 +100,6 @@ const DEFAULT_LIFETIME_OFFERING: PaywallOffering = {
 
 const LIFETIME_BADGE = "LIMITED";
 const LIFETIME_LOADER_COPY = "Loading lifetime offer...";
-
-const FEATURE_ROWS: FeatureRow[] = [
-  {
-    icon: Brain,
-    title: "Unlimited AI insights & personalised prompts",
-  },
-  {
-    icon: BarChart3,
-    title: "Advanced analytics & emotion tracking",
-  },
-  {
-    icon: Download,
-    title: "Securely export all your entries",
-  },
-];
 
 const TESTIMONIALS: Testimonial[] = [
   {
@@ -152,6 +138,7 @@ function buildFallbackPlan(
     title: configuredOffering.title,
     durationLabel: "",
     price: "",
+    periodLabel: "one-time",
     subtitle: configuredOffering.subtitle ?? "One-time unlock",
     highlight: configuredOffering.highlight ?? undefined,
     badge: configuredOffering.badge ?? undefined,
@@ -164,24 +151,26 @@ function buildFallbackPlan(
 }
 
 function FeatureItem({
-  icon: Icon,
+  icon,
   title,
   accentColor,
-  iconColor,
   textColor,
   containerStyle,
 }: {
-  icon: FeatureRow["icon"];
+  icon: ImageSourcePropType;
   title: string;
   accentColor: string;
-  iconColor: string;
   textColor: string;
   containerStyle?: StyleProp<ViewStyle>;
 }) {
   return (
     <View style={[styles.featureRow, containerStyle]}>
       <View style={[styles.featureIconWrap, { backgroundColor: accentColor }]}>
-        <Icon size={18} color={iconColor} strokeWidth={2} />
+        <Image
+          accessibilityIgnoresInvertColors
+          source={icon}
+          style={styles.featureIconImage}
+        />
       </View>
       <Text style={[styles.featureTitle, { color: textColor }]}>{title}</Text>
     </View>
@@ -198,6 +187,9 @@ export default function LifetimeOfferPaywallScreen({
   const sessionUserId = useAppStore(state => state.session?.user.userId ?? null);
   const sessionUserName = useAppStore(state => state.session?.user.name || "you");
   const setSessionUserProfile = useAppStore(state => state.setSessionUserProfile);
+  const fallbackFromLifetimeOffer = useAppStore(
+    state => state.fallbackFromLifetimeOffer
+  );
   const [plan, setPlan] = useState<LifetimeScreenPlan>(buildFallbackPlan);
   const [revenueCatOfferings, setRevenueCatOfferings] =
     useState<PurchasesOfferings | null>(null);
@@ -216,6 +208,7 @@ export default function LifetimeOfferPaywallScreen({
 
   const palette = theme.colors;
   const isCompact = width < 380;
+  const heroPriceSize = isCompact ? 40 : 46;
   const horizontalPadding = isCompact ? 20 : width >= 430 ? 28 : 22;
   const maxContentWidth = width >= 430 ? 430 : 410;
   const isBusy = isProcessing || isRestoring;
@@ -224,16 +217,28 @@ export default function LifetimeOfferPaywallScreen({
   const buttonLabel = currentPlanKey === "lifetime"
     ? "Lifetime already active"
     : "Unlock Lifetime Premium";
-  const lifetimeOffering =
-    paywallConfig?.offerings.find(offering => offering.key === "lifetime") ??
-    DEFAULT_LIFETIME_OFFERING;
-  const displayedPrice =
-    plan.rcPackage?.product.priceString || "Price unavailable";
-  const claimLimit = lifetimeOffering.purchaseLimit ?? null;
-  const claimCount = lifetimeOffering.purchasedUsersCount ?? 0;
+  // Null whenever the config request did not land, which is also the only way
+  // DEFAULT_LIFETIME_OFFERING is still in play — a sold-out offer is handed off
+  // during load and never reaches this render.
+  const serverLifetimeOffering =
+    paywallConfig?.offerings.find(offering => offering.key === "lifetime") ?? null;
+  const lifetimeOffering = serverLifetimeOffering ?? DEFAULT_LIFETIME_OFFERING;
+  // `plan.price` rather than a second read of `product.priceString`: the plan
+  // builder is the single place a StoreKit price is resolved, and the fallback
+  // plan carries an empty price for exactly this branch.
+  const displayedPrice = plan.price || "Price unavailable";
+  const claimLimit = serverLifetimeOffering?.purchaseLimit ?? null;
+  const claimCount = serverLifetimeOffering?.purchasedUsersCount ?? 0;
   const claimProgress =
     claimLimit && claimLimit > 0 ? Math.min(claimCount / claimLimit, 1) : 0;
-  const claimText = claimLimit ? `${claimCount}/${claimLimit} claimed` : `${claimCount} claimed`;
+  // Scarcity has to be counted, never assumed: with no server count in hand the
+  // bar is hidden rather than rendered from the placeholder offering, which
+  // would read as a freshly-empty "0/100 claimed".
+  const claimText = serverLifetimeOffering
+    ? claimLimit
+      ? `${claimCount}/${claimLimit} claimed`
+      : `${claimCount} claimed`
+    : null;
   const priceSupportText = [
     paywallConfig?.template?.purchaseChipTitle
       ? `${paywallConfig.template.purchaseChipTitle} purchase`
@@ -292,6 +297,9 @@ export default function LifetimeOfferPaywallScreen({
 
   useEffect(() => {
     let isMounted = true;
+    // Set when the screen is on its way out, so the loader stays up through the
+    // navigation swap instead of flashing an offer the user cannot have.
+    let hasLeftScreen = false;
 
     const loadLifetimeOffer = async () => {
       setPlansError(getRevenueCatConfigurationError());
@@ -317,15 +325,32 @@ export default function LifetimeOfferPaywallScreen({
           configResult.status === "fulfilled" ? configResult.value : null;
 
         if (resolvedConfig?.shouldShow === false) {
+          hasLeftScreen = true;
           onBack();
+          return;
+        }
+
+        // Once the seat cap is reached the server drops lifetime from the
+        // response and falls the placement back to the subscription template —
+        // it does not return shouldShow:false, because an upgrade tap should
+        // still get an offer. So "config answered but has no lifetime offering"
+        // is the sold-out signal, and it has to be read here: otherwise this
+        // screen substitutes DEFAULT_LIFETIME_OFFERING and keeps selling a seat
+        // that no longer exists, under a reset "0/100 claimed".
+        const offeredLifetime =
+          resolvedConfig?.offerings.find(offering => offering.key === "lifetime") ??
+          null;
+
+        if (resolvedConfig && !offeredLifetime) {
+          hasLeftScreen = true;
+          fallbackFromLifetimeOffer();
           return;
         }
 
         setPaywallConfig(resolvedConfig);
 
         const configuredLifetimeOffering =
-          resolvedConfig?.offerings.find(offering => offering.key === "lifetime") ??
-          DEFAULT_LIFETIME_OFFERING;
+          offeredLifetime ?? DEFAULT_LIFETIME_OFFERING;
 
         if (offeringsResult.status !== "fulfilled") {
           throw offeringsResult.reason;
@@ -360,7 +385,7 @@ export default function LifetimeOfferPaywallScreen({
             : "We could not load the lifetime offer right now."
         );
       } finally {
-        if (isMounted) {
+        if (isMounted && !hasLeftScreen) {
           setIsLoadingPlan(false);
         }
       }
@@ -371,7 +396,7 @@ export default function LifetimeOfferPaywallScreen({
     return () => {
       isMounted = false;
     };
-  }, [onBack, sessionUserId]);
+  }, [fallbackFromLifetimeOffer, onBack, sessionUserId]);
 
   useEffect(() => {
     if (isLoadingPlan || screenState !== "offer") {
@@ -410,8 +435,10 @@ export default function LifetimeOfferPaywallScreen({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
+      // 55ms rather than 100: the list went from three rows to nine, and the
+      // original spacing pushed the last one out past the footer's entrance.
       Animated.stagger(
-        100,
+        55,
         featureAnims.map(animation =>
           Animated.timing(animation, {
             toValue: 1,
@@ -801,7 +828,7 @@ export default function LifetimeOfferPaywallScreen({
             >
               <Crown size={20} color={palette.primary} strokeWidth={2.1} />
             </View>
-            <ActivityIndicator size="small" color={palette.primary} />
+            <JournalLoader size="small" color={palette.primary} />
             <Text style={[styles.loaderTitle, { color: palette.foreground }]}>
               {LIFETIME_LOADER_COPY}
             </Text>
@@ -933,7 +960,7 @@ export default function LifetimeOfferPaywallScreen({
             },
           ]}
         >
-          <Pressable
+          <HapticPressable
             accessibilityRole="button"
             accessibilityLabel="Close lifetime offer"
             onPress={onBack}
@@ -947,7 +974,7 @@ export default function LifetimeOfferPaywallScreen({
             ]}
           >
             <X size={16} color={palette.mutedForeground} />
-          </Pressable>
+          </HapticPressable>
         </Animated.View>
 
         <View style={styles.contentWrap}>
@@ -1067,9 +1094,18 @@ export default function LifetimeOfferPaywallScreen({
                 <View style={styles.priceTopRow}>
                   <View style={styles.priceTextGroup}>
                     <View style={styles.priceHeadlineRow}>
-                      <Text style={[styles.priceValue, { color: palette.foreground }]}>
-                        {displayedPrice}
-                      </Text>
+                      {/* 46pt hero type against an uncontrolled string width:
+                          `Rp 4.999.000` is roughly three times the width of
+                          `$99.99`, and this card clips its overflow. A low
+                          shrink floor still leaves it hero-scale. */}
+                      <PriceText
+                        minimumFontScale={0.55}
+                        style={[
+                          styles.priceValue,
+                          { color: palette.foreground, fontSize: heroPriceSize },
+                        ]}
+                        value={displayedPrice}
+                      />
                     </View>
                     <Text style={[styles.priceSubText, { color: palette.mutedForeground }]}>
                       {priceSupportText}
@@ -1092,32 +1128,34 @@ export default function LifetimeOfferPaywallScreen({
                   </View>
                 </View>
 
-                <View style={styles.claimRow}>
-                  <View
-                    style={[
-                      styles.claimTrack,
-                      { backgroundColor: hexToRgba(palette.border, 0.5) },
-                    ]}
-                  >
-                    <Animated.View style={[styles.claimFill, { width: claimWidth }]}>
-                      <View
-                        style={[
-                          styles.claimFillMain,
-                          { backgroundColor: palette.primary },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.claimFillTail,
-                          { backgroundColor: palette.warning },
-                        ]}
-                      />
-                    </Animated.View>
+                {claimText ? (
+                  <View style={styles.claimRow}>
+                    <View
+                      style={[
+                        styles.claimTrack,
+                        { backgroundColor: hexToRgba(palette.border, 0.5) },
+                      ]}
+                    >
+                      <Animated.View style={[styles.claimFill, { width: claimWidth }]}>
+                        <View
+                          style={[
+                            styles.claimFillMain,
+                            { backgroundColor: palette.primary },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.claimFillTail,
+                            { backgroundColor: palette.warning },
+                          ]}
+                        />
+                      </Animated.View>
+                    </View>
+                    <Text style={[styles.claimText, { color: palette.warning }]}>
+                      {claimText}
+                    </Text>
                   </View>
-                  <Text style={[styles.claimText, { color: palette.warning }]}>
-                    {claimText}
-                  </Text>
-                </View>
+                ) : null}
               </Animated.View>
 
               <View style={styles.featureStack}>
@@ -1129,7 +1167,7 @@ export default function LifetimeOfferPaywallScreen({
 
                   return (
                     <Animated.View
-                      key={feature.title}
+                      key={feature.text}
                       style={[
                         styles.featureCard,
                         {
@@ -1142,9 +1180,8 @@ export default function LifetimeOfferPaywallScreen({
                     >
                       <FeatureItem
                         icon={feature.icon}
-                        title={feature.title}
+                        title={feature.text}
                         accentColor={hexToRgba(palette.primary, 0.1)}
-                        iconColor={palette.primary}
                         textColor={hexToRgba(palette.foreground, 0.9)}
                       />
                     </Animated.View>
@@ -1204,7 +1241,7 @@ export default function LifetimeOfferPaywallScreen({
                 </Text>
               ) : null}
 
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 accessibilityLabel="Unlock Lifetime Premium"
                 accessibilityState={{ busy: isProcessing, disabled: !canPurchase || isLoadingPlan }}
@@ -1264,7 +1301,7 @@ export default function LifetimeOfferPaywallScreen({
                     {buttonLabel}
                   </Text>
                 </ButtonLoadingContent>
-              </Pressable>
+              </HapticPressable>
 
               <View style={styles.guaranteeRow}>
                 <Check size={10} color={palette.success} />
@@ -1272,7 +1309,7 @@ export default function LifetimeOfferPaywallScreen({
                   One-time App Store purchase
                 </Text>
                 <Text style={[styles.guaranteeDot, { color: palette.border }]}>·</Text>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Restore"
                   accessibilityState={{ busy: isRestoring, disabled: isBusy || isLoadingPlan }}
@@ -1288,7 +1325,7 @@ export default function LifetimeOfferPaywallScreen({
                       Restore
                     </Text>
                   </ButtonLoadingContent>
-                </Pressable>
+                </HapticPressable>
               </View>
             </View>
           </Animated.View>
@@ -1329,7 +1366,7 @@ const styles = StyleSheet.create({
   loaderTitle: {
     fontSize: 18,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     textAlign: "center",
   },
   loaderSubtitle: {
@@ -1433,15 +1470,17 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     textAlign: "center",
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: -1.2,
   },
   heroTitleRegular: {
     fontSize: 39,
+    letterSpacing: -0.9,
     lineHeight: 46,
   },
   heroTitleCompact: {
     fontSize: 36,
+    letterSpacing: -0.8,
     lineHeight: 42,
   },
   heroSubtitle: {
@@ -1481,12 +1520,18 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
     gap: 8,
     flexWrap: "wrap",
+    // Yield to the LIMITED badge rather than get clipped by the card's
+    // `overflow: "hidden"`.
+    flexShrink: 1,
   },
   priceValue: {
+    // `fontSize` is set at the call site so it can follow screen width. No
+    // `lineHeight`: it is a single shrink-to-fit line, and a fixed line box
+    // either clips the glyphs or strands whitespace once the type scales down.
     fontSize: 46,
-    lineHeight: 48,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: -1.5,
+    width: "100%",
   },
   priceSubText: {
     fontSize: 12,
@@ -1506,7 +1551,7 @@ const styles = StyleSheet.create({
   limitedBadgeText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: 0.8,
   },
   claimRow: {
@@ -1560,6 +1605,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+  featureIconImage: {
+    height: 21,
+    resizeMode: "contain",
+    width: 21,
   },
   featureTitle: {
     flex: 1,
@@ -1650,7 +1700,7 @@ const styles = StyleSheet.create({
   ctaText: {
     fontSize: 16,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   ctaDisabled: {
     opacity: 0.7,

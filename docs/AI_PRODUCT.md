@@ -43,8 +43,8 @@ Primary user journey represented by the latest design context:
 3. Create account (email path)
 4. Verify email (email path)
 5. Sign in (returning email users)
-6. Post-auth paywall for eligible non-premium users after onboarding is complete
-7. Profile setup where still needed
+6. First-reflection completion journey: session Mind Map, streak, and optional reminders
+7. Post-auth paywall for eligible non-premium users after onboarding is complete; first-run profile defaults are completed automatically
 8. Home dashboard
 9. Core journaling loops (new entry, history/calendar, manual Goals, insights, Mind Map, profile/settings/privacy)
 10. Supporting monetization entry surfaces such as the premium paywall
@@ -64,10 +64,11 @@ Primary user journey represented by the latest design context:
 - privacy and safety controls
 - user-owned manual goals available without Premium
 - an educational iOS Mind Map that never presents personal data without Premium and AI consent
+- focused iOS Home Screen widgets for free streak tracking, Premium Quick Thought launch, and a privacy-minimal Premium daily mood check-in
 
 ## Revamp Implementation Note
 
-The approved post-entry chooser, generic Free previews, paid guided-entry gate, per-entry map contexts, historical backfill, and purchase-resume flow remain target work. The current implementation provides the foundations documented in `APP_EXPERIENCE_FLOW.md`: normalized entry modes, manual Goals, Pro-only suggestion retrieval, an iOS Mind Map tab, and Free/AI-off educational rendering.
+The approved post-entry chooser, generic Free previews, paid guided-entry gate, per-entry map contexts, historical backfill, and purchase-resume flow remain target work. The current implementation provides the foundations documented in `APP_EXPERIENCE_FLOW.md`: normalized entry modes, manual Goals, Pro-only suggestion retrieval, an iOS Mind Map tab, and Free educational rendering.
 
 ---
 
@@ -82,6 +83,8 @@ The UX should feel:
 - easy to understand
 
 The app should help users take small, repeatable actions instead of overwhelming them.
+
+Home Screen widgets follow the same principle: Streak gives every user a compact progress view, Quick Thought opens Premium users directly into focused writing, and Mood Check-in gives Premium users one clear once-daily action. Users activate their chosen widgets from Settings, and each habit remains a separate widget rather than crowding multiple interactions into one surface.
 
 ---
 

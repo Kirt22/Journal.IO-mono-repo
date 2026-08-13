@@ -7,9 +7,9 @@ type AuthActionIconProps = {
 };
 
 const iconSources = {
-  'create-account': require('../assets/png/auth-create-account.png'),
-  email: require('../assets/png/auth-email.png'),
-  'reset-link': require('../assets/png/auth-reset-link.png'),
+  'create-account': require('../assets/png/auth/auth-create-account.png'),
+  email: require('../assets/png/auth/auth-email.png'),
+  'reset-link': require('../assets/png/auth/auth-reset-link.png'),
 } as const;
 
 export default function AuthActionIcon({ kind }: AuthActionIconProps) {

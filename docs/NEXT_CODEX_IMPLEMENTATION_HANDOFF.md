@@ -38,9 +38,8 @@ The current onboarding implementation follows the latest 9-step Figma Make flow:
 4. Journaling goals
 5. What the user wants help with
 6. Reminder preference
-7. AI comfort / explanation
+7. Privacy consent
 8. Excitement rating
-9. Privacy consent
 
 Current replacement point:
 

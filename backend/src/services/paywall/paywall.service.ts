@@ -246,16 +246,22 @@ const DEFAULT_TEMPLATES: Array<
     showIfOfferingKeysAvailable: ["weekly", "yearly"],
     placementKeys: [
       "post_auth",
+      "post_auth_exit_offer",
+      "profile_upgrade_banner",
       "subscription_screen",
       "home_ai_card_locked",
       "home_interruptive",
       "insights_interruptive",
       "insights_ai_tab_locked",
       "new_entry_auto_tag_locked",
+      "new_entry_guided_locked",
       "entry_quick_analysis_locked",
-      "settings_privacy_mode_locked",
+      "entry_session_analysis_locked",
+      "entry_mind_map_locked",
+      "ask_jade_locked",
       "settings_hide_previews_locked",
       "settings_biometric_lock_locked",
+      "settings_widgets_locked",
       "privacy_export_locked",
     ],
   },
@@ -324,7 +330,7 @@ const DEFAULT_TEMPLATES: Array<
       },
       {
         title: "Premium privacy settings",
-        body: "Use privacy mode and preview controls whenever you want more distance from on-screen journal details.",
+        body: "Use biometric lock and preview controls whenever you want more distance from on-screen journal details.",
         footer: "Useful for shared spaces and quieter routines.",
       },
       {
@@ -343,7 +349,6 @@ const DEFAULT_TEMPLATES: Array<
       "profile_upgrade_banner",
       "subscription_screen",
       "insights_ai_tab_locked",
-      "settings_privacy_mode_locked",
       "settings_hide_previews_locked",
       "settings_biometric_lock_locked",
       "privacy_export_locked",
@@ -559,14 +564,6 @@ const DEFAULT_CONFIG: Pick<
       interruptiveTemplateKey: null,
     },
     {
-      key: "settings_privacy_mode_locked",
-      templateKey: "weekly-standard",
-      fallbackTemplateKey: null,
-      enabled: true,
-      interruptiveEnabled: false,
-      interruptiveTemplateKey: null,
-    },
-    {
       key: "settings_hide_previews_locked",
       templateKey: "weekly-standard",
       fallbackTemplateKey: null,
@@ -584,6 +581,49 @@ const DEFAULT_CONFIG: Pick<
     },
     {
       key: "privacy_export_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    // An unregistered key resolves to shouldShow:false ("placement_disabled")
+    // rather than an error, which the client reads as "dismiss immediately" —
+    // so every gate the app can raise has to be listed here.
+    {
+      key: "settings_widgets_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
+      key: "new_entry_guided_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
+      key: "entry_session_analysis_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
+      key: "entry_mind_map_locked",
+      templateKey: "weekly-standard",
+      fallbackTemplateKey: null,
+      enabled: true,
+      interruptiveEnabled: false,
+      interruptiveTemplateKey: null,
+    },
+    {
+      key: "ask_jade_locked",
       templateKey: "weekly-standard",
       fallbackTemplateKey: null,
       enabled: true,
@@ -1405,6 +1445,8 @@ const syncPaywallPurchase = async (
 };
 
 export {
+  DEFAULT_CONFIG,
+  DEFAULT_TEMPLATES,
   ensureDefaultPaywallSetup,
   getMissingDefaultPlacements,
   getMissingTemplatePlacementKeys,

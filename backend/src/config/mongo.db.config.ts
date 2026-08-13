@@ -48,14 +48,50 @@ export const resolveMongoUri = (
   return stageSpecificUri;
 };
 
+const assertProductionMongoTls = (
+  mongoUri: string,
+  env: NodeJS.ProcessEnv = process.env
+) => {
+  const mongoStage = getMongoStage(env);
+  const isProductionRuntime = env.NODE_ENV === "production";
+
+  if (mongoStage !== "prod" && !isProductionRuntime) {
+    return;
+  }
+
+  try {
+    const parsedMongoUri = new URL(mongoUri);
+
+    if (parsedMongoUri.protocol === "mongodb+srv:") {
+      return;
+    }
+
+    if (parsedMongoUri.protocol !== "mongodb:") {
+      throw new Error("MongoDB URI must use mongodb:// or mongodb+srv://.");
+    }
+
+    const tlsEnabled =
+      parsedMongoUri.searchParams.get("tls") === "true" ||
+      parsedMongoUri.searchParams.get("ssl") === "true";
+
+    if (!tlsEnabled) {
+      throw new Error(
+        "Production MongoDB connections must require TLS via tls=true or ssl=true."
+      );
+    }
+  } catch (error) {
+    throw new Error(
+      `Invalid production MongoDB configuration: ${
+        error instanceof Error ? error.message : "unknown MongoDB URI error"
+      }`
+    );
+  }
+};
+
 export const getMongoUriForLogging = (
   env: NodeJS.ProcessEnv = process.env
 ): string => {
   const mongoUri = resolveMongoUri(env);
-
-  if (env.LOG_FULL_MONGO_URI?.trim().toLowerCase() === "true") {
-    return mongoUri;
-  }
 
   try {
     const parsedMongoUri = new URL(mongoUri);
@@ -67,7 +103,7 @@ export const getMongoUriForLogging = (
 
     return parsedMongoUri.toString();
   } catch {
-    return mongoUri;
+    return "[redacted-invalid-mongo-uri]";
   }
 };
 
@@ -107,6 +143,7 @@ const removeLegacyUserIndexes = async (): Promise<void> => {
 export const init_mongoDB = async (): Promise<void> => {
   try {
     const mongoUri = resolveMongoUri();
+    assertProductionMongoTls(mongoUri);
     console.log(`MongoDB connection target: ${getMongoUriForLogging()}`);
     await mongoose.connect(mongoUri);
     await removeLegacyUserIndexes();

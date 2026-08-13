@@ -5,6 +5,7 @@ const createPackage = ({
   priceString,
   currencyCode,
   offeringIdentifier,
+  pricePerMonthString = null,
 }: {
   identifier: string;
   productIdentifier: string;
@@ -12,6 +13,7 @@ const createPackage = ({
   priceString: string;
   currencyCode: string;
   offeringIdentifier: string;
+  pricePerMonthString?: string | null;
 }) =>
   ({
     identifier,
@@ -28,7 +30,7 @@ const createPackage = ({
       price: 0,
       priceString,
       currencyCode,
-      pricePerMonthString: null,
+      pricePerMonthString,
       introPrice: null,
       presentedOfferingIdentifier: offeringIdentifier,
     },
@@ -181,9 +183,53 @@ describe("revenueCatService", () => {
     expect(plans[0]).toMatchObject({
       id: "weekly",
       durationLabel: "₹199",
-      price: "₹199/week",
+      // The billing period is carried alongside the price, not appended to it,
+      // so a long localized price can shrink on its own line.
+      price: "₹199",
+      periodLabel: "per week",
       rcPackage: weekly,
     });
+  });
+
+  it("keeps a long localized annual price off the same line as its period", () => {
+    const { getRevenueCatPaywallPlans } = require(
+      "../src/services/revenueCatService"
+    );
+    // Indonesia is the widest storefront string in common circulation, and the
+    // plan card it lands in is roughly 133pt wide on a 375pt screen.
+    const annual = createPackage({
+      identifier: "$rc_annual",
+      productIdentifier: "app.journalio.premium.yearly",
+      packageType: "ANNUAL",
+      priceString: "Rp 1.499.000",
+      pricePerMonthString: "Rp 124.917",
+      currencyCode: "IDR",
+      offeringIdentifier: "journalio_offering_other_screens_standard",
+    });
+    const offerings = {
+      current: null,
+      all: {
+        journalio_offering_other_screens_standard: createOffering(
+          "journalio_offering_other_screens_standard",
+          [annual]
+        ),
+      },
+    } as any;
+
+    const plans = getRevenueCatPaywallPlans(
+      offerings,
+      [createConfiguredOffering("yearly", 1)],
+      { placementKey: "post_auth" }
+    );
+
+    expect(plans[0]).toMatchObject({
+      price: "Rp 1.499.000",
+      periodLabel: "per year",
+      // `/mo`, not `/month equivalent` — the long form does not survive the
+      // card width once the price ahead of it is this wide.
+      subtitle: "Rp 124.917/mo",
+    });
+    expect(plans[0].price).not.toContain("/");
   });
 
   it("does not use offerings.current for other-screen configured plans", () => {
@@ -306,6 +352,19 @@ describe("revenueCatService", () => {
 
     expect(getRevenueCatActiveEntitlement(unrelatedCustomerInfo)).toBeNull();
     expect(hasRevenueCatPremiumAccess(unrelatedCustomerInfo)).toBe(false);
+  });
+
+  it("resets a configured RevenueCat identity to anonymous", async () => {
+    const Purchases = require("react-native-purchases").default;
+    Purchases.isConfigured.mockResolvedValue(true);
+
+    const { syncRevenueCatIdentity } = require(
+      "../src/services/revenueCatService"
+    );
+
+    await expect(syncRevenueCatIdentity(null)).resolves.toBe(true);
+
+    expect(Purchases.logOut).toHaveBeenCalledTimes(1);
   });
 
   it("attributes purchase and restore sync from the active product, not UI selection", () => {

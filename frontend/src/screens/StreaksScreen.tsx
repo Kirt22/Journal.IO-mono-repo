@@ -1,21 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import HapticPressable from '../components/HapticPressable';
 import {
-  ActivityIndicator,
-  Pressable,
+  useEffect,
+  useMemo,
+  useState } from "react";
+import {
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 import { AlertCircle, Flame, RefreshCw, Trophy, Target } from "lucide-react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import TabScreenLayout from "../components/TabScreenLayout";
+import JournalLoader from '../components/JournalLoader';
 import {
   getCurrentStreakSummary,
   getStreakHistory,
   type StreakCurrentSummary,
   type StreakHistoryDay,
 } from "../services/streaksService";
+import { syncStreakWidget } from "../services/widgetService";
 import { useTheme } from "../theme/provider";
 
 type StreakMetric = {
@@ -198,6 +204,7 @@ export default function StreaksScreen() {
 
       setCurrentSummary(summaryResponse);
       setHistory(historyResponse.days);
+      syncStreakWidget(summaryResponse, historyResponse).catch(() => undefined);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -228,6 +235,9 @@ export default function StreaksScreen() {
 
         setCurrentSummary(summaryResponse);
         setHistory(historyResponse.days);
+        syncStreakWidget(summaryResponse, historyResponse).catch(
+          () => undefined
+        );
       } catch (loadError) {
         if (!isActive) {
           return;
@@ -384,7 +394,7 @@ export default function StreaksScreen() {
               ]}
             >
               <View style={styles.feedbackState}>
-                <ActivityIndicator color={theme.colors.primary} />
+                <JournalLoader color={theme.colors.primary} />
                 <Text style={[styles.feedbackTitle, { color: theme.colors.foreground }]}>
                   Loading streak data
                 </Text>
@@ -413,7 +423,7 @@ export default function StreaksScreen() {
                 <Text style={[styles.feedbackText, { color: theme.colors.mutedForeground }]}>
                   {error}
                 </Text>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Retry streaks"
                   onPress={() => {
@@ -434,7 +444,7 @@ export default function StreaksScreen() {
                   >
                     Retry
                   </Text>
-                </Pressable>
+                </HapticPressable>
               </View>
             </View>
           ) : null}

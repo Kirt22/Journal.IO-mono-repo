@@ -1,3 +1,4 @@
+import type { GoalIconKey } from "../constants/goalIcons";
 import { request } from "../utils/apiClient";
 
 type GuidedReflectionOnboardingContext = {
@@ -33,6 +34,7 @@ type GuidedReflectionThreadMessagePayload = {
   kind: string;
   text: string;
   actionType?: GuidedSuggestionAction;
+  promptQuestion?: string;
 };
 
 type FirstReflectionSummaryPayload = {
@@ -51,6 +53,7 @@ type GuidedReflectionGoDeeperPayload = {
 };
 
 type GuidedReflectionSessionAnalysisPayload = {
+  journalId?: string;
   promptAnswers: GuidedReflectionPromptAnswer[];
   aiSummary?: string;
   threadMessages?: GuidedReflectionThreadMessagePayload[];
@@ -114,6 +117,8 @@ type FirstReflectionGoalSuggestionPayload = {
   description: string;
   frequency: "daily" | "weekly" | "as_needed";
   category: FirstReflectionGoalCategory;
+  /** Curated key from constants/goalIcons, chosen by the model. */
+  icon: GoalIconKey;
 };
 
 type GuidedReflectionGoalSuggestionsPayload = GuidedReflectionSessionAnalysisPayload & {
@@ -127,12 +132,19 @@ type GuidedReflectionGoalSuggestionsPayload = GuidedReflectionSessionAnalysisPay
 
 type FirstReflectionSummaryResponse = {
   reflection: string;
+  // A therapist-style follow-up question delivered with the opening analysis to
+  // draw the user deeper. Becomes the first question of the go-deeper thread.
+  followUpQuestion: string;
   takeaway?: string;
 };
 
 type GuidedReflectionGoDeeperResponse = {
   reflection: string;
-  followUpPrompt?: string;
+  // Adaptive, therapist-style next question generated from the user's last
+  // answer. The user chooses whether to answer it or wrap up (user-paced).
+  nextQuestion: string;
+  // False once the reflection reaches a natural, resolved stopping point.
+  canGoDeeper: boolean;
 };
 
 type GuidedReflectionSessionAnalysisResponse = {
@@ -140,6 +152,8 @@ type GuidedReflectionSessionAnalysisResponse = {
   majorInsight: string;
   observedTrends: string[];
   topicsObserved?: string[];
+  detectedTopics: string[];
+  detectedMood: "amazing" | "good" | "okay" | "bad" | "terrible";
   brainSessionMap: BrainSessionMap;
   hasEnoughSignal: boolean;
 };

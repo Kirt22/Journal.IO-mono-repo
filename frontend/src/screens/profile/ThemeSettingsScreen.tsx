@@ -1,10 +1,12 @@
+import HapticPressable from '../../components/HapticPressable';
 import {
-  Pressable,
   StyleSheet,
-  Text,
   View,
   type GestureResponderEvent,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import { Check } from 'lucide-react-native';
 import { useTheme, useThemeTransition } from '../../theme/provider';
 import type { ThemePreference } from '../../theme/theme';
@@ -53,7 +55,7 @@ export default function ThemeSettingsScreen({
           const isSelected = option.value === currentThemePreference;
 
           return (
-            <Pressable
+            <HapticPressable
               key={option.value}
               accessibilityLabel={`Use ${option.label} theme`}
               accessibilityRole="button"
@@ -91,7 +93,7 @@ export default function ThemeSettingsScreen({
               {isSelected ? (
                 <Check size={20} color={theme.colors.primary} />
               ) : null}
-            </Pressable>
+            </HapticPressable>
           );
         })}
       </SectionCard>

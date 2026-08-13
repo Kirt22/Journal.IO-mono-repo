@@ -11,6 +11,7 @@ import "dotenv/config";
 import { passwordResetPageController } from "./services/auth/auth.controllers";
 import { assertRevenueCatProductionConfiguration } from "./config/revenueCat.config";
 import { startRevenueCatEntitlementReconciliationJob } from "./services/revenuecat/revenuecat.service";
+import { assertFieldEncryptionReady } from "./helpers/fieldEncryption.helpers";
 
 const DEFAULT_PORT = 3000;
 
@@ -60,6 +61,7 @@ export const createApp = (): Express => {
 
 export const startServer = async (): Promise<void> => {
   assertRevenueCatProductionConfiguration();
+  assertFieldEncryptionReady();
   await init_mongoDB();
   const app = createApp();
   const port = Number(process.env.PORT) || DEFAULT_PORT;

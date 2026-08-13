@@ -1,13 +1,37 @@
 import { journalModel, type IJournal } from "../../schema/journal.schema";
+import { normalizeJournalEntryKind } from "../../helpers/journalEntryKind.helpers";
 import { moodCheckInModel, type IMoodCheckIn } from "../../schema/mood.schema";
 import { insightsModel, type IInsights } from "../../schema/insights.schema";
+import {
+  mindMapEntryScoreModel,
+  type IMindMapEntryScore,
+} from "../../schema/mindMapEntryScore.schema";
+import { entryInsightModel } from "../../schema/entryInsight.schema";
+import { userMemoryModel } from "../../schema/userMemory.schema";
+import {
+  patternNodeModel,
+  type IPatternNode,
+} from "../../schema/patternNode.schema";
+import {
+  patternEdgeModel,
+  type IPatternEdge,
+} from "../../schema/patternEdge.schema";
+import {
+  jadeSessionModel,
+  type IJadeSession,
+} from "../../schema/jadeSession.schema";
+import {
+  jadeMessageModel,
+  type IJadeMessage,
+} from "../../schema/jadeMessage.schema";
 import { reminderModel, type IReminder } from "../../schema/reminder.schema";
 import { streaksModel, type IStreak } from "../../schema/streak.schema";
 import { statsModel, type IStat } from "../../schema/stat.schema";
 import { userModel, type IUser } from "../../schema/user.schema";
-import { getUserAiAccessState } from "../../helpers/openai.helpers";
 import { invalidateRefreshToken } from "../auth/auth.service";
+import { revokeAllWidgetSessions } from "../widgets/widgets.service";
 import type { MoodValue } from "../../types/mood.types";
+import type { GuidedReflectionSessionAnalysisResponse } from "../guided-reflection/guided-reflection.service";
 
 type PrivacyExportOnboardingContext = {
   ageRange: string | null;
@@ -15,7 +39,6 @@ type PrivacyExportOnboardingContext = {
   goals: string[];
   supportFocus: string[];
   reminderPreference: string | null;
-  aiOptIn: boolean | null;
   privacyConsentAccepted: boolean | null;
 };
 
@@ -43,8 +66,17 @@ type PrivacyExportJournalEntry = {
   title: string;
   content: string;
   type: string;
+  entryKind: "journal" | "quick_thought";
   aiPrompt: string | null;
   tags: string[];
+  detectedTopics: string[];
+  detectedMood: string | null;
+  sessionAnalysisSnapshot: {
+    analysis: GuidedReflectionSessionAnalysisResponse;
+    source: string;
+    version: number;
+    generatedAt: string;
+  } | null;
   images: string[];
   isFavorite: boolean;
   createdAt: string;
@@ -112,6 +144,73 @@ type PrivacyExportReminder = {
   updatedAt: string;
 };
 
+type PrivacyExportMindMapEntryScore = {
+  journalId: string;
+  entryType: string;
+  regionScores: { id: string; score: number; confidence: number }[];
+  dominantRegionId: string;
+  source: string;
+  scorerVersion: string;
+  entryCreatedAt: string;
+  computedAt: string;
+};
+
+/**
+ * The user's pattern graph: the behaviours their entries kept showing and how
+ * those behaviours appear to connect. Exported in full, because it is derived
+ * conclusions about the person and they are entitled to see them.
+ */
+type PrivacyExportPatternNode = {
+  key: string;
+  kind: string;
+  label: string;
+  rationale: string;
+  evidenceQuote: string;
+  occurrences: number;
+  confidence: number;
+  sourceKinds: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+type PrivacyExportPatternEdge = {
+  fromKey: string;
+  toKey: string;
+  type: string;
+  source: string;
+  rationale: string;
+  observations: number;
+  confidence: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+type PrivacyExportPatternGraph = {
+  nodes: PrivacyExportPatternNode[];
+  edges: PrivacyExportPatternEdge[];
+};
+
+/**
+ * Ask Jade conversations, exported in full. These are the user's own words and
+ * the replies they were given, so an export that omitted them would be
+ * incomplete.
+ */
+type PrivacyExportJadeMessage = {
+  seq: number;
+  role: string;
+  text: string;
+  status: string;
+  createdAt: string;
+};
+
+type PrivacyExportJadeConversation = {
+  title: string;
+  messageCount: number;
+  lastMessageAt: string;
+  createdAt: string;
+  messages: PrivacyExportJadeMessage[];
+};
+
 type PrivacyExportPayload = {
   exportedAt: string;
   account: PrivacyExportAccount;
@@ -119,6 +218,9 @@ type PrivacyExportPayload = {
   moodCheckIns: PrivacyExportMoodEntry[];
   reminders: PrivacyExportReminder[];
   insights: PrivacyExportInsights | null;
+  mindMapEntryScores: PrivacyExportMindMapEntryScore[];
+  patternGraph: PrivacyExportPatternGraph;
+  jadeConversations: PrivacyExportJadeConversation[];
   streak: PrivacyExportStreak | null;
   stats: PrivacyExportStats | null;
 };
@@ -129,20 +231,16 @@ type DeleteAccountResult = {
   deletedMoodCheckIns: number;
   deletedReminders: number;
   deletedInsights: number;
+  deletedMindMapEntryScores: number;
+  deletedEntryInsights: number;
+  deletedUserMemories: number;
+  deletedPatternNodes: number;
+  deletedPatternEdges: number;
+  deletedJadeSessions: number;
+  deletedJadeMessages: number;
   deletedStreaks: number;
   deletedStats: number;
 };
-
-type UpdateAiOptOutResult = {
-  aiOptIn: boolean;
-};
-
-class PremiumPrivacyModeRequiredError extends Error {
-  constructor() {
-    super("Privacy Mode is available with Premium.");
-    this.name = "PremiumPrivacyModeRequiredError";
-  }
-}
 
 const toIso = (value: unknown): string => {
   if (!value) {
@@ -200,8 +298,6 @@ const serializeOnboardingContext = (
       ? onboardingContext.supportFocus
       : [],
     reminderPreference: onboardingContext.reminderPreference ?? null,
-    aiOptIn:
-      typeof onboardingContext.aiOptIn === "boolean" ? onboardingContext.aiOptIn : null,
     privacyConsentAccepted:
       typeof onboardingContext.privacyConsentAccepted === "boolean"
         ? onboardingContext.privacyConsentAccepted
@@ -210,7 +306,10 @@ const serializeOnboardingContext = (
 };
 
 const serializeUser = (user: IUser): PrivacyExportAccount => {
-  const userObject = user.toObject() as Record<string, any>;
+  const userObject = (user as any).toObject({ getters: true }) as Record<
+    string,
+    any
+  >;
 
   return {
     userId: userObject._id.toString(),
@@ -235,15 +334,35 @@ const serializeUser = (user: IUser): PrivacyExportAccount => {
 };
 
 const serializeJournal = (journal: IJournal): PrivacyExportJournalEntry => {
-  const journalObject = journal.toObject() as Record<string, any>;
+  const journalObject = (journal as any).toObject({ getters: true }) as Record<
+    string,
+    any
+  >;
 
   return {
     _id: journalObject._id.toString(),
     title: journalObject.title,
     content: journalObject.content,
     type: journalObject.type,
+    entryKind: normalizeJournalEntryKind(
+      journalObject.entryKind,
+      journalObject.title
+    ),
     aiPrompt: typeof journalObject.aiPrompt === "string" ? journalObject.aiPrompt : null,
     tags: Array.isArray(journalObject.tags) ? journalObject.tags : [],
+    detectedTopics: Array.isArray(journalObject.detectedTopics)
+      ? journalObject.detectedTopics
+      : [],
+    detectedMood:
+      typeof journalObject.detectedMood === "string" ? journalObject.detectedMood : null,
+    sessionAnalysisSnapshot: journalObject.sessionAnalysisSnapshot?.analysis
+      ? {
+          analysis: journalObject.sessionAnalysisSnapshot.analysis,
+          source: journalObject.sessionAnalysisSnapshot.source,
+          version: journalObject.sessionAnalysisSnapshot.version,
+          generatedAt: toIso(journalObject.sessionAnalysisSnapshot.generatedAt),
+        }
+      : null,
     images: Array.isArray(journalObject.images) ? journalObject.images : [],
     isFavorite: Boolean(journalObject.isFavorite),
     createdAt: toIso(journalObject.createdAt),
@@ -264,7 +383,10 @@ const serializeMood = (moodCheckIn: IMoodCheckIn): PrivacyExportMoodEntry => {
 };
 
 const serializeInsights = (insights: IInsights): PrivacyExportInsights => {
-  const insightsObject = insights.toObject() as Record<string, any>;
+  const insightsObject = (insights as any).toObject({ getters: true }) as Record<
+    string,
+    any
+  >;
 
   return {
     totalEntries: Number(insightsObject.totalEntries) || 0,
@@ -332,15 +454,121 @@ const serializeReminder = (reminder: IReminder): PrivacyExportReminder => {
   };
 };
 
+const serializeMindMapEntryScore = (
+  score: IMindMapEntryScore
+): PrivacyExportMindMapEntryScore => {
+  const object = score.toObject();
+
+  return {
+    journalId: String(object.journalId),
+    entryType: object.entryType,
+    regionScores: (object.regionScores || []).map((region: any) => ({
+      id: region.id,
+      score: region.score,
+      confidence: region.confidence,
+    })),
+    dominantRegionId: object.dominantRegionId,
+    source: object.source,
+    scorerVersion: object.scorerVersion,
+    entryCreatedAt: toIsoOrNull(object.entryCreatedAt) || "",
+    computedAt: toIsoOrNull(object.computedAt) || "",
+  };
+};
+
+const serializePatternNode = (node: IPatternNode): PrivacyExportPatternNode => {
+  const object = (node as any).toObject({ getters: true });
+
+  return {
+    key: object.key,
+    kind: object.kind,
+    label: object.label,
+    rationale: object.rationale || "",
+    evidenceQuote: object.evidenceQuote || "",
+    occurrences: object.occurrences || 0,
+    confidence: object.confidence || 0,
+    sourceKinds: object.sourceKinds || [],
+    firstSeenAt: toIsoOrNull(object.firstSeenAt) || "",
+    lastSeenAt: toIsoOrNull(object.lastSeenAt) || "",
+  };
+};
+
+const serializePatternEdge = (edge: IPatternEdge): PrivacyExportPatternEdge => {
+  const object = (edge as any).toObject({ getters: true });
+
+  return {
+    fromKey: object.fromKey,
+    toKey: object.toKey,
+    type: object.type,
+    source: object.source,
+    rationale: object.rationale || "",
+    observations: object.observations || 0,
+    confidence: object.confidence || 0,
+    firstSeenAt: toIsoOrNull(object.firstSeenAt) || "",
+    lastSeenAt: toIsoOrNull(object.lastSeenAt) || "",
+  };
+};
+
+/**
+ * Group Jade messages under their conversation so an export reads as the
+ * transcripts the user actually had, not a flat message dump.
+ */
+const buildJadeConversations = (
+  sessions: IJadeSession[],
+  messages: IJadeMessage[]
+): PrivacyExportJadeConversation[] => {
+  const bySession = new Map<string, PrivacyExportJadeMessage[]>();
+
+  for (const message of messages) {
+    const key = String(message.sessionId);
+    const bucket = bySession.get(key) || [];
+    bucket.push({
+      seq: message.seq,
+      role: message.role,
+      text: message.text,
+      status: message.status,
+      createdAt: toIsoOrNull(message.createdAt) || "",
+    });
+    bySession.set(key, bucket);
+  }
+
+  return sessions.map(session => ({
+    title: session.title || "",
+    messageCount: session.messageCount || 0,
+    lastMessageAt: toIsoOrNull(session.lastMessageAt) || "",
+    createdAt: toIsoOrNull(session.createdAt) || "",
+    messages: (bySession.get(session._id.toString()) || []).sort(
+      (left, right) => left.seq - right.seq
+    ),
+  }));
+};
+
 const exportPrivacyData = async (
   userId: string
 ): Promise<PrivacyExportPayload | null> => {
-  const [user, journalEntries, moodCheckIns, reminders, insights, streak, stats] = await Promise.all([
+  const [
+    user,
+    journalEntries,
+    moodCheckIns,
+    reminders,
+    insights,
+    mindMapEntryScores,
+    patternNodes,
+    patternEdges,
+    jadeSessions,
+    jadeMessages,
+    streak,
+    stats,
+  ] = await Promise.all([
     userModel.findById(userId).exec(),
     journalModel.find({ userId }).sort({ createdAt: -1 }).exec(),
     moodCheckInModel.find({ userId }).sort({ createdAt: -1 }).exec(),
     reminderModel.find({ userId }).sort({ createdAt: -1 }).exec(),
     insightsModel.findOne({ userId }).exec(),
+    mindMapEntryScoreModel.find({ userId }).sort({ entryCreatedAt: -1 }).exec(),
+    patternNodeModel.find({ userId }).sort({ strength: -1 }).exec(),
+    patternEdgeModel.find({ userId }).sort({ strength: -1 }).exec(),
+    jadeSessionModel.find({ userId }).sort({ lastMessageAt: -1 }).exec(),
+    jadeMessageModel.find({ userId }).sort({ createdAt: 1 }).exec(),
     streaksModel.findOne({ userId }).exec(),
     statsModel.findOne({ userId }).exec(),
   ]);
@@ -356,24 +584,54 @@ const exportPrivacyData = async (
     moodCheckIns: moodCheckIns.map(serializeMood),
     reminders: reminders.map(serializeReminder),
     insights: insights ? serializeInsights(insights) : null,
+    mindMapEntryScores: mindMapEntryScores.map(serializeMindMapEntryScore),
+    patternGraph: {
+      nodes: patternNodes.map(serializePatternNode),
+      edges: patternEdges.map(serializePatternEdge),
+    },
+    jadeConversations: buildJadeConversations(jadeSessions, jadeMessages),
     streak: streak ? serializeStreak(streak) : null,
     stats: stats ? serializeStats(stats) : null,
   };
 };
 
 const deletePrivacyAccount = async (userId: string): Promise<DeleteAccountResult> => {
-  await invalidateRefreshToken(userId);
+  await Promise.all([
+    invalidateRefreshToken(userId),
+    revokeAllWidgetSessions(userId),
+  ]);
 
-  const [journalsResult, moodResult, remindersResult, insightsResult, streakResult, statsResult, userResult] =
-    await Promise.all([
-      journalModel.deleteMany({ userId }).exec(),
-      moodCheckInModel.deleteMany({ userId }).exec(),
-      reminderModel.deleteMany({ userId }).exec(),
-      insightsModel.deleteMany({ userId }).exec(),
-      streaksModel.deleteMany({ userId }).exec(),
-      statsModel.deleteMany({ userId }).exec(),
-      userModel.deleteOne({ _id: userId }).exec(),
-    ]);
+  const [
+    journalsResult,
+    moodResult,
+    remindersResult,
+    insightsResult,
+    mindMapScoresResult,
+    entryInsightsResult,
+    userMemoryResult,
+    patternNodesResult,
+    patternEdgesResult,
+    jadeSessionsResult,
+    jadeMessagesResult,
+    streakResult,
+    statsResult,
+    userResult,
+  ] = await Promise.all([
+    journalModel.deleteMany({ userId }).exec(),
+    moodCheckInModel.deleteMany({ userId }).exec(),
+    reminderModel.deleteMany({ userId }).exec(),
+    insightsModel.deleteMany({ userId }).exec(),
+    mindMapEntryScoreModel.deleteMany({ userId }).exec(),
+    entryInsightModel.deleteMany({ userId }).exec(),
+    userMemoryModel.deleteMany({ userId }).exec(),
+    patternNodeModel.deleteMany({ userId }).exec(),
+    patternEdgeModel.deleteMany({ userId }).exec(),
+    jadeSessionModel.deleteMany({ userId }).exec(),
+    jadeMessageModel.deleteMany({ userId }).exec(),
+    streaksModel.deleteMany({ userId }).exec(),
+    statsModel.deleteMany({ userId }).exec(),
+    userModel.deleteOne({ _id: userId }).exec(),
+  ]);
 
   return {
     deletedAccount: Boolean(userResult.deletedCount),
@@ -381,68 +639,21 @@ const deletePrivacyAccount = async (userId: string): Promise<DeleteAccountResult
     deletedMoodCheckIns: moodResult.deletedCount || 0,
     deletedReminders: remindersResult.deletedCount || 0,
     deletedInsights: insightsResult.deletedCount || 0,
+    deletedMindMapEntryScores: mindMapScoresResult.deletedCount || 0,
+    deletedEntryInsights: entryInsightsResult.deletedCount || 0,
+    deletedUserMemories: userMemoryResult.deletedCount || 0,
+    deletedPatternNodes: patternNodesResult.deletedCount || 0,
+    deletedPatternEdges: patternEdgesResult.deletedCount || 0,
+    deletedJadeSessions: jadeSessionsResult.deletedCount || 0,
+    deletedJadeMessages: jadeMessagesResult.deletedCount || 0,
     deletedStreaks: streakResult.deletedCount || 0,
     deletedStats: statsResult.deletedCount || 0,
-  };
-};
-
-const updatePrivacyAiOptOut = async (
-  userId: string,
-  aiOptOut: boolean
-): Promise<UpdateAiOptOutResult | null> => {
-  const accessState = await getUserAiAccessState(userId);
-
-  if (!accessState.isPremium) {
-    throw new PremiumPrivacyModeRequiredError();
-  }
-
-  const [result] = await Promise.all([
-    userModel.updateOne(
-      { _id: userId },
-      {
-        $set: {
-          "onboardingContext.aiOptIn": !aiOptOut,
-        },
-      }
-    ),
-    aiOptOut
-      ? insightsModel.updateOne(
-          { userId },
-          {
-            $set: {
-              aiAnalysis: null,
-              aiAnalysisStale: true,
-              aiAnalysisComputedAt: null,
-              aiAnalysisWindowEndDateKey: null,
-              aiAnalysisCacheKey: null,
-              mindMapLatestWeek: null,
-              mindMapLatestWeekStale: true,
-              mindMapLatestWeekComputedAt: null,
-              mindMapLatestWeekCacheKey: null,
-              mindMapAllTime: null,
-              mindMapAllTimeStale: true,
-              mindMapAllTimeComputedAt: null,
-              mindMapAllTimeCacheKey: null,
-            },
-          }
-        )
-      : Promise.resolve(null),
-  ]);
-
-  if (!result.matchedCount) {
-    return null;
-  }
-
-  return {
-    aiOptIn: !aiOptOut,
   };
 };
 
 export {
   deletePrivacyAccount,
   exportPrivacyData,
-  PremiumPrivacyModeRequiredError,
-  updatePrivacyAiOptOut,
 };
 export type {
   DeleteAccountResult,
@@ -453,5 +664,4 @@ export type {
   PrivacyExportPayload,
   PrivacyExportStats,
   PrivacyExportStreak,
-  UpdateAiOptOutResult,
 };

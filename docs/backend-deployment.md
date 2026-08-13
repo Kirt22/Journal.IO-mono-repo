@@ -48,6 +48,46 @@ Required if AI-backed insights/prompts remain enabled:
 
 - `OPENAI_API_KEY`
 
+## Production Environment Matrix
+
+The following runtime variables are not required when the defaults are
+acceptable, but are available for the current feature set:
+
+- `AUTH_PASSWORD_RESET_EXPIRES_IN` defaults to `30m`.
+- `AUTH_PASSWORD_RESET_APP_URL` defaults to `https://api.journalio.app/reset-password` and should be set only if the reset flow uses a different public URL.
+- `GOOGLE_ANDROID_CLIENT_ID` is needed only when Android Google sign-in is enabled and uses a distinct audience.
+- `APPLE_CLIENT_ID` is needed only when Apple sign-in uses an audience other than the default `app.journalio`.
+- `OPENAI_GUIDED_REFLECTION_MODEL` and `OPENAI_GUIDED_REFLECTION_REASONING_EFFORT` optionally override guided-reflection quality and latency; the current defaults are the session-analysis model and `high` reasoning.
+- `OPENAI_EMBEDDING_MODEL` optionally overrides the default `text-embedding-3-small` model.
+- `OPENAI_MINDMAP_ENTRY_MODEL`, `OPENAI_PATTERN_GRAPH_MODEL`, and `OPENAI_USER_MEMORY_MODEL` optionally override their feature models; each falls back to `OPENAI_RESPONSES_MODEL`.
+- `OPENAI_ASK_JADE_MODEL` and `OPENAI_ASK_JADE_REASONING_EFFORT` optionally override Jade; the current default reasoning effort is `medium`.
+- `USER_MEMORY_REFRESH_EVERY`, `JADE_TURNS_PER_DAY`, `JADE_TURNS_PER_HOUR`, `JADE_MINE_EVERY`, `JADE_MINE_IDLE_MINUTES`, and `PATTERN_GRAPH_*` are tuning controls with safe code defaults.
+
+Field encryption is opt-in. If production keeps `FIELD_ENCRYPTION_MODE=disabled`
+(the current default), no encryption-specific values are required. If the mode
+is changed to `migration` or `enforced`, add all of these before deployment:
+
+- `FIELD_ENCRYPTION_MODE`
+- `FIELD_ENCRYPTION_ACTIVE_KEY_ID`
+- `FIELD_ENCRYPTION_KEYS_JSON`
+- `FIELD_LOOKUP_HMAC_KEY`
+- `FIELD_ENCRYPTION_CANARY`
+- `FIELD_LOOKUP_HMAC_CANARY`
+
+Do not enable development bypasses in production. Leave these unset or false:
+`AI_ALLOW_NON_PREMIUM`, `GUIDED_REFLECTION_ALLOW_NON_PREMIUM`,
+`MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS`, `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY`,
+and `DEV_PREMIUM_ACCESS_OVERRIDE`. `AI_INSIGHTS_DEV_ALLOW_EARLY_READY` is a
+legacy flag and is ignored by the current release-safe implementation; remove
+it from the production environment rather than relying on it.
+
+The `PRODUCTION_*` variables used by `backend/scripts/check-production-domains.mjs`
+are for the optional local domain-check script, not backend runtime boot. The
+frontend production build separately needs `API_BASE_URL`, the Google client
+IDs, and the platform RevenueCat public SDK key(s); RevenueCat entitlement and
+offering identifiers are currently code constants, not backend environment
+variables.
+
 ## Production Rollout
 
 Use Render-managed environment variables for production values.

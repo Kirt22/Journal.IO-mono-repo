@@ -1,4 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import HapticPressable from '../../components/HapticPressable';
+import {
+  StyleSheet,
+  View,
+} from "react-native";
+import {
+  Text,
+} from "../../infrastructure/reactNative";
 import type { BrainMapNode } from "./brainMapTypes";
 import type { BrainMapColors } from "./brainMapTheme";
 import { withAlpha } from "./brainMapTheme";
@@ -75,7 +82,7 @@ export default function BrainNodeDetailsCard({
             {selectedNode.label}
           </Text>
         </View>
-        <Pressable
+        <HapticPressable
           accessibilityRole="button"
           onPress={onClearSelection}
           style={({ pressed }) => [
@@ -90,7 +97,7 @@ export default function BrainNodeDetailsCard({
           <Text style={[styles.clearButtonText, { color: colors.text }]}>
             Clear
           </Text>
-        </Pressable>
+        </HapticPressable>
       </View>
       <Text style={[styles.body, { color: colors.text }]}>
         {selectedNode.explanation}

@@ -35,7 +35,8 @@ Backend `backend/.env`:
 
 1. The current iOS target bundle identifier is `app.journalio`. In Xcode, open the `JournalFrontend` target and confirm the iOS OAuth client in Google Cloud uses that same bundle identifier.
 2. Add the reversed iOS client ID as a URL scheme in the target's `Info` tab.
-3. Run `cd frontend/ios && pod install` after installing dependencies.
+3. In `AppDelegate.application(_:open:options:)`, forward URLs to `GIDSignIn.sharedInstance.handle(url)` before falling back to React Native Linking so the selected Google account can complete the pending sign-in request.
+4. Run `cd frontend/ios && pod install` after installing dependencies.
 
 ## Notes
 

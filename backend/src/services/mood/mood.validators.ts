@@ -6,6 +6,28 @@ const getTodayMoodSchema = z.object({
   body: z.object({}).optional(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
+  headers: z
+    .object({
+      "x-client-timezone": z.string().trim().min(1).max(128).optional(),
+    })
+    .passthrough()
+    .optional(),
+});
+
+const getMoodHistorySchema = z.object({
+  body: z.object({}).optional(),
+  query: z
+    .object({
+      days: z.coerce.number().int().min(1).max(31).optional(),
+    })
+    .optional(),
+  params: z.object({}).optional(),
+  headers: z
+    .object({
+      "x-client-timezone": z.string().trim().min(1).max(128).optional(),
+    })
+    .passthrough()
+    .optional(),
 });
 
 const logMoodSchema = z.object({
@@ -14,6 +36,17 @@ const logMoodSchema = z.object({
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
+  headers: z
+    .object({
+      "x-client-timezone": z.string().trim().min(1).max(128).optional(),
+    })
+    .passthrough()
+    .optional(),
 });
 
-export { getTodayMoodSchema, logMoodSchema, moodValueSchema };
+export {
+  getMoodHistorySchema,
+  getTodayMoodSchema,
+  logMoodSchema,
+  moodValueSchema,
+};

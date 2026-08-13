@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
+import {
+  Text,
+  TextInput,
+} from '../../infrastructure/reactNative';
 import { ArrowLeft, Heart, Loader2, Save, Tag, X } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomNav, {
@@ -17,14 +23,17 @@ import BottomNav, {
   type BottomNavKey,
 } from '../../components/BottomNav';
 import ButtonLoadingContent from '../../components/ButtonLoadingContent';
-import JournalPromptCard from '../../components/JournalPromptCard';
 import {
   getJournalEntry,
   updateJournalEntry,
 } from '../../services/journalService';
 import { useAppStore } from '../../store/appStore';
 import { useTheme } from '../../theme/provider';
-import { getFilteredTags } from '../../utils/journalEntryCard';
+import {
+  formatEntryTagLabel,
+  getEntryDisplayTags,
+  getFilteredTags,
+} from '../../utils/journalEntryCard';
 import { useConnectivity } from '../../hooks/useConnectivity';
 
 function formatEntryDate(value: string) {
@@ -72,6 +81,7 @@ export default function EditEntryScreen() {
     () => entries.find(current => current._id === entryId) || null,
     [entryId, entries],
   );
+  const displayTags = entry ? getEntryDisplayTags(entry) : [];
 
   useEffect(() => {
     if (!entryId) {
@@ -250,7 +260,7 @@ export default function EditEntryScreen() {
                 ? 'Open a journal entry first to edit it.'
                 : 'Reconnect to load this entry. Any open draft remains on this screen.'}
             </Text>
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               accessibilityLabel="Back"
               onPress={closeJournalEditor}
@@ -271,7 +281,7 @@ export default function EditEntryScreen() {
               >
                 Back
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </View>
         {renderBottomNav}
@@ -293,7 +303,7 @@ export default function EditEntryScreen() {
         >
           <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
             <View style={styles.header}>
-              <Pressable
+              <HapticPressable
                 accessibilityRole="button"
                 accessibilityLabel="Back"
                 onPress={closeJournalEditor}
@@ -304,10 +314,10 @@ export default function EditEntryScreen() {
                 ]}
               >
                 <ArrowLeft size={18} color={theme.colors.foreground} />
-              </Pressable>
+              </HapticPressable>
 
               <View style={styles.headerActions}>
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Cancel edit"
                   onPress={closeJournalEditor}
@@ -325,9 +335,9 @@ export default function EditEntryScreen() {
                   >
                     Cancel
                   </Text>
-                </Pressable>
+                </HapticPressable>
 
-                <Pressable
+                <HapticPressable
                   accessibilityRole="button"
                   accessibilityLabel="Save entry"
                   accessibilityState={{ busy: isSaving, disabled: !isOnline || isSaving }}
@@ -357,7 +367,7 @@ export default function EditEntryScreen() {
                     Save
                   </Text>
                   </ButtonLoadingContent>
-                </Pressable>
+                </HapticPressable>
               </View>
             </View>
 
@@ -450,9 +460,12 @@ export default function EditEntryScreen() {
                     </Text>
                   </View>
 
-                  {tags.length ? (
-                    <View style={styles.chipRow}>
-                      {tags.map(tag => (
+                  {displayTags.length ? (
+                    <View
+                      style={styles.chipRow}
+                      testID="edit-entry-detected-topic-tags"
+                    >
+                      {displayTags.map(tag => (
                         <View
                           key={tag}
                           style={[
@@ -469,7 +482,7 @@ export default function EditEntryScreen() {
                               { color: theme.colors.secondaryForeground },
                             ]}
                           >
-                            {tag}
+                            {formatEntryTagLabel(tag)}
                           </Text>
                         </View>
                       ))}
@@ -488,11 +501,6 @@ export default function EditEntryScreen() {
                   </Text>
                 ) : null}
 
-                {entry.aiPrompt ? (
-                  <View style={styles.promptBlock}>
-                    <JournalPromptCard prompt={entry.aiPrompt} />
-                  </View>
-                ) : null}
               </View>
             </ScrollView>
           </View>
@@ -651,9 +659,6 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 12,
     fontSize: 13,
-  },
-  promptBlock: {
-    marginTop: 8,
   },
   emptyState: {
     justifyContent: 'center',

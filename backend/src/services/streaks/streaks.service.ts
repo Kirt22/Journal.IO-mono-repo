@@ -178,12 +178,17 @@ const getCurrentStreakSummary = async (userId: string): Promise<StreakCurrentRes
   const countMap = toCountMap(rows);
   const totalEntries = rows.reduce((sum, row) => sum + row.count, 0);
   const bestStreak = computeBestStreak(rows);
+  const lastEntryRow = rows.length > 0 ? rows[rows.length - 1] : undefined;
+  const lastEntryDateKey = lastEntryRow?.dateKey ?? null;
+  const hasEntryToday = Number(countMap.get(getDateKey(new Date())) || 0) > 0;
 
   return {
     currentStreak: computeCurrentStreak(countMap),
     bestStreak,
     thisMonthEntries: computeThisMonthEntries(rows),
     totalEntries,
+    lastEntryDateKey,
+    hasEntryToday,
     achievements: buildAchievements({
       bestStreak,
       totalEntries,

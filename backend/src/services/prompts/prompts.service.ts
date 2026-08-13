@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { journalModel } from "../../schema/journal.schema";
-import { canUseOpenAiForUser, requestStructuredOpenAi } from "../../helpers/openai.helpers";
+import {
+  canUseOpenAiForUser,
+  requestStructuredOpenAi,
+} from "../../helpers/openai.helpers";
+import { AI_REFLECTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
+import { buildUserPersonalization } from "../../helpers/userPersonalization.helpers";
 import { getInsightsOverview } from "../insights/insights.service";
 import type { InsightsOverviewResponse } from "../../types/insights.types";
 import type {
@@ -8,15 +13,22 @@ import type {
   WritingPromptsResponse,
 } from "../../types/prompts.types";
 
+// The composer shows one prompt at a time behind a refresh control, so a single
+// call has to carry a whole session of taps. Prompts are short by contract —
+// long questions do not fit the single-line slot and read as instructions.
+const WRITING_PROMPT_BATCH_MIN = 6;
+const WRITING_PROMPT_BATCH_MAX = 8;
+
 const aiWritingPromptsResponseSchema = z.object({
-  prompts: z.array(
-    z.object({
-      topic: z.string().trim().min(1).max(40),
-      text: z.string().trim().min(12).max(180),
-    })
-  )
-    .min(3)
-    .max(4),
+  prompts: z
+    .array(
+      z.object({
+        topic: z.string().trim().min(1).max(18),
+        text: z.string().trim().min(10).max(90),
+      })
+    )
+    .min(WRITING_PROMPT_BATCH_MIN)
+    .max(WRITING_PROMPT_BATCH_MAX),
 });
 const aiWritingPromptsJsonSchema = {
   type: "object",
@@ -25,8 +37,8 @@ const aiWritingPromptsJsonSchema = {
   properties: {
     prompts: {
       type: "array",
-      minItems: 3,
-      maxItems: 4,
+      minItems: WRITING_PROMPT_BATCH_MIN,
+      maxItems: WRITING_PROMPT_BATCH_MAX,
       items: {
         type: "object",
         additionalProperties: false,
@@ -41,7 +53,10 @@ const aiWritingPromptsJsonSchema = {
 } satisfies Record<string, unknown>;
 
 const hashDateSeed = (dateKey: string) =>
-  Array.from(dateKey).reduce((total, character) => total + character.charCodeAt(0), 0);
+  Array.from(dateKey).reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0
+  );
 
 const sanitizePromptId = (value: string) =>
   value
@@ -65,7 +80,11 @@ const sanitizePromptCandidates = (
     const sanitizedPrompt = trimPrompt(prompt);
     const dedupeKey = `${sanitizedPrompt.topic.toLowerCase()}::${sanitizedPrompt.text.toLowerCase()}`;
 
-    if (!sanitizedPrompt.topic || !sanitizedPrompt.text || seenValues.has(dedupeKey)) {
+    if (
+      !sanitizedPrompt.topic ||
+      !sanitizedPrompt.text ||
+      seenValues.has(dedupeKey)
+    ) {
       continue;
     }
 
@@ -73,7 +92,9 @@ const sanitizePromptCandidates = (
     nextPrompts.push(sanitizedPrompt);
   }
 
-  return nextPrompts.length > 0 ? nextPrompts.slice(0, 4) : fallbackPrompts;
+  return nextPrompts.length > 0
+    ? nextPrompts.slice(0, WRITING_PROMPT_BATCH_MAX)
+    : fallbackPrompts;
 };
 
 const loadRecentJournalSnippets = async (userId: string) => {
@@ -96,31 +117,43 @@ const generateAiWritingPrompts = async (
   userId: string,
   overview: InsightsOverviewResponse
 ) => {
-  if (overview.stats.totalEntries <= 0 || !(await canUseOpenAiForUser(userId))) {
+  if (
+    overview.stats.totalEntries <= 0 ||
+    !(await canUseOpenAiForUser(userId))
+  ) {
     return null;
   }
 
   const recentEntries = await loadRecentJournalSnippets(userId);
+  const personalization = await buildUserPersonalization(userId);
   const aiResponse = await requestStructuredOpenAi({
     feature: "writing prompts",
     schemaName: "writing_prompts",
     schema: aiWritingPromptsJsonSchema,
     parser: aiWritingPromptsResponseSchema,
-    maxOutputTokens: 420,
+    maxOutputTokens: 600,
     messages: [
       {
         role: "system",
-        content:
-          "You create personalized Journal.IO writing prompts. Keep them supportive, non-clinical, and grounded in recurring patterns from the user's own writing. Write one-sentence prompts only. Avoid diagnosis language, therapy-speak, or generic self-help filler.",
+        content: [
+          "You create personalized Journal.IO writing prompts. Each prompt is one short question of at most 12 words, written in plain everyday language and addressed to the user as 'you'. Anchor every prompt in something concrete from the user's own recent entries or recurring topics, not in generic self-help themes. The topic label is one or two plain words. Do not give advice, do not stack two questions together, and avoid diagnosis language or therapy-speak.",
+          personalization?.systemDirective,
+          AI_REFLECTION_BALANCE_GUIDANCE,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
       {
         role: "user",
         content: JSON.stringify({
+          userProfile: personalization?.promptProfile ?? null,
           summary: overview.analysis.summary,
           keyInsight: overview.analysis.keyInsight,
           growthPatterns: overview.analysis.growthPatterns,
           popularTopics: overview.popularTopics.slice(0, 3),
-          moodDistribution: overview.moodDistribution.filter(item => item.count > 0).slice(0, 3),
+          moodDistribution: overview.moodDistribution
+            .filter((item) => item.count > 0)
+            .slice(0, 3),
           recentEntries,
         }),
       },
@@ -131,7 +164,10 @@ const generateAiWritingPrompts = async (
     return null;
   }
 
-  return sanitizePromptCandidates(aiResponse.prompts, overview.analysis.personalizedPrompts);
+  return sanitizePromptCandidates(
+    aiResponse.prompts,
+    overview.analysis.personalizedPrompts
+  );
 };
 
 const buildWritingPromptsResponse = (
@@ -147,7 +183,9 @@ const buildWritingPromptsResponse = (
   }));
 
   const featuredIndex =
-    prompts.length > 0 ? hashDateSeed(now.toISOString().slice(0, 10)) % prompts.length : 0;
+    prompts.length > 0
+      ? hashDateSeed(now.toISOString().slice(0, 10)) % prompts.length
+      : 0;
   const featuredPrompt = prompts[featuredIndex] || {
     id: "reflection-1",
     topic: "Reflection",

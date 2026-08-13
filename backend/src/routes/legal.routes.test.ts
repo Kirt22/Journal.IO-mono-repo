@@ -26,7 +26,7 @@ test("getLegalPageHtml renders the privacy policy page", () => {
   assert.match(html, /Journal\.IO Privacy Policy/);
   assert.match(html, /href="\/support"/);
   assert.match(html, /href="\/assets\/landing\/favicon\.png"/);
-  assert.match(html, /Effective Date: April 22, 2026/);
+  assert.match(html, /Effective Date: August 8, 2026/);
 });
 
 test("getLegalPageHtml renders the terms page", () => {

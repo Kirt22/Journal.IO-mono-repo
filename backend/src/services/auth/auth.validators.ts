@@ -28,7 +28,6 @@ const onboardingContextSchema = z
     goals: z.array(z.string().min(1)).max(8).optional(),
     supportFocus: z.array(z.string().min(1)).max(8).optional(),
     reminderPreference: z.string().min(1).max(32).optional(),
-    aiOptIn: z.boolean().optional(),
     privacyConsentAccepted: z.boolean().optional(),
   })
   .strict()

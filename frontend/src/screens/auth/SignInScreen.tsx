@@ -1,17 +1,22 @@
-import { useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import {
+  useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from '../../infrastructure/reactNative';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useWindowDimensions } from 'react-native';
+import { useWindowDimensions,
+} from 'react-native';
 import PrimaryButton from '../../components/PrimaryButton';
 import {
   AuthErrorDialog,
@@ -126,7 +131,7 @@ export default function SignInScreen({
           style={[styles.header, { paddingHorizontal: horizontalPadding }]}
         >
           <View style={[styles.headerInner, { maxWidth: sheetMaxWidth }]}>
-            <Pressable
+            <HapticPressable
               accessibilityLabel="Back to authentication options"
               accessibilityRole="button"
               onPress={onBackToAuth}
@@ -141,7 +146,7 @@ export default function SignInScreen({
               >
                 Back
               </Text>
-            </Pressable>
+            </HapticPressable>
           </View>
         </View>
 
@@ -249,7 +254,7 @@ export default function SignInScreen({
                         },
                       ]}
                     />
-                    <Pressable
+                    <HapticPressable
                       accessibilityRole="button"
                       onPress={() => setShowPassword(previous => !previous)}
                       style={styles.visibilityButton}
@@ -262,9 +267,9 @@ export default function SignInScreen({
                       ) : (
                         <Eye color={theme.colors.mutedForeground} size={18} />
                       )}
-                    </Pressable>
+                    </HapticPressable>
                   </View>
-                  <Pressable
+                  <HapticPressable
                     onPress={onForgotPassword}
                     style={styles.forgotLinkRow}
                   >
@@ -273,7 +278,7 @@ export default function SignInScreen({
                     >
                       Forgot password?
                     </Text>
-                  </Pressable>
+                  </HapticPressable>
                 </View>
 
                 <PrimaryButton
@@ -294,7 +299,7 @@ export default function SignInScreen({
                   >
                     Need an account?
                   </Text>
-                  <Pressable
+                  <HapticPressable
                     onPress={onGoToCreateAccount}
                     style={styles.linkButton}
                   >
@@ -303,7 +308,7 @@ export default function SignInScreen({
                     >
                       Create one
                     </Text>
-                  </Pressable>
+                  </HapticPressable>
                 </View>
               </View>
             </View>

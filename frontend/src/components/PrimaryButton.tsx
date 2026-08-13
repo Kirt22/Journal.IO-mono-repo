@@ -1,11 +1,12 @@
 import React from "react";
 import {
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from "../infrastructure/reactNative";
 import ButtonLoadingContent from './ButtonLoadingContent';
+import HapticPressable from './HapticPressable';
+import type { HapticEvent } from '../services/hapticsService';
 import { useTheme } from "../theme/provider";
 import type { ReactNode } from "react";
 
@@ -18,6 +19,7 @@ type PrimaryButtonProps = {
   tone?: "default" | "accent";
   icon?: ReactNode;
   size?: "md" | "sm";
+  hapticEvent?: HapticEvent | false;
 };
 
 const PrimaryButton = ({
@@ -29,6 +31,7 @@ const PrimaryButton = ({
   tone = "default",
   icon,
   size = "md",
+  hapticEvent = 'primaryAction',
 }: PrimaryButtonProps) => {
   const theme = useTheme();
   const isDisabled = disabled || loading;
@@ -45,11 +48,12 @@ const PrimaryButton = ({
   const ghostText = theme.colors.mutedForeground;
 
   return (
-    <Pressable
+    <HapticPressable
       accessibilityRole="button"
       accessibilityState={{ busy: Boolean(loading), disabled: isDisabled }}
       onPress={onPress}
       disabled={isDisabled}
+      hapticEvent={hapticEvent}
       style={({ pressed }: { pressed: boolean }) => [
         styles.button,
         size === "sm" && styles.buttonSmall,
@@ -89,7 +93,7 @@ const PrimaryButton = ({
           </Text>
         </View>
       </ButtonLoadingContent>
-    </Pressable>
+    </HapticPressable>
   );
 };
 

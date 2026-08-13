@@ -186,9 +186,6 @@ async function advanceToPrivacyStep(root: ReactTestRenderer.ReactTestRenderer) {
     await findPressableByLabel(root, "Continue").props.onPress();
   });
 
-  await ReactTestRenderer.act(async () => {
-    findPressableByLabel(root, "Continue").props.onPress();
-  });
 }
 
 async function acceptPrivacyAndOpenJournalDemo(
@@ -243,7 +240,7 @@ test("renders the onboarding flow and advances to the next step", async () => {
   const tree = extractText(root!.toJSON());
 
   expect(tree).toContain("Welcome to Journal.IO");
-  expect(tree).toContain("Step 1 of 12");
+  expect(tree).toContain("Step 1 of 11");
   expect(tree).toContain("Continue");
 
   await ReactTestRenderer.act(() => {
@@ -253,7 +250,7 @@ test("renders the onboarding flow and advances to the next step", async () => {
   const nextTree = extractText(root!.toJSON());
 
   expect(nextTree).toContain("How old are you?");
-  expect(nextTree).toContain("Step 2 of 12");
+  expect(nextTree).toContain("Step 2 of 11");
 });
 
 test("requests local reminder setup when progressing past the reminder step", async () => {
@@ -306,7 +303,7 @@ test("requests local reminder setup when progressing past the reminder step", as
   });
 
   expect(requestAndSyncOnboardingReminderPreference).toHaveBeenCalledWith("morning");
-  expect(extractText(root!.toJSON())).toContain("AI comfort and explanation");
+  expect(extractText(root!.toJSON())).toContain("Privacy & security");
 });
 
 test("renders the Figma rating step after the breathing demo", async () => {
@@ -346,7 +343,7 @@ test("renders the Figma rating step after the breathing demo", async () => {
   });
 
   expect(extractText(root!.toJSON())).toContain("How excited are you to begin?");
-  expect(extractText(root!.toJSON())).toContain("Step 12 of 12");
+  expect(extractText(root!.toJSON())).toContain("Step 11 of 11");
 
   const fifthStar = root!.root.findByProps({
     accessibilityLabel: "Rate excitement 5 out of 5",
@@ -384,12 +381,12 @@ test("shows the onboarding journal demo and generated AI reflection", async () =
 
   await advanceToPrivacyStep(root!);
   expect(extractText(root!.toJSON())).toContain("Privacy & security");
-  expect(extractText(root!.toJSON())).toContain("Step 8 of 12");
+  expect(extractText(root!.toJSON())).toContain("Step 7 of 11");
 
   await acceptPrivacyAndOpenJournalDemo(root!);
 
   expect(extractText(root!.toJSON())).toContain("Your first entry");
-  expect(extractText(root!.toJSON())).toContain("Step 9 of 12");
+  expect(extractText(root!.toJSON())).toContain("Step 8 of 11");
   expect(
     root!.root.findByProps({ accessibilityLabel: "Journal thoughts" }).props
       .inputAccessoryViewID
@@ -411,14 +408,14 @@ test("shows the onboarding journal demo and generated AI reflection", async () =
   expect(analysisTree).toContain("feeling word");
   expect(analysisTree).toContain("main gentle hurdle");
   expect(analysisTree).toContain("Prompt for tomorrow");
-  expect(analysisTree).toContain("Step 10 of 12");
+  expect(analysisTree).toContain("Step 9 of 11");
 
   await ReactTestRenderer.act(async () => {
     findPressableByLabel(root!, "Continue").props.onPress();
   });
 
   expect(extractText(root!.toJSON())).toContain("Let that insight land");
-  expect(extractText(root!.toJSON())).not.toContain("Step 11 of 12");
+  expect(extractText(root!.toJSON())).not.toContain("Step 10 of 11");
   expect(extractText(root!.toJSON())).toContain("I feel calmer");
 
   await ReactTestRenderer.act(async () => {

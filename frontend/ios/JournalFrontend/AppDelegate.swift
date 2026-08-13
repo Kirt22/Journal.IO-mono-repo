@@ -1,4 +1,5 @@
 import UIKit
+import GoogleSignIn
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
@@ -14,6 +15,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    if let initialURL = launchOptions?[.url] as? URL {
+      WidgetBridge.recordPendingWidgetDeepLink(initialURL)
+    }
+
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -36,6 +41,37 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     )
 
     return true
+  }
+
+  func application(
+    _ application: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    // Widget links are delivered to JS through WidgetBridge's event emitter. Handing them
+    // to RCTLinkingManager as well would queue the same action twice, and the second queue
+    // resets the navigation root out from under the screen the first one just opened.
+    if WidgetBridge.recordPendingWidgetDeepLink(url) {
+      return true
+    }
+
+    if GIDSignIn.sharedInstance.handle(url) {
+      return true
+    }
+
+    return RCTLinkingManager.application(application, open: url, options: options)
+  }
+
+  func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    RCTLinkingManager.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
   }
 }
 

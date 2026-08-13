@@ -2,11 +2,15 @@ import { NextFunction, Request, Response } from "express";
 import { apiResponse, API_MESSAGES } from "../helpers/commonHelper.helpers";
 import jwt from "jsonwebtoken";
 import { userModel } from "../schema/user.schema";
+import { normalizeWidgetSessionVersion } from "../services/widgets/widgets.service";
 
 declare global {
   namespace Express {
     interface Request {
       user?: any;
+      accessTokenClaims?: {
+        widgetSessionVersion: number;
+      };
     }
   }
 }
@@ -58,6 +62,11 @@ export const verifyJwtToken = async (
     }
 
     req.user = existingUser;
+    req.accessTokenClaims = {
+      widgetSessionVersion: normalizeWidgetSessionVersion(
+        data.widgetSessionVersion
+      ),
+    };
     next();
   } catch (error) {
     console.error("JWT verification error:", error);

@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import {
+  Animated,
   ScrollView,
   StyleSheet,
   View,
+  type ScrollViewProps,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -21,7 +23,15 @@ type TabScreenLayoutProps = {
   layoutMaxWidth: number;
   bottomPadding?: number;
   scrollContentStyle?: StyleProp<ViewStyle>;
+  scrollViewRef?: RefObject<ScrollView | null>;
+  onScroll?: ScrollViewProps['onScroll'];
+  scrollEventThrottle?: number;
   shellStyle?: StyleProp<ViewStyle>;
+  /**
+   * Renders the list through `Animated.ScrollView` so an `Animated.event`
+   * passed to `onScroll` can run on the native driver.
+   */
+  useAnimatedScroll?: boolean;
 };
 
 export default function TabScreenLayout({
@@ -33,9 +43,16 @@ export default function TabScreenLayout({
   layoutMaxWidth,
   bottomPadding = BOTTOM_NAV_CONTENT_PADDING,
   scrollContentStyle,
+  scrollViewRef,
+  onScroll,
+  scrollEventThrottle,
   shellStyle,
+  useAnimatedScroll = false,
 }: TabScreenLayoutProps) {
   const insets = useSafeAreaInsets();
+  const ScrollContainer = (
+    useAnimatedScroll ? Animated.ScrollView : ScrollView
+  ) as typeof ScrollView;
 
   return (
     <SafeAreaView
@@ -47,7 +64,10 @@ export default function TabScreenLayout({
     >
       <View style={[styles.container, { backgroundColor }]}>
         {header}
-        <ScrollView
+        <ScrollContainer
+          ref={scrollViewRef}
+          onScroll={onScroll}
+          scrollEventThrottle={scrollEventThrottle}
           contentContainerStyle={[
             styles.scrollContent,
             {
@@ -64,7 +84,7 @@ export default function TabScreenLayout({
           >
             {children}
           </View>
-        </ScrollView>
+        </ScrollContainer>
       </View>
     </SafeAreaView>
   );

@@ -4,24 +4,62 @@ import { moodCheckInModel } from "../../schema/mood.schema";
 import { userModel } from "../../schema/user.schema";
 import {
   canUseOpenAiForUser,
-  getUserAiAccessState,
+  requestEmbedding,
   requestStructuredOpenAi,
 } from "../../helpers/openai.helpers";
+import {
+  AI_ACTION_BALANCE_GUIDANCE,
+  AI_REFLECTION_BALANCE_GUIDANCE,
+} from "../../helpers/aiReflectionBalance.helpers";
+import { buildUserPersonalization } from "../../helpers/userPersonalization.helpers";
+import {
+  PremiumFeatureRequiredError,
+  ensureAiAnalysisEnabled,
+} from "../../helpers/aiAccess.helpers";
+import {
+  loadStoredEntryRegionScores,
+  buildRegionTrendMap,
+  buildRegionTimeSeries,
+  buildRegionFocus,
+  MIND_MAP_SCORER_VERSION,
+} from "../mindmap/mindmap.service";
+import {
+  loadEntryInsights,
+  aggregateRecurringPatterns,
+  buildUserReflectionMemory,
+} from "../mindmap/entryInsight.service";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
+import {
+  filterReservedJournalTags,
+  isReservedJournalTag,
+} from "../../helpers/journalTags.helpers";
 import {
   detectJournalSafetySignal,
   hasJournalSafetySignal,
   type JournalSafetySignal,
 } from "../../helpers/journalSafety.helpers";
 import {
+  decryptLeanFields,
+  setEncryptedDocumentValue,
+} from "../../helpers/fieldEncryption.schema.helpers";
+import {
   buildReflectionRegionScore,
   extractReflectionEvidenceSnippets,
+  getOverallReflectionTier,
   getReflectionRegionKeywordScore,
+  getReflectionRegionTier,
+  getReflectionRegionTierLabel,
+  getReflectionRegionTrendLabel,
+  mindMapActionStepsJsonSchema,
+  mindMapActionStepsSchema,
   rankReflectionRegionScores,
   REFLECTION_REGION_DETAILS,
+  REFLECTION_REGION_FOCUS_TIPS,
   REFLECTION_REGION_IDS,
   type ReflectionRegionId,
   type ReflectionRegionScore,
+  type ReflectionRegionTier,
+  type ReflectionRegionTrend,
 } from "../../helpers/reflectionMap.helpers";
 import type {
   InsightTone,
@@ -31,12 +69,14 @@ import type {
   InsightsAiAnalysisReadyResponse,
   InsightsAiAnalysisResponse,
   InsightsMindMapBuildingResponse,
+  InsightsMindMapPattern,
   InsightsMindMapPeriod,
   InsightsMindMapRange,
   InsightsMindMapReadyResponse,
   InsightsMindMapResponse,
   InsightsMindMapSummary,
   InsightsMindMapSupportFirstResponse,
+  InsightsRegionSeriesResponse,
   InsightsAiAnalysisWindow,
   InsightsOverviewResponse,
 } from "../../types/insights.types";
@@ -57,6 +97,7 @@ type MoodInsightsSnapshot = {
 };
 
 type WeeklyJournalSnapshot = {
+  journalId?: string;
   content: string;
   aiPrompt?: string | null;
   tags: string[];
@@ -93,27 +134,17 @@ type MindMapJournalSnapshot = AnalyzedWeeklyJournalSnapshot & {
 
 type ConfidenceLevel = "low" | "medium" | "high";
 
-class AiAnalysisDisabledError extends Error {
-  constructor() {
-    super("AI analysis is turned off for your account.");
-    this.name = "AiAnalysisDisabledError";
-  }
-}
+type LeanJournalInsightsRow = {
+  _id: unknown;
+  content?: unknown;
+  aiPrompt?: unknown;
+  tags?: unknown;
+  detectedTopics?: unknown;
+  isFavorite?: unknown;
+  createdAt: Date | string;
+};
 
-class PremiumFeatureRequiredError extends Error {
-  constructor() {
-    super("This feature is available with Premium.");
-    this.name = "PremiumFeatureRequiredError";
-  }
-}
-
-const MOOD_ORDER: MoodValue[] = [
-  "amazing",
-  "good",
-  "okay",
-  "bad",
-  "terrible",
-];
+const MOOD_ORDER: MoodValue[] = ["amazing", "good", "okay", "bad", "terrible"];
 
 const MOOD_LABELS: Record<MoodValue, string> = {
   amazing: "Amazing",
@@ -139,18 +170,38 @@ const DEFAULT_PROMPTS = [
 ];
 const AI_ANALYSIS_WINDOW_DAYS = 7;
 const AI_ANALYSIS_MIN_ACTIVE_DAYS = 4;
-const MIND_MAP_MIN_ACTIVE_DAYS = 4;
-const MIND_MAP_MIN_CLEAR_ENTRIES = 2;
-const MIND_MAP_MIN_CLEAR_WORDS = 40;
-const MIND_MAP_SCORER_VERSION = "1";
+// Dev/testing: relax the Mind Map readiness thresholds so the "ready" panel
+// (tiers, hero, graph) can be reached with a single entry instead of 4 active
+// days. Triggered by the AI_ALLOW_NON_PREMIUM bypass, or by the dedicated
+// MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS flag (non-production only) so a real
+// premium account can bypass the active-days gate without also enabling the
+// non-premium AI path. Never set either in production.
+const MIND_MAP_DEV_BYPASS =
+  process.env.NODE_ENV !== "production" &&
+  process.env.MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS === "true";
+const MIND_MAP_RELAX_THRESHOLDS =
+  process.env.AI_ALLOW_NON_PREMIUM === "true" || MIND_MAP_DEV_BYPASS;
+const MIND_MAP_MIN_ACTIVE_DAYS = MIND_MAP_RELAX_THRESHOLDS ? 1 : 4;
+const MIND_MAP_MIN_CLEAR_ENTRIES = MIND_MAP_RELAX_THRESHOLDS ? 1 : 2;
+const MIND_MAP_MIN_CLEAR_WORDS = MIND_MAP_RELAX_THRESHOLDS ? 10 : 40;
+// The all-time Mind Map is readiness-gated on entry count (day-independent):
+// N clear entries — written across any number of days — unlock the ranked map.
+const MIND_MAP_MIN_ENTRIES = MIND_MAP_RELAX_THRESHOLDS ? 1 : 5;
+// With a dev bypass active, render the premium "ready" panel as soon as there
+// is at least one clear entry in the window — skipping the active-days /
+// clear-entry / total-word minimums — so the premium Mind Map screens can be
+// exercised without days of writing. (getClearMindMapJournals is also relaxed
+// under the bypass so short / low-signal dev entries still count.) Requires ≥1
+// entry to avoid an empty, NaN-scored map.
+const mindMapForceReady = (clearEntryCount: number) =>
+  MIND_MAP_RELAX_THRESHOLDS && clearEntryCount >= 1;
 const isAiAnalysisDevEarlyReadyEnabled = () =>
   process.env.NODE_ENV !== "production" &&
   process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY === "true";
 const aiAnalysisEnhancementSchema = z.object({
   summary: z.object({
     headline: z.string().trim().min(1).max(90),
-    narrative: z.string().trim().min(1).max(280),
-    highlight: z.string().trim().min(1).max(220),
+    narrative: z.string().trim().min(1).max(340),
   }),
   patternTags: z
     .array(
@@ -171,8 +222,8 @@ const aiAnalysisEnhancementSchema = z.object({
           focus: z.string().trim().min(1).max(36),
         })
       )
-      .min(3)
-      .max(3),
+      .min(2)
+      .max(2),
   }),
   appSupport: z.object({
     headline: z.string().trim().min(1).max(120),
@@ -186,20 +237,37 @@ const aiAnalysisEnhancementSchema = z.object({
       .min(3)
       .max(3),
   }),
+  patterns: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(48),
+        insight: z.string().trim().min(1).max(240),
+        evidence: z.array(z.string().trim().min(1).max(120)).min(1).max(3),
+        nudge: z.string().trim().min(1).max(180),
+        tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
+      })
+    )
+    .min(1)
+    .max(3),
 });
 const aiAnalysisEnhancementJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "patternTags", "actionPlan", "appSupport"],
+  required: [
+    "summary",
+    "patternTags",
+    "actionPlan",
+    "appSupport",
+    "patterns",
+  ],
   properties: {
     summary: {
       type: "object",
       additionalProperties: false,
-      required: ["headline", "narrative", "highlight"],
+      required: ["headline", "narrative"],
       properties: {
         headline: { type: "string" },
         narrative: { type: "string" },
-        highlight: { type: "string" },
       },
     },
     patternTags: {
@@ -227,8 +295,8 @@ const aiAnalysisEnhancementJsonSchema = {
         headline: { type: "string" },
         steps: {
           type: "array",
-          minItems: 3,
-          maxItems: 3,
+          minItems: 2,
+          maxItems: 2,
           items: {
             type: "object",
             additionalProperties: false,
@@ -264,149 +332,33 @@ const aiAnalysisEnhancementJsonSchema = {
         },
       },
     },
+    patterns: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "insight", "evidence", "nudge", "tone"],
+        properties: {
+          label: { type: "string" },
+          insight: { type: "string" },
+          evidence: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: { type: "string" },
+          },
+          nudge: { type: "string" },
+          tone: {
+            type: "string",
+            enum: ["coral", "blue", "sage", "amber", "slate"],
+          },
+        },
+      },
+    },
   },
 } satisfies Record<string, unknown>;
-
-const BIG_FIVE_KEYWORDS = {
-  openness: [
-    "curious",
-    "creative",
-    "explore",
-    "exploring",
-    "idea",
-    "ideas",
-    "learn",
-    "learning",
-    "new",
-    "change",
-    "wonder",
-    "nature",
-    "art",
-    "music",
-    "book",
-    "books",
-    "travel",
-  ],
-  conscientiousness: [
-    "plan",
-    "planned",
-    "planning",
-    "routine",
-    "routines",
-    "goal",
-    "goals",
-    "focus",
-    "focused",
-    "finish",
-    "finished",
-    "schedule",
-    "habit",
-    "habits",
-    "organize",
-    "organized",
-    "productive",
-    "discipline",
-    "consistent",
-  ],
-  extraversion: [
-    "friend",
-    "friends",
-    "team",
-    "group",
-    "social",
-    "party",
-    "call",
-    "talk",
-    "talked",
-    "together",
-    "community",
-    "shared",
-    "share",
-    "meeting",
-    "meet",
-    "conversation",
-  ],
-  agreeableness: [
-    "grateful",
-    "gratitude",
-    "kind",
-    "support",
-    "supported",
-    "help",
-    "helped",
-    "understand",
-    "understood",
-    "care",
-    "caring",
-    "compassion",
-    "forgive",
-    "forgave",
-    "apologize",
-    "apologized",
-    "trust",
-    "appreciate",
-    "appreciated",
-  ],
-  neuroticism: [
-    "anxious",
-    "anxiety",
-    "worry",
-    "worried",
-    "stress",
-    "stressed",
-    "overwhelmed",
-    "afraid",
-    "frustrated",
-    "upset",
-    "panic",
-    "guilty",
-    "ashamed",
-    "angry",
-    "tense",
-    "exhausted",
-    "tired",
-  ],
-};
-
-const SUPPORTING_KEYWORDS = {
-  calm: ["calm", "steady", "grounded", "peaceful", "rested"],
-  conflict: ["conflict", "argument", "fight", "resent", "resentful", "blame"],
-  isolation: ["alone", "isolated", "withdraw", "withdrew", "lonely", "avoid"],
-  selfFocus: ["deserve", "special", "recognition", "admire", "admired"],
-  strategy: ["strategy", "strategic", "leverage", "influence", "advantage"],
-  control: ["control", "controlled", "controling", "manage them", "my way"],
-  detachment: ["numb", "cold", "detached", "shut off", "didn't care", "dont care"],
-  impulsive: ["reckless", "impulsive", "snap", "snapped", "risk"],
-};
-
-const BIG_FIVE_LABELS: Record<
-  InsightsAiAnalysisReadyResponse["bigFive"][number]["trait"],
-  string
-> = {
-  openness: "Openness",
-  conscientiousness: "Conscientiousness",
-  extraversion: "Extraversion",
-  agreeableness: "Agreeableness",
-  neuroticism: "Emotional Sensitivity",
-};
-
-const DARK_TRIAD_LABELS: Record<
-  InsightsAiAnalysisReadyResponse["darkTriad"][number]["trait"],
-  { label: string; supportiveLabel: string }
-> = {
-  narcissism: {
-    label: "Narcissism",
-    supportiveLabel: "Self-focus signal",
-  },
-  machiavellianism: {
-    label: "Machiavellianism",
-    supportiveLabel: "Control-seeking signal",
-  },
-  psychopathy: {
-    label: "Psychopathy",
-    supportiveLabel: "Emotional detachment signal",
-  },
-};
 
 const getDateKey = (value: Date | string) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -457,7 +409,7 @@ const getTimeZoneParts = (date: Date, timeZone: string) => {
   });
   const parts = formatter.formatToParts(date);
   const readPart = (type: string) =>
-    Number(parts.find(part => part.type === type)?.value || "0");
+    Number(parts.find((part) => part.type === type)?.value || "0");
 
   return {
     year: readPart("year"),
@@ -521,7 +473,9 @@ const getLocalDateKey = (value: Date | string, timeZone: string) => {
   const date = value instanceof Date ? value : new Date(value);
   const parts = getTimeZoneParts(date, timeZone);
 
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(
+    parts.day
+  ).padStart(2, "0")}`;
 };
 
 const addDateKeyDays = (dateKey: string, delta: number) => {
@@ -540,7 +494,9 @@ const daysBetweenDateKeys = (startDateKey: string, endDateKey: string) => {
 };
 
 const buildDateKeyRange = (startDateKey: string, days: number) =>
-  Array.from({ length: days }, (_, index) => addDateKeyDays(startDateKey, index));
+  Array.from({ length: days }, (_, index) =>
+    addDateKeyDays(startDateKey, index)
+  );
 
 const getUtcStartForDateKey = (dateKey: string, timeZone: string) => {
   const { year, month, day } = parseDateKey(dateKey);
@@ -561,20 +517,10 @@ const addUtcDays = (date: Date, delta: number) => {
   return next;
 };
 
-const ensureAiAnalysisEnabled = async (userId: string) => {
-  const accessState = await getUserAiAccessState(userId);
-
-  if (!accessState.isPremium) {
-    throw new PremiumFeatureRequiredError();
-  }
-
-  if (accessState.aiOptIn === false) {
-    throw new AiAnalysisDisabledError();
-  }
-};
-
 const startOfUtcDay = (date: Date) =>
-  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  );
 
 const daysBetweenUtc = (start: Date, end: Date) => {
   const startMs = startOfUtcDay(start).getTime();
@@ -591,7 +537,11 @@ const buildWindowLabel = ({
   startDateKey: string;
   endDateKey: string;
   timeZone: string;
-}) => `${monthDayLabelForDateKey(startDateKey, timeZone)} - ${monthDayLabelForDateKey(endDateKey, timeZone)}`;
+}) =>
+  `${monthDayLabelForDateKey(
+    startDateKey,
+    timeZone
+  )} - ${monthDayLabelForDateKey(endDateKey, timeZone)}`;
 
 const resolveWeeklyWindow = ({
   anchorDateKey,
@@ -602,7 +552,10 @@ const resolveWeeklyWindow = ({
   windowIndex: number;
   timeZone: string;
 }): WeeklyWindowSnapshot => {
-  const startDateKey = addDateKeyDays(anchorDateKey, windowIndex * AI_ANALYSIS_WINDOW_DAYS);
+  const startDateKey = addDateKeyDays(
+    anchorDateKey,
+    windowIndex * AI_ANALYSIS_WINDOW_DAYS
+  );
   const endDateKey = addDateKeyDays(startDateKey, AI_ANALYSIS_WINDOW_DAYS - 1);
 
   return {
@@ -626,7 +579,9 @@ const buildWindowFromJournals = ({
     0
   );
   const activeDays = new Set(
-    journals.map(journal => getLocalDateKey(journal.createdAt, window.timeZone))
+    journals.map((journal) =>
+      getLocalDateKey(journal.createdAt, window.timeZone)
+    )
   ).size;
 
   return {
@@ -667,10 +622,15 @@ const buildProgressSnapshot = ({
     entriesNeeded,
     completionPercentage: Math.max(
       0,
-      Math.min(100, Math.round((activeDays / AI_ANALYSIS_MIN_ACTIVE_DAYS) * 100))
+      Math.min(
+        100,
+        Math.round((activeDays / AI_ANALYSIS_MIN_ACTIVE_DAYS) * 100)
+      )
     ),
     promptState:
-      promptState === "zero_entries" && entryCount > 0 ? "building" : promptState,
+      promptState === "zero_entries" && entryCount > 0
+        ? "building"
+        : promptState,
   };
 };
 
@@ -693,27 +653,41 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Math.round(value)));
 
 const normalizeInsightTags = (tags: string[]) =>
-  tags
-    .map(tag => tag.trim().toLowerCase())
-    .filter(tag => Boolean(tag) && !tag.startsWith("mood:"));
+  filterReservedJournalTags(tags)
+    .map((tag) => tag.trim().toLowerCase())
+    .filter((tag) => Boolean(tag) && !tag.startsWith("mood:"));
 
 const formatTopicLabel = (tag: string) => {
   return tag
     .split(/[\s_-]+/)
     .filter(Boolean)
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
 };
 
-const readCountMap = (input?: Map<string, number> | null): Map<string, number> => {
+const readCountMap = (
+  input?: Map<string, number> | Record<string, number> | null
+): Map<string, number> => {
   if (!input) {
     return new Map<string, number>();
   }
 
-  return new Map<string, number>(Array.from(input.entries()));
+  if (input instanceof Map) {
+    return new Map<string, number>(Array.from(input.entries()));
+  }
+
+  if (typeof input === "object") {
+    return new Map<string, number>(
+      Object.entries(input).map(([key, value]) => [key, Number(value) || 0])
+    );
+  }
+
+  return new Map<string, number>();
 };
 
-const readMoodCountMap = (input?: Map<MoodValue, number> | null): Map<MoodValue, number> => {
+const readMoodCountMap = (
+  input?: Map<MoodValue, number> | null
+): Map<MoodValue, number> => {
   const next = new Map<MoodValue, number>();
 
   for (const mood of MOOD_ORDER) {
@@ -723,7 +697,11 @@ const readMoodCountMap = (input?: Map<MoodValue, number> | null): Map<MoodValue,
   return next;
 };
 
-const updateCountMapValue = (source: Map<string, number>, key: string, delta: number) => {
+const updateCountMapValue = (
+  source: Map<string, number>,
+  key: string,
+  delta: number
+) => {
   const nextValue = Number(source.get(key) || 0) + delta;
 
   if (nextValue <= 0) {
@@ -734,9 +712,59 @@ const updateCountMapValue = (source: Map<string, number>, key: string, delta: nu
   source.set(key, nextValue);
 };
 
-const updateMoodMapValue = (source: Map<MoodValue, number>, mood: MoodValue, delta: number) => {
+const updateMoodMapValue = (
+  source: Map<MoodValue, number>,
+  mood: MoodValue,
+  delta: number
+) => {
   const nextValue = Number(source.get(mood) || 0) + delta;
   source.set(mood, Math.max(0, nextValue));
+};
+
+const serializeCountMap = (source: Map<string, number>) =>
+  Object.fromEntries(
+    Array.from(source.entries()).map(([key, value]) => [key, Number(value) || 0])
+  );
+
+const decryptInsightJournalRow = <T extends LeanJournalInsightsRow>(journal: T) =>
+  decryptLeanFields(journal, [
+    { encryptedPath: "content" },
+    { encryptedPath: "aiPrompt" },
+    { encryptedPath: "tags" },
+  ]);
+
+const toWeeklyJournalSnapshot = (
+  journal: LeanJournalInsightsRow
+): WeeklyJournalSnapshot => {
+  const decryptedJournal = decryptInsightJournalRow(journal);
+
+  return {
+    journalId: String(decryptedJournal._id),
+    content:
+      typeof decryptedJournal.content === "string" ? decryptedJournal.content : "",
+    aiPrompt:
+      typeof decryptedJournal.aiPrompt === "string"
+        ? decryptedJournal.aiPrompt
+        : null,
+    tags: Array.isArray(decryptedJournal.tags) ? decryptedJournal.tags : [],
+    isFavorite: Boolean(decryptedJournal.isFavorite),
+    createdAt: new Date(decryptedJournal.createdAt),
+  };
+};
+
+const setEncryptedInsightsTagCounts = (
+  insights: IInsights,
+  tagCounts: Map<string, number>
+) => {
+  setEncryptedDocumentValue(insights, "tagCounts", serializeCountMap(tagCounts));
+};
+
+const setEncryptedInsightsPayload = (
+  insights: IInsights,
+  path: "aiAnalysis" | "mindMapLatestWeek" | "mindMapMonthly" | "mindMapAllTime",
+  value: unknown
+) => {
+  setEncryptedDocumentValue(insights, path, value);
 };
 
 const getLatestJournalDateKey = (dailyJournalCounts: Map<string, number>) => {
@@ -745,10 +773,15 @@ const getLatestJournalDateKey = (dailyJournalCounts: Map<string, number>) => {
     .map(([dateKey]) => dateKey)
     .sort();
 
-  return activeKeys.length > 0 ? activeKeys[activeKeys.length - 1] ?? null : null;
+  return activeKeys.length > 0
+    ? activeKeys[activeKeys.length - 1] ?? null
+    : null;
 };
 
-const computeCurrentStreak = (dailyJournalCounts: Map<string, number>, today = new Date()) => {
+const computeCurrentStreak = (
+  dailyJournalCounts: Map<string, number>,
+  today = new Date()
+) => {
   const todayKey = getDateKey(today);
   const yesterdayKey = getDateKey(addUtcDays(today, -1));
   const hasToday = Number(dailyJournalCounts.get(todayKey) || 0) > 0;
@@ -769,7 +802,10 @@ const computeCurrentStreak = (dailyJournalCounts: Map<string, number>, today = n
   return streak;
 };
 
-const buildActivity7d = (dailyJournalCounts: Map<string, number>, today = new Date()) => {
+const buildActivity7d = (
+  dailyJournalCounts: Map<string, number>,
+  today = new Date()
+) => {
   return Array.from({ length: 7 }, (_, index) => {
     const date = addUtcDays(today, index - 6);
     const dateKey = getDateKey(date);
@@ -786,9 +822,12 @@ const buildActivity7d = (dailyJournalCounts: Map<string, number>, today = new Da
 };
 
 const buildMoodDistribution = (moodCounts: Map<MoodValue, number>) => {
-  const totalCount = MOOD_ORDER.reduce((sum, mood) => sum + Number(moodCounts.get(mood) || 0), 0);
+  const totalCount = MOOD_ORDER.reduce(
+    (sum, mood) => sum + Number(moodCounts.get(mood) || 0),
+    0
+  );
 
-  return MOOD_ORDER.map(mood => {
+  return MOOD_ORDER.map((mood) => {
     const count = Number(moodCounts.get(mood) || 0);
 
     return {
@@ -802,8 +841,10 @@ const buildMoodDistribution = (moodCounts: Map<MoodValue, number>) => {
 
 const buildPopularTopics = (tagCounts: Map<string, number>) => {
   const entries = Array.from(tagCounts.entries())
-    .filter(([, count]) => count > 0)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .filter(([tag, count]) => count > 0 && !isReservedJournalTag(tag))
+    .sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0])
+    )
     .slice(0, 5);
   const totalCount = entries.reduce((sum, [, count]) => sum + count, 0);
 
@@ -830,23 +871,28 @@ const buildOverviewAnalysis = ({
 }) => {
   if (!totalEntries) {
     return {
-      summary: "Keep journaling and checking in to unlock supportive patterns here over time.",
+      summary:
+        "Keep journaling and checking in to unlock supportive patterns here over time.",
       keyInsight:
         "Your insights will grow clearer as you add more entries and mood check-ins.",
       growthPatterns: [
         {
           title: "Just getting started",
-          subtitle: "A few more entries will help surface early writing and mood trends.",
+          subtitle:
+            "A few more entries will help surface early writing and mood trends.",
         },
       ],
       personalizedPrompts: DEFAULT_PROMPTS,
     };
   }
 
-  const activeDays = Array.from(dailyJournalCounts.values()).filter(count => count > 0).length;
+  const activeDays = Array.from(dailyJournalCounts.values()).filter(
+    (count) => count > 0
+  ).length;
   const dominantMood =
-    [...moodDistribution].filter(item => item.count > 0).sort((a, b) => b.count - a.count)[0] ||
-    null;
+    [...moodDistribution]
+      .filter((item) => item.count > 0)
+      .sort((a, b) => b.count - a.count)[0] || null;
   const topTopic = popularTopics[0] || null;
 
   const growthPatterns = [
@@ -905,10 +951,18 @@ const buildOverviewAnalysis = ({
   );
 
   return {
-    summary: `You've logged ${totalEntries} entries across ${activeDays} active journaling days. Journal activity may indicate your strongest momentum appears around ${topTopic ? topTopic.label.toLowerCase() : "reflective writing habits"}.`,
+    summary: `You've logged ${totalEntries} entries across ${activeDays} active journaling days. Journal activity may indicate your strongest momentum appears around ${
+      topTopic ? topTopic.label.toLowerCase() : "reflective writing habits"
+    }.`,
     keyInsight: topTopic
-      ? `${topTopic.label} appears associated with your recent writing, and your current journaling streak is ${currentStreak} day${currentStreak === 1 ? "" : "s"}.`
-      : `Your recent entries suggest a developing journaling rhythm, with a current streak of ${currentStreak} day${currentStreak === 1 ? "" : "s"}.`,
+      ? `${
+          topTopic.label
+        } appears associated with your recent writing, and your current journaling streak is ${currentStreak} day${
+          currentStreak === 1 ? "" : "s"
+        }.`
+      : `Your recent entries suggest a developing journaling rhythm, with a current streak of ${currentStreak} day${
+          currentStreak === 1 ? "" : "s"
+        }.`,
     growthPatterns,
     personalizedPrompts,
   };
@@ -920,7 +974,9 @@ const toInsightsOverview = (insights: IInsights): InsightsOverviewResponse => {
   const moodCounts = readMoodCountMap(insights.moodCounts);
   const totalEntries = Number(insights.totalEntries || 0);
   const averageWords =
-    totalEntries > 0 ? Math.round(Number(insights.totalWords || 0) / totalEntries) : 0;
+    totalEntries > 0
+      ? Math.round(Number(insights.totalWords || 0) / totalEntries)
+      : 0;
   const currentStreak = computeCurrentStreak(dailyJournalCounts);
   const moodDistribution = buildMoodDistribution(moodCounts);
   const popularTopics = buildPopularTopics(tagCounts);
@@ -955,18 +1011,28 @@ const monthDayLabel = (date: Date) =>
 
 const readLowerText = (journals: AnalyzedWeeklyJournalSnapshot[]) =>
   journals
-    .filter(journal => !journal.lowSignalDetected && !hasJournalSafetySignal(journal.safetySignal))
-    .map(journal => `${journal.analysisText} ${journal.reliableTags.join(" ")}`.toLowerCase())
+    .filter(
+      (journal) =>
+        !journal.lowSignalDetected &&
+        !hasJournalSafetySignal(journal.safetySignal)
+    )
+    .map((journal) =>
+      `${journal.analysisText} ${journal.reliableTags.join(" ")}`.toLowerCase()
+    )
     .join(" ");
 
-const analyzeWeeklyJournals = (journals: WeeklyJournalSnapshot[]): AnalyzedWeeklyJournalSnapshot[] =>
-  journals.map(journal => {
+const analyzeWeeklyJournals = (
+  journals: WeeklyJournalSnapshot[]
+): AnalyzedWeeklyJournalSnapshot[] =>
+  journals.map((journal) => {
     const textQuality = analyzeJournalTextQuality({
       content: journal.content || "",
       aiPrompt: journal.aiPrompt,
     });
 
-    const safetySignal = detectJournalSafetySignal(textQuality.analysisText || journal.content || "");
+    const safetySignal = detectJournalSafetySignal(
+      textQuality.analysisText || journal.content || ""
+    );
 
     return {
       ...journal,
@@ -982,52 +1048,6 @@ const analyzeWeeklyJournals = (journals: WeeklyJournalSnapshot[]): AnalyzedWeekl
       safetySignal,
     };
   });
-
-const countKeywordHits = (text: string, keywords: string[]) => {
-  return keywords.reduce((sum, keyword) => {
-    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}\\b`, "g");
-    const matches = text.match(regex);
-    return sum + (matches ? matches.length : 0);
-  }, 0);
-};
-
-const countPronouns = (text: string, pronouns: string[]) => {
-  return pronouns.reduce((sum, pronoun) => {
-    const regex = new RegExp(`\\b${pronoun}\\b`, "g");
-    const matches = text.match(regex);
-    return sum + (matches ? matches.length : 0);
-  }, 0);
-};
-
-const softenScore = (score: number, confidence: ConfidenceLevel) => {
-  const pullFactor = confidence === "high" ? 1 : confidence === "medium" ? 0.72 : 0.45;
-  return clamp(50 + (score - 50) * pullFactor, 0, 100);
-};
-
-const bandBigFive = (score: number) => {
-  if (score >= 67) {
-    return "pronounced" as const;
-  }
-
-  if (score >= 45) {
-    return "steady" as const;
-  }
-
-  return "emerging" as const;
-};
-
-const bandDarkTriad = (score: number) => {
-  if (score >= 60) {
-    return "elevated" as const;
-  }
-
-  if (score >= 35) {
-    return "watch" as const;
-  }
-
-  return "low" as const;
-};
 
 const confidenceDetails = (entryCount: number, totalWords: number) => {
   if (entryCount >= 6 || totalWords >= 900) {
@@ -1054,54 +1074,38 @@ const confidenceDetails = (entryCount: number, totalWords: number) => {
 };
 
 const buildPatternTags = ({
-  topTopic,
+  topTopics,
   dominantMood,
-  conscientiousness,
-  openness,
-  extraversion,
-  agreeableness,
-  neuroticism,
+  positiveMoodShare,
+  negativeMoodShare,
   lowSignalEntryCount,
 }: {
-  topTopic: { label: string } | null;
+  topTopics: { label: string }[];
   dominantMood: { label: string } | null;
-  conscientiousness: number;
-  openness: number;
-  extraversion: number;
-  agreeableness: number;
-  neuroticism: number;
+  positiveMoodShare: number;
+  negativeMoodShare: number;
   lowSignalEntryCount: number;
 }) => {
   const tags: { label: string; tone: InsightTone }[] = [];
 
-  if (topTopic) {
-    tags.push({ label: topTopic.label, tone: "coral" });
-  }
+  // Lead with the behavioural threads the week actually kept returning to.
+  topTopics.slice(0, 2).forEach((topic, index) => {
+    tags.push({ label: topic.label, tone: index === 0 ? "coral" : "blue" });
+  });
 
-  if (conscientiousness >= 60) {
-    tags.push({ label: "Routine Seeking", tone: "amber" });
-  }
-
-  if (openness >= 60) {
-    tags.push({ label: "Curiosity", tone: "blue" });
-  }
-
-  if (extraversion >= 58) {
-    tags.push({ label: "Connection Energy", tone: "sage" });
-  }
-
-  if (agreeableness >= 58) {
-    tags.push({ label: "Relationship Care", tone: "sage" });
-  }
-
-  if (neuroticism >= 58) {
+  if (negativeMoodShare >= 0.34) {
     tags.push({ label: "Stress Load", tone: "slate" });
+  } else if (positiveMoodShare >= 0.5) {
+    tags.push({ label: "Lighter Stretch", tone: "sage" });
   }
 
   if (dominantMood) {
     tags.push({
       label: `${dominantMood.label} Check-ins`,
-      tone: dominantMood.label === "Amazing" || dominantMood.label === "Good" ? "blue" : "slate",
+      tone:
+        dominantMood.label === "Amazing" || dominantMood.label === "Good"
+          ? "blue"
+          : "slate",
     });
   }
 
@@ -1112,193 +1116,81 @@ const buildPatternTags = ({
   return tags.slice(0, 4);
 };
 
-const buildBigFiveDescriptions = ({
-  topTopic,
-  currentStreak,
-  activeDays,
-  dominantMood,
-}: {
-  topTopic: { label: string } | null;
-  currentStreak: number;
-  activeDays: number;
-  dominantMood: { label: string } | null;
-}) => {
-  return {
-    openness: {
-      pronounced:
-        "Your entries suggest openness may be showing up through curiosity, new perspectives, or creative reflection.",
-      steady:
-        "Your writing suggests a balanced openness this week, with room for both novelty and familiar anchors.",
-      emerging:
-        "This week leans more toward steadiness than novelty, which may simply reflect a need for familiar routines.",
-      evidenceTags: [topTopic?.label || "Reflection", "New perspectives"],
-    },
-    conscientiousness: {
-      pronounced: `Your writing rhythm appears structured this week, supported by ${currentStreak > 0 ? `a ${currentStreak}-day streak` : `${activeDays} active writing days`}.`,
-      steady:
-        "Your entries suggest a workable level of consistency, even if the routine still has room to settle.",
-      emerging:
-        "Your week looks more reactive than planned, which may indicate you would benefit from a gentler journaling anchor.",
-      evidenceTags: [
-        currentStreak > 0 ? `${currentStreak}-day streak` : `${activeDays} active days`,
-        "Routine",
-      ],
-    },
-    extraversion: {
-      pronounced:
-        "Your language suggests energy from people, shared moments, or outward engagement may be showing up more strongly this week.",
-      steady:
-        "Your writing shows a balanced social orientation, with attention to both connection and personal space.",
-      emerging:
-        "Your entries lean more inward this week, which may reflect a quieter or more restorative stretch.",
-      evidenceTags: [topTopic?.label || "Connection", dominantMood?.label || "Check-ins"],
-    },
-    agreeableness: {
-      pronounced:
-        "Your language this week suggests warmth, care, and perspective-taking may be active strengths right now.",
-      steady:
-        "Your entries suggest a balanced tone between caring for others and staying clear about your own needs.",
-      emerging:
-        "This week may reflect a stronger focus on self-protection than collaboration, which can happen during higher stress.",
-      evidenceTags: ["Care", topTopic?.label || "Relationships"],
-    },
-    neuroticism: {
-      pronounced:
-        "Your entries suggest emotional sensitivity may be running higher this week, with stress cues showing up more often in the language.",
-      steady:
-        "Your week shows some stress reactivity, but it appears to sit alongside moments of regulation and recovery.",
-      emerging:
-        "Your writing suggests a steadier emotional tone this week, with fewer signs of strain dominating the page.",
-      evidenceTags: [dominantMood?.label || "Mood", "Stress cues"],
-    },
-  };
-};
-
-const buildDarkTriadDescriptions = (
-  trait: InsightsAiAnalysisReadyResponse["darkTriad"][number]["trait"],
-  band: ReturnType<typeof bandDarkTriad>
-) => {
-  if (trait === "narcissism") {
-    return {
-      description:
-        band === "elevated"
-          ? "Some language this week may suggest a stronger need to protect status, image, or recognition. That can be a short-term pressure response and does not define you."
-          : band === "watch"
-            ? "There are light signs of self-focus in the writing. That may simply mean your attention has been pulled toward personal needs and validation."
-            : "Very little in the recent writing points toward image-protection or approval-seeking dominating the week.",
-      supportTip: "Balance one self-focused reflection with one note about shared effort or support you received.",
-    };
-  }
-
-  if (trait === "machiavellianism") {
-    return {
-      description:
-        band === "elevated"
-          ? "The language may suggest a stronger pull toward control, guarded planning, or managing outcomes tightly. This often shows up when life feels uncertain."
-          : band === "watch"
-            ? "There are mild signs of control-seeking or strategic guarding in the week. That can be a normal response to pressure."
-            : "There is little recent evidence of tightly controlled or highly guarded interpersonal language.",
-      supportTip: "When planning next steps, add one sentence about flexibility or what you can let unfold naturally.",
-    };
-  }
-
-  return {
-    description:
-      band === "elevated"
-        ? "Some language this week may suggest emotional detachment, bluntness, or shutting down under pressure. That can happen during overload and is not a fixed trait."
-        : band === "watch"
-          ? "There are light signs of pulling away emotionally when things feel intense. This may reflect fatigue more than indifference."
-          : "Recent entries show very little language associated with detachment or emotional bluntness.",
-    supportTip: "If you notice yourself going numb, try naming one feeling and one body sensation before the next entry ends.",
-  };
-};
-
 const buildAiActionPlan = ({
-  bigFive,
-  darkTriad,
   topTopic,
+  dominantMood,
   currentStreak,
+  negativeMoodShare,
   lowSignalEntryCount,
   promptEchoEntryCount,
 }: {
-  bigFive: InsightsAiAnalysisReadyResponse["bigFive"];
-  darkTriad: InsightsAiAnalysisReadyResponse["darkTriad"];
   topTopic: { label: string } | null;
+  dominantMood: { label: string } | null;
   currentStreak: number;
+  negativeMoodShare: number;
   lowSignalEntryCount: number;
   promptEchoEntryCount: number;
 }) => {
-  const neuroticism = bigFive.find(item => item.trait === "neuroticism");
-  const conscientiousness = bigFive.find(item => item.trait === "conscientiousness");
-  const agreeableness = bigFive.find(item => item.trait === "agreeableness");
-  const watchTrait =
-    [...darkTriad].sort((left, right) => right.score - left.score)[0] ?? {
-      trait: "narcissism" as const,
-      label: "Narcissism",
-      supportiveLabel: "Self-focus signal",
-      score: 0,
-      band: "low" as const,
-      description: "",
-      supportTip:
-        "Balance one self-focused reflection with one note about shared effort or support you received.",
-    };
-
   const steps = [
     lowSignalEntryCount > 0
       ? {
-          title: promptEchoEntryCount > 0
-            ? "Keep the prompt, add your own sentence"
-            : "Make the next entry easier to read",
-          description: promptEchoEntryCount > 0
-            ? "If you start from a prompt, follow it with one plain sentence about what actually happened and how it felt in you."
-            : "Aim for one sentence about what happened, one about how it felt, and one about what you needed so the next read has cleaner signal.",
+          title:
+            promptEchoEntryCount > 0
+              ? "Keep the prompt, add your own sentence"
+              : "Make the next entry easier to read",
+          description:
+            promptEchoEntryCount > 0
+              ? "If you start from a prompt, follow it with one plain sentence about what actually happened and how it felt in you."
+              : "Aim for one sentence about what happened, one about how it felt, and one about what you needed so the next read has cleaner signal.",
           focus: "Clarity",
         }
-      : neuroticism && neuroticism.score >= 58
-        ? {
-            title: "Add a two-line decompression check-in",
-            description:
-              "At the end of each entry, name one stress signal and one thing that helped you regulate. This can make pressure patterns easier to interrupt.",
-            focus: "Stress regulation",
-          }
-        : {
-            title: "Keep one signal you can repeat",
-            description:
-              "Pick one part of your current journaling rhythm that already feels steady and repeat it for the next three days.",
-            focus: "Consistency",
-          },
-    conscientiousness && conscientiousness.score < 50
+      : negativeMoodShare >= 0.34
       ? {
-          title: "Anchor journaling to one reliable moment",
+          title: "Add a two-line decompression check-in",
           description:
-            "Choose one calm time of day and aim for a short entry there. Lowering the friction matters more than writing longer.",
-          focus: "Routine building",
+            "At the end of each entry, name one stress signal and one thing that helped you regulate. This can make pressure patterns easier to interrupt.",
+          focus: "Stress regulation",
         }
       : {
-          title: "Protect the streak without raising the bar",
+          title: "Keep one signal you can repeat",
           description:
-            currentStreak > 0
-              ? `You already have momentum with a ${currentStreak}-day streak. Keep it going with short but honest entries rather than waiting for a perfect moment.`
-              : "Keep momentum by choosing short, honest entries over occasional long sessions.",
-          focus: "Momentum",
+            "Pick one part of your current journaling rhythm that already feels steady and repeat it for the next three days.",
+          focus: "Consistency",
         },
     {
-      title: `Use ${topTopic ? topTopic.label : "your strongest recurring topic"} as a reflection thread`,
+      title: "Protect the streak without raising the bar",
+      description:
+        currentStreak > 0
+          ? `You already have momentum with a ${currentStreak}-day streak. Keep it going with short but honest entries rather than waiting for a perfect moment.`
+          : "Keep momentum by choosing short, honest entries over occasional long sessions.",
+      focus: "Momentum",
+    },
+    {
+      title: `Use ${
+        topTopic ? topTopic.label : "your strongest recurring topic"
+      } as a reflection thread`,
       description:
         "Revisit the same theme across a few entries and notice whether the tone, triggers, or needs underneath it start to shift.",
       focus: topTopic ? topTopic.label : "Pattern tracking",
     },
-    {
-      title: `Counter ${watchTrait.supportiveLabel.toLowerCase()} with one balancing prompt`,
-      description: watchTrait.supportTip,
-      focus: watchTrait.label,
-    },
-  ];
+    dominantMood
+      ? {
+          title: `Notice what shifts your ${dominantMood.label.toLowerCase()} days`,
+          description:
+            "Next to one entry, jot the moment your mood turned — up or down — and what was happening right before it. Triggers get easier to spot once they are named.",
+          focus: "Triggers",
+        }
+      : null,
+  ].filter(Boolean) as {
+    title: string;
+    description: string;
+    focus: string;
+  }[];
 
   return {
     headline:
       "Focus on steadier routines, clearer emotional naming, and one recurring theme this week.",
-    steps: steps.slice(0, 3),
+    steps: steps.slice(0, 2),
   };
 };
 
@@ -1310,15 +1202,22 @@ const buildAppSupport = ({
   dominantMood: { label: string } | null;
 }) => {
   return {
-    headline: "Journal.IO can help turn these patterns into gentler habits over time.",
+    headline:
+      "Journal.IO can help turn these patterns into gentler habits over time.",
     items: [
       {
         title: "Daily mood check-ins add emotional context",
-        description: `Keeping the mood tracker active helps confirm whether ${dominantMood ? dominantMood.label.toLowerCase() : "your emotional tone"} is staying steady or shifting across the week.`,
+        description: `Keeping the mood tracker active helps confirm whether ${
+          dominantMood
+            ? dominantMood.label.toLowerCase()
+            : "your emotional tone"
+        } is staying steady or shifting across the week.`,
       },
       {
         title: "Tags make recurring topics easier to spot",
-        description: `Tagging entries consistently helps the app notice when themes like ${topTopic ? topTopic.label.toLowerCase() : "your key concerns"} keep returning.`,
+        description: `Tagging entries consistently helps the app notice when themes like ${
+          topTopic ? topTopic.label.toLowerCase() : "your key concerns"
+        } keep returning.`,
       },
       {
         title: "Short prompts can sharpen the next entry",
@@ -1329,15 +1228,21 @@ const buildAppSupport = ({
   };
 };
 
-const summarizeWeeklySafetySignals = (journals: AnalyzedWeeklyJournalSnapshot[]) => {
+const summarizeWeeklySafetySignals = (
+  journals: AnalyzedWeeklyJournalSnapshot[]
+) => {
   const safetySignals = journals
-    .map(journal => journal.safetySignal)
+    .map((journal) => journal.safetySignal)
     .filter(hasJournalSafetySignal);
-  const selfHarmCount = safetySignals.filter(signal => signal.category === "self_harm").length;
-  const harmToOthersCount = safetySignals.filter(
-    signal => signal.category === "harm_to_others"
+  const selfHarmCount = safetySignals.filter(
+    (signal) => signal.category === "self_harm"
   ).length;
-  const urgentCount = safetySignals.filter(signal => signal.level === "urgent").length;
+  const harmToOthersCount = safetySignals.filter(
+    (signal) => signal.category === "harm_to_others"
+  ).length;
+  const urgentCount = safetySignals.filter(
+    (signal) => signal.level === "urgent"
+  ).length;
 
   return {
     totalCount: safetySignals.length,
@@ -1348,8 +1253,8 @@ const summarizeWeeklySafetySignals = (journals: AnalyzedWeeklyJournalSnapshot[])
       harmToOthersCount > selfHarmCount
         ? ("harm_to_others" as const)
         : selfHarmCount > 0
-          ? ("self_harm" as const)
-          : ("none" as const),
+        ? ("self_harm" as const)
+        : ("none" as const),
   };
 };
 
@@ -1360,7 +1265,10 @@ const applyWeeklySafetySupport = ({
   analysis: InsightsAiAnalysisReadyResponse;
   safetySummary: ReturnType<typeof summarizeWeeklySafetySignals>;
 }) => {
-  if (safetySummary.totalCount <= 0 || safetySummary.primaryCategory === "none") {
+  if (
+    safetySummary.totalCount <= 0 ||
+    safetySummary.primaryCategory === "none"
+  ) {
     return analysis;
   }
 
@@ -1369,9 +1277,7 @@ const applyWeeklySafetySupport = ({
     ? {
         headline: "One entry needs support before analysis",
         narrative:
-          "At least one entry this week may involve self-harm or suicide risk. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis.",
-        highlight:
-          "If you might act on those thoughts or feel unable to stay safe, contact emergency services now. In the U.S. or Canada, call or text 988.",
+          "At least one entry this week may involve self-harm or suicide risk. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis. If you might act on those thoughts or feel unable to stay safe, contact emergency services now. In the U.S. or Canada, call or text 988.",
         firstStepTitle: "Reach out before reflecting further",
         firstStepDescription:
           "Share this with a trusted person or crisis support before continuing to analyze the week. Immediate safety matters more than interpretation.",
@@ -1379,9 +1285,7 @@ const applyWeeklySafetySupport = ({
     : {
         headline: "One entry needs a safety-first response",
         narrative:
-          "At least one entry this week may involve risk of harm to another person. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis.",
-        highlight:
-          "If someone could be hurt, create distance from the situation and contact local emergency services or a trusted person now.",
+          "At least one entry this week may involve risk of harm to another person. Journal.IO keeps the entry saved, but avoids turning that wording into normal personality or pattern analysis. If someone could be hurt, create distance from the situation and contact local emergency services or a trusted person now.",
         firstStepTitle: "Create distance and involve support",
         firstStepDescription:
           "Step away from the situation if possible and involve a trusted person or emergency support. Preventing harm matters more than interpretation.",
@@ -1393,13 +1297,11 @@ const applyWeeklySafetySupport = ({
       ...analysis.freshness,
       confidence: "low" as const,
       confidenceLabel: "Support-first",
-      note:
-        "One or more entries were treated as safety-sensitive, so this weekly read excludes that wording from normal trait and pattern scoring.",
+      note: "One or more entries were treated as safety-sensitive, so this weekly read excludes that wording from normal trait and pattern scoring.",
     },
     summary: {
       headline: supportCopy.headline,
       narrative: supportCopy.narrative,
-      highlight: supportCopy.highlight,
     },
     patternTags: [
       {
@@ -1410,21 +1312,27 @@ const applyWeeklySafetySupport = ({
         label: "Support First",
         tone: "coral" as const,
       },
-      ...analysis.patternTags.filter(item => item.label !== "Safety").slice(0, 1),
+      ...analysis.patternTags
+        .filter((item) => item.label !== "Safety")
+        .slice(0, 1),
     ],
+    // Safety-sensitive weeks are excluded from normal behavioural-pattern reads.
+    patterns: [],
     actionPlan: {
-      headline: "Handle safety first, then come back to reflection when things are steadier.",
+      headline:
+        "Handle safety first, then come back to reflection when things are steadier.",
       steps: [
         {
           title: supportCopy.firstStepTitle,
           description: supportCopy.firstStepDescription,
           focus: "Safety",
         },
-        ...analysis.actionPlan.steps.slice(0, 2),
+        ...analysis.actionPlan.steps.slice(0, 1),
       ],
     },
     appSupport: {
-      headline: "Journal.IO can save the entry, but it is not a crisis-response service.",
+      headline:
+        "Journal.IO can save the entry, but it is not a crisis-response service.",
       items: [
         {
           title: "Use real-world support for immediate risk",
@@ -1446,8 +1354,6 @@ const buildReadySummary = ({
   topTopic,
   dominantMood,
   currentStreak,
-  strongestTrait,
-  watchTrait,
   lowSignalEntryCount,
   promptEchoEntryCount,
 }: {
@@ -1455,11 +1361,6 @@ const buildReadySummary = ({
   topTopic: { label: string; count: number } | null;
   dominantMood: { mood: MoodValue; label: string } | null;
   currentStreak: number;
-  strongestTrait: Pick<InsightsAiAnalysisReadyResponse["bigFive"][number], "label">;
-  watchTrait: Pick<
-    InsightsAiAnalysisReadyResponse["darkTriad"][number],
-    "supportiveLabel" | "supportTip"
-  >;
   lowSignalEntryCount: number;
   promptEchoEntryCount: number;
 }): InsightsAiAnalysisReadyResponse["summary"] => {
@@ -1470,10 +1371,12 @@ const buildReadySummary = ({
     dominantMood?.mood === "amazing" || dominantMood?.mood === "good"
       ? "lighter pockets"
       : dominantMood?.mood === "bad" || dominantMood?.mood === "terrible"
-        ? "stress"
-        : "mixed energy";
+      ? "stress"
+      : "mixed energy";
   const streakLead =
-    currentStreak > 1 ? `A ${currentStreak}-day streak` : "Your recent consistency";
+    currentStreak > 1
+      ? `A ${currentStreak}-day streak`
+      : "Your recent consistency";
   const lowSignalLead =
     lowSignalEntryCount > 0
       ? promptEchoEntryCount > 0
@@ -1486,12 +1389,15 @@ const buildReadySummary = ({
       topTopic && topTopic.count >= 2
         ? `${topicLead} kept shaping your week`
         : window.activeDays >= AI_ANALYSIS_MIN_ACTIVE_DAYS
-          ? "Your week had more structure than it may have felt"
-          : "A few real patterns started to show",
-    narrative: `${lowSignalLead ? `${lowSignalLead} ` : ""}${streakLead} plus ${activeDayLabel} gave this read enough signal to feel useful. ${topicLead} kept resurfacing, while ${moodLead} and ${watchTrait.supportiveLabel.toLowerCase()} are worth keeping in view without over-reading them.`,
-    highlight: topTopic
-      ? `The clearest thread was ${topicLead}. Keep watching what triggers it, what softens it, and what you need around it next week.`
-      : `${strongestTrait.label} still showed up in the background, but a few more entries will make the next read feel sharper and more specific.`,
+        ? "Your week had more structure than it may have felt"
+        : "A few real patterns started to show",
+    narrative: `${
+      lowSignalLead ? `${lowSignalLead} ` : ""
+    }${streakLead} plus ${activeDayLabel} gave this read enough signal to feel useful. ${topicLead} kept resurfacing, and ${moodLead} is worth keeping in view without over-reading it. ${
+      topTopic
+        ? `The clearest thread was ${topicLead} — watch what triggers it, what softens it, and what you need around it next week.`
+        : `A clear pattern is still forming, but a few more entries will make the next read feel sharper and more specific.`
+    }`,
   };
 };
 
@@ -1516,14 +1422,14 @@ const buildScoreboard = ({
     dominantMood?.mood === "amazing" || dominantMood?.mood === "good"
       ? "sage"
       : dominantMood?.mood === "bad" || dominantMood?.mood === "terrible"
-        ? "slate"
-        : "blue";
+      ? "slate"
+      : "blue";
   const vibeLabel =
     window.activeDays >= 5
       ? "Steadier week"
       : window.activeDays >= 4
-        ? "Building momentum"
-        : "Still light";
+      ? "Building momentum"
+      : "Still light";
 
   return {
     vibeLabel,
@@ -1566,7 +1472,10 @@ const buildEmotionTrend = ({
   moods: WeeklyMoodSnapshot[];
   window: WeeklyWindowSnapshot;
 }): InsightsAiAnalysisReadyResponse["emotionTrend"] => {
-  const dayKeys = buildDateKeyRange(window.startDateKey, AI_ANALYSIS_WINDOW_DAYS);
+  const dayKeys = buildDateKeyRange(
+    window.startDateKey,
+    AI_ANALYSIS_WINDOW_DAYS
+  );
   const entryCounts = new Map<string, number>();
   const moodsByDate = new Map<string, MoodValue>();
 
@@ -1585,7 +1494,7 @@ const buildEmotionTrend = ({
 
   return {
     headline: "Emotional pace across the week",
-    days: dayKeys.map(dateKey => {
+    days: dayKeys.map((dateKey) => {
       const mood = moodsByDate.get(dateKey) || null;
       const moodScore = mood ? MOOD_SCORE_MAP[mood] : null;
 
@@ -1598,13 +1507,11 @@ const buildEmotionTrend = ({
         moodLabel: mood ? MOOD_LABELS[mood] : null,
         moodScore,
         entryCount: Number(entryCounts.get(dateKey) || 0),
-        tone: (
-          mood === "amazing" || mood === "good"
-            ? "sage"
-            : mood === "bad" || mood === "terrible"
-              ? "slate"
-              : "blue"
-        ) as InsightTone,
+        tone: (mood === "amazing" || mood === "good"
+          ? "sage"
+          : mood === "bad" || mood === "terrible"
+          ? "slate"
+          : "blue") as InsightTone,
       };
     }),
   };
@@ -1633,7 +1540,6 @@ const buildSignals = ({
   negativeMoodShare,
   window,
   currentStreak,
-  watchTrait,
   lowSignalEntryCount,
   promptEchoEntryCount,
 }: {
@@ -1643,19 +1549,36 @@ const buildSignals = ({
   negativeMoodShare: number;
   window: InsightsAiAnalysisWindow;
   currentStreak: number;
-  watchTrait: InsightsAiAnalysisReadyResponse["darkTriad"][number];
   lowSignalEntryCount: number;
   promptEchoEntryCount: number;
 }): InsightsAiAnalysisReadyResponse["signals"] => {
-  const supportiveTopics = topTopics.filter(topic =>
-    ["gratitude", "friends", "friendship", "family", "rest", "self care", "self-care", "nature", "exercise", "routine"].includes(
-      topic.tag
-    )
+  const supportiveTopics = topTopics.filter((topic) =>
+    [
+      "gratitude",
+      "friends",
+      "friendship",
+      "family",
+      "rest",
+      "self care",
+      "self-care",
+      "nature",
+      "exercise",
+      "routine",
+    ].includes(topic.tag)
   );
-  const drainingTopics = topTopics.filter(topic =>
-    ["work", "stress", "anxiety", "overthinking", "money", "conflict", "sleep", "burnout", "lonely", "loneliness"].includes(
-      topic.tag
-    )
+  const drainingTopics = topTopics.filter((topic) =>
+    [
+      "work",
+      "stress",
+      "anxiety",
+      "overthinking",
+      "money",
+      "conflict",
+      "sleep",
+      "burnout",
+      "lonely",
+      "loneliness",
+    ].includes(topic.tag)
   );
 
   const whatHelped: InsightsAiAnalysisReadyResponse["signals"]["whatHelped"] = [
@@ -1666,7 +1589,10 @@ const buildSignals = ({
             currentStreak > 0
               ? `A ${currentStreak}-day streak kept your reflection rhythm steadier than usual.`
               : `${window.activeDays} active days gave this week enough texture to feel more grounded.`,
-          evidence: [`${window.activeDays}/7 active days`, `${window.entryCount} entries`],
+          evidence: [
+            `${window.activeDays}/7 active days`,
+            `${window.entryCount} entries`,
+          ],
           tone: "sage" as const,
         }
       : null,
@@ -1674,7 +1600,8 @@ const buildSignals = ({
       ? {
           title: "There were lighter pockets to build on",
           description:
-            dominantMood && (dominantMood.mood === "amazing" || dominantMood.mood === "good")
+            dominantMood &&
+            (dominantMood.mood === "amazing" || dominantMood.mood === "good")
               ? `${dominantMood.label} check-ins appeared often enough to suggest the week was not all heavy.`
               : "The week still held some easier moments, even if the overall tone felt mixed.",
           evidence: [dominantMood?.label || "Mixed mood", "Mood check-ins"],
@@ -1694,63 +1621,69 @@ const buildSignals = ({
       : null,
   ].filter(Boolean) as InsightsAiAnalysisReadyResponse["signals"]["whatHelped"];
 
-  const whatDrained: InsightsAiAnalysisReadyResponse["signals"]["whatDrained"] = [
-    lowSignalEntryCount > 0
-      ? {
-          title:
-            promptEchoEntryCount > 0
-              ? "Some entries still read like prompt carryover"
-              : "Some entries were hard to read clearly",
-          description:
-            promptEchoEntryCount > 0
-              ? "Part of this week leaned more on copied prompt text or filler wording, so Journal.IO weighted the clearer entries more heavily than the noisier ones."
-              : "A few entries stayed too short or noisy to support a strong read, so this week leans more on the cleaner writing that was available.",
-          evidence: [
-            `${lowSignalEntryCount} low-signal entr${lowSignalEntryCount === 1 ? "y" : "ies"}`,
-            promptEchoEntryCount > 0 ? `${promptEchoEntryCount} prompt-led` : "Clarity check",
-          ],
-          tone: "slate" as const,
-        }
-      : null,
-    negativeMoodShare >= 0.34
-      ? {
-          title: "Stress stayed close to the surface",
-          description:
-            dominantMood && (dominantMood.mood === "bad" || dominantMood.mood === "terrible")
-              ? `${dominantMood.label} check-ins showed up enough to suggest pressure was not just background noise.`
-              : "The week carried enough low-energy signals to treat stress as a real factor, not just a passing spike.",
-          evidence: [dominantMood?.label || "Low-mood moments", "Mood pattern"],
-          tone: "slate" as const,
-        }
-      : null,
-    drainingTopics[0]
-      ? {
-          title: `${drainingTopics[0].label} kept pulling focus`,
-          description:
-            "That topic returned often enough to look like a live friction point rather than a one-off mention.",
-          evidence: [`${drainingTopics[0].count} mentions`, drainingTopics[0].label],
-          tone: "amber" as const,
-        }
-      : null,
-    watchTrait.band !== "low"
-      ? {
-          title: watchTrait.supportiveLabel,
-          description: getFirstSentence(watchTrait.supportTip),
-          evidence: [watchTrait.label, watchTrait.band],
-          tone: watchTrait.band === "elevated" ? "slate" : "amber",
-        }
-      : null,
-  ].filter(Boolean) as InsightsAiAnalysisReadyResponse["signals"]["whatDrained"];
+  const whatDrained: InsightsAiAnalysisReadyResponse["signals"]["whatDrained"] =
+    [
+      lowSignalEntryCount > 0
+        ? {
+            title:
+              promptEchoEntryCount > 0
+                ? "Some entries still read like prompt carryover"
+                : "Some entries were hard to read clearly",
+            description:
+              promptEchoEntryCount > 0
+                ? "Part of this week leaned more on copied prompt text or filler wording, so Journal.IO weighted the clearer entries more heavily than the noisier ones."
+                : "A few entries stayed too short or noisy to support a strong read, so this week leans more on the cleaner writing that was available.",
+            evidence: [
+              `${lowSignalEntryCount} low-signal entr${
+                lowSignalEntryCount === 1 ? "y" : "ies"
+              }`,
+              promptEchoEntryCount > 0
+                ? `${promptEchoEntryCount} prompt-led`
+                : "Clarity check",
+            ],
+            tone: "slate" as const,
+          }
+        : null,
+      negativeMoodShare >= 0.34
+        ? {
+            title: "Stress stayed close to the surface",
+            description:
+              dominantMood &&
+              (dominantMood.mood === "bad" || dominantMood.mood === "terrible")
+                ? `${dominantMood.label} check-ins showed up enough to suggest pressure was not just background noise.`
+                : "The week carried enough low-energy signals to treat stress as a real factor, not just a passing spike.",
+            evidence: [
+              dominantMood?.label || "Low-mood moments",
+              "Mood pattern",
+            ],
+            tone: "slate" as const,
+          }
+        : null,
+      drainingTopics[0]
+        ? {
+            title: `${drainingTopics[0].label} kept pulling focus`,
+            description:
+              "That topic returned often enough to look like a live friction point rather than a one-off mention.",
+            evidence: [
+              `${drainingTopics[0].count} mentions`,
+              drainingTopics[0].label,
+            ],
+            tone: "amber" as const,
+          }
+        : null,
+    ].filter(
+      Boolean
+    ) as InsightsAiAnalysisReadyResponse["signals"]["whatDrained"];
 
   const whatKeptShowingUp: InsightsAiAnalysisReadyResponse["signals"]["whatKeptShowingUp"] =
     topTopics.slice(0, 3).map((topic, index) => ({
-    title: topic.label,
-    description:
-      index === 0
-        ? "This theme showed up most often, so it is probably the clearest thread to keep tracking next week."
-        : "This topic repeated enough to be worth watching for tone shifts, triggers, or needs underneath it.",
-    evidence: [`${topic.count} mentions`, `${topic.percentage}% topic share`],
-    tone: (["coral", "blue", "sage"][index] || "blue") as InsightTone,
+      title: topic.label,
+      description:
+        index === 0
+          ? "This theme showed up most often, so it is probably the clearest thread to keep tracking next week."
+          : "This topic repeated enough to be worth watching for tone shifts, triggers, or needs underneath it.",
+      evidence: [`${topic.count} mentions`, `${topic.percentage}% topic share`],
+      tone: (["coral", "blue", "sage"][index] || "blue") as InsightTone,
     }));
 
   return {
@@ -1808,14 +1741,28 @@ const buildWeeklyAiAnalysis = ({
 }): InsightsAiAnalysisReadyResponse => {
   const analyzedJournals = analyzeWeeklyJournals(journals);
   const safetySummary = summarizeWeeklySafetySignals(analyzedJournals);
-  const windowMeta = buildWindowFromJournals({ journals: analyzedJournals, window });
+  const windowMeta = buildWindowFromJournals({
+    journals: analyzedJournals,
+    window,
+  });
   const totalWords = windowMeta.totalWords;
   const activeDays = windowMeta.activeDays;
-  const reliableEntryCount = analyzedJournals.filter(journal => !journal.lowSignalDetected).length;
-  const lowSignalEntryCount = analyzedJournals.filter(journal => journal.lowSignalDetected).length;
-  const promptEchoEntryCount = analyzedJournals.filter(journal => journal.promptEchoDetected).length;
-  const confidenceDetailsResult = confidenceDetails(reliableEntryCount, totalWords);
-  const normalizedTags = analyzedJournals.flatMap(journal => journal.reliableTags);
+  const reliableEntryCount = analyzedJournals.filter(
+    (journal) => !journal.lowSignalDetected
+  ).length;
+  const lowSignalEntryCount = analyzedJournals.filter(
+    (journal) => journal.lowSignalDetected
+  ).length;
+  const promptEchoEntryCount = analyzedJournals.filter(
+    (journal) => journal.promptEchoDetected
+  ).length;
+  const confidenceDetailsResult = confidenceDetails(
+    reliableEntryCount,
+    totalWords
+  );
+  const normalizedTags = analyzedJournals.flatMap(
+    (journal) => journal.reliableTags
+  );
   const weeklyTagCounts = new Map<string, number>();
 
   for (const tag of normalizedTags) {
@@ -1827,70 +1774,21 @@ const buildWeeklyAiAnalysis = ({
   const weeklyText = readLowerText(analyzedJournals);
   const uniqueTagCount = new Set(normalizedTags).size;
   const favoriteRatio = analyzedJournals.length
-    ? analyzedJournals.filter(journal => journal.isFavorite).length / analyzedJournals.length
+    ? analyzedJournals.filter((journal) => journal.isFavorite).length /
+      analyzedJournals.length
     : 0;
   const negativeMoodCount = moods.filter(
-    mood => mood.mood === "bad" || mood.mood === "terrible"
+    (mood) => mood.mood === "bad" || mood.mood === "terrible"
   ).length;
   const positiveMoodCount = moods.filter(
-    mood => mood.mood === "amazing" || mood.mood === "good"
+    (mood) => mood.mood === "amazing" || mood.mood === "good"
   ).length;
   const recentMoodShare = moods.length ? negativeMoodCount / moods.length : 0;
   const positiveMoodShare = moods.length ? positiveMoodCount / moods.length : 0;
-  const currentStreak = computeCurrentStreak(readCountMap(insights.dailyJournalCounts), today);
-  const selfPronouns = countPronouns(weeklyText, ["i", "me", "my", "mine"]);
-  const groupPronouns = countPronouns(weeklyText, ["we", "us", "our", "ours"]);
-  const pronounRatio =
-    selfPronouns + groupPronouns > 0 ? selfPronouns / (selfPronouns + groupPronouns) : 0.5;
-
-  const opennessRaw =
-    40 +
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.openness) * 4 +
-    uniqueTagCount * 2 +
-    favoriteRatio * 8 -
-    countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.control) * 2;
-  const conscientiousnessRaw =
-    42 +
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.conscientiousness) * 5 +
-    activeDays * 3 +
-    currentStreak * 2 -
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.neuroticism) * 2;
-  const extraversionRaw =
-    38 +
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.extraversion) * 5 +
-    groupPronouns * 2 +
-    positiveMoodShare * 16 -
-    countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.isolation) * 5;
-  const agreeablenessRaw =
-    42 +
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.agreeableness) * 5 +
-    groupPronouns * 2 -
-    countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.conflict) * 5;
-  const neuroticismRaw =
-    30 +
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.neuroticism) * 7 +
-    recentMoodShare * 30 -
-    countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.agreeableness) * 2 -
-    countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.calm) * 4;
-
-  const openness = softenScore(clamp(opennessRaw, 15, 92), confidenceDetailsResult.confidence);
-  const conscientiousness = softenScore(
-    clamp(conscientiousnessRaw, 15, 92),
-    confidenceDetailsResult.confidence
+  const currentStreak = computeCurrentStreak(
+    readCountMap(insights.dailyJournalCounts),
+    today
   );
-  const extraversion = softenScore(
-    clamp(extraversionRaw, 10, 90),
-    confidenceDetailsResult.confidence
-  );
-  const agreeableness = softenScore(
-    clamp(agreeablenessRaw, 10, 92),
-    confidenceDetailsResult.confidence
-  );
-  const neuroticism = softenScore(
-    clamp(neuroticismRaw, 8, 92),
-    confidenceDetailsResult.confidence
-  );
-
   const dominantMood = moods.length
     ? buildMoodDistribution(
         moods.reduce((acc, mood) => {
@@ -1898,152 +1796,32 @@ const buildWeeklyAiAnalysis = ({
           return acc;
         }, readMoodCountMap())
       )
-        .filter(item => item.count > 0)
+        .filter((item) => item.count > 0)
         .sort((left, right) => right.count - left.count)[0] || null
     : null;
 
-  const descriptions = buildBigFiveDescriptions({
-    topTopic,
-    currentStreak,
-    activeDays,
-    dominantMood,
-  });
-
-  const bigFive: InsightsAiAnalysisReadyResponse["bigFive"] = [
-    {
-      trait: "openness",
-      label: BIG_FIVE_LABELS.openness,
-      score: openness,
-      band: bandBigFive(openness),
-      description: descriptions.openness[bandBigFive(openness)],
-      evidenceTags: descriptions.openness.evidenceTags.filter(Boolean).slice(0, 2),
-    },
-    {
-      trait: "conscientiousness",
-      label: BIG_FIVE_LABELS.conscientiousness,
-      score: conscientiousness,
-      band: bandBigFive(conscientiousness),
-      description: descriptions.conscientiousness[bandBigFive(conscientiousness)],
-      evidenceTags: descriptions.conscientiousness.evidenceTags.filter(Boolean).slice(0, 2),
-    },
-    {
-      trait: "extraversion",
-      label: BIG_FIVE_LABELS.extraversion,
-      score: extraversion,
-      band: bandBigFive(extraversion),
-      description: descriptions.extraversion[bandBigFive(extraversion)],
-      evidenceTags: descriptions.extraversion.evidenceTags.filter(Boolean).slice(0, 2),
-    },
-    {
-      trait: "agreeableness",
-      label: BIG_FIVE_LABELS.agreeableness,
-      score: agreeableness,
-      band: bandBigFive(agreeableness),
-      description: descriptions.agreeableness[bandBigFive(agreeableness)],
-      evidenceTags: descriptions.agreeableness.evidenceTags.filter(Boolean).slice(0, 2),
-    },
-    {
-      trait: "neuroticism",
-      label: BIG_FIVE_LABELS.neuroticism,
-      score: neuroticism,
-      band: bandBigFive(neuroticism),
-      description: descriptions.neuroticism[bandBigFive(neuroticism)],
-      evidenceTags: descriptions.neuroticism.evidenceTags.filter(Boolean).slice(0, 2),
-    },
-  ];
-
-  const narcissismScore = softenScore(
-    clamp(
-      12 +
-        pronounRatio * 55 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.selfFocus) * 6 -
-        countKeywordHits(weeklyText, BIG_FIVE_KEYWORDS.agreeableness) * 3,
-      0,
-      76
-    ),
-    confidenceDetailsResult.confidence
-  );
-  const machiavellianismScore = softenScore(
-    clamp(
-      10 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.strategy) * 7 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.control) * 6 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.conflict) * 3,
-      0,
-      76
-    ),
-    confidenceDetailsResult.confidence
-  );
-  const psychopathyScore = softenScore(
-    clamp(
-      6 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.detachment) * 8 +
-        countKeywordHits(weeklyText, SUPPORTING_KEYWORDS.impulsive) * 6 +
-        countKeywordHits(weeklyText, ["angry", "rage", "cold"]) * 4,
-      0,
-      72
-    ),
-    confidenceDetailsResult.confidence
-  );
-
-  const darkTriad: InsightsAiAnalysisReadyResponse["darkTriad"] = [
-    {
-      trait: "narcissism",
-      ...DARK_TRIAD_LABELS.narcissism,
-      score: narcissismScore,
-      band: bandDarkTriad(narcissismScore),
-      ...buildDarkTriadDescriptions("narcissism", bandDarkTriad(narcissismScore)),
-    },
-    {
-      trait: "machiavellianism",
-      ...DARK_TRIAD_LABELS.machiavellianism,
-      score: machiavellianismScore,
-      band: bandDarkTriad(machiavellianismScore),
-      ...buildDarkTriadDescriptions(
-        "machiavellianism",
-        bandDarkTriad(machiavellianismScore)
-      ),
-    },
-    {
-      trait: "psychopathy",
-      ...DARK_TRIAD_LABELS.psychopathy,
-      score: psychopathyScore,
-      band: bandDarkTriad(psychopathyScore),
-      ...buildDarkTriadDescriptions("psychopathy", bandDarkTriad(psychopathyScore)),
-    },
-  ];
+  // Deterministic behavioural-pattern fallback from the week's recurring topics.
+  // The AI enhancement replaces these with genuinely observed behaviour↔trigger
+  // patterns when it runs; this keeps the deterministic baseline non-clinical.
+  const patterns: InsightsAiAnalysisReadyResponse["patterns"] = topTopics
+    .slice(0, 3)
+    .map((topic, index) => ({
+      label: topic.label,
+      insight: `${topic.label} kept returning across the week — when something resurfaces this often, it usually points to a thread that is still unresolved rather than a passing mention.`,
+      evidence: [`${topic.count} mentions`, `${topic.percentage}% of topics`],
+      nudge:
+        "Next time it comes up, note what happened right before and how it felt in your body — the trigger is usually hiding there.",
+      tone: (["coral", "blue", "sage"][index] || "blue") as InsightTone,
+    }));
 
   const patternTags = buildPatternTags({
-    topTopic,
+    topTopics,
     dominantMood,
-    conscientiousness,
-    openness,
-    extraversion,
-    agreeableness,
-    neuroticism,
+    positiveMoodShare,
+    negativeMoodShare: recentMoodShare,
     lowSignalEntryCount,
   });
 
-  const strongestTrait =
-    [...bigFive].sort((left, right) => right.score - left.score)[0] ?? {
-      trait: "conscientiousness" as const,
-      label: "Conscientiousness",
-      score: 50,
-      band: "steady" as const,
-      description: "",
-      evidenceTags: [],
-    };
-  const watchTrait =
-    [...darkTriad].sort((left, right) => right.score - left.score)[0] ?? {
-      trait: "narcissism" as const,
-      label: "Narcissism",
-      supportiveLabel: "Self-focus signal",
-      score: 0,
-      band: "low" as const,
-      description: "",
-      supportTip:
-        "Balance one self-focused reflection with one note about shared effort or support you received.",
-    };
   const dominantMoodWithValue = dominantMood
     ? {
         mood: dominantMood.mood,
@@ -2058,7 +1836,6 @@ const buildWeeklyAiAnalysis = ({
     negativeMoodShare: recentMoodShare,
     window: windowMeta,
     currentStreak,
-    watchTrait,
     lowSignalEntryCount,
     promptEchoEntryCount,
   });
@@ -2084,8 +1861,6 @@ const buildWeeklyAiAnalysis = ({
       topTopic,
       dominantMood: dominantMoodWithValue,
       currentStreak,
-      strongestTrait,
-      watchTrait,
       lowSignalEntryCount,
       promptEchoEntryCount,
     }),
@@ -2101,13 +1876,12 @@ const buildWeeklyAiAnalysis = ({
     }),
     themeBreakdown,
     signals,
-    bigFive,
-    darkTriad,
+    patterns,
     actionPlan: buildAiActionPlan({
-      bigFive,
-      darkTriad,
       topTopic,
+      dominantMood: dominantMoodWithValue,
       currentStreak,
+      negativeMoodShare: recentMoodShare,
       lowSignalEntryCount,
       promptEchoEntryCount,
     }),
@@ -2133,6 +1907,7 @@ const mergeAiAnalysisEnhancement = (
     patternTags: enhancement.patternTags,
     actionPlan: enhancement.actionPlan,
     appSupport: enhancement.appSupport,
+    patterns: enhancement.patterns,
   };
 };
 
@@ -2162,8 +1937,12 @@ const buildCollectingAiAnalysis = ({
           : `This premium week runs ${window.label}. Keep journaling for ${dayLabel} so the first weekly read can close with enough real context from your own writing.`,
       highlight:
         progress.promptState === "almost_ready"
-          ? `You only need ${progress.entriesNeeded} more active day${progress.entriesNeeded === 1 ? "" : "s"} to unlock the first weekly analysis.`
-          : `You've logged ${entryLabel} across ${window.activeDays} active day${window.activeDays === 1 ? "" : "s"} so far.`,
+          ? `You only need ${progress.entriesNeeded} more active day${
+              progress.entriesNeeded === 1 ? "" : "s"
+            } to unlock the first weekly analysis.`
+          : `You've logged ${entryLabel} across ${
+              window.activeDays
+            } active day${window.activeDays === 1 ? "" : "s"} so far.`,
     },
     quickAnalysis: {
       available: true,
@@ -2189,7 +1968,11 @@ const buildInsufficientAiAnalysis = ({
       headline: "This week stayed a little too light for a full read",
       narrative:
         window.entryCount > 0
-          ? `Journal.IO closed ${window.label} with ${window.activeDays} active day${window.activeDays === 1 ? "" : "s"}. That is useful momentum, but it is still below the 4-day minimum for a grounded weekly analysis.`
+          ? `Journal.IO closed ${window.label} with ${
+              window.activeDays
+            } active day${
+              window.activeDays === 1 ? "" : "s"
+            }. That is useful momentum, but it is still below the 4-day minimum for a grounded weekly analysis.`
           : `Journal.IO closed ${window.label} with no entries, so there was not enough real writing to build a weekly analysis yet.`,
       highlight:
         window.entryCount > 0
@@ -2238,7 +2021,10 @@ const loadWindowSnapshots = async ({
   userId: string;
   window: WeeklyWindowSnapshot;
 }) => {
-  const windowStartUtc = getUtcStartForDateKey(window.startDateKey, window.timeZone);
+  const windowStartUtc = getUtcStartForDateKey(
+    window.startDateKey,
+    window.timeZone
+  );
   const windowEndUtc = getUtcStartForDateKey(
     addDateKeyDays(window.endDateKey, 1),
     window.timeZone
@@ -2273,14 +2059,8 @@ const loadWindowSnapshots = async ({
   ]);
 
   return {
-    journals: journals.map(journal => ({
-      content: journal.content || "",
-      aiPrompt: typeof journal.aiPrompt === "string" ? journal.aiPrompt : null,
-      tags: journal.tags || [],
-      isFavorite: Boolean(journal.isFavorite),
-      createdAt: new Date(journal.createdAt),
-    })),
-    moods: moods.map(mood => ({
+    journals: journals.map(toWeeklyJournalSnapshot),
+    moods: moods.map((mood) => ({
       mood: mood.mood,
       createdAt: new Date(mood.createdAt),
     })),
@@ -2300,7 +2080,10 @@ const getCollectingAiAnalysis = async ({
   today?: Date;
   allowEarlyReady?: boolean;
 }) => {
-  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  const { anchorDateKey } = await getAiAnalysisUserContext({
+    userId,
+    timeZone,
+  });
   const todayDateKey = getLocalDateKey(today, timeZone);
   const currentWindowIndex = Math.floor(
     daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
@@ -2338,8 +2121,8 @@ const getCollectingAiAnalysis = async ({
       windowMeta.activeDays <= 0
         ? "zero_entries"
         : windowMeta.activeDays >= AI_ANALYSIS_MIN_ACTIVE_DAYS - 1
-          ? "almost_ready"
-          : "building",
+        ? "almost_ready"
+        : "building",
   });
 
   return buildCollectingAiAnalysis({
@@ -2364,13 +2147,23 @@ const generateAiAnalysisEnhancement = async ({
   }
 
   const analyzedJournals = analyzeWeeklyJournals(journals);
-  if (analyzedJournals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+  if (
+    analyzedJournals.some((journal) =>
+      hasJournalSafetySignal(journal.safetySignal)
+    )
+  ) {
     return null;
   }
 
-  const recentEntries = analyzedJournals.slice(0, 6).map((journal, index) => ({
+  const recentEntries = analyzedJournals.slice(0, 10).map((journal, index) => ({
     order: index + 1,
     createdAt: journal.createdAt.toISOString(),
+    // Coarse local-ish time signal so the model can notice time-of-day rhythms
+    // (e.g. "late-night entries carry more of X"). Approximate, not a claim.
+    hour: journal.createdAt.getHours(),
+    weekday: journal.createdAt.toLocaleDateString("en-US", {
+      weekday: "short",
+    }),
     tags: journal.reliableTags,
     isFavorite: journal.isFavorite,
     lowSignalDetected: journal.lowSignalDetected,
@@ -2382,23 +2175,89 @@ const generateAiAnalysisEnhancement = async ({
       updateMoodMapValue(acc, mood.mood, 1);
       return acc;
     }, readMoodCountMap())
-  ).filter(item => item.count > 0);
+  ).filter((item) => item.count > 0);
+  const moodByDay = moods
+    .slice()
+    .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+    .map((mood) => ({
+      day: mood.createdAt.toLocaleDateString("en-US", { weekday: "short" }),
+      mood: mood.mood,
+    }));
+
+  // Cross-entry pattern material (best-effort): the therapist-style themes the
+  // per-entry engine already extracted for this window, the recurrence-ranked
+  // patterns seen across history, and the rolling long-term memory. This is what
+  // lets the weekly read name a real behaviour↔trigger pattern and connect it to
+  // the user's longer arc instead of counting keywords. Any failure degrades to
+  // the deterministic base without blocking the weekly read.
+  let windowThemes: {
+    label: string;
+    rationale: string;
+    evidenceQuote: string;
+  }[] = [];
+  let recurringPatterns: { label: string; occurrences: number }[] = [];
+  let longTermMemory = "";
+  try {
+    const windowInsights = await loadEntryInsights({
+      userId,
+      startDate: new Date(`${analysis.window.startDate}T00:00:00.000Z`),
+      endDate: new Date(`${analysis.window.endDate}T23:59:59.999Z`),
+      limit: 60,
+    });
+    windowThemes = windowInsights
+      .flatMap((insight) => insight.themes)
+      .slice(0, 12)
+      .map((theme) => ({
+        label: theme.label,
+        rationale: theme.rationale,
+        evidenceQuote: theme.evidenceQuote,
+      }));
+    recurringPatterns = aggregateRecurringPatterns(
+      await loadEntryInsights({ userId, limit: 200 }),
+      6
+    ).map((pattern) => ({
+      label: pattern.label,
+      occurrences: pattern.occurrences,
+    }));
+    const queryEmbedding = await requestEmbedding(
+      recentEntries
+        .map((entry) => entry.excerpt)
+        .join(" ")
+        .slice(0, 1600)
+    );
+    longTermMemory = await buildUserReflectionMemory(userId, { queryEmbedding });
+  } catch (error) {
+    console.error("Failed to build weekly pattern material:", error);
+  }
+
+  const personalization = await buildUserPersonalization(userId);
 
   return requestStructuredOpenAi({
     feature: "weekly ai analysis",
     schemaName: "weekly_ai_analysis_enhancement",
     schema: aiAnalysisEnhancementJsonSchema,
     parser: aiAnalysisEnhancementSchema,
-    maxOutputTokens: 980,
+    maxOutputTokens: 1500,
     messages: [
       {
         role: "system",
-        content:
-          "You refine Journal.IO's weekly analysis copy. Keep everything non-clinical, uncertainty-aware, emotionally safe, and behavior-focused. Never diagnose, pathologize, or claim certainty. Ground the language in recurring patterns from the provided week, and keep the wording concise enough for a mobile screen. Use a modern, soft Gen Z psychologist tone: warm, sharp, lightly conversational, never slang-heavy, never cringe. Prefer signals, themes, friction points, and next steps over personality-trait framing.",
+        content: [
+          "You write Journal.IO's weekly analysis. Read like a perceptive, grounded therapist who has been tracking this person over time — not a keyword counter. Keep everything non-clinical, uncertainty-aware, emotionally safe, and behaviour-focused. Never diagnose, pathologize, or claim certainty. Use a modern, soft Gen Z psychologist tone: warm, sharp, lightly conversational, never slang-heavy, never cringe. Be blunt and to the point everywhere: no filler, no hedging preamble ('it seems like', 'it's worth noting'), no restating the prompt — open every field with the actual observation.",
+          "summary.narrative is the primary weekly read: state plainly what happened this week, the concrete trends noticed, and how they moved across the week (built, faded, repeated, shifted). Ground it in the recent entries and themes provided, not generic encouragement.",
+          "The most important other output is patterns: 1-3 real behavioural patterns the week surfaced. For each, name the behaviour AND the trigger or feeling it connects to (the link the user usually cannot see themselves — e.g. a habit that spikes with anxiety, reassurance-seeking after conflict, scrolling to avoid a hard feeling). Put the concrete pattern in insight, back it with 1-3 short evidence phrases quoted or closely paraphrased from the provided entries/themes, and give one gentle, practical nudge. Be perceptive and precise, but never diagnose, label, or judge the behaviour as good or bad, never moralise, never shame — the goal is a genuine 'oh, I hadn't seen that' moment, not a clinical read.",
+          "Draw patterns from windowThemes and recurringPatterns first (those are already-extracted therapist themes), and use longTermMemory to connect this week to the user's longer arc when it genuinely fits (e.g. 'this is the third week work has shown up right before your mood dips'). Never invent history or a pattern the provided material does not support; when signal is thin, return fewer, softer patterns rather than forcing them.",
+          "You may use the entry hours/weekdays and moodByDay to note time-of-day or day-of-week rhythms, but only as a soft observation, never a hard claim.",
+          "Also refine summary, patternTags (short behavioural labels, not personality traits), actionPlan (exactly 2 concrete steps, the two that matter most this week), and appSupport (3 items). Keep every field concise enough for a mobile screen — no padding.",
+          personalization?.systemDirective,
+          AI_REFLECTION_BALANCE_GUIDANCE,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
       {
         role: "user",
         content: JSON.stringify({
+          userProfile: personalization?.promptProfile ?? null,
           analysisWindow: analysis.window,
           freshness: analysis.freshness,
           scoreboard: analysis.scoreboard,
@@ -2406,23 +2265,13 @@ const generateAiAnalysisEnhancement = async ({
           signals: analysis.signals,
           themeBreakdown: analysis.themeBreakdown,
           existingPatternTags: analysis.patternTags,
-          bigFive: analysis.bigFive.map(item => ({
-            trait: item.trait,
-            label: item.label,
-            score: item.score,
-            band: item.band,
-            evidenceTags: item.evidenceTags,
-          })),
-          darkTriad: analysis.darkTriad.map(item => ({
-            trait: item.trait,
-            supportiveLabel: item.supportiveLabel,
-            score: item.score,
-            band: item.band,
-            supportTip: item.supportTip,
-          })),
+          windowThemes,
+          recurringPatterns,
+          longTermMemory: longTermMemory || "No prior sessions yet.",
           currentActionPlan: analysis.actionPlan,
           currentAppSupport: analysis.appSupport,
           moodSummary,
+          moodByDay,
           recentEntries,
         }),
       },
@@ -2432,15 +2281,16 @@ const generateAiAnalysisEnhancement = async ({
 
 const MIND_MAP_DISCLAIMER = {
   title: "Reflection signal, not a medical measure",
-  body:
-    "Brightness and pulse reflect patterns in your writing. This map is not a brain scan, diagnosis, or medical measure.",
+  body: "Brightness and pulse reflect patterns in your writing. This map is not a brain scan, diagnosis, or medical measure.",
 };
 
 const countActiveWritingDays = (
   journals: Array<{ createdAt: Date }>,
   timeZone: string
 ) =>
-  new Set(journals.map(journal => getLocalDateKey(journal.createdAt, timeZone))).size;
+  new Set(
+    journals.map((journal) => getLocalDateKey(journal.createdAt, timeZone))
+  ).size;
 
 const buildMindMapPeriod = ({
   range,
@@ -2481,12 +2331,15 @@ const buildMindMapBuildingResponse = ({
   activeDays,
   clearEntryCount,
   daysRemaining,
+  minimumEntries,
 }: {
   period: InsightsMindMapPeriod;
   summary: InsightsMindMapSummary;
   activeDays: number;
   clearEntryCount: number;
   daysRemaining: number | null;
+  // When provided (all-time), progress is entry-based rather than day-based.
+  minimumEntries?: number;
 }): InsightsMindMapBuildingResponse => ({
   status: "building",
   period,
@@ -2495,7 +2348,10 @@ const buildMindMapBuildingResponse = ({
     activeDays,
     minimumActiveDays: MIND_MAP_MIN_ACTIVE_DAYS,
     clearEntryCount,
-    entriesNeeded: Math.max(0, MIND_MAP_MIN_ACTIVE_DAYS - activeDays),
+    entriesNeeded:
+      typeof minimumEntries === "number"
+        ? Math.max(0, minimumEntries - clearEntryCount)
+        : Math.max(0, MIND_MAP_MIN_ACTIVE_DAYS - activeDays),
     daysRemaining,
   },
   disclaimer: MIND_MAP_DISCLAIMER,
@@ -2520,21 +2376,26 @@ const buildMindMapSupportFirstResponse = ({
 const toMindMapJournalSnapshots = (
   journals: AnalyzedWeeklyJournalSnapshot[]
 ): MindMapJournalSnapshot[] =>
-  journals.map(journal => ({
+  journals.map((journal) => ({
     ...journal,
     sourceText: journal.strippedText.trim() || journal.content.trim(),
   }));
 
 const getClearMindMapJournals = (journals: MindMapJournalSnapshot[]) =>
   journals.filter(
-    journal =>
-      !journal.lowSignalDetected &&
+    (journal) =>
       !hasJournalSafetySignal(journal.safetySignal) &&
-      journal.analysisWordCount >= 4 &&
-      Boolean(journal.sourceText.trim())
+      Boolean(journal.sourceText.trim()) &&
+      // Dev bypass: accept any safe, non-empty entry so short / low-signal test
+      // writing still counts. Otherwise require real clear writing.
+      (MIND_MAP_RELAX_THRESHOLDS ||
+        (!journal.lowSignalDetected && journal.analysisWordCount >= 4))
   );
 
-const buildMindMapRegions = ({
+// Aggregates the persisted per-entry Mind Map scores (AI where available,
+// heuristic otherwise) across the window's clear journals. Legacy entries with
+// no stored row fall back to per-entry keyword scoring so the map still works.
+const buildMindMapRegions = async ({
   journals,
   activeDays,
 }: {
@@ -2542,52 +2403,97 @@ const buildMindMapRegions = ({
   activeDays: number;
 }) => {
   const clearJournals = getClearMindMapJournals(journals);
-  const combinedWriting = clearJournals.map(journal => journal.sourceText).join(" ");
+  const combinedWriting = clearJournals
+    .map((journal) => journal.sourceText)
+    .join(" ");
+
+  const journalIds = clearJournals
+    .map((journal) => journal.journalId)
+    .filter((id): id is string => Boolean(id));
+  const storedScores = await loadStoredEntryRegionScores(journalIds);
+
   const evidenceByRegion = new Map<ReflectionRegionId, string[]>(
-    REFLECTION_REGION_IDS.map(id => [id, []])
+    REFLECTION_REGION_IDS.map((id) => [id, []])
   );
-  const rawScoreByRegion = new Map<ReflectionRegionId, number>(
-    REFLECTION_REGION_IDS.map(id => [id, 0])
+  const weightedScoreByRegion = new Map<ReflectionRegionId, number>(
+    REFLECTION_REGION_IDS.map((id) => [id, 0])
   );
+  let totalWeight = 0;
 
   for (const journal of clearJournals) {
-    const journalText = `${journal.sourceText} ${journal.reliableTags.join(" ")}`.trim();
     const journalWeight = 1 + (journal.isFavorite ? 0.12 : 0);
+    totalWeight += journalWeight;
+
+    const stored = journal.journalId
+      ? storedScores.get(journal.journalId)
+      : undefined;
+    const storedById = stored
+      ? new Map(stored.regionScores.map((region) => [region.id, region.score]))
+      : null;
+
+    // Legacy fallback: per-entry keyword scores normalised to 0-1 so they
+    // combine on the same scale as stored per-entry scores.
+    const fallbackRaw = new Map<ReflectionRegionId, number>();
+    let fallbackMaxRaw = 0;
+    if (!storedById) {
+      const journalText = `${journal.sourceText} ${journal.reliableTags.join(
+        " "
+      )}`.trim();
+      for (const regionId of REFLECTION_REGION_IDS) {
+        const raw = getReflectionRegionKeywordScore(regionId, journalText);
+        fallbackRaw.set(regionId, raw);
+        fallbackMaxRaw = Math.max(fallbackMaxRaw, raw);
+      }
+    }
 
     for (const regionId of REFLECTION_REGION_IDS) {
-      const keywordScore = getReflectionRegionKeywordScore(regionId, journalText);
-      const nextScore =
-        (rawScoreByRegion.get(regionId) || 0) + keywordScore * journalWeight;
-      rawScoreByRegion.set(regionId, nextScore);
+      const regionScore = storedById
+        ? storedById.get(regionId) ?? 0
+        : fallbackMaxRaw > 0
+        ? (fallbackRaw.get(regionId) || 0) / fallbackMaxRaw
+        : REFLECTION_REGION_DETAILS[regionId].lowSignalScore;
 
-      if (keywordScore <= 0) {
-        continue;
-      }
+      weightedScoreByRegion.set(
+        regionId,
+        (weightedScoreByRegion.get(regionId) || 0) + regionScore * journalWeight
+      );
 
+      // Evidence stays sourced from the user's own writing.
       const nextEvidence = evidenceByRegion.get(regionId) || [];
-      const evidence = extractReflectionEvidenceSnippets(journal.sourceText, regionId, 1);
-
-      for (const item of evidence) {
-        if (nextEvidence.includes(item) || nextEvidence.length >= 3) {
-          continue;
+      if (nextEvidence.length < 3) {
+        const evidence = extractReflectionEvidenceSnippets(
+          journal.sourceText,
+          regionId,
+          1
+        );
+        for (const item of evidence) {
+          if (!nextEvidence.includes(item) && nextEvidence.length < 3) {
+            nextEvidence.push(item);
+          }
         }
-
-        nextEvidence.push(item);
+        evidenceByRegion.set(regionId, nextEvidence);
       }
-
-      evidenceByRegion.set(regionId, nextEvidence);
     }
   }
 
-  const highestRawScore = Math.max(
-    ...REFLECTION_REGION_IDS.map(regionId => rawScoreByRegion.get(regionId) || 0),
+  const meanByRegion = new Map<ReflectionRegionId, number>(
+    REFLECTION_REGION_IDS.map((regionId) => [
+      regionId,
+      totalWeight > 0
+        ? (weightedScoreByRegion.get(regionId) || 0) / totalWeight
+        : REFLECTION_REGION_DETAILS[regionId].lowSignalScore,
+    ])
+  );
+  const highestMean = Math.max(
+    ...REFLECTION_REGION_IDS.map((regionId) => meanByRegion.get(regionId) || 0),
     0
   );
+
   const regions = REFLECTION_REGION_IDS.map((regionId, index) => {
-    const rawScore = rawScoreByRegion.get(regionId) || 0;
+    const mean = meanByRegion.get(regionId) || 0;
     const normalizedScore =
-      highestRawScore > 0
-        ? Math.min(1, Number((rawScore / highestRawScore).toFixed(2)))
+      highestMean > 0
+        ? Math.min(1, Number((mean / highestMean).toFixed(2)))
         : REFLECTION_REGION_DETAILS[regionId].lowSignalScore;
     const evidence = evidenceByRegion.get(regionId) || [];
     const confidence = Math.min(
@@ -2612,6 +2518,10 @@ const buildMindMapRegions = ({
     clearJournals,
     combinedWriting,
     regions: rankReflectionRegionScores(regions),
+    // Pre-normalization weighted means (absolute engagement) drive the tier
+    // read, so a region is compared to a typical reflector rather than to the
+    // user's own strongest region.
+    regionMeans: meanByRegion,
   };
 };
 
@@ -2619,10 +2529,21 @@ const buildMindMapReadyResponse = ({
   range,
   period,
   regions,
+  regionMeans,
+  trends,
+  patterns,
+  actionSteps,
 }: {
   range: InsightsMindMapRange;
   period: InsightsMindMapPeriod;
   regions: ReflectionRegionScore[];
+  regionMeans: Map<ReflectionRegionId, number>;
+  trends: Map<
+    ReflectionRegionId,
+    { trend: ReflectionRegionTrend; trendLabel: string }
+  >;
+  patterns: InsightsMindMapPattern[];
+  actionSteps: Map<ReflectionRegionId, string>;
 }): InsightsMindMapReadyResponse => {
   const strongestRegion = regions[0] as ReflectionRegionScore;
   const periodCopy =
@@ -2630,18 +2551,21 @@ const buildMindMapReadyResponse = ({
       ? "Across your full reflection history"
       : `Across ${period.label}`;
 
-  return {
-    status: "ready",
-    period,
-    summary: {
-      headline: `${strongestRegion.productName} carried the strongest reflection signal`,
-      narrative:
-        `${periodCopy}, your writing most often returned to ${strongestRegion.productName.toLowerCase()} patterns. Other regions still appear in the map, but this one showed the clearest consistent signal.`,
-      note:
-        "Brightness and pulse reflect recurring patterns in your writing, not literal brain activity.",
-    },
-    strongestRegionId: strongestRegion.id,
-    regions: regions.map(region => ({
+  const tierByRegion = new Map<ReflectionRegionId, ReflectionRegionTier>(
+    regions.map((region) => [
+      region.id,
+      getReflectionRegionTier(region.id, regionMeans.get(region.id) ?? 0),
+    ])
+  );
+
+  const responseRegions = regions.map((region) => {
+    const regionTrend = trends.get(region.id) ?? {
+      trend: "steady" as ReflectionRegionTrend,
+      trendLabel: getReflectionRegionTrendLabel(region.id, "steady"),
+    };
+    const tier = tierByRegion.get(region.id) ?? "low";
+
+    return {
       id: region.id,
       productLabel: region.productName,
       brainRegionSubtitle: region.brainRegion,
@@ -2650,10 +2574,160 @@ const buildMindMapReadyResponse = ({
       rank: region.rank,
       intensity: region.intensity,
       shortInsight: region.shortInsight,
+      actionStep: actionSteps.get(region.id) ?? region.actionStep,
       evidenceSnippets: region.evidence,
-    })),
+      trend: regionTrend.trend,
+      trendLabel: regionTrend.trendLabel,
+      tier,
+      tierLabel: getReflectionRegionTierLabel(tier),
+    };
+  });
+
+  const overallTier = getOverallReflectionTier(
+    regions.map((region) => tierByRegion.get(region.id) ?? "low")
+  );
+
+  const focus = buildRegionFocus(
+    strongestRegion.id,
+    responseRegions.map((region) => ({
+      id: region.id,
+      signalScore: region.signalScore,
+      trend: region.trend,
+    }))
+  );
+
+  return {
+    status: "ready",
+    period,
+    summary: {
+      headline: `${strongestRegion.productName} carried the strongest reflection signal`,
+      narrative: `${periodCopy}, your writing most often returned to ${strongestRegion.productName.toLowerCase()} patterns. Other regions still appear in the map, but this one showed the clearest consistent signal.`,
+      note: "Brightness and pulse reflect recurring patterns in your writing, not literal brain activity.",
+    },
+    strongestRegionId: strongestRegion.id,
+    patterns,
+    regions: responseRegions,
+    focus,
+    overallTier,
     disclaimer: MIND_MAP_DISCLAIMER,
   };
+};
+
+// Coarse UTC day boundary for a YYYY-MM-DD key, consistent with how weekly
+// windows compare date keys elsewhere in this service. Precise enough for
+// occurrence-based pattern aggregation over a window.
+const dateKeyToBoundaryDate = (
+  dateKey: string | null,
+  boundary: "start" | "end"
+): Date | null => {
+  if (!dateKey) {
+    return null;
+  }
+  return new Date(
+    `${dateKey}T${boundary === "start" ? "00:00:00.000" : "23:59:59.999"}Z`
+  );
+};
+
+// Load + rank the recurring patterns for a window from persisted per-entry
+// insights. Best-effort: a failure just yields an empty patterns list so the
+// Mind Map still renders its region scores.
+const loadMindMapPatterns = async ({
+  userId,
+  startDate,
+  endDate,
+}: {
+  userId: string;
+  startDate?: Date | null;
+  endDate?: Date | null;
+}): Promise<InsightsMindMapPattern[]> => {
+  try {
+    const insights = await loadEntryInsights({
+      userId,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    });
+    return aggregateRecurringPatterns(insights, 5);
+  } catch (error) {
+    console.error("Failed to load Mind Map patterns:", error);
+    return [];
+  }
+};
+
+// Turns the user's own writing into one practical, supportive next step per
+// region via a single structured call. Follows the AI contract: never throws,
+// and every region is guaranteed a step — any region the model omits (or the
+// whole map if AI is unavailable / returns null) falls back to the
+// deterministic REFLECTION_REGION_FOCUS_TIPS. Callers only ever reach the ready
+// path as premium + AI-opted-in users, but we still guard defensively.
+const buildMindMapActionSteps = async ({
+  userId,
+  regions,
+  combinedWriting,
+}: {
+  userId: string;
+  regions: ReflectionRegionScore[];
+  combinedWriting: string;
+}): Promise<Map<ReflectionRegionId, string>> => {
+  const steps = new Map<ReflectionRegionId, string>(
+    REFLECTION_REGION_IDS.map((id) => [id, REFLECTION_REGION_FOCUS_TIPS[id]])
+  );
+
+  const writing = combinedWriting.trim();
+  if (!writing || !(await canUseOpenAiForUser(userId))) {
+    return steps;
+  }
+
+  const personalization = await buildUserPersonalization(userId);
+
+  try {
+    const result = await requestStructuredOpenAi({
+      feature: "mind map action steps",
+      schemaName: "mind_map_action_steps",
+      schema: mindMapActionStepsJsonSchema,
+      parser: mindMapActionStepsSchema,
+      maxOutputTokens: 700,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You write Journal.IO's per-region action steps for a reflection Mind Map. For each of the 8 regions, suggest ONE practical, rational next step the user could try, grounded in their own writing. Keep each step to a single short sentence a person could act on this week. Stay non-clinical, supportive, and uncertainty-aware: offer something to try, never a directive, prescription, or diagnosis. Avoid clinical or therapy jargon. Return a step for every region id provided.",
+            personalization?.systemDirective,
+            AI_ACTION_BALANCE_GUIDANCE,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            userProfile: personalization?.promptProfile ?? null,
+            regionIds: REFLECTION_REGION_IDS,
+            regions: regions.map((region) => ({
+              id: region.id,
+              productName: region.productName,
+              signalScore: region.score,
+              intensity: region.intensity,
+              evidence: region.evidence,
+            })),
+            writingExcerpt: writing.slice(0, 2600),
+          }),
+        },
+      ],
+    });
+
+    if (result) {
+      for (const step of result.steps) {
+        const trimmed = step.actionStep.trim();
+        if (trimmed) {
+          steps.set(step.regionId, trimmed);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Failed to build Mind Map action steps:", error);
+  }
+
+  return steps;
 };
 
 const buildLatestWeekMindMapCacheKey = ({
@@ -2686,7 +2760,10 @@ const refreshLatestWeekMindMapCache = async ({
   timeZone: string;
   today: Date;
 }) => {
-  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  const { anchorDateKey } = await getAiAnalysisUserContext({
+    userId,
+    timeZone,
+  });
   const todayDateKey = getLocalDateKey(today, timeZone);
   const currentWindowIndex = Math.floor(
     daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
@@ -2699,7 +2776,9 @@ const refreshLatestWeekMindMapCache = async ({
       timeZone,
     });
     const currentSnapshots = toMindMapJournalSnapshots(
-      analyzeWeeklyJournals((await loadWindowSnapshots({ userId, window: currentWindow })).journals)
+      analyzeWeeklyJournals(
+        (await loadWindowSnapshots({ userId, window: currentWindow })).journals
+      )
     );
     const clearEntryCount = getClearMindMapJournals(currentSnapshots).length;
     const totalWords = currentSnapshots.reduce(
@@ -2707,7 +2786,10 @@ const refreshLatestWeekMindMapCache = async ({
       0
     );
     const progress = buildProgressSnapshot({
-      window: buildWindowFromJournals({ journals: currentSnapshots, window: currentWindow }),
+      window: buildWindowFromJournals({
+        journals: currentSnapshots,
+        window: currentWindow,
+      }),
       activeDays: countActiveWritingDays(currentSnapshots, timeZone),
       entryCount: currentSnapshots.length,
       todayDateKey,
@@ -2715,12 +2797,15 @@ const refreshLatestWeekMindMapCache = async ({
         currentSnapshots.length <= 0
           ? "zero_entries"
           : countActiveWritingDays(currentSnapshots, timeZone) >=
-                MIND_MAP_MIN_ACTIVE_DAYS - 1
-            ? "almost_ready"
-            : "building",
+            MIND_MAP_MIN_ACTIVE_DAYS - 1
+          ? "almost_ready"
+          : "building",
     });
     const collecting = buildCollectingAiAnalysis({
-      window: buildWindowFromJournals({ journals: currentSnapshots, window: currentWindow }),
+      window: buildWindowFromJournals({
+        journals: currentSnapshots,
+        window: currentWindow,
+      }),
       progress,
     });
     const period = buildMindMapPeriod({
@@ -2754,7 +2839,9 @@ const refreshLatestWeekMindMapCache = async ({
     timeZone,
   });
   const journals = toMindMapJournalSnapshots(
-    analyzeWeeklyJournals((await loadWindowSnapshots({ userId, window: closedWindow })).journals)
+    analyzeWeeklyJournals(
+      (await loadWindowSnapshots({ userId, window: closedWindow })).journals
+    )
   );
   const activeDays = countActiveWritingDays(journals, timeZone);
   const clearJournals = getClearMindMapJournals(journals);
@@ -2777,7 +2864,9 @@ const refreshLatestWeekMindMapCache = async ({
 
   let response: InsightsMindMapResponse;
 
-  if (journals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+  if (
+    journals.some((journal) => hasJournalSafetySignal(journal.safetySignal))
+  ) {
     response = buildMindMapSupportFirstResponse({
       period,
       summary: {
@@ -2787,17 +2876,17 @@ const refreshLatestWeekMindMapCache = async ({
         note: "Support-first handling takes priority over pattern scoring in this view.",
       },
       support: {
-        headline: "A calmer next step matters more than a ranked map right now.",
-        body:
-          "If this writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
-        note:
-          "Journal.IO hides normal region scoring for safety-sensitive weekly writing.",
+        headline:
+          "A calmer next step matters more than a ranked map right now.",
+        body: "If this writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+        note: "Journal.IO hides normal region scoring for safety-sensitive weekly writing.",
       },
     });
   } else if (
-    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
-    clearEntryCount < MIND_MAP_MIN_CLEAR_ENTRIES ||
-    totalWords < MIND_MAP_MIN_CLEAR_WORDS
+    !mindMapForceReady(clearEntryCount) &&
+    (activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+      clearEntryCount < MIND_MAP_MIN_CLEAR_ENTRIES ||
+      totalWords < MIND_MAP_MIN_CLEAR_WORDS)
   ) {
     const nextWindow = resolveWeeklyWindow({
       anchorDateKey,
@@ -2831,14 +2920,35 @@ const refreshLatestWeekMindMapCache = async ({
       daysRemaining: null,
     });
   } else {
+    const { regions, regionMeans, combinedWriting } = await buildMindMapRegions(
+      {
+        journals,
+        activeDays,
+      }
+    );
+    const trends = await buildRegionTrendMap({ userId });
+    const patterns = await loadMindMapPatterns({
+      userId,
+      startDate: dateKeyToBoundaryDate(closedWindow.startDateKey, "start"),
+      endDate: dateKeyToBoundaryDate(closedWindow.endDateKey, "end"),
+    });
+    const actionSteps = await buildMindMapActionSteps({
+      userId,
+      regions,
+      combinedWriting,
+    });
     response = buildMindMapReadyResponse({
       range: "latest_week",
       period,
-      regions: buildMindMapRegions({ journals, activeDays }).regions,
+      regions,
+      regionMeans,
+      trends,
+      patterns,
+      actionSteps,
     });
   }
 
-  insights.mindMapLatestWeek = response;
+  setEncryptedInsightsPayload(insights, "mindMapLatestWeek", response);
   insights.mindMapLatestWeekStale = false;
   insights.mindMapLatestWeekComputedAt = new Date();
   insights.mindMapLatestWeekCacheKey = buildLatestWeekMindMapCacheKey({
@@ -2875,17 +2985,11 @@ const refreshAllTimeMindMapCache = async ({
           .select("content aiPrompt tags isFavorite createdAt")
           .lean()
           .exec()
-      ).map(journal => ({
-        content: journal.content || "",
-        aiPrompt: typeof journal.aiPrompt === "string" ? journal.aiPrompt : null,
-        tags: journal.tags || [],
-        isFavorite: Boolean(journal.isFavorite),
-        createdAt: new Date(journal.createdAt),
-      }))
+      ).map(toWeeklyJournalSnapshot)
     )
   );
   const safeJournals = journals.filter(
-    journal => !hasJournalSafetySignal(journal.safetySignal)
+    (journal) => !hasJournalSafetySignal(journal.safetySignal)
   );
   const clearJournals = getClearMindMapJournals(safeJournals);
   const totalWords = clearJournals.reduce(
@@ -2896,7 +3000,9 @@ const refreshAllTimeMindMapCache = async ({
     range: "all_time",
     label: "All reflections",
     startDate: safeJournals.length
-      ? safeJournals[safeJournals.length - 1]?.createdAt.toISOString().slice(0, 10) || null
+      ? safeJournals[safeJournals.length - 1]?.createdAt
+          .toISOString()
+          .slice(0, 10) || null
       : null,
     endDate: safeJournals[0]?.createdAt.toISOString().slice(0, 10) || null,
     journals: safeJournals,
@@ -2908,51 +3014,66 @@ const refreshAllTimeMindMapCache = async ({
   const activeDays = countActiveWritingDays(safeJournals, timeZone);
   let response: InsightsMindMapResponse;
 
-  if (!safeJournals.length && journals.some(journal => hasJournalSafetySignal(journal.safetySignal))) {
+  if (
+    !safeJournals.length &&
+    journals.some((journal) => hasJournalSafetySignal(journal.safetySignal))
+  ) {
     response = buildMindMapSupportFirstResponse({
       period,
       summary: {
         headline: "Your map is paused for support-first handling",
         narrative:
           "Journal.IO excluded safety-sensitive writing from the all-reflections map, and there is not enough remaining safe writing to score regions yet.",
-        note:
-          "Support-first handling takes priority over ranking reflection regions.",
+        note: "Support-first handling takes priority over ranking reflection regions.",
       },
       support: {
         headline: "This history needs a support-first response first.",
-        body:
-          "If your recent writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
-        note:
-          "Once there is enough safe writing to map, the all-reflections view can return without surfacing sensitive text.",
+        body: "If your recent writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+        note: "Once there is enough safe writing to map, the all-reflections view can return without surfacing sensitive text.",
       },
     });
   } else if (
-    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
-    clearJournals.length < MIND_MAP_MIN_CLEAR_ENTRIES ||
-    totalWords < MIND_MAP_MIN_CLEAR_WORDS
+    !mindMapForceReady(clearJournals.length) &&
+    clearJournals.length < MIND_MAP_MIN_ENTRIES
   ) {
     response = buildMindMapBuildingResponse({
       period,
       summary: {
         headline: "Your Mind Map is still building",
-        narrative:
-          "Journal.IO needs at least 4 active writing days and a little more clear writing before it can rank reflection regions across all reflections.",
-        note:
-          "Keep adding honest entries in your own words and the map will fill in without inventing activity.",
+        narrative: `Journal.IO needs a few more clear entries (about ${MIND_MAP_MIN_ENTRIES}) before it can rank reflection regions across all reflections.`,
+        note: "Keep adding honest entries in your own words and the map will fill in without inventing activity.",
       },
       activeDays,
       clearEntryCount: clearJournals.length,
       daysRemaining: null,
+      minimumEntries: MIND_MAP_MIN_ENTRIES,
     });
   } else {
+    const { regions, regionMeans, combinedWriting } = await buildMindMapRegions(
+      {
+        journals: safeJournals,
+        activeDays,
+      }
+    );
+    const trends = await buildRegionTrendMap({ userId });
+    const patterns = await loadMindMapPatterns({ userId });
+    const actionSteps = await buildMindMapActionSteps({
+      userId,
+      regions,
+      combinedWriting,
+    });
     response = buildMindMapReadyResponse({
       range: "all_time",
       period,
-      regions: buildMindMapRegions({ journals: safeJournals, activeDays }).regions,
+      regions,
+      regionMeans,
+      trends,
+      patterns,
+      actionSteps,
     });
   }
 
-  insights.mindMapAllTime = response;
+  setEncryptedInsightsPayload(insights, "mindMapAllTime", response);
   insights.mindMapAllTimeStale = false;
   insights.mindMapAllTimeComputedAt = new Date();
   insights.mindMapAllTimeCacheKey = buildAllTimeMindMapCacheKey({
@@ -2970,9 +3091,162 @@ const refreshAllTimeMindMapCache = async ({
   } as InsightsMindMapResponse;
 };
 
+const buildMonthlyMindMapCacheKey = ({
+  todayDateKey,
+  timeZone,
+  status,
+}: {
+  todayDateKey: string;
+  timeZone: string;
+  status: InsightsMindMapResponse["status"];
+}) =>
+  `monthly:${todayDateKey}:${timeZone}:v${MIND_MAP_SCORER_VERSION}:${status}`;
+
+// Current calendar-month Mind Map (resets each month, not a rolling window).
+// Reuses the same region aggregation, trend, and pattern machinery as the other
+// windows, just filtered to the month-to-date range.
+const refreshMonthlyMindMapCache = async ({
+  userId,
+  insights,
+  timeZone,
+  today,
+}: {
+  userId: string;
+  insights: IInsights;
+  timeZone: string;
+  today: Date;
+}) => {
+  const endDate = today;
+  const todayDateKey = getLocalDateKey(today, timeZone);
+  const monthStartDateKey = `${todayDateKey.slice(0, 7)}-01`;
+  const startDate = getUtcStartForDateKey(monthStartDateKey, timeZone);
+  const monthLabel = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone,
+  }).format(getUtcStartForDateKey(monthStartDateKey, timeZone));
+
+  const journals = toMindMapJournalSnapshots(
+    analyzeWeeklyJournals(
+      (
+        await journalModel
+          .find({ userId, createdAt: { $gte: startDate, $lte: endDate } })
+          .sort({ createdAt: -1 })
+          .select("content aiPrompt tags isFavorite createdAt")
+          .lean()
+          .exec()
+      ).map(toWeeklyJournalSnapshot)
+    )
+  );
+  const safeJournals = journals.filter(
+    (journal) => !hasJournalSafetySignal(journal.safetySignal)
+  );
+  const clearJournals = getClearMindMapJournals(safeJournals);
+  const totalWords = clearJournals.reduce(
+    (sum, journal) => sum + journal.analysisWordCount,
+    0
+  );
+  const activeDays = countActiveWritingDays(safeJournals, timeZone);
+  const period = buildMindMapPeriod({
+    range: "monthly",
+    label: monthLabel,
+    startDate: getLocalDateKey(startDate, timeZone),
+    endDate: getLocalDateKey(endDate, timeZone),
+    journals: safeJournals,
+    clearEntryCount: clearJournals.length,
+    totalWords,
+    timeZone,
+    generatedAt: new Date(),
+  });
+
+  let response: InsightsMindMapResponse;
+
+  if (
+    !safeJournals.length &&
+    journals.some((journal) => hasJournalSafetySignal(journal.safetySignal))
+  ) {
+    response = buildMindMapSupportFirstResponse({
+      period,
+      summary: {
+        headline: "This month is paused for support-first handling",
+        narrative:
+          "Journal.IO excluded safety-sensitive writing from this month's map, and there is not enough remaining safe writing to score regions yet.",
+        note: "Support-first handling takes priority over ranking reflection regions.",
+      },
+      support: {
+        headline: "This month needs a support-first response first.",
+        body: "If your recent writing reflects immediate risk or feeling unsafe, please reach out to local emergency or crisis support now.",
+        note: "Once there is enough safe writing to map, this month's view can return without surfacing sensitive text.",
+      },
+    });
+  } else if (
+    !mindMapForceReady(clearJournals.length) &&
+    (activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+      clearJournals.length < MIND_MAP_MIN_CLEAR_ENTRIES ||
+      totalWords < MIND_MAP_MIN_CLEAR_WORDS)
+  ) {
+    response = buildMindMapBuildingResponse({
+      period,
+      summary: {
+        headline: "Your Mind Map is still building",
+        narrative: `A few active writing days this month let Journal.IO see steady patterns instead of a single moment — so the map reflects how you actually reflect, not one entry.`,
+        note: "Keep adding honest entries in your own words and this month's map will fill in without inventing activity.",
+      },
+      activeDays,
+      clearEntryCount: clearJournals.length,
+      daysRemaining: null,
+    });
+  } else {
+    const { regions, regionMeans, combinedWriting } = await buildMindMapRegions(
+      {
+        journals: safeJournals,
+        activeDays,
+      }
+    );
+    const trends = await buildRegionTrendMap({ userId, startDate, endDate });
+    const patterns = await loadMindMapPatterns({ userId, startDate, endDate });
+    const actionSteps = await buildMindMapActionSteps({
+      userId,
+      regions,
+      combinedWriting,
+    });
+    response = buildMindMapReadyResponse({
+      range: "monthly",
+      period,
+      regions,
+      regionMeans,
+      trends,
+      patterns,
+      actionSteps,
+    });
+  }
+
+  setEncryptedInsightsPayload(insights, "mindMapMonthly", response);
+  insights.mindMapMonthlyStale = false;
+  insights.mindMapMonthlyComputedAt = new Date();
+  insights.mindMapMonthlyCacheKey = buildMonthlyMindMapCacheKey({
+    todayDateKey: getLocalDateKey(today, timeZone),
+    timeZone,
+    status: response.status,
+  });
+  await insights.save();
+
+  return {
+    ...response,
+    period: {
+      ...response.period,
+      generatedAt: insights.mindMapMonthlyComputedAt?.toISOString() || null,
+    },
+  } as InsightsMindMapResponse;
+};
+
 const rebuildInsightsCache = async (userId: string) => {
   const [journals, moodCheckIns] = await Promise.all([
-    journalModel.find({ userId }).select("content tags isFavorite createdAt").lean().exec(),
+    journalModel
+      .find({ userId })
+      .select("content tags detectedTopics isFavorite createdAt")
+      .lean()
+      .exec(),
     moodCheckInModel.find({ userId }).select("mood").lean().exec(),
   ]);
 
@@ -2984,13 +3258,28 @@ const rebuildInsightsCache = async (userId: string) => {
   let totalFavorites = 0;
 
   for (const journal of journals) {
+    const decryptedJournal = decryptInsightJournalRow(journal);
+
     totalEntries += 1;
-    totalWords += countWords(journal.content || "");
-    totalFavorites += journal.isFavorite ? 1 : 0;
+    totalWords += countWords(
+      typeof decryptedJournal.content === "string"
+        ? decryptedJournal.content
+        : ""
+    );
+    totalFavorites += decryptedJournal.isFavorite ? 1 : 0;
 
-    updateCountMapValue(dailyJournalCounts, getDateKey(journal.createdAt), 1);
+    updateCountMapValue(
+      dailyJournalCounts,
+      getDateKey(decryptedJournal.createdAt),
+      1
+    );
 
-    for (const tag of normalizeInsightTags(journal.tags || [])) {
+    for (const tag of normalizeInsightTags([
+      ...(Array.isArray(decryptedJournal.tags) ? decryptedJournal.tags : []),
+      ...(Array.isArray(decryptedJournal.detectedTopics)
+        ? decryptedJournal.detectedTopics
+        : []),
+    ])) {
       updateCountMapValue(tagCounts, tag, 1);
     }
   }
@@ -3001,45 +3290,39 @@ const rebuildInsightsCache = async (userId: string) => {
     }
   }
 
-  const payload = {
-    totalEntries,
-    totalWords,
-    totalFavorites,
-    dailyJournalCounts,
-    tagCounts,
-    moodCounts,
-    lastJournalDateKey: getLatestJournalDateKey(dailyJournalCounts),
-    lastCalculatedAt: new Date(),
-    aiAnalysis: null,
-    aiAnalysisStale: true,
-    aiAnalysisComputedAt: null,
-    aiAnalysisWindowEndDateKey: null,
-    aiAnalysisCacheKey: null,
-    mindMapLatestWeek: null,
-    mindMapLatestWeekStale: true,
-    mindMapLatestWeekComputedAt: null,
-    mindMapLatestWeekCacheKey: null,
-    mindMapAllTime: null,
-    mindMapAllTimeStale: true,
-    mindMapAllTimeComputedAt: null,
-    mindMapAllTimeCacheKey: null,
-  };
+  const insights =
+    (await insightsModel.findOne({ userId }).exec()) ||
+    new insightsModel({ userId });
 
-  await insightsModel
-    .findOneAndUpdate(
-      { userId },
-      {
-        $set: payload,
-        $setOnInsert: { userId },
-      },
-      {
-        upsert: true,
-        new: true,
-      }
-    )
-    .exec();
+  insights.totalEntries = totalEntries;
+  insights.totalWords = totalWords;
+  insights.totalFavorites = totalFavorites;
+  insights.dailyJournalCounts = dailyJournalCounts;
+  setEncryptedInsightsTagCounts(insights, tagCounts);
+  insights.moodCounts = moodCounts;
+  insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
+  insights.lastCalculatedAt = new Date();
+  setEncryptedInsightsPayload(insights, "aiAnalysis", null);
+  insights.aiAnalysisStale = true;
+  insights.aiAnalysisComputedAt = null;
+  insights.aiAnalysisWindowEndDateKey = null;
+  insights.aiAnalysisCacheKey = null;
+  setEncryptedInsightsPayload(insights, "mindMapLatestWeek", null);
+  insights.mindMapLatestWeekStale = true;
+  insights.mindMapLatestWeekComputedAt = null;
+  insights.mindMapLatestWeekCacheKey = null;
+  setEncryptedInsightsPayload(insights, "mindMapMonthly", null);
+  insights.mindMapMonthlyStale = true;
+  insights.mindMapMonthlyComputedAt = null;
+  insights.mindMapMonthlyCacheKey = null;
+  setEncryptedInsightsPayload(insights, "mindMapAllTime", null);
+  insights.mindMapAllTimeStale = true;
+  insights.mindMapAllTimeComputedAt = null;
+  insights.mindMapAllTimeCacheKey = null;
 
-  return insightsModel.findOne({ userId }).exec();
+  await insights.save();
+
+  return insights;
 };
 
 const getOrBuildInsightsCache = async (userId: string) => {
@@ -3061,11 +3344,16 @@ const markAiAnalysisStale = (insights: IInsights) => {
 const markMindMapStale = (insights: IInsights) => {
   insights.mindMapLatestWeekStale = true;
   insights.mindMapLatestWeekCacheKey = null;
+  insights.mindMapMonthlyStale = true;
+  insights.mindMapMonthlyCacheKey = null;
   insights.mindMapAllTimeStale = true;
   insights.mindMapAllTimeCacheKey = null;
 };
 
-const applyInsightsDocument = async (userId: string, updater: (insights: IInsights) => void) => {
+const applyInsightsDocument = async (
+  userId: string,
+  updater: (insights: IInsights) => void
+) => {
   const insights = await insightsModel.findOne({ userId }).exec();
 
   if (!insights) {
@@ -3078,15 +3366,26 @@ const applyInsightsDocument = async (userId: string, updater: (insights: IInsigh
   await insights.save();
 };
 
+/**
+ * Invalidate a user's Mind Map caches so the next read recomputes. Used by the
+ * per-entry background AI scorer once a stored score is upgraded to AI, so the
+ * global map reflects the AI signal on its next read.
+ */
+const markUserMindMapStale = async (userId: string) => {
+  await applyInsightsDocument(userId, markMindMapStale);
+};
+
 const syncJournalCreatedInsights = async (journal: JournalInsightsSnapshot) => {
-  await applyInsightsDocument(journal.userId, insights => {
+  await applyInsightsDocument(journal.userId, (insights) => {
     const dailyJournalCounts = readCountMap(insights.dailyJournalCounts);
     const tagCounts = readCountMap(insights.tagCounts);
     const dateKey = getDateKey(journal.createdAt);
 
     insights.totalEntries = Number(insights.totalEntries || 0) + 1;
-    insights.totalWords = Number(insights.totalWords || 0) + countWords(journal.content);
-    insights.totalFavorites = Number(insights.totalFavorites || 0) + (journal.isFavorite ? 1 : 0);
+    insights.totalWords =
+      Number(insights.totalWords || 0) + countWords(journal.content);
+    insights.totalFavorites =
+      Number(insights.totalFavorites || 0) + (journal.isFavorite ? 1 : 0);
 
     updateCountMapValue(dailyJournalCounts, dateKey, 1);
 
@@ -3095,7 +3394,7 @@ const syncJournalCreatedInsights = async (journal: JournalInsightsSnapshot) => {
     }
 
     insights.dailyJournalCounts = dailyJournalCounts;
-    insights.tagCounts = tagCounts;
+    setEncryptedInsightsTagCounts(insights, tagCounts);
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
     markMindMapStale(insights);
@@ -3109,14 +3408,16 @@ const syncJournalUpdatedInsights = async ({
   previousJournal: JournalInsightsSnapshot;
   nextJournal: JournalInsightsSnapshot;
 }) => {
-  await applyInsightsDocument(previousJournal.userId, insights => {
+  await applyInsightsDocument(previousJournal.userId, (insights) => {
     const dailyJournalCounts = readCountMap(insights.dailyJournalCounts);
     const tagCounts = readCountMap(insights.tagCounts);
     const previousDateKey = getDateKey(previousJournal.createdAt);
     const nextDateKey = getDateKey(nextJournal.createdAt);
 
     insights.totalWords =
-      Number(insights.totalWords || 0) - countWords(previousJournal.content) + countWords(nextJournal.content);
+      Number(insights.totalWords || 0) -
+      countWords(previousJournal.content) +
+      countWords(nextJournal.content);
     insights.totalFavorites =
       Number(insights.totalFavorites || 0) -
       (previousJournal.isFavorite ? 1 : 0) +
@@ -3136,7 +3437,7 @@ const syncJournalUpdatedInsights = async ({
     }
 
     insights.dailyJournalCounts = dailyJournalCounts;
-    insights.tagCounts = tagCounts;
+    setEncryptedInsightsTagCounts(insights, tagCounts);
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
     markMindMapStale(insights);
@@ -3144,13 +3445,16 @@ const syncJournalUpdatedInsights = async ({
 };
 
 const syncJournalDeletedInsights = async (journal: JournalInsightsSnapshot) => {
-  await applyInsightsDocument(journal.userId, insights => {
+  await applyInsightsDocument(journal.userId, (insights) => {
     const dailyJournalCounts = readCountMap(insights.dailyJournalCounts);
     const tagCounts = readCountMap(insights.tagCounts);
     const dateKey = getDateKey(journal.createdAt);
 
     insights.totalEntries = Math.max(0, Number(insights.totalEntries || 0) - 1);
-    insights.totalWords = Math.max(0, Number(insights.totalWords || 0) - countWords(journal.content));
+    insights.totalWords = Math.max(
+      0,
+      Number(insights.totalWords || 0) - countWords(journal.content)
+    );
     insights.totalFavorites = Math.max(
       0,
       Number(insights.totalFavorites || 0) - (journal.isFavorite ? 1 : 0)
@@ -3163,7 +3467,7 @@ const syncJournalDeletedInsights = async (journal: JournalInsightsSnapshot) => {
     }
 
     insights.dailyJournalCounts = dailyJournalCounts;
-    insights.tagCounts = tagCounts;
+    setEncryptedInsightsTagCounts(insights, tagCounts);
     insights.lastJournalDateKey = getLatestJournalDateKey(dailyJournalCounts);
     markAiAnalysisStale(insights);
     markMindMapStale(insights);
@@ -3171,7 +3475,7 @@ const syncJournalDeletedInsights = async (journal: JournalInsightsSnapshot) => {
 };
 
 const syncMoodLoggedInsights = async (moodCheckIn: MoodInsightsSnapshot) => {
-  await applyInsightsDocument(moodCheckIn.userId, insights => {
+  await applyInsightsDocument(moodCheckIn.userId, (insights) => {
     const moodCounts = readMoodCountMap(insights.moodCounts);
     updateMoodMapValue(moodCounts, moodCheckIn.mood, 1);
     insights.moodCounts = moodCounts;
@@ -3179,7 +3483,9 @@ const syncMoodLoggedInsights = async (moodCheckIn: MoodInsightsSnapshot) => {
   });
 };
 
-const getInsightsOverview = async (userId: string): Promise<InsightsOverviewResponse> => {
+const getInsightsOverview = async (
+  userId: string
+): Promise<InsightsOverviewResponse> => {
   const insights = await getOrBuildInsightsCache(userId);
 
   if (!insights) {
@@ -3195,13 +3501,21 @@ const getInsightsOverview = async (userId: string): Promise<InsightsOverviewResp
   return toInsightsOverview(insights);
 };
 
+// Bump when the weekly AI-analysis payload shape changes so stale caches from a
+// prior shape are recomputed. v2: behavioural patterns replace Big Five / dark
+// triad, and pattern material now feeds the weekly enhancement. v3: ready-state
+// summary drops `highlight` (folded into `narrative`, including the safety-path
+// crisis line), `patterns` capped at 3 (was 4), `actionPlan.steps` fixed at 2
+// (was 3) — mirrors the collapsed 4-card mobile Analysis tab.
+const WEEKLY_AI_ANALYSIS_VERSION = 3;
 const buildAiAnalysisCacheKey = ({
   window,
   status,
 }: {
   window: WeeklyWindowSnapshot;
   status: "ready" | "insufficient";
-}) => `${window.startDateKey}:${window.endDateKey}:${window.timeZone}:${status}`;
+}) =>
+  `${window.startDateKey}:${window.endDateKey}:${window.timeZone}:${status}:v${WEEKLY_AI_ANALYSIS_VERSION}`;
 
 const refreshAiAnalysisCache = async ({
   userId,
@@ -3251,7 +3565,7 @@ const refreshAiAnalysisCache = async ({
       },
     });
 
-    insights.aiAnalysis = insufficientAnalysis;
+    setEncryptedInsightsPayload(insights, "aiAnalysis", insufficientAnalysis);
     insights.aiAnalysisComputedAt = new Date();
     insights.aiAnalysisStale = false;
     insights.aiAnalysisWindowEndDateKey = window.endDateKey;
@@ -3284,11 +3598,10 @@ const refreshAiAnalysisCache = async ({
   if (allowEarlyReady && windowMeta.activeDays < AI_ANALYSIS_MIN_ACTIVE_DAYS) {
     analysis.freshness.confidence = "low";
     analysis.freshness.confidenceLabel = "Dev preview";
-    analysis.freshness.note =
-      `Development override is showing this AI analysis before the normal 4 active-day minimum is met. ${analysis.freshness.note}`;
+    analysis.freshness.note = `Development override is showing this AI analysis before the normal 4 active-day minimum is met. ${analysis.freshness.note}`;
   }
 
-  insights.aiAnalysis = analysis;
+  setEncryptedInsightsPayload(insights, "aiAnalysis", analysis);
   insights.aiAnalysisComputedAt = new Date();
   insights.aiAnalysisStale = false;
   insights.aiAnalysisWindowEndDateKey = window.endDateKey;
@@ -3331,7 +3644,10 @@ const getInsightsAiAnalysis = async (
     return collectingAnalysis;
   }
 
-  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  const { anchorDateKey } = await getAiAnalysisUserContext({
+    userId,
+    timeZone,
+  });
   const todayDateKey = getLocalDateKey(today, timeZone);
   const currentWindowIndex = Math.floor(
     daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
@@ -3341,9 +3657,11 @@ const getInsightsAiAnalysis = async (
     windowIndex: Math.max(0, currentWindowIndex - 1),
     timeZone,
   });
-  const cachedAnalysis = insights.aiAnalysis as InsightsAiAnalysisResponse | null;
+  const cachedAnalysis =
+    insights.aiAnalysis as InsightsAiAnalysisResponse | null;
   const cachedStatus =
-    cachedAnalysis?.status === "ready" || cachedAnalysis?.status === "insufficient"
+    cachedAnalysis?.status === "ready" ||
+    cachedAnalysis?.status === "insufficient"
       ? cachedAnalysis.status
       : null;
   const cachedEarlyReadyPreview =
@@ -3394,9 +3712,11 @@ const getInsightsMindMap = async (
   const today = options.today || new Date();
 
   if (options.range === "all_time") {
-    const cachedAllTime = insights.mindMapAllTime as InsightsMindMapResponse | null;
+    const cachedAllTime =
+      insights.mindMapAllTime as InsightsMindMapResponse | null;
 
     if (
+      !MIND_MAP_RELAX_THRESHOLDS &&
       cachedAllTime &&
       !insights.mindMapAllTimeStale &&
       insights.mindMapAllTimeCacheKey ===
@@ -3415,7 +3735,36 @@ const getInsightsMindMap = async (
     });
   }
 
-  const { anchorDateKey } = await getAiAnalysisUserContext({ userId, timeZone });
+  if (options.range === "monthly") {
+    const cachedMonthly =
+      insights.mindMapMonthly as InsightsMindMapResponse | null;
+
+    if (
+      !MIND_MAP_RELAX_THRESHOLDS &&
+      cachedMonthly &&
+      !insights.mindMapMonthlyStale &&
+      insights.mindMapMonthlyCacheKey ===
+        buildMonthlyMindMapCacheKey({
+          todayDateKey: getLocalDateKey(today, timeZone),
+          timeZone,
+          status: cachedMonthly.status,
+        })
+    ) {
+      return cachedMonthly;
+    }
+
+    return refreshMonthlyMindMapCache({
+      userId,
+      insights,
+      timeZone,
+      today,
+    });
+  }
+
+  const { anchorDateKey } = await getAiAnalysisUserContext({
+    userId,
+    timeZone,
+  });
   const todayDateKey = getLocalDateKey(today, timeZone);
   const currentWindowIndex = Math.floor(
     daysBetweenDateKeys(anchorDateKey, todayDateKey) / AI_ANALYSIS_WINDOW_DAYS
@@ -3427,9 +3776,11 @@ const getInsightsMindMap = async (
       windowIndex: Math.max(0, currentWindowIndex - 1),
       timeZone,
     });
-    const cachedLatestWeek = insights.mindMapLatestWeek as InsightsMindMapResponse | null;
+    const cachedLatestWeek =
+      insights.mindMapLatestWeek as InsightsMindMapResponse | null;
 
     if (
+      !MIND_MAP_RELAX_THRESHOLDS &&
       cachedLatestWeek &&
       !insights.mindMapLatestWeekStale &&
       insights.mindMapLatestWeekCacheKey ===
@@ -3451,13 +3802,102 @@ const getInsightsMindMap = async (
   });
 };
 
+const REGION_SERIES_DAY_LABEL_FORMAT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const REGION_SERIES_MONTH_LABEL_FORMAT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "2-digit",
+  timeZone: "UTC",
+});
+
+const regionSeriesLabel = (
+  dateKey: string,
+  bucket: "day" | "week" | "month"
+) => {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  return bucket === "month"
+    ? REGION_SERIES_MONTH_LABEL_FORMAT.format(date)
+    : REGION_SERIES_DAY_LABEL_FORMAT.format(date);
+};
+
+// Development graph for a single region across a range. Reads the persisted
+// per-entry scores directly (no OpenAI call), bucketed by day for recent
+// windows and by week for all-time so the line stays readable.
+const getInsightsMindMapRegionSeries = async (
+  userId: string,
+  options: {
+    regionId: ReflectionRegionId;
+    range: InsightsMindMapRange;
+    timeZone?: string;
+    today?: Date;
+  }
+): Promise<InsightsRegionSeriesResponse> => {
+  await ensureAiAnalysisEnabled(userId);
+
+  const timeZone = normalizeTimeZone(options.timeZone);
+  const today = options.today || new Date();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  let startDate: Date | null = null;
+  // "auto" lets the series pick day/week/month from the data span so a longer
+  // history stays detailed but readable; bounded ranges stay by-day.
+  let requestedBucket: "day" | "auto" = "auto";
+
+  if (options.range === "all_time") {
+    startDate = null;
+    requestedBucket = "auto";
+  } else if (options.range === "monthly") {
+    // Current calendar month (month-to-date), matching the aggregate window.
+    const monthStartDateKey = `${getLocalDateKey(today, timeZone).slice(
+      0,
+      7
+    )}-01`;
+    startDate = getUtcStartForDateKey(monthStartDateKey, timeZone);
+    requestedBucket = "day";
+  } else {
+    startDate = new Date(
+      today.getTime() - (AI_ANALYSIS_WINDOW_DAYS - 1) * dayMs
+    );
+    requestedBucket = "day";
+  }
+
+  const { bucket, points } = await buildRegionTimeSeries({
+    userId,
+    regionId: options.regionId,
+    startDate,
+    endDate: today,
+    bucket: requestedBucket,
+  });
+
+  return {
+    regionId: options.regionId,
+    productLabel: REFLECTION_REGION_DETAILS[options.regionId].productName,
+    brainRegionSubtitle:
+      REFLECTION_REGION_DETAILS[options.regionId].brainRegion,
+    range: options.range,
+    bucket,
+    startDate: startDate ? getLocalDateKey(startDate, timeZone) : null,
+    endDate: getLocalDateKey(today, timeZone),
+    points: points.map((point) => ({
+      dateKey: point.dateKey,
+      label: regionSeriesLabel(point.dateKey, bucket),
+      value: point.value,
+    })),
+  };
+};
+
 export {
-  AiAnalysisDisabledError,
   PremiumFeatureRequiredError,
   buildWeeklyAiAnalysis,
   getInsightsOverview,
   getInsightsAiAnalysis,
   getInsightsMindMap,
+  getInsightsMindMapRegionSeries,
+  markUserMindMapStale,
   mergeAiAnalysisEnhancement,
   rebuildInsightsCache,
   syncJournalCreatedInsights,

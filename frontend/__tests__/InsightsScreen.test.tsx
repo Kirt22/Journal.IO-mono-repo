@@ -45,8 +45,6 @@ const readyAiAnalysis = {
     headline: "Morning Routines kept shaping your week",
     narrative:
       "Your writing had more structure than it may have felt. Morning routines kept resurfacing, while work stress stayed close enough to deserve a gentler plan.",
-    highlight:
-      "The clearest thread was Morning Routines. Keep watching what triggers it, what softens it, and what you need around it next week.",
   },
   patternTags: [
     { label: "Morning Routines", tone: "coral" as const },
@@ -160,26 +158,15 @@ const readyAiAnalysis = {
       },
     ],
   },
-  bigFive: [
+  patterns: [
     {
-      trait: "conscientiousness" as const,
-      label: "Conscientiousness",
-      score: 74,
-      band: "pronounced" as const,
-      description: "Your writing rhythm appears structured this week, supported by a 4-day streak.",
-      evidenceTags: ["4-day streak", "Routine"],
-    },
-  ],
-  darkTriad: [
-    {
-      trait: "machiavellianism" as const,
-      label: "Machiavellianism",
-      supportiveLabel: "Control-seeking signal",
-      score: 42,
-      band: "watch" as const,
-      description: "There are mild signs of control-seeking or strategic guarding in the week.",
-      supportTip:
-        "When planning next steps, add one sentence about flexibility or what you can let unfold naturally.",
+      label: "Late-night spiral",
+      insight:
+        "Your hardest entries cluster after 11pm, right after long work days — the day's pressure seems to catch up once things go quiet.",
+      evidence: ["11:40pm entry", "work deadline"],
+      nudge:
+        "Try a two-minute wind-down note before bed on the busiest days.",
+      tone: "coral" as const,
     },
   ],
   actionPlan: {
@@ -196,12 +183,6 @@ const readyAiAnalysis = {
         description:
           "When work pressure starts climbing, write one line about the trigger before it turns into a whole spiral.",
         focus: "Work Stress",
-      },
-      {
-        title: "Stay with the same thread",
-        description:
-          "Use morning routines as the lens for your next entry so you can spot what is actually shifting underneath it.",
-        focus: "Morning Routines",
       },
     ],
   },
@@ -321,7 +302,7 @@ async function waitForText(
   }
 }
 
-const setPremiumSession = (isPremium: boolean, aiOptIn = true) => {
+const setPremiumSession = (isPremium: boolean) => {
   useAppStore.setState({
     session: {
       accessToken: "test-access",
@@ -337,7 +318,6 @@ const setPremiumSession = (isPremium: boolean, aiOptIn = true) => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn,
       },
     },
   });
@@ -406,22 +386,30 @@ test("renders the insights screen from API data and switches tabs", async () => 
     root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
   });
 
-  await waitForText(root!, "Weekly Analysis");
+  await waitForText(root!, "Weekly AI Analysis");
 
   const analysisTree = extractText(root!.toJSON());
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(1);
-  expect(analysisTree).toContain("Weekly Analysis");
+  expect(analysisTree).toContain("Weekly AI Analysis");
   expect(analysisTree).toContain("Morning Routines kept shaping your week");
-  expect(analysisTree).toContain("Steadier week");
-  expect(analysisTree).toContain("Pattern snapshot");
-  expect(analysisTree).toContain("What Helped");
-  expect(analysisTree).toContain("Consistency gave the week more shape");
-  expect(analysisTree).toContain("What Drained");
-  expect(analysisTree).toContain("Work Stress kept pulling focus");
+  expect(analysisTree).toContain(
+    "Your writing had more structure than it may have felt."
+  );
+  expect(analysisTree).toContain("Topic Snapshot");
   expect(analysisTree).toContain("Morning Routines");
+  expect(analysisTree).toContain("36%");
+  // Behavioural-patterns card (first pattern is open by default).
+  expect(analysisTree).toContain("Patterns Discovered");
+  expect(analysisTree).toContain("Late-night spiral");
   expect(analysisTree).toContain("Actionable Steps");
   expect(analysisTree).toContain("Keep one reset you can repeat");
-  expect(analysisTree).not.toContain("What Kept Showing Up");
+  // Removed cards: highlight box/vibe copy, signals card, Mind Map CTA.
+  expect(analysisTree).not.toContain("Steadier week");
+  expect(analysisTree).not.toContain("One-glance read");
+  expect(analysisTree).not.toContain("What shaped your week");
+  expect(analysisTree).not.toContain("Explore your Mind Map");
+  // Old personality-trait framing is gone.
+  expect(analysisTree).not.toContain("Conscientiousness");
   expect(analysisTree).not.toContain("How Journal.IO Helps");
 });
 
@@ -465,9 +453,9 @@ test("supports horizontal swipes between overview and AI analysis", async () => 
     });
   });
 
-  await waitForText(root!, "Weekly Analysis");
+  await waitForText(root!, "Weekly AI Analysis");
 
-  expect(extractText(root!.toJSON())).toContain("Weekly Analysis");
+  expect(extractText(root!.toJSON())).toContain("Weekly AI Analysis");
   expect(extractText(root!.toJSON())).not.toContain("Total Entries");
 
   await ReactTestRenderer.act(async () => {
@@ -488,7 +476,7 @@ test("supports horizontal swipes between overview and AI analysis", async () => 
   await waitForText(root!, "Total Entries");
 
   expect(extractText(root!.toJSON())).toContain("Total Entries");
-  expect(extractText(root!.toJSON())).not.toContain("Weekly Analysis");
+  expect(extractText(root!.toJSON())).not.toContain("Weekly AI Analysis");
 });
 
 test("shows a locked AI analysis state for non-premium users", async () => {
@@ -518,20 +506,22 @@ test("shows a locked AI analysis state for non-premium users", async () => {
 
   expect(getInsightsOverview).toHaveBeenCalledTimes(1);
   expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
-  expect(useAppStore.getState().stage).toBe("hosted-paywall");
-  expect(useAppStore.getState().activePaywallPlacementKey).toBe(
-    "insights_ai_tab_locked"
-  );
+  // Tapping the tab now lands the free user *on* the tab, behind an in-place
+  // upgrade card. The paywall only opens from that card's CTA, so no overlay
+  // should have been pushed by the tab press itself.
+  expect(useAppStore.getState().isPaywallOverlay).toBe(false);
   expect(tree).toContain("Insights");
-  expect(tree).toContain("AI Analysis");
+  expect(tree).toContain("AI Analysis is a premium feature");
+  expect(tree).toContain("Upgrade to unlock");
+  expect(tree).not.toContain("Total Entries");
 });
 
-test("shows an AI opt-out state without fetching the analysis", async () => {
+test("opens the paywall from the locked AI analysis card CTA", async () => {
   let root: ReactTestRenderer.ReactTestRenderer;
 
   ReactTestRenderer.act(() => {
     resetAppStore();
-    setPremiumSession(true, false);
+    setPremiumSession(false);
   });
 
   await ReactTestRenderer.act(async () => {
@@ -549,14 +539,19 @@ test("shows an AI opt-out state without fetching the analysis", async () => {
     root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
   });
 
-  const tree = extractText(root!.toJSON());
+  await ReactTestRenderer.act(async () => {
+    root!.root
+      .findByProps({ accessibilityLabel: "Upgrade to unlock" })
+      .props.onPress();
+  });
 
-  expect(getInsightsOverview).toHaveBeenCalledTimes(1);
-  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
-  expect(tree).toContain("AI analysis is turned off");
-  expect(tree).toContain(
-    "AI reflections are off for this account, so weekly AI analysis stays hidden."
+  // The paywall stacks over this screen instead of replacing the root, so
+  // `stage` stays on the caller and the overlay flag is what marks it open.
+  expect(useAppStore.getState().isPaywallOverlay).toBe(true);
+  expect(useAppStore.getState().activePaywallPlacementKey).toBe(
+    "insights_ai_tab_locked"
   );
+  expect(getInsightsAiAnalysis).toHaveBeenCalledTimes(0);
 });
 
 test("shows the collecting state while the current premium week is still open", async () => {
@@ -613,13 +608,10 @@ test("shows the collecting state while the current premium week is still open", 
     root!.root.findByProps({ accessibilityLabel: "AI Analysis" }).props.onPress();
   });
 
-  await waitForText(root!, "Your first weekly read is still collecting signal");
+  await waitForText(root!, "Weekly AI Analysis");
 
   const tree = extractText(root!.toJSON());
 
-  expect(tree).toContain("Your first weekly read is still collecting signal");
-  expect(tree).toContain("4days left");
-  expect(tree).toContain("active days");
-  expect(tree).toContain("Quick Analysis is available now");
-  expect(tree).toContain("Week window: Apr 11 - Apr 17");
+  expect(tree).toContain("Weekly AI Analysis");
+  expect(tree).toContain("2/4");
 });

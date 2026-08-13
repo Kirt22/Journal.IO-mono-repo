@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import HapticPressable from '../../components/HapticPressable';
+import HapticSwitch from '../../components/HapticSwitch';
+import {
+  useEffect,
+  useState } from 'react';
 import {
   Alert,
   AppState,
   Linking,
-  Pressable,
   StyleSheet,
-  Switch,
-  Text,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../../infrastructure/reactNative';
 import { ShieldAlert } from 'lucide-react-native';
 import PremiumUpgradeCard from '../../components/PremiumUpgradeCard';
 import {
@@ -174,7 +178,7 @@ export default function BiometricLockScreen({
       ) : null}
 
       {hasBiometricLockAccess && needsBiometricPermission ? (
-        <Pressable
+        <HapticPressable
           accessibilityLabel={`Allow ${methodName} for Journal.IO`}
           accessibilityRole="button"
           onPress={handleOpenBiometricSettings}
@@ -207,7 +211,7 @@ export default function BiometricLockScreen({
               </View>
             </View>
           </SectionCard>
-        </Pressable>
+        </HapticPressable>
       ) : null}
 
       <SectionCard>
@@ -222,7 +226,7 @@ export default function BiometricLockScreen({
               {toggleDescription}
             </Text>
           </View>
-          <Switch
+          <HapticSwitch
             accessibilityLabel={`Use ${toggleMethodName}`}
             disabled={isToggleLocked || isUpdating}
             onValueChange={handleChange}
@@ -234,6 +238,18 @@ export default function BiometricLockScreen({
             value={biometricLockEnabled}
           />
         </View>
+        {hasBiometricLockAccess ? (
+          <Text
+            style={[
+              styles.widgetDisclosure,
+              { color: theme.colors.mutedForeground },
+            ]}
+          >
+            App lock protects Journal.IO itself. A mood check-in made from the
+            Home Screen widget can still save without opening the app; journal
+            text is never shown in the widget.
+          </Text>
+        ) : null}
       </SectionCard>
     </ProfileSectionLayout>
   );
@@ -268,6 +284,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
+  },
+  widgetDisclosure: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 14,
   },
   pressed: {
     opacity: 0.86,

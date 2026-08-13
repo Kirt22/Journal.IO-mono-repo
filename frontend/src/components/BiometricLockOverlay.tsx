@@ -1,15 +1,21 @@
-import { useEffect, useRef } from 'react';
+import HapticPressable from './HapticPressable';
 import {
-  ActivityIndicator,
+  useEffect,
+  useRef,
+  useState } from 'react';
+import {
   AppState,
+  Image,
   Platform,
-  Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import {
+  Text,
+} from '../infrastructure/reactNative';
 import { Lock } from 'lucide-react-native';
 import PrimaryButton from './PrimaryButton';
+import JournalLoader from './JournalLoader';
 import { useTheme } from '../theme/provider';
 import { useAppStore } from '../store/appStore';
 import {
@@ -20,6 +26,9 @@ import {
 const isForegroundState = (value: string) => value === 'active';
 const isBackgroundState = (value: string) =>
   value === 'inactive' || value === 'background';
+export const BIOMETRIC_REAUTH_GRACE_MS = 60_000;
+
+const faceIdIcon = require('../assets/png/settings/icons8-face-id-100.png');
 
 export default function BiometricLockOverlay() {
   const theme = useTheme();
@@ -49,6 +58,10 @@ export default function BiometricLockOverlay() {
   );
   const currentAppStateRef = useRef(AppState.currentState ?? 'active');
   const hasPromptedDuringCurrentActiveStateRef = useRef(false);
+  const backgroundedAtRef = useRef<number | null>(null);
+  const wasLockedBeforeBackgroundRef = useRef(false);
+  const isSystemPromptTransitionRef = useRef(false);
+  const [isPrivacyCoverVisible, setIsPrivacyCoverVisible] = useState(false);
   const shouldEnforceLock =
     Platform.OS === 'ios' &&
     hasBootstrappedAuthGate &&
@@ -59,10 +72,23 @@ export default function BiometricLockOverlay() {
   useEffect(() => {
     if (!shouldEnforceLock) {
       hasPromptedDuringCurrentActiveStateRef.current = false;
+      backgroundedAtRef.current = null;
+      wasLockedBeforeBackgroundRef.current = false;
+      setIsPrivacyCoverVisible(false);
     }
   }, [shouldEnforceLock]);
 
   useEffect(() => {
+    if (
+      shouldEnforceLock &&
+      isBiometricAppLocked &&
+      isBiometricAuthenticating &&
+      isForegroundState(currentAppStateRef.current)
+    ) {
+      hasPromptedDuringCurrentActiveStateRef.current = true;
+      return;
+    }
+
     if (
       !shouldEnforceLock ||
       !isBiometricAppLocked ||
@@ -88,10 +114,26 @@ export default function BiometricLockOverlay() {
       currentAppStateRef.current = nextAppState;
 
       if (isForegroundState(previousAppState) && isBackgroundState(nextAppState)) {
+        const storeState = useAppStore.getState();
+
+        // The native biometric sheet can briefly move the app to inactive.
+        // Treating that as a real absence would immediately prompt again.
+        if (storeState.isBiometricAuthenticating) {
+          isSystemPromptTransitionRef.current = true;
+          return;
+        }
+
         hasPromptedDuringCurrentActiveStateRef.current = false;
 
-        if (useAppStore.getState().biometricLockEnabled) {
-          lockAppWithBiometrics();
+        if (
+          storeState.biometricLockEnabled &&
+          storeState.session?.user &&
+          canAccessBiometricLock(storeState.session.user)
+        ) {
+          backgroundedAtRef.current = Date.now();
+          wasLockedBeforeBackgroundRef.current =
+            storeState.isBiometricAppLocked;
+          setIsPrivacyCoverVisible(true);
         }
 
         return;
@@ -101,20 +143,53 @@ export default function BiometricLockOverlay() {
         return;
       }
 
+      if (isSystemPromptTransitionRef.current) {
+        isSystemPromptTransitionRef.current = false;
+        return;
+      }
+
       const storeState = useAppStore.getState();
 
       if (
         !storeState.biometricLockEnabled ||
         !storeState.session?.user ||
         !canAccessBiometricLock(storeState.session.user) ||
-        !storeState.isBiometricAppLocked ||
         storeState.isBiometricAuthenticating
       ) {
+        setIsPrivacyCoverVisible(false);
+        backgroundedAtRef.current = null;
+        wasLockedBeforeBackgroundRef.current = false;
         return;
       }
 
+      const backgroundedAt = backgroundedAtRef.current;
+      const absenceDuration = backgroundedAt
+        ? Date.now() - backgroundedAt
+        : BIOMETRIC_REAUTH_GRACE_MS;
+      const shouldRequireAuthentication =
+        wasLockedBeforeBackgroundRef.current ||
+        storeState.isBiometricAppLocked ||
+        absenceDuration >= BIOMETRIC_REAUTH_GRACE_MS;
+
+      backgroundedAtRef.current = null;
+      wasLockedBeforeBackgroundRef.current = false;
+
+      if (!shouldRequireAuthentication) {
+        setIsPrivacyCoverVisible(false);
+        return;
+      }
+
+      if (!storeState.isBiometricAppLocked) {
+        lockAppWithBiometrics();
+      }
+
       hasPromptedDuringCurrentActiveStateRef.current = true;
-      storeState.unlockAppWithBiometrics().catch(() => undefined);
+      setIsPrivacyCoverVisible(true);
+      useAppStore
+        .getState()
+        .unlockAppWithBiometrics()
+        .finally(() => setIsPrivacyCoverVisible(false))
+        .catch(() => undefined);
     });
 
     return () => {
@@ -122,7 +197,7 @@ export default function BiometricLockOverlay() {
     };
   }, [lockAppWithBiometrics]);
 
-  if (!shouldEnforceLock || !isBiometricAppLocked) {
+  if (!shouldEnforceLock || (!isBiometricAppLocked && !isPrivacyCoverVisible)) {
     return null;
   }
 
@@ -164,7 +239,17 @@ export default function BiometricLockOverlay() {
             { backgroundColor: `${theme.colors.primary}18` },
           ]}
         >
-          <Lock size={22} color={theme.colors.primary} />
+          {biometricLockType === 'face_id' ? (
+            <Image
+              accessibilityIgnoresInvertColors
+              accessibilityLabel="Face ID"
+              resizeMode="contain"
+              source={faceIdIcon}
+              style={styles.faceIdIcon}
+            />
+          ) : (
+            <Lock size={22} color={theme.colors.primary} />
+          )}
         </View>
 
         <Text style={[styles.title, { color: theme.colors.foreground }]}>
@@ -178,7 +263,7 @@ export default function BiometricLockOverlay() {
 
         {isBiometricAuthenticating ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <JournalLoader size="small" color={theme.colors.primary} />
             <Text
               style={[
                 styles.loadingText,
@@ -212,7 +297,7 @@ export default function BiometricLockOverlay() {
             />
           )}
           {!showUnavailableState ? (
-            <Pressable
+            <HapticPressable
               accessibilityRole="button"
               onPress={() => {
                 clearBiometricAppLockError();
@@ -227,7 +312,7 @@ export default function BiometricLockOverlay() {
               >
                 Keep locked
               </Text>
-            </Pressable>
+            </HapticPressable>
           ) : null}
         </View>
       </View>
@@ -264,9 +349,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
   },
+  faceIdIcon: {
+    height: 38,
+    width: 38,
+  },
   title: {
     fontSize: 22,
-    fontWeight: '800',
+    letterSpacing: -0.5,
+    fontWeight: '700',
     textAlign: 'center',
   },
   description: {

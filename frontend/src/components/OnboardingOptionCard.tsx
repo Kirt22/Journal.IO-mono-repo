@@ -1,13 +1,18 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import HapticPressable from './HapticPressable';
+import {
+  useEffect,
+  useRef,
+  type ReactNode } from "react";
 import {
   Animated,
-  Pressable,
   StyleSheet,
-  Text,
   View,
   type AccessibilityRole,
   type ViewStyle,
 } from "react-native";
+import {
+  Text,
+} from "../infrastructure/reactNative";
 import { Check, Circle } from "lucide-react-native";
 import { useTheme } from "../theme/provider";
 
@@ -82,7 +87,7 @@ export default function OnboardingOptionCard({
 
   return (
     <Animated.View style={[{ transform: [{ scale: selectedScale }] }, style]}>
-      <Pressable
+      <HapticPressable
         accessibilityRole={accessibilityRole || (multiSelect ? "checkbox" : "radio")}
         accessibilityState={multiSelect ? { checked: selected } : { selected }}
         onPress={onPress}
@@ -129,7 +134,7 @@ export default function OnboardingOptionCard({
             <Circle color="transparent" size={8} />
           )}
         </View>
-      </Pressable>
+      </HapticPressable>
     </Animated.View>
   );
 }

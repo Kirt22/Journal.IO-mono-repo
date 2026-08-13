@@ -1,30 +1,23 @@
 import type { JournalEntry } from "../models/journalModels";
+import { normalizeJournalEntryKind } from "./journalEntryKind";
 
 export type JournalEntryCardTone = "warm" | "challenge" | "reflective" | "supportive";
 export type JournalEntryVisualKey =
-  | "quick-thought"
-  | "mood-checkin"
-  | "journal"
-  | "amazing"
-  | "good"
-  | "okay"
-  | "bad"
-  | "terrible";
+  | "guided"
+  | "open-ended"
+  | "quick-thought";
 
 export type JournalEntryCardSource = Pick<
   JournalEntry,
-  "title" | "content" | "type" | "tags" | "createdAt" | "isFavorite"
+  | "title"
+  | "content"
+  | "type"
+  | "entryKind"
+  | "tags"
+  | "detectedTopics"
+  | "createdAt"
+  | "isFavorite"
 >;
-
-const QUICK_THOUGHT_EMOJI = "💬";
-const JOURNAL_PLACEHOLDER_EMOJI = "📄";
-const MOOD_EMOJIS: Record<string, string> = {
-  amazing: "🤩",
-  good: "😊",
-  okay: "😌",
-  bad: "😔",
-  terrible: "😢",
-};
 
 const MOOD_TONES: Record<string, JournalEntryCardTone> = {
   amazing: "warm",
@@ -61,8 +54,48 @@ function getMoodValue(tags: string[]) {
   return mood in MOOD_TONES ? mood : null;
 }
 
+function isInternalJournalTag(tag: string) {
+  return tag.trim().toLowerCase().startsWith("onboarding:");
+}
+
 function getFilteredTags(tags: string[]) {
-  return tags.filter(tag => !tag.toLowerCase().startsWith("mood:"));
+  return tags.filter(tag => {
+    const normalizedTag = tag.trim().toLowerCase();
+
+    return (
+      Boolean(normalizedTag) &&
+      !normalizedTag.startsWith("mood:") &&
+      !isInternalJournalTag(normalizedTag)
+    );
+  });
+}
+
+function getEntryDisplayTags(entry: JournalEntryCardSource) {
+  const sourceTags =
+    getEntryVisualKey(entry) === "quick-thought"
+      ? entry.tags
+      : entry.detectedTopics || [];
+  const seenTags = new Set<string>();
+
+  return getFilteredTags(sourceTags).filter(tag => {
+    const normalizedTag = tag.trim().toLowerCase();
+
+    if (seenTags.has(normalizedTag)) {
+      return false;
+    }
+
+    seenTags.add(normalizedTag);
+    return true;
+  });
+}
+
+function formatEntryTagLabel(tag: string) {
+  return tag
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
 }
 
 function getEntryTone(entry: Pick<JournalEntryCardSource, "tags" | "type" | "isFavorite">): JournalEntryCardTone {
@@ -102,45 +135,32 @@ function getEntryTone(entry: Pick<JournalEntryCardSource, "tags" | "type" | "isF
 }
 
 function getEntryVisualKey(
-  entry: Pick<JournalEntryCardSource, "tags" | "type">
+  entry: Pick<JournalEntryCardSource, "entryKind" | "title" | "type">
 ): JournalEntryVisualKey {
-  if (entry.type === "quick-thought") {
+  if (entry.type === "guided") {
+    return "guided";
+  }
+
+  if (
+    entry.type === "quick-thought" ||
+    normalizeJournalEntryKind(entry.entryKind, entry.title) === "quick_thought"
+  ) {
     return "quick-thought";
   }
 
-  if (entry.type === "mood-checkin") {
-    return "mood-checkin";
-  }
-
-  const moodValue = getMoodValue(entry.tags);
-
-  if (moodValue) {
-    return moodValue as JournalEntryVisualKey;
-  }
-
-  return "journal";
+  return "open-ended";
 }
 
-function getEntryEmoji(entry: Pick<JournalEntryCardSource, "tags" | "type">) {
-  if (entry.type === "quick-thought") {
-    return QUICK_THOUGHT_EMOJI;
-  }
-
-  if (entry.type === "mood-checkin") {
-    return "🫶";
-  }
-
-  const moodValue = getMoodValue(entry.tags);
-
-  if (moodValue) {
-    return MOOD_EMOJIS[moodValue];
-  }
-
-  return JOURNAL_PLACEHOLDER_EMOJI;
-}
-
-function getEntryTitle(entry: Pick<JournalEntryCardSource, "title" | "type" | "createdAt">) {
-  if (entry.type === "quick-thought") {
+function getEntryTitle(
+  entry: Pick<
+    JournalEntryCardSource,
+    "createdAt" | "entryKind" | "title" | "type"
+  >
+) {
+  if (
+    entry.type === "quick-thought" ||
+    normalizeJournalEntryKind(entry.entryKind, entry.title) === "quick_thought"
+  ) {
     return "Quick Thought";
   }
 
@@ -155,9 +175,11 @@ function getEntryTitle(entry: Pick<JournalEntryCardSource, "title" | "type" | "c
 
 export {
   formatDate,
-  getEntryEmoji,
+  formatEntryTagLabel,
+  getEntryDisplayTags,
   getEntryVisualKey,
   getEntryTitle,
   getEntryTone,
   getFilteredTags,
+  isInternalJournalTag,
 };

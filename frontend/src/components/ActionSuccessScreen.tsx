@@ -472,7 +472,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 38,
     lineHeight: 44,
-    fontWeight: '900',
+    fontWeight: '700',
     textAlign: 'center',
     letterSpacing: -1.1,
   },

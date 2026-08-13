@@ -1,7 +1,10 @@
 import type { MoodValue } from "./mood.types";
 import type {
+  OverallReflectionTier,
   ReflectionRegionId,
   ReflectionRegionIntensity,
+  ReflectionRegionTier,
+  ReflectionRegionTrend,
 } from "../helpers/reflectionMap.helpers";
 
 export type InsightTone =
@@ -79,7 +82,6 @@ export type InsightsAiAnalysisReadyResponse = {
   summary: {
     headline: string;
     narrative: string;
-    highlight: string;
   };
   patternTags: {
     label: string;
@@ -135,27 +137,15 @@ export type InsightsAiAnalysisReadyResponse = {
       tone: InsightTone;
     }[];
   };
-  bigFive: {
-    trait:
-      | "openness"
-      | "conscientiousness"
-      | "extraversion"
-      | "agreeableness"
-      | "neuroticism";
+  // Behavioural patterns the week kept surfacing — the recurring behaviour and
+  // the trigger/feeling it connects to, plus one gentle, non-judgmental nudge.
+  // Replaces the earlier Big Five / dark-triad personality-trait framing.
+  patterns: {
     label: string;
-    score: number;
-    band: "emerging" | "steady" | "pronounced";
-    description: string;
-    evidenceTags: string[];
-  }[];
-  darkTriad: {
-    trait: "narcissism" | "machiavellianism" | "psychopathy";
-    label: string;
-    supportiveLabel: string;
-    score: number;
-    band: "low" | "watch" | "elevated";
-    description: string;
-    supportTip: string;
+    insight: string;
+    evidence: string[];
+    nudge: string;
+    tone: InsightTone;
   }[];
   actionPlan: {
     headline: string;
@@ -179,7 +169,19 @@ export type InsightsAiAnalysisResponse =
   | InsightsAiAnalysisInsufficientResponse
   | InsightsAiAnalysisReadyResponse;
 
-export type InsightsMindMapRange = "latest_week" | "all_time";
+export type InsightsMindMapRange = "latest_week" | "monthly" | "all_time";
+
+// A recurring behavioural/emotional theme aggregated from persisted per-entry
+// insights, with the reason it was concluded and the user's own supporting
+// sentence. Ordered by how often it recurs across the window.
+export type InsightsMindMapPattern = {
+  id: string;
+  label: string;
+  rationale: string;
+  evidenceQuote: string;
+  occurrences: number;
+  confidence: number;
+};
 
 export type InsightsMindMapPeriod = {
   range: InsightsMindMapRange;
@@ -214,7 +216,20 @@ export type InsightsMindMapRegion = {
   rank: number;
   intensity: ReflectionRegionIntensity;
   shortInsight: string;
+  // A single practical, non-clinical next step to try for this region.
+  actionStep: string;
   evidenceSnippets: string[];
+  trend: ReflectionRegionTrend;
+  trendLabel: string;
+  // How strongly this region shows up versus a typical reflector (band only).
+  tier: ReflectionRegionTier;
+  tierLabel: string;
+};
+
+export type InsightsMindMapFocus = {
+  headline: string;
+  body: string;
+  regionId: ReflectionRegionId;
 };
 
 export type InsightsMindMapReadyResponse = {
@@ -222,7 +237,13 @@ export type InsightsMindMapReadyResponse = {
   period: InsightsMindMapPeriod;
   summary: InsightsMindMapSummary;
   strongestRegionId: ReflectionRegionId;
+  // Most recurring patterns across the window, ordered most-recurring first.
+  // Shown after the strongest region and before the remaining region scores.
+  patterns: InsightsMindMapPattern[];
   regions: InsightsMindMapRegion[];
+  focus: InsightsMindMapFocus;
+  // Overall reflective style across the window (named band, no numbers).
+  overallTier: OverallReflectionTier;
   disclaimer: InsightsMindMapDisclaimer;
 };
 
@@ -256,6 +277,25 @@ export type InsightsMindMapResponse =
   | InsightsMindMapReadyResponse
   | InsightsMindMapBuildingResponse
   | InsightsMindMapSupportFirstResponse;
+
+// A single point on a region's development graph: an averaged signal for one
+// day/week bucket, keyed by the bucket's start date (YYYY-MM-DD).
+export type InsightsRegionSeriesPoint = {
+  dateKey: string;
+  label: string;
+  value: number;
+};
+
+export type InsightsRegionSeriesResponse = {
+  regionId: ReflectionRegionId;
+  productLabel: string;
+  brainRegionSubtitle: string;
+  range: InsightsMindMapRange;
+  bucket: "day" | "week" | "month";
+  startDate: string | null;
+  endDate: string | null;
+  points: InsightsRegionSeriesPoint[];
+};
 
 export type InsightsOverviewResponse = {
   stats: {

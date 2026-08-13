@@ -1,3 +1,11 @@
+export {
+  fontFamilies,
+  resolveFontFamily,
+  typography,
+  type FontRole,
+  type TypographyToken,
+} from './typography';
+
 export type ThemeMode = 'light' | 'dark';
 export type ThemePreference =
   | ThemeMode

@@ -6,13 +6,20 @@ import {
   reportBackendUnavailable,
 } from '../services/connectivityService';
 import devLaunchConfig from './devLaunchConfig.json';
-import { getAccessToken } from './tokenStorage';
+import {
+  clearTokens,
+  getAccessToken,
+  getTokens,
+  saveTokens,
+} from './tokenStorage';
 
 type DevLaunchConfig = {
   apiBaseUrl?: string | null;
 };
 
 let hasLoggedBaseUrlResolution = false;
+let refreshAccessTokenPromise: Promise<string | null> | null = null;
+let sessionInvalidationHandler: (() => Promise<void> | void) | null = null;
 
 const normalizeBaseUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -68,6 +75,9 @@ const getBaseUrl = () => {
   const envBaseUrl = normalizeBaseUrl(env.apiBaseUrl);
 
   if (envBaseUrl) {
+    if (!__DEV__ && !envBaseUrl.toLowerCase().startsWith('https://')) {
+      throw new Error('A secure HTTPS API base URL is required in release builds.');
+    }
     logBaseUrlResolution('env', envBaseUrl);
     return envBaseUrl;
   }
@@ -106,14 +116,100 @@ const getBaseUrl = () => {
     return resolvedBaseUrl;
   }
 
-  const resolvedBaseUrl = 'http://localhost:3001/api/v1';
-
-  logBaseUrlResolution('productionFallback', resolvedBaseUrl);
-  return resolvedBaseUrl;
+  throw new Error('A secure production API URL must be configured.');
 };
 
 const getBackendReadinessUrl = () =>
   `${getBaseUrl().replace(/\/api\/v1\/?$/, '')}/ready`;
+
+const getResolvedApiBaseUrl = (
+  options: { requireHttpsInRelease?: boolean } = {},
+) => {
+  const resolvedBaseUrl = getBaseUrl();
+
+  if (
+    options.requireHttpsInRelease &&
+    !__DEV__ &&
+    !resolvedBaseUrl.toLowerCase().startsWith('https://')
+  ) {
+    throw new Error('The iOS widget requires a secure production API URL.');
+  }
+
+  return resolvedBaseUrl;
+};
+
+const notifySessionInvalidated = async () => {
+  if (!sessionInvalidationHandler) {
+    return;
+  }
+
+  await sessionInvalidationHandler();
+};
+
+const invalidateLocalSession = async () => {
+  await clearTokens().catch(() => undefined);
+  await notifySessionInvalidated().catch(() => undefined);
+};
+
+const refreshAccessToken = async (): Promise<string | null> => {
+  if (refreshAccessTokenPromise) {
+    return refreshAccessTokenPromise;
+  }
+
+  refreshAccessTokenPromise = (async () => {
+    const tokens = await getTokens();
+
+    if (!tokens?.refreshToken) {
+      await invalidateLocalSession();
+      return null;
+    }
+
+    const requestUrl = `${getBaseUrl()}/auth/refresh`;
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          refreshToken: tokens.refreshToken,
+        }),
+      });
+
+      let payload: ApiResponse<{ accessToken: string }> | null = null;
+
+      try {
+        payload = (await response.json()) as ApiResponse<{ accessToken: string }>;
+      } catch {
+        payload = null;
+      }
+
+      if (
+        !response.ok ||
+        !payload?.success ||
+        typeof payload.data?.accessToken !== 'string'
+      ) {
+        await invalidateLocalSession();
+        return null;
+      }
+
+      await saveTokens({
+        accessToken: payload.data.accessToken,
+        refreshToken: tokens.refreshToken,
+      });
+
+      return payload.data.accessToken;
+    } catch {
+      await invalidateLocalSession();
+      return null;
+    } finally {
+      refreshAccessTokenPromise = null;
+    }
+  })();
+
+  return refreshAccessTokenPromise;
+};
 
 type ApiResponse<T> = {
   success: boolean;
@@ -202,6 +298,15 @@ const request = async <T>(
   options: RequestInit = {},
   _behavior: RequestBehaviorOptions = {},
 ): Promise<ApiResponse<T>> => {
+  return requestWithRetry(path, options, _behavior, true);
+};
+
+const requestWithRetry = async <T>(
+  path: string,
+  options: RequestInit,
+  _behavior: RequestBehaviorOptions,
+  allowAuthRetry: boolean,
+): Promise<ApiResponse<T>> => {
   const method = (options.method || 'GET').toUpperCase();
   if (
     getConnectivitySnapshot().status === 'offline' &&
@@ -285,6 +390,32 @@ const request = async <T>(
     payload = null;
   }
 
+  const canRetryWithRefresh =
+    allowAuthRetry &&
+    path !== '/auth/refresh' &&
+    response.status === 401 &&
+    !headers.has('X-Skip-Auth-Retry');
+
+  if (canRetryWithRefresh) {
+    const refreshedAccessToken = await refreshAccessToken();
+
+    if (refreshedAccessToken) {
+      const retryHeaders = new Headers(options.headers);
+      retryHeaders.set('Authorization', `Bearer ${refreshedAccessToken}`);
+      retryHeaders.set('X-Skip-Auth-Retry', 'true');
+
+      return requestWithRetry<T>(
+        path,
+        {
+          ...options,
+          headers: retryHeaders,
+        },
+        _behavior,
+        false,
+      );
+    }
+  }
+
   logApiClientDev('response', {
     requestUrl,
     method: options.method || 'GET',
@@ -326,5 +457,17 @@ const request = async <T>(
   return payload;
 };
 
-export { ApiError, getBackendReadinessUrl, request };
+const registerSessionInvalidationHandler = (
+  handler: (() => Promise<void> | void) | null,
+) => {
+  sessionInvalidationHandler = handler;
+};
+
+export {
+  ApiError,
+  getBackendReadinessUrl,
+  getResolvedApiBaseUrl,
+  registerSessionInvalidationHandler,
+  request,
+};
 export type { ApiResponse, RequestBehaviorOptions };

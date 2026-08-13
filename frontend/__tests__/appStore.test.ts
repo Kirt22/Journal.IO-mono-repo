@@ -1,5 +1,6 @@
 import { act } from "react-test-renderer";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Keychain from "react-native-keychain";
 import { resetAppStore, useAppStore } from "../src/store/appStore";
 import {
   cancelFreeTrialEndingReminder,
@@ -11,7 +12,13 @@ import {
 } from "../src/services/reminderNotificationsService";
 import { syncOnboardingReminderRecordPreference } from "../src/services/remindersService";
 import { completeOnboarding as completeOnboardingRequest } from "../src/services/onboardingService";
-import { navigateRoot, resetRoot } from "../src/navigation/navigation";
+import {
+  getCurrentRootRouteName,
+  goBackOrFallback,
+  navigateRoot,
+  resetRoot,
+} from "../src/navigation/navigation";
+import * as userService from "../src/services/userService";
 
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
@@ -63,13 +70,13 @@ jest.mock("../src/services/onboardingService", () => ({
     hasJournalEntries: false,
     journalCount: 0,
     profilePic: null,
-    aiOptIn: true,
   })),
 }));
 
 jest.mock("../src/navigation/navigation", () => ({
   __esModule: true,
-  goBackOrFallback: jest.fn(),
+  getCurrentRootRouteName: jest.fn(() => null),
+  goBackOrFallback: jest.fn((fallback: () => void) => fallback()),
   navigateMainApp: jest.fn(),
   navigateRoot: jest.fn(),
   replaceMainApp: jest.fn(),
@@ -82,7 +89,6 @@ const onboardingData = {
   goals: ["Daily Reflection", "Personal Growth"],
   supportFocusAreas: ["Stress", "Sleep"],
   reminderPreference: "Evening",
-  aiComfort: true,
   privacyConsent: true,
 };
 
@@ -104,6 +110,9 @@ describe("appStore", () => {
     (completeOnboardingRequest as jest.Mock).mockClear();
     (navigateRoot as jest.Mock).mockClear();
     (resetRoot as jest.Mock).mockClear();
+    (goBackOrFallback as jest.Mock).mockClear();
+    (getCurrentRootRouteName as jest.Mock).mockReset();
+    (getCurrentRootRouteName as jest.Mock).mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -112,8 +121,120 @@ describe("appStore", () => {
     jest.dontMock("../src/services/authService");
     jest.dontMock("../src/services/userService");
     jest.dontMock("../src/config/env");
+    jest.dontMock("../src/services/biometricLockService");
+    jest.dontMock("../src/services/widgetService");
     jest.dontMock("../src/utils/tokenStorage");
     resetAppStore();
+  });
+
+  it("queues a widget action until it is prepared and consumed by Home", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().queueWidgetAction({
+        type: "mood",
+        mood: "good",
+      });
+    });
+
+    const queuedAction = store.getState().pendingWidgetAction;
+    expect(queuedAction).toEqual(
+      expect.objectContaining({
+        action: { type: "mood", mood: "good" },
+        isReadyForHome: false,
+      }),
+    );
+
+    act(() => {
+      store.getState().preparePendingWidgetActionForHome();
+    });
+
+    expect(store.getState().stage).toBe("main-app");
+    expect(store.getState().activeTab).toBe("home");
+    expect(store.getState().pendingWidgetAction?.isReadyForHome).toBe(true);
+    expect(resetRoot).toHaveBeenCalledWith("MainApp", { screen: "Home" });
+
+    act(() => {
+      store
+        .getState()
+        .consumePendingWidgetAction((queuedAction?.requestId ?? 0) + 1);
+    });
+    expect(store.getState().pendingWidgetAction).not.toBeNull();
+
+    act(() => {
+      store
+        .getState()
+        .consumePendingWidgetAction(queuedAction?.requestId ?? 0);
+    });
+    expect(store.getState().pendingWidgetAction).toBeNull();
+  });
+
+  it("ignores a duplicate delivery of a widget action that is still pending", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().queueWidgetAction({ type: "quick-thought" });
+    });
+
+    const firstRequestId = store.getState().pendingWidgetAction?.requestId;
+
+    act(() => {
+      store.getState().preparePendingWidgetActionForHome();
+    });
+
+    expect(store.getState().pendingWidgetAction?.isReadyForHome).toBe(true);
+    expect(resetRoot).toHaveBeenCalledTimes(1);
+
+    // The same tap arriving a second time must not rewind isReadyForHome or reset the
+    // navigation root again, which would tear down the screen Home just opened.
+    act(() => {
+      store.getState().queueWidgetAction({ type: "quick-thought" });
+    });
+
+    expect(store.getState().pendingWidgetAction?.requestId).toBe(firstRequestId);
+    expect(store.getState().pendingWidgetAction?.isReadyForHome).toBe(true);
+    expect(resetRoot).toHaveBeenCalledTimes(1);
+  });
+
+  it("queues a widget action again once the previous one has been consumed", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().queueWidgetAction({ type: "quick-thought" });
+    });
+
+    const firstRequestId = store.getState().pendingWidgetAction?.requestId ?? 0;
+
+    act(() => {
+      store.getState().consumePendingWidgetAction(firstRequestId);
+      store.getState().queueWidgetAction({ type: "quick-thought" });
+    });
+
+    expect(store.getState().pendingWidgetAction?.requestId).toBeGreaterThan(
+      firstRequestId,
+    );
+  });
+
+  it("replaces a pending widget action when a different mood is tapped", () => {
+    const store = useAppStore;
+
+    act(() => {
+      store.getState().queueWidgetAction({ type: "mood", mood: "good" });
+    });
+
+    const firstRequestId = store.getState().pendingWidgetAction?.requestId ?? 0;
+
+    act(() => {
+      store.getState().queueWidgetAction({ type: "mood", mood: "bad" });
+    });
+
+    expect(store.getState().pendingWidgetAction?.action).toEqual({
+      type: "mood",
+      mood: "bad",
+    });
+    expect(store.getState().pendingWidgetAction?.requestId).toBeGreaterThan(
+      firstRequestId,
+    );
   });
 
   it("routes unauthenticated onboarding completion back to auth without saving completion", async () => {
@@ -157,7 +278,6 @@ describe("appStore", () => {
             onboardingVersion: null,
             hasJournalEntries: false,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -177,10 +297,16 @@ describe("appStore", () => {
     expect(completeOnboardingRequest).toHaveBeenCalledWith(onboardingData);
     expect(store.getState().isCompletingOnboarding).toBe(false);
     expect(store.getState().stage).toBe("paywall");
-    expect(store.getState().paywallReturnStage).toBe("profile");
-    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-      "journalio.onboardingData",
-      JSON.stringify(onboardingData)
+    expect(store.getState().paywallReturnStage).toBe("main-app");
+    expect(Keychain.setGenericPassword).toHaveBeenCalledWith(
+      "secure",
+      JSON.stringify(onboardingData),
+      expect.objectContaining({
+        service: "journalio.onboardingData.secure",
+      })
+    );
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(
+      "journalio.onboardingData"
     );
     expect(syncOnboardingReminderPreference).toHaveBeenCalledWith("Evening");
     expect(syncOnboardingReminderRecordPreference).toHaveBeenCalledWith(
@@ -192,8 +318,26 @@ describe("appStore", () => {
     );
   });
 
-  it("finishes onboarding v2 first reflection without calling onboarding complete or paywall", async () => {
+  it("finishes the V2 onboarding journey through profile completion and the post-auth paywall", async () => {
     const store = useAppStore;
+    const updatedProfile = {
+      userId: "user-123",
+      name: "Alex",
+      phoneNumber: null,
+      email: "alex@example.com",
+      isPremium: false,
+      journalingGoals: [],
+      avatarColor: "#8E4636",
+      profileSetupCompleted: true,
+      onboardingCompleted: true,
+      onboardingVersion: null,
+      hasJournalEntries: true,
+      journalCount: 1,
+      profilePic: null,
+    };
+    const updateProfileSpy = jest
+      .spyOn(userService, "updateProfile")
+      .mockResolvedValue(updatedProfile);
 
     act(() => {
       store.setState({
@@ -215,21 +359,26 @@ describe("appStore", () => {
             hasJournalEntries: false,
             journalCount: 0,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
     });
 
     await act(async () => {
-      await store.getState().finishOnboardingV2FirstReflection();
+      await store.getState().finishOnboardingV2Journey("Avery");
     });
 
+    // No draft was carried through this route, so there is nothing to persist.
     expect(completeOnboardingRequest).not.toHaveBeenCalled();
-    expect(store.getState().stage).toBe("main-app");
+    expect(updateProfileSpy).toHaveBeenCalledWith({
+      name: "Avery",
+      avatarColor: "#8E4636",
+    });
+    expect(store.getState().stage).toBe("paywall");
     expect(store.getState().session?.user.hasJournalEntries).toBe(true);
     expect(store.getState().session?.user.journalCount).toBe(1);
-    expect(store.getState().activePaywallPlacementKey).toBeNull();
+    expect(store.getState().session?.user.profileSetupCompleted).toBe(true);
+    expect(store.getState().activePaywallPlacementKey).toBe("post_auth");
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
       "journalio.onboardingCompleted",
       "true"
@@ -238,10 +387,103 @@ describe("appStore", () => {
       "journalio.postAuthPaywallSeen",
       "true"
     );
-    expect(resetRoot).toHaveBeenCalledWith("MainApp", {
-      screen: "Home",
-    });
+    expect(resetRoot).toHaveBeenCalledWith("Paywall");
+    updateProfileSpy.mockRestore();
   });
+
+  it.each([
+    ["persists", undefined],
+    ["completes the journey even when persistence fails", new Error("offline")],
+  ])(
+    "%s the V2 onboarding answers before updating the profile",
+    async (_label, requestError) => {
+      const store = useAppStore;
+      const updatedProfile = {
+        userId: "user-123",
+        name: "Avery",
+        phoneNumber: null,
+        email: "alex@example.com",
+        isPremium: true,
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        onboardingVersion: 2,
+        hasJournalEntries: true,
+        journalCount: 1,
+        profilePic: null,
+      };
+      const updateProfileSpy = jest
+        .spyOn(userService, "updateProfile")
+        .mockResolvedValue(updatedProfile);
+
+      if (requestError) {
+        (completeOnboardingRequest as jest.Mock).mockRejectedValueOnce(
+          requestError
+        );
+      }
+
+      act(() => {
+        store.setState({
+          stage: "onboarding",
+          session: {
+            accessToken: "access-token",
+            refreshToken: "refresh-token",
+            user: {
+              userId: "user-123",
+              name: "Alex",
+              phoneNumber: null,
+              email: "alex@example.com",
+              isPremium: true,
+              journalingGoals: [],
+              avatarColor: "#8E4636",
+              profileSetupCompleted: false,
+              onboardingCompleted: false,
+              onboardingVersion: null,
+              hasJournalEntries: false,
+              journalCount: 0,
+              profilePic: null,
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await store.getState().finishOnboardingV2Journey("Avery", {
+          version: 2,
+          displayName: "Avery",
+          referralSource: "tiktok",
+          ageRange: "25_34",
+          primaryContext: "founder_builder",
+          reflectionTone: ["direct"],
+          supportFocusAreas: ["overthinking", "focus"],
+          primarySupportFocus: "overthinking",
+          preferredTheme: "midnight_calm",
+          privacyConsent: true,
+        });
+      });
+
+      expect(completeOnboardingRequest).toHaveBeenCalledWith({
+        ageRange: "25_34",
+        primaryContext: "founder_builder",
+        reflectionTone: ["direct"],
+        supportFocusAreas: ["overthinking", "focus"],
+        whatBringsYouHere: undefined,
+        preferredTheme: "midnight_calm",
+        privacyConsent: true,
+        referralSource: "tiktok",
+        referralSourceOther: undefined,
+      });
+      // A failed save must never strand the user on the last onboarding screen.
+      expect(updateProfileSpy).toHaveBeenCalledWith({
+        name: "Avery",
+        avatarColor: "#8E4636",
+      });
+      expect(store.getState().stage).toBe("main-app");
+
+      updateProfileSpy.mockRestore();
+    }
+  );
 
   it("continues from paywall into auth", () => {
     const store = useAppStore;
@@ -274,7 +516,6 @@ describe("appStore", () => {
             profileSetupCompleted: true,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -292,7 +533,7 @@ describe("appStore", () => {
     expect(store.getState().paywallReturnStage).toBeNull();
   });
 
-  it("routes contextual locked-feature paywalls into the hosted wrapper", () => {
+  it("routes contextual locked-feature paywalls into the custom P1 surface", () => {
     const store = useAppStore;
 
     act(() => {
@@ -304,18 +545,44 @@ describe("appStore", () => {
       });
     });
 
-    expect(store.getState().stage).toBe("hosted-paywall");
+    // Every in-app gate now opens the custom P1 paywall (with per-feature copy),
+    // not the hosted RevenueCat surface.
     expect(store.getState().activePaywallPlacementKey).toBe("home_ai_card_locked");
     expect(store.getState().activePaywallScreenKey).toBe("home");
-    expect(store.getState().activeHostedPaywallTarget).toBe("main");
+    expect(store.getState().activeHostedPaywallTarget).toBeNull();
+
+    // It is stacked on top of the caller rather than replacing the root, so the
+    // screen that opened it stays mounted and `stage` keeps pointing at it.
+    expect(store.getState().isPaywallOverlay).toBe(true);
+    expect(store.getState().stage).toBe("main-app");
+    expect(navigateRoot).toHaveBeenCalledWith("Paywall");
+    expect(resetRoot).not.toHaveBeenCalledWith("Paywall");
 
     act(() => {
-      store.getState().continueFromHostedPaywall();
+      store.getState().continueFromPaywall();
     });
 
     expect(store.getState().activePaywallPlacementKey).toBeNull();
     expect(store.getState().activePaywallScreenKey).toBeNull();
     expect(store.getState().activeHostedPaywallTarget).toBeNull();
+    expect(store.getState().isPaywallOverlay).toBe(false);
+    expect(goBackOrFallback).toHaveBeenCalled();
+  });
+
+  it("does not stack a second paywall when one is already open", () => {
+    const store = useAppStore;
+    (getCurrentRootRouteName as jest.Mock).mockReturnValue("Paywall");
+
+    act(() => {
+      useAppStore.setState({ stage: "main-app" });
+      store.getState().openPaywallForPlacement({
+        placementKey: "home_ai_card_locked",
+        returnStage: "main-app",
+      });
+    });
+
+    expect(navigateRoot).not.toHaveBeenCalledWith("Paywall");
+    expect(store.getState().activePaywallPlacementKey).toBe("home_ai_card_locked");
   });
 
   it("opens the dedicated lifetime offer flow from the profile upgrade entry", () => {
@@ -403,13 +670,13 @@ describe("appStore", () => {
         activeHostedPaywallTarget: "main",
         activePaywallPlacementKey: "post_auth",
         activePaywallScreenKey: "auth",
-        paywallReturnStage: "profile",
+        paywallReturnStage: "main-app",
       });
 
       store.getState().continueFromHostedPaywall("dismiss");
     });
 
-    expect(store.getState().stage).toBe("profile");
+    expect(store.getState().stage).toBe("main-app");
     expect(store.getState().activeHostedPaywallTarget).toBeNull();
   });
 
@@ -509,7 +776,6 @@ describe("appStore", () => {
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         },
       })),
       signInWithApple: jest.fn(),
@@ -535,7 +801,6 @@ describe("appStore", () => {
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         };
       }),
     }));
@@ -640,7 +905,6 @@ describe("appStore", () => {
             onboardingVersion: null,
             hasJournalEntries: false,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -740,35 +1004,6 @@ describe("appStore", () => {
     expect(store.getState().pendingNewEntryPrompt).toBeNull();
   });
 
-  it("updates ai opt-in on the active session user", () => {
-    const store = useAppStore;
-
-    useAppStore.setState({
-      session: {
-        accessToken: "access-token",
-        refreshToken: "refresh-token",
-        user: {
-          userId: "user-123",
-          name: "Alex",
-          phoneNumber: null,
-          email: "alex@example.com",
-          journalingGoals: [],
-          avatarColor: "#8E4636",
-          profileSetupCompleted: true,
-          onboardingCompleted: true,
-          profilePic: null,
-          aiOptIn: true,
-        },
-      },
-    });
-
-    act(() => {
-      store.getState().setSessionAiOptIn(false);
-    });
-
-    expect(store.getState().session?.user.aiOptIn).toBe(false);
-  });
-
   it("persists premium activation immediately when a signed-in user upgrades", async () => {
     jest.resetModules();
 
@@ -783,7 +1018,6 @@ describe("appStore", () => {
       profileSetupCompleted: false,
       onboardingCompleted: true,
       profilePic: null,
-      aiOptIn: true,
     }));
 
     jest.doMock("../src/services/userService", () => ({
@@ -811,7 +1045,6 @@ describe("appStore", () => {
             profileSetupCompleted: false,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -941,7 +1174,6 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       })),
       updateProfile: jest.fn(),
     }));
@@ -980,7 +1212,6 @@ describe("appStore", () => {
       profileSetupCompleted: true,
       onboardingCompleted: true,
       profilePic: null,
-      aiOptIn: true,
     };
     const storage = require("@react-native-async-storage/async-storage").default;
 
@@ -1178,7 +1409,6 @@ describe("appStore", () => {
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         },
       },
     });
@@ -1228,7 +1458,6 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       })),
       updateProfile: jest.fn(),
     }));
@@ -1243,10 +1472,22 @@ describe("appStore", () => {
     expect(freshStore.getState().stage).toBe("main-app");
   });
 
-  it("does not clear keychain tokens on a fresh install marker without an unauthorized response", async () => {
+  it("clears residual secure credentials before routing a fresh install to Auth", async () => {
     jest.resetModules();
 
     const clearTokens = jest.fn(async () => undefined);
+    const getTokens = jest.fn(async () => ({
+      accessToken: "stale-access-token",
+      refreshToken: "stale-refresh-token",
+    }));
+    const markInstallSeen = jest.fn(async () => undefined);
+    const clearMoodWidgetSessionLocal = jest.fn(async () => undefined);
+    const disableBiometricLock = jest.fn(async () => ({
+      availability: {},
+      status: "disabled",
+    }));
+    const getProfile = jest.fn();
+    const storage = require("@react-native-async-storage/async-storage").default;
 
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
@@ -1256,18 +1497,30 @@ describe("appStore", () => {
       getOnboardingCompleted: jest.fn(async () => false),
       getPostAuthPaywallSeen: jest.fn(async () => null),
       hasSeenInstall: jest.fn(async () => false),
-      getTokens: jest.fn(async () => ({
-        accessToken: "stale-access-token",
-        refreshToken: "stale-refresh-token",
-      })),
-      markInstallSeen: jest.fn(async () => undefined),
+      getTokens,
+      markInstallSeen,
       saveOnboardingCompleted: jest.fn(async () => undefined),
       savePostAuthPaywallSeen: jest.fn(async () => undefined),
       saveTokens: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/services/userService", () => ({
-      getProfile: jest.fn(),
+      getProfile,
       updateProfile: jest.fn(),
+    }));
+    jest.doMock("../src/services/widgetService", () => ({
+      clearMoodWidgetSessionLocal,
+    }));
+    jest.doMock("../src/services/biometricLockService", () => ({
+      authenticateBiometricLock: jest.fn(),
+      canAccessBiometricLock: jest.fn(() => false),
+      disableBiometricLock,
+      enableBiometricLock: jest.fn(),
+      getBiometricLockAvailability: jest.fn(async () => ({
+        biometryType: null,
+        isAvailable: false,
+        isSupported: false,
+      })),
+      readBiometricLockPreference: jest.fn(async () => false),
     }));
 
     const { useAppStore: freshStore } = require("../src/store/appStore");
@@ -1276,8 +1529,78 @@ describe("appStore", () => {
       await freshStore.getState().bootstrapAuthGate();
     });
 
-    expect(clearTokens).not.toHaveBeenCalled();
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(getTokens).not.toHaveBeenCalled();
+    expect(getProfile).not.toHaveBeenCalled();
+    expect(markInstallSeen).toHaveBeenCalledTimes(1);
+    expect(disableBiometricLock).toHaveBeenCalledTimes(1);
+    expect(clearMoodWidgetSessionLocal).toHaveBeenCalledTimes(2);
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.auth.user");
+    expect(storage.removeItem).toHaveBeenCalledWith("journalio.onboardingData");
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("auth");
+  });
+
+  it("keeps the reinstall marker unset when secure-token cleanup fails", async () => {
+    jest.resetModules();
+
+    const clearTokens = jest.fn(async () => {
+      throw new Error("Keychain unavailable");
+    });
+    const getTokens = jest.fn(async () => ({
+      accessToken: "stale-access-token",
+      refreshToken: "stale-refresh-token",
+    }));
+    const markInstallSeen = jest.fn(async () => undefined);
+    const getProfile = jest.fn();
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens,
+      getAccessToken: jest.fn(async () => "stale-access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => null),
+      hasSeenInstall: jest.fn(async () => false),
+      getTokens,
+      markInstallSeen,
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile,
+      updateProfile: jest.fn(),
+    }));
+    jest.doMock("../src/services/widgetService", () => ({
+      clearMoodWidgetSessionLocal: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/biometricLockService", () => ({
+      authenticateBiometricLock: jest.fn(),
+      canAccessBiometricLock: jest.fn(() => false),
+      disableBiometricLock: jest.fn(async () => ({
+        availability: {},
+        status: "disabled",
+      })),
+      enableBiometricLock: jest.fn(),
+      getBiometricLockAvailability: jest.fn(async () => ({
+        biometryType: null,
+        isAvailable: false,
+        isSupported: false,
+      })),
+      readBiometricLockPreference: jest.fn(async () => false),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(clearTokens).toHaveBeenCalledTimes(1);
+    expect(markInstallSeen).not.toHaveBeenCalled();
+    expect(getTokens).not.toHaveBeenCalled();
+    expect(getProfile).not.toHaveBeenCalled();
     expect(freshStore.getState().stage).toBe("auth");
   });
 
@@ -1327,7 +1650,7 @@ describe("appStore", () => {
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
   });
 
-  it("routes verified email users into the one-time paywall before profile setup", async () => {
+  it("routes verified email users into the one-time paywall before the main app", async () => {
     jest.resetModules();
 
     const savePostAuthPaywallSeen = jest.fn(async () => undefined);
@@ -1365,7 +1688,6 @@ describe("appStore", () => {
             profileSetupCompleted: false,
             onboardingCompleted: true,
             profilePic: null,
-            aiOptIn: true,
           },
         },
       });
@@ -1377,7 +1699,7 @@ describe("appStore", () => {
 
     expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
     expect(freshStore.getState().stage).toBe("paywall");
-    expect(freshStore.getState().paywallReturnStage).toBe("profile");
+    expect(freshStore.getState().paywallReturnStage).toBe("main-app");
   });
 
   it("persists the onboarding flag returned by sign in", async () => {
@@ -1399,7 +1721,6 @@ describe("appStore", () => {
         profileSetupCompleted: true,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: true,
       },
     }));
 
@@ -1493,7 +1814,6 @@ describe("appStore", () => {
           profileSetupCompleted: true,
           onboardingCompleted: true,
           profilePic: null,
-          aiOptIn: true,
         },
       })),
       signInWithApple: jest.fn(),
@@ -1559,7 +1879,6 @@ describe("appStore", () => {
         profileSetupCompleted: false,
         onboardingCompleted: true,
         profilePic: "https://example.com/avatar.png",
-        aiOptIn: false,
       },
     }));
 
@@ -1596,7 +1915,6 @@ describe("appStore", () => {
       freshStore.setState({
         onboardingData: {
           ...onboardingData,
-          aiComfort: false,
         },
       });
     });
@@ -1617,7 +1935,7 @@ describe("appStore", () => {
     expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
     expect(freshStore.getState().authSource).toBe("google");
     expect(freshStore.getState().stage).toBe("paywall");
-    expect(freshStore.getState().paywallReturnStage).toBe("profile");
+    expect(freshStore.getState().paywallReturnStage).toBe("main-app");
   });
 
   it("continues with Apple using the shared session persistence flow", async () => {
@@ -1649,7 +1967,6 @@ describe("appStore", () => {
         profileSetupCompleted: false,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: false,
       },
     }));
 
@@ -1686,7 +2003,6 @@ describe("appStore", () => {
       freshStore.setState({
         onboardingData: {
           ...onboardingData,
-          aiComfort: false,
         },
       });
     });
@@ -1714,7 +2030,7 @@ describe("appStore", () => {
     expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
     expect(freshStore.getState().authSource).toBe("apple");
     expect(freshStore.getState().stage).toBe("paywall");
-    expect(freshStore.getState().paywallReturnStage).toBe("profile");
+    expect(freshStore.getState().paywallReturnStage).toBe("main-app");
   });
 
   it("continues with Apple without sending null profile fields", async () => {
@@ -1739,7 +2055,6 @@ describe("appStore", () => {
         profileSetupCompleted: false,
         onboardingCompleted: true,
         profilePic: null,
-        aiOptIn: false,
         isPremium: true,
       },
     }));

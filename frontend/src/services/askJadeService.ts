@@ -1,6 +1,53 @@
 import { request } from '../utils/apiClient';
 
-type JadeMessageStatus = 'ok' | 'fallback' | 'support_first';
+type JadeMessageStatus = 'ok' | 'fallback' | 'support_first' | 'product_fact';
+type JadeBlockDataState = 'ready' | 'empty' | 'unavailable';
+type JadeMood = 'amazing' | 'good' | 'okay' | 'bad' | 'terrible';
+
+type JadeMessageBlock =
+  | { type: 'text'; text: string }
+  | { type: 'list'; style: 'bulleted' | 'numbered'; items: string[] }
+  | {
+      type: 'stats';
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      items: { label: string; value: string }[];
+    }
+  | {
+      type: 'mood_trend';
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      rangeDays: 7 | 30;
+      points: {
+        dateKey: string;
+        label: string;
+        mood: JadeMood | null;
+        score: number | null;
+      }[];
+    }
+  | {
+      type: 'mood_distribution';
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      range: '30d' | 'all_time';
+      segments: {
+        mood: JadeMood;
+        label: string;
+        count: number;
+        percentage: number;
+      }[];
+    }
+  | {
+      type: 'activity';
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      rangeDays: 7;
+      points: { dateKey: string; label: string; count: number }[];
+    };
 
 type JadeMessage = {
   id: string;
@@ -8,6 +55,8 @@ type JadeMessage = {
   role: 'user' | 'assistant';
   text: string;
   status: JadeMessageStatus;
+  /** Optional on legacy cached/test messages; service normalization supplies []. */
+  blocks?: JadeMessageBlock[];
   createdAt: string;
 };
 
@@ -52,15 +101,27 @@ type JadeSendResult = {
   limits: JadeTurnLimits;
 };
 
-const normalizeMessage = (record: Partial<JadeMessage> | null | undefined): JadeMessage => ({
+const normalizeMessage = (
+  record: Partial<JadeMessage> | null | undefined,
+): JadeMessage => ({
   id: String(record?.id ?? ''),
   seq: Number(record?.seq ?? 0),
   role: record?.role === 'assistant' ? 'assistant' : 'user',
   text: String(record?.text ?? ''),
   status:
-    record?.status === 'fallback' || record?.status === 'support_first'
+    record?.status === 'fallback' ||
+    record?.status === 'support_first' ||
+    record?.status === 'product_fact'
       ? record.status
       : 'ok',
+  blocks: Array.isArray(record?.blocks)
+    ? record.blocks.filter(
+        (block): block is JadeMessageBlock =>
+          Boolean(block) &&
+          typeof block === 'object' &&
+          typeof block.type === 'string',
+      )
+    : [],
   createdAt: String(record?.createdAt ?? new Date().toISOString()),
 });
 
@@ -81,9 +142,10 @@ const buildQuery = (params: Record<string, string | number | undefined>) => {
   return pairs.length ? `?${pairs.join('&')}` : '';
 };
 
-const getJadeSessions = async (
-  { limit = 20, cursor }: { limit?: number; cursor?: string } = {},
-): Promise<JadeSessionListPage> => {
+const getJadeSessions = async ({
+  limit = 20,
+  cursor,
+}: { limit?: number; cursor?: string } = {}): Promise<JadeSessionListPage> => {
   const response = await request<JadeSessionListPage>(
     `/ask-jade/sessions${buildQuery({ limit, cursor })}`,
     { method: 'GET' },
@@ -108,7 +170,10 @@ const getJadeSessionThread = async ({
   cursor?: string;
 }): Promise<JadeSessionThread> => {
   const response = await request<JadeSessionThread>(
-    `/ask-jade/sessions/${encodeURIComponent(sessionId)}${buildQuery({ limit, cursor })}`,
+    `/ask-jade/sessions/${encodeURIComponent(sessionId)}${buildQuery({
+      limit,
+      cursor,
+    })}`,
     { method: 'GET' },
   );
 
@@ -160,9 +225,15 @@ const deleteJadeSession = async (sessionId: string): Promise<void> => {
   });
 };
 
-export { deleteJadeSession, getJadeSessionThread, getJadeSessions, sendJadeMessage };
+export {
+  deleteJadeSession,
+  getJadeSessionThread,
+  getJadeSessions,
+  sendJadeMessage,
+};
 export type {
   JadeMessage,
+  JadeMessageBlock,
   JadeMessageStatus,
   JadeSendResult,
   JadeSessionListPage,

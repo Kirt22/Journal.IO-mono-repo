@@ -42,6 +42,12 @@ const sendJadeMessageSchema = z.object({
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
+  headers: z
+    .object({
+      "x-client-timezone": z.string().trim().min(1).max(128).optional(),
+    })
+    .passthrough()
+    .optional(),
 });
 
 const deleteJadeSessionSchema = z.object({

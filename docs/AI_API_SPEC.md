@@ -2069,6 +2069,7 @@ Success `data`:
       "role": "user",
       "text": "Why do I keep overeating at night?",
       "status": "ok",
+      "blocks": [],
       "createdAt": "2026-08-11T10:03:00.000Z"
     }
   ],
@@ -2080,7 +2081,8 @@ Notes:
 
 - ownership is confirmed before reading; a conversation belonging to another user returns `404`
 - this list paginates **backwards**: the newest `limit` turns are returned in ascending `seq` order, and `nextCursor` walks into older history as the user scrolls up. The session list paginates forwards. Both are keyset
-- `status` is `ok`, `fallback` (the model was unreachable), or `support_first` (a safety signal was detected)
+- `status` is `ok`, `fallback` (the model was unreachable), `support_first` (a safety signal was detected), or `product_fact` (a deterministic Journal.IO privacy/security answer)
+- `blocks` is always an array. Legacy rows normalize to `[]`; `text` remains the complete readable fallback for older clients
 
 ### `POST /ask-jade/messages`
 
@@ -2095,14 +2097,16 @@ Request:
 }
 ```
 
+The client may send `X-Client-Timezone` (IANA timezone, maximum 128 characters); mood ranges use it and otherwise fall back to UTC.
+
 Success `data`:
 
 ```json
 {
   "sessionId": "string",
   "title": "Why do I keep overeating at night",
-  "userMessage": { "id": "string", "seq": 1, "role": "user", "text": "string", "status": "ok", "createdAt": "2026-08-11T10:03:00.000Z" },
-  "reply": { "id": "string", "seq": 2, "role": "assistant", "text": "string", "status": "ok", "createdAt": "2026-08-11T10:04:00.000Z" },
+  "userMessage": { "id": "string", "seq": 1, "role": "user", "text": "string", "status": "ok", "blocks": [], "createdAt": "2026-08-11T10:03:00.000Z" },
+  "reply": { "id": "string", "seq": 2, "role": "assistant", "text": "string", "status": "ok", "blocks": [{ "type": "text", "text": "string" }], "createdAt": "2026-08-11T10:04:00.000Z" },
   "limits": { "turnsUsedToday": 3, "turnsPerDay": 40, "resetAt": null }
 }
 ```
@@ -2113,7 +2117,11 @@ Notes:
 - returns `403` with `PREMIUM_REQUIRED` for Free users
 - returns `429` with `JADE_TURN_LIMIT` once the per-user allowance is spent (`JADE_TURNS_PER_DAY`, default 40; `JADE_TURNS_PER_HOUR`, default 15). `data.resetAt` carries the ISO time the allowance frees up. Limits are counted from the user's own stored messages rather than by request-level rate limiting
 - **a model failure still returns `200`.** The reply is persisted with `status: "fallback"` and calm non-technical copy, so the transcript stays a real conversation and the client can offer a retry on that bubble rather than stranding the user's message with no response
+- `blocks` is an additive discriminated union: `text`, `list`, `stats`, `mood_trend`, `mood_distribution`, or `activity`. Lists carry `bulleted | numbered`; data blocks carry `ready | empty | unavailable`, a nullable `updatedAt`, and their validated server-derived values
+- charts/cards are returned only for explicit graph, trend, comparison, or statistics requests. Mood trends support 7 or 30 days, mood distributions support 30 days or all time, activity supports 7 days, and summary statistics reuse the insights overview. Numeric values are never accepted from the model
+- if a requested data block loads but the model does not, the server returns deterministic introductory copy plus the data block. If neither can load, the normal fallback is used
 - when the message trips the shared safety detection, a deterministic support-first reply is stored with `status: "support_first"` and **no model request is made**. The client renders that message without the typewriter reveal
+- after safety screening, product privacy questions receive a deterministic runtime-aware `product_fact` response and no model request. It describes TLS/account isolation, reports application-level at-rest encryption according to `FIELD_ENCRYPTION_MODE`, and states that the AI flow is not end-to-end encrypted
 - `limits` is returned on every send so the client can warn before the wall rather than after it
 - sequence numbers are allocated atomically, so two concurrent sends cannot collide
 - after the reply is delivered, the conversation is summarized and mined into the pattern graph as fire-and-forget work; neither can delay or fail the reply

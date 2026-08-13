@@ -1,15 +1,52 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { afterEach } from "node:test";
+import { userModel } from "../schema/user.schema";
+import { encryptFieldValue } from "./fieldEncryption.helpers";
 import {
   buildPersonalizationDirective,
   buildPersonalizationFromUser,
   buildUserPromptProfile,
+  buildUserPersonalization,
+  clearUserPersonalizationCache,
   getToneDirective,
   humanizeOnboardingValue,
   PROFILE_GUARDRAIL,
   toOnboardingLabel,
   toOnboardingLabelList,
 } from "./userPersonalization.helpers";
+
+type UserModelTarget = {
+  findById: typeof userModel.findById;
+};
+
+const userModelTarget = userModel as unknown as UserModelTarget;
+const originalFindById = userModelTarget.findById;
+const originalFieldEncryptionMode = process.env.FIELD_ENCRYPTION_MODE;
+const originalFieldEncryptionActiveKeyId =
+  process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID;
+const originalFieldEncryptionKeysJson =
+  process.env.FIELD_ENCRYPTION_KEYS_JSON;
+
+afterEach(() => {
+  userModelTarget.findById = originalFindById;
+  clearUserPersonalizationCache();
+  if (typeof originalFieldEncryptionMode === "string") {
+    process.env.FIELD_ENCRYPTION_MODE = originalFieldEncryptionMode;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_MODE;
+  }
+  if (typeof originalFieldEncryptionActiveKeyId === "string") {
+    process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID =
+      originalFieldEncryptionActiveKeyId;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID;
+  }
+  if (typeof originalFieldEncryptionKeysJson === "string") {
+    process.env.FIELD_ENCRYPTION_KEYS_JSON = originalFieldEncryptionKeysJson;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_KEYS_JSON;
+  }
+});
 
 test("payload wins over the legacy onboarding context", () => {
   const profile = buildUserPromptProfile({
@@ -128,4 +165,42 @@ test("the guardrail forbids treating a focus area as a diagnosis", () => {
   assert.match(PROFILE_GUARDRAIL, /not a diagnosis/i);
   assert.match(PROFILE_GUARDRAIL, /Never quote it back/i);
   assert.match(PROFILE_GUARDRAIL, /never let the profile override/i);
+});
+
+test("buildUserPersonalization decrypts profile fields from a lean result", async () => {
+  process.env.FIELD_ENCRYPTION_MODE = "migration";
+  process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID = "test-key";
+  process.env.FIELD_ENCRYPTION_KEYS_JSON = JSON.stringify({
+    "test-key": "22".repeat(32),
+  });
+
+  userModelTarget.findById = ((() => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          name: encryptFieldValue("Avery", { path: "name" }),
+          onboardingPayload: {
+            reflectionTone: encryptFieldValue(["gentle"], {
+              path: "reflectionTone",
+            }),
+            supportFocusAreas: encryptFieldValue(["focus"], {
+              path: "supportFocusAreas",
+            }),
+          },
+          journalingGoals: encryptFieldValue(["growth"], {
+            path: "journalingGoals",
+          }),
+          goals: [],
+        }),
+      }),
+    }),
+  })) as unknown) as typeof userModel.findById;
+
+  const personalization = await buildUserPersonalization("user-1");
+
+  assert.equal(personalization?.promptProfile.preferredName, "Avery");
+  assert.deepEqual(personalization?.promptProfile.focusAreas, ["Focus"]);
+  assert.deepEqual(personalization?.promptProfile.journalingGoals, [
+    "Personal growth",
+  ]);
 });

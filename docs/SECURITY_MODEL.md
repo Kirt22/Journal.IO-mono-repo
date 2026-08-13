@@ -86,6 +86,8 @@ AI-derived data must remain protected throughout its lifecycle:
 - `Hide Journal Previews` must mask Mind Map evidence snippets in the client (both the global map and the per-entry `EntryMindMapScreen`) — including the recurring-`patterns` `evidenceQuote` — while keeping non-sensitive region labels, pattern labels, and scores usable for navigation and accessibility
 - Free educational Mind Map mode must never request, calculate, cache, or expose hidden personal map results before a user becomes eligible
 - `/goals` routes must enforce authentication. Journal-context suggestions must enforce ownership and active Premium; suggestions are transient until the user explicitly creates a goal
+- Ask Jade message `text` and structured `blocks` use the same application-level field-encryption path when `FIELD_ENCRYPTION_MODE` is `migration` or `enforced`, and both are included in privacy export
+- conversational product-privacy questions are answered deterministically after safety screening in Ask Jade and Guided Reflection. The answer must report the runtime field-encryption mode, HTTPS/TLS and account isolation accurately, and must explicitly avoid claiming end-to-end encryption
 
 Reminder controls are also privacy-sensitive:
 
@@ -134,6 +136,7 @@ Never log:
 - passwords or OAuth secrets
 - RevenueCat secret API keys or webhook authorization tokens
 - raw sensitive journal text (except explicitly approved local debug workflow)
+- raw or parsed OpenAI response content, including development debug logs; log only response identifiers, model/status, incomplete reason, token usage, and safe error codes
 
 Log operational failures safely:
 

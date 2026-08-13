@@ -20,14 +20,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import {
-  SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft,
-  MoreHorizontal,
-  Send } from 'lucide-react-native';
-import { Text,
-  TextInput,
-} from '../../infrastructure/reactNative';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ArrowLeft, MoreHorizontal, Send } from 'lucide-react-native';
+import { Text, TextInput } from '../../infrastructure/reactNative';
 import { useTheme } from '../../theme/provider';
 import { typography } from '../../theme/typography';
 import { useAppStore } from '../../store/appStore';
@@ -38,6 +33,7 @@ import ButtonLoadingContent from '../../components/ButtonLoadingContent';
 import ShimmerBlock from '../../components/ShimmerBlock';
 import JournalLoader from '../../components/JournalLoader';
 import JadeSessionsPanel from '../../components/jade/JadeSessionsPanel';
+import JadeMessageContent from '../../components/jade/JadeMessageContent';
 import type { JadeThreadMessage } from '../../store/slices/askJadeSlice';
 
 const JADE_ICON = require('../../assets/png/jade/jade-gem.png');
@@ -50,7 +46,7 @@ const THINKING_DOT_MS = 160;
 
 const STARTER_PROMPTS = [
   'What patterns have you noticed in me?',
-  'Why do I keep doing this?',
+  'Show me my mood trends as a graph.',
   "I've had a hard week.",
 ];
 
@@ -234,6 +230,9 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const draftReveal = useRef(new Animated.Value(1)).current;
+  const shouldAnimateNextReplyRef = useRef(false);
+  const isOpeningHistoryRef = useRef(false);
+  const historyScrollResetFrameRef = useRef<number | null>(null);
 
   // The locked state is driven by the entitlement the app already knows AND by
   // a 403 arriving mid-session, since entitlements can lapse while the screen
@@ -274,6 +273,15 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
 
   useEffect(() => stopTypewriter, [stopTypewriter]);
 
+  useEffect(
+    () => () => {
+      if (historyScrollResetFrameRef.current !== null) {
+        cancelAnimationFrame(historyScrollResetFrameRef.current);
+      }
+    },
+    [],
+  );
+
   const latestMessage = jadeMessages[jadeMessages.length - 1];
 
   useEffect(() => {
@@ -287,12 +295,26 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
 
     revealedIdsRef.current.add(latestMessage.id);
 
+    // Replies restored with a saved session are already complete. Only a reply
+    // requested from this mounted composer should replay the reveal treatment.
+    if (!shouldAnimateNextReplyRef.current) {
+      setStreamingMessageId(null);
+      setStreamedText('');
+      return;
+    }
+    shouldAnimateNextReplyRef.current = false;
+
     // Crisis copy appears at once — never dribbled out a word at a time.
     if (latestMessage.status === 'support_first') {
       return;
     }
 
-    const chunks = latestMessage.text.match(/\S+\s*/g) || [latestMessage.text];
+    const textBlock = (latestMessage.blocks || []).find(
+      block => block.type === 'text',
+    );
+    const prose =
+      textBlock?.type === 'text' ? textBlock.text : latestMessage.text;
+    const chunks = prose.match(/\S+\s*/g) || [prose];
     let index = 0;
 
     setStreamingMessageId(latestMessage.id);
@@ -365,10 +387,12 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
 
     const outgoing = trimmedDraft;
     setDraft('');
+    shouldAnimateNextReplyRef.current = true;
     triggerHaptic('primaryAction').catch(() => undefined);
 
     const sent = await sendJadeChatMessage(outgoing);
     if (!sent) {
+      shouldAnimateNextReplyRef.current = false;
       // Give the text back rather than making them retype it.
       setDraft(outgoing);
     }
@@ -406,6 +430,25 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
     [loadOlderJadeMessages],
   );
 
+  const handleContentSizeChange = useCallback(() => {
+    const shouldJumpToHistoryEnd =
+      isOpeningHistoryRef.current && !isLoadingJadeThread;
+
+    scrollRef.current?.scrollToEnd({ animated: !shouldJumpToHistoryEnd });
+
+    if (!shouldJumpToHistoryEnd) {
+      return;
+    }
+
+    if (historyScrollResetFrameRef.current !== null) {
+      cancelAnimationFrame(historyScrollResetFrameRef.current);
+    }
+    historyScrollResetFrameRef.current = requestAnimationFrame(() => {
+      isOpeningHistoryRef.current = false;
+      historyScrollResetFrameRef.current = null;
+    });
+  }, [isLoadingJadeThread]);
+
   const handleBack = useCallback(() => {
     triggerHaptic('back').catch(() => undefined);
     onBack();
@@ -421,6 +464,9 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
     const isUser = message.role === 'user';
     const isStreaming = message.id === streamingMessageId;
     const body = isStreaming ? streamedText : message.text;
+    const hasRichBlocks = (message.blocks || []).some(
+      block => block.type !== 'text',
+    );
 
     if (message.status === 'support_first') {
       return (
@@ -470,13 +516,23 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
                     borderColor: theme.colors.border,
                   },
               message.failed ? { borderColor: theme.colors.destructive } : null,
+              !isUser && hasRichBlocks ? styles.richBubble : null,
             ]}
           >
-            <Text
-              style={[styles.bubbleText, { color: theme.colors.foreground }]}
-            >
-              {body}
-            </Text>
+            {isUser ? (
+              <Text
+                style={[styles.bubbleText, { color: theme.colors.foreground }]}
+              >
+                {body}
+              </Text>
+            ) : (
+              <JadeMessageContent
+                blocks={message.blocks || []}
+                displayedText={isStreaming ? streamedText : null}
+                fallbackText={message.text}
+                showRich={!isStreaming}
+              />
+            )}
 
             {message.failed ? (
               <HapticPressable
@@ -494,6 +550,31 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
                   ]}
                 >
                   Didn't send — tap to retry
+                </Text>
+              </HapticPressable>
+            ) : null}
+
+            {!isUser && message.status === 'fallback' ? (
+              <HapticPressable
+                accessibilityLabel="Edit and retry your message"
+                accessibilityRole="button"
+                onPress={() => {
+                  const preceding = [...jadeMessages]
+                    .reverse()
+                    .find(
+                      item => item.role === 'user' && item.seq < message.seq,
+                    );
+                  if (preceding) {
+                    setDraft(preceding.text);
+                    inputRef.current?.focus();
+                  }
+                }}
+                style={({ pressed }) => [pressed && styles.pressed]}
+              >
+                <Text
+                  style={[styles.retryText, { color: theme.colors.primary }]}
+                >
+                  Edit and retry
                 </Text>
               </HapticPressable>
             ) : null}
@@ -724,9 +805,7 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
             Platform.OS === 'ios' ? 'interactive' : 'on-drag'
           }
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollToEnd({ animated: true })
-          }
+          onContentSizeChange={handleContentSizeChange}
           onScroll={handleScroll}
           ref={scrollRef}
           scrollEventThrottle={16}
@@ -858,6 +937,11 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
           loadMoreJadeSessions().catch(() => undefined);
         }}
         onNewChat={() => {
+          stopTypewriter();
+          setStreamingMessageId(null);
+          setStreamedText('');
+          shouldAnimateNextReplyRef.current = false;
+          isOpeningHistoryRef.current = false;
           startNewJadeChat();
           setIsPanelVisible(false);
         }}
@@ -865,8 +949,27 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
           loadJadeSessions({ refresh: true }).catch(() => undefined);
         }}
         onSelectSession={sessionId => {
+          stopTypewriter();
+          setStreamingMessageId(null);
+          setStreamedText('');
+          shouldAnimateNextReplyRef.current = false;
+          isOpeningHistoryRef.current = true;
           setIsPanelVisible(false);
-          openJadeSession(sessionId).catch(() => undefined);
+          openJadeSession(sessionId).then(() => {
+            if (useAppStore.getState().jadeSessionId !== sessionId) {
+              isOpeningHistoryRef.current = false;
+              return;
+            }
+
+            if (historyScrollResetFrameRef.current !== null) {
+              cancelAnimationFrame(historyScrollResetFrameRef.current);
+            }
+            historyScrollResetFrameRef.current = requestAnimationFrame(() => {
+              scrollRef.current?.scrollToEnd({ animated: false });
+              isOpeningHistoryRef.current = false;
+              historyScrollResetFrameRef.current = null;
+            });
+          });
         }}
         sessions={jadeSessions}
         reduceMotion={reduceMotion}
@@ -952,6 +1055,10 @@ const styles = StyleSheet.create({
     maxWidth: '86%',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  richBubble: {
+    maxWidth: '100%',
+    width: '100%',
   },
   supportBubble: {
     borderRadius: 18,

@@ -421,6 +421,8 @@ Render service:
 - health check: `/health`
 
 Required production env vars are documented in `docs/backend-deployment.md`.
+The latest production variable-name inventory is maintained in
+`docs/BACKEND_PRODUCTION_ENV_VARIABLES.md`.
 
 ## Testing and Verification
 

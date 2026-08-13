@@ -17,6 +17,10 @@ import {
   type DetectedMood,
 } from "../../helpers/entryMetadata.helpers";
 import { AI_ACTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
+import {
+  buildProductPrivacyReply,
+  isProductPrivacyQuestion,
+} from "../../helpers/productPrivacy.helpers";
 import { buildReflectionVoicePrompt } from "../../helpers/reflectionVoice.helpers";
 import {
   buildPersonalizationDirective,
@@ -2042,6 +2046,16 @@ const createFirstReflectionSummary = async (
     return buildSafetyFirstSummary();
   }
 
+  const privacyQuestion = input.promptAnswers
+    .map(answer => answer.answer)
+    .find(isProductPrivacyQuestion);
+  if (privacyQuestion) {
+    return {
+      reflection: buildProductPrivacyReply(),
+      followUpQuestion: "Would you like to continue your reflection now?",
+    };
+  }
+
   if (looksLikeMostlyGibberishText(getSessionText(input))) {
     return buildLowSignalFirstSummary();
   }
@@ -2108,6 +2122,14 @@ const createGuidedReflectionGoDeeper = async (
 ): Promise<GuidedReflectionGoDeeperResponse> => {
   if (hasSafetySignal(input.promptAnswers, input.currentText)) {
     return buildSafetyFirstDeeperResponse();
+  }
+
+  if (isProductPrivacyQuestion(input.currentText)) {
+    return {
+      reflection: buildProductPrivacyReply(),
+      nextQuestion: "Would you like to continue your reflection now?",
+      canGoDeeper: true,
+    };
   }
 
   if (looksLikeMostlyGibberishText(getSessionText(input))) {

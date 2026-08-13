@@ -6,9 +6,11 @@ import { patternEdgeModel } from "../../schema/patternEdge.schema";
 import { patternNodeModel } from "../../schema/patternNode.schema";
 import { userMemoryModel } from "../../schema/userMemory.schema";
 import { userModel } from "../../schema/user.schema";
+import { encryptFieldValue } from "../../helpers/fieldEncryption.helpers";
 import {
   CHAT_CONFIDENCE_FACTOR,
   buildCoOccurrencePairs,
+  decryptPatternGraphEntryInsight,
   refinePatternGraph,
   sanitizePatternGraphRefinement,
   toPatternObservation,
@@ -46,6 +48,11 @@ const originals = {
 
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.OPENAI_API_KEY;
+const originalFieldEncryptionMode = process.env.FIELD_ENCRYPTION_MODE;
+const originalFieldEncryptionActiveKeyId =
+  process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID;
+const originalFieldEncryptionKeysJson =
+  process.env.FIELD_ENCRYPTION_KEYS_JSON;
 
 afterEach(() => {
   nodeTarget.findOne = originals.nodeFindOne;
@@ -71,6 +78,22 @@ afterEach(() => {
     delete process.env.OPENAI_API_KEY;
   }
   delete process.env.AI_ALLOW_NON_PREMIUM;
+  if (typeof originalFieldEncryptionMode === "string") {
+    process.env.FIELD_ENCRYPTION_MODE = originalFieldEncryptionMode;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_MODE;
+  }
+  if (typeof originalFieldEncryptionActiveKeyId === "string") {
+    process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID =
+      originalFieldEncryptionActiveKeyId;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID;
+  }
+  if (typeof originalFieldEncryptionKeysJson === "string") {
+    process.env.FIELD_ENCRYPTION_KEYS_JSON = originalFieldEncryptionKeysJson;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_KEYS_JSON;
+  }
 });
 
 const stubUserPremium = (isPremium: boolean) => {
@@ -288,6 +311,33 @@ test("updatePatternGraph does nothing when the entry produced no usable themes",
   };
 
   await updatePatternGraph({ userId: "user-1", journalId: "journal-1" });
+});
+
+test("decryptPatternGraphEntryInsight restores encrypted lean themes", () => {
+  process.env.FIELD_ENCRYPTION_MODE = "migration";
+  process.env.FIELD_ENCRYPTION_ACTIVE_KEY_ID = "test-key";
+  process.env.FIELD_ENCRYPTION_KEYS_JSON = JSON.stringify({
+    "test-key": "11".repeat(32),
+  });
+
+  const themes = [
+    {
+      label: "stays online when work feels uncertain",
+      rationale: "Checking for more information briefly creates reassurance.",
+      evidenceQuote: "I stay online too late.",
+      confidence: 0.82,
+    },
+  ];
+  const encryptedThemes = encryptFieldValue(themes, { path: "themes" });
+
+  const insight = decryptPatternGraphEntryInsight({
+    clear: true,
+    themes: encryptedThemes,
+    dominantRegionId: "planning_self_control",
+    entryCreatedAt: new Date("2026-08-06T04:30:00.000Z"),
+  });
+
+  assert.deepEqual(insight.themes, themes);
 });
 
 test("updatePatternGraph swallows failures so a journal entry still saves", async () => {

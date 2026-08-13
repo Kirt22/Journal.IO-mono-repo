@@ -2820,6 +2820,42 @@ const refreshLatestWeekMindMapCache = async ({
       generatedAt: null,
     });
 
+    if (
+      mindMapForceReady(clearEntryCount) &&
+      !currentSnapshots.some((journal) =>
+        hasJournalSafetySignal(journal.safetySignal)
+      )
+    ) {
+      const { regions, regionMeans, combinedWriting } =
+        await buildMindMapRegions({
+          journals: currentSnapshots,
+          activeDays: progress.activeDays,
+        });
+      const trends = await buildRegionTrendMap({ userId });
+      const patterns = await loadMindMapPatterns({
+        userId,
+        startDate: dateKeyToBoundaryDate(currentWindow.startDateKey, "start"),
+        endDate: dateKeyToBoundaryDate(currentWindow.endDateKey, "end"),
+      });
+      const actionSteps = await buildMindMapActionSteps({
+        userId,
+        regions,
+        combinedWriting,
+      });
+      const generatedAt = new Date();
+      const response = buildMindMapReadyResponse({
+        range: "latest_week",
+        period: { ...period, generatedAt: generatedAt.toISOString() },
+        regions,
+        regionMeans,
+        trends,
+        patterns,
+        actionSteps,
+      });
+
+      return response;
+    }
+
     return buildMindMapBuildingResponse({
       period,
       summary: {

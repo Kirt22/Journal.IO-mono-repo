@@ -4,6 +4,7 @@ import {
   IStructuredGoal,
   userModel,
 } from "../schema/user.schema";
+import { decryptLeanFields } from "./fieldEncryption.schema.helpers";
 
 /**
  * The onboarding answers, reshaped for a prompt.
@@ -44,6 +45,46 @@ type PersonalizationSource = {
 
 const PERSONALIZATION_SELECT =
   "name onboardingPayload onboardingContext journalingGoals goals";
+
+const decryptUserPersonalizationSource = (
+  rawUser: PersonalizationSource
+): PersonalizationSource => {
+  const user = decryptLeanFields(rawUser, [
+    { encryptedPath: "name" },
+    { encryptedPath: "journalingGoals" },
+  ]);
+  const onboardingPayload = user.onboardingPayload
+    ? decryptLeanFields(user.onboardingPayload, [
+        { encryptedPath: "ageRange" },
+        { encryptedPath: "primaryContext" },
+        { encryptedPath: "reflectionTone" },
+        { encryptedPath: "supportFocusAreas" },
+        { encryptedPath: "personalGoals" },
+      ])
+    : user.onboardingPayload;
+  const onboardingContext = user.onboardingContext
+    ? decryptLeanFields(user.onboardingContext, [
+        { encryptedPath: "ageRange" },
+        { encryptedPath: "journalingExperience" },
+        { encryptedPath: "supportFocus" },
+      ])
+    : user.onboardingContext;
+  const goals = Array.isArray(user.goals)
+    ? user.goals.map((goal) =>
+        decryptLeanFields(goal, [
+          { encryptedPath: "title" },
+          { encryptedPath: "description" },
+        ])
+      )
+    : user.goals;
+
+  return {
+    ...user,
+    ...(onboardingPayload !== undefined ? { onboardingPayload } : {}),
+    ...(onboardingContext !== undefined ? { onboardingContext } : {}),
+    ...(goals !== undefined ? { goals } : {}),
+  };
+};
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_ACTIVE_GOALS = 5;
@@ -326,10 +367,16 @@ const buildUserPersonalization = async (
     const user = await userModel
       .findById(userId)
       .select(PERSONALIZATION_SELECT)
-      .lean<PersonalizationSource | null>()
+      .lean()
       .exec();
 
-    const value = buildPersonalizationFromUser(user);
+    const value = buildPersonalizationFromUser(
+      user
+        ? decryptUserPersonalizationSource(
+            user as unknown as PersonalizationSource
+          )
+        : null
+    );
 
     personalizationCache.set(cacheKey, {
       value,
@@ -352,6 +399,7 @@ export {
   buildUserPersonalization,
   buildUserPromptProfile,
   clearUserPersonalizationCache,
+  decryptUserPersonalizationSource,
   getToneDirective,
   humanizeOnboardingValue,
   invalidateUserPersonalizationCache,

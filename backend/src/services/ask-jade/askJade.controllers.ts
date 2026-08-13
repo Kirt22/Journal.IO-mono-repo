@@ -128,10 +128,15 @@ const sendJadeMessageController = async (req: AuthedRequest, res: Response) => {
 
     const sessionId =
       typeof req.body?.sessionId === "string" ? req.body.sessionId.trim() : undefined;
+    const timeZone =
+      typeof req.headers["x-client-timezone"] === "string"
+        ? req.headers["x-client-timezone"].trim()
+        : undefined;
 
     const result = await sendJadeMessage({
       userId,
       ...(sessionId ? { sessionId } : {}),
+      ...(timeZone ? { timeZone } : {}),
       text: String(req.body?.text ?? ""),
     });
 

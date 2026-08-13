@@ -32,9 +32,31 @@ type OpenAiResponseOutput = {
 };
 
 type OpenAiApiResponse = {
+  id?: string;
+  model?: string;
+  status?: string;
+  incomplete_details?: { reason?: string } | null;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
   output_text?: string;
   output?: OpenAiResponseOutput[];
 };
+
+export type StructuredOpenAiFailure =
+  | "not_configured"
+  | "request_failed"
+  | "incomplete"
+  | "empty_output"
+  | "invalid_json"
+  | "schema_validation_failed"
+  | "exception";
+
+export type StructuredOpenAiResult<T> =
+  | { data: T; failure: null }
+  | { data: null; failure: StructuredOpenAiFailure };
 
 const getOpenAiApiKey = () => process.env.OPENAI_API_KEY?.trim() || "";
 const getOpenAiModel = () =>
@@ -94,7 +116,7 @@ const readOpenAiOutputText = (payload: OpenAiApiResponse) => {
   return "";
 };
 
-const requestStructuredOpenAi = async <T>({
+const requestStructuredOpenAiDetailed = async <T>({
   feature,
   schemaName,
   schema,
@@ -103,9 +125,9 @@ const requestStructuredOpenAi = async <T>({
   maxOutputTokens = 900,
   model,
   reasoningEffort,
-}: StructuredOpenAiRequest<T>): Promise<T | null> => {
+}: StructuredOpenAiRequest<T>): Promise<StructuredOpenAiResult<T>> => {
   if (!isOpenAiConfigured()) {
-    return null;
+    return { data: null, failure: "not_configured" };
   }
 
   try {
@@ -142,19 +164,36 @@ const requestStructuredOpenAi = async <T>({
           code: `http_${response.status}`,
         })
       );
-      return null;
+      return { data: null, failure: "request_failed" };
     }
 
     const payload = (await response.json()) as OpenAiApiResponse;
     const outputText = readOpenAiOutputText(payload);
+    const responseMetadata = {
+      responseId: payload.id || null,
+      model: payload.model || resolvedModel,
+      status: payload.status || null,
+      incompleteReason: payload.incomplete_details?.reason || null,
+      usage: payload.usage || null,
+    };
 
     if (shouldLogOpenAiDebug) {
-      console.log(`[OpenAI] ${feature} raw response`, {
-        model: resolvedModel,
+      console.log(`[OpenAI] ${feature} response metadata`, {
         schemaName,
-        outputText,
-        payload,
+        ...responseMetadata,
       });
+    }
+
+    if (payload.status === "incomplete") {
+      console.error(
+        buildSafeErrorLog({
+          event: "openai.responses.incomplete",
+          fieldPath: feature,
+          code: payload.incomplete_details?.reason || "incomplete",
+          metadata: responseMetadata,
+        })
+      );
+      return { data: null, failure: "incomplete" };
     }
 
     if (!outputText) {
@@ -165,10 +204,23 @@ const requestStructuredOpenAi = async <T>({
           code: "empty_output",
         })
       );
-      return null;
+      return { data: null, failure: "empty_output" };
     }
 
-    const parsedJson = JSON.parse(outputText);
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(outputText);
+    } catch {
+      console.error(
+        buildSafeErrorLog({
+          event: "openai.responses.invalid_json",
+          fieldPath: feature,
+          code: "invalid_json",
+          metadata: responseMetadata,
+        })
+      );
+      return { data: null, failure: "invalid_json" };
+    }
     const parsed = parser.safeParse(parsedJson);
 
     if (!parsed.success) {
@@ -179,18 +231,10 @@ const requestStructuredOpenAi = async <T>({
           code: "schema_validation_failed",
         })
       );
-      return null;
+      return { data: null, failure: "schema_validation_failed" };
     }
 
-    if (shouldLogOpenAiDebug) {
-      console.log(`[OpenAI] ${feature} parsed response`, {
-        model: resolvedModel,
-        schemaName,
-        parsed: parsed.data,
-      });
-    }
-
-    return parsed.data;
+    return { data: parsed.data, failure: null };
   } catch (error) {
     console.error(
       buildSafeErrorLog({
@@ -199,9 +243,13 @@ const requestStructuredOpenAi = async <T>({
         code: getSafeErrorCode(error),
       })
     );
-    return null;
+    return { data: null, failure: "exception" };
   }
 };
+
+const requestStructuredOpenAi = async <T>(
+  request: StructuredOpenAiRequest<T>
+): Promise<T | null> => (await requestStructuredOpenAiDetailed(request)).data;
 
 type OpenAiEmbeddingResponse = {
   data?: { embedding?: number[]; index?: number }[];
@@ -311,4 +359,5 @@ export {
   requestEmbedding,
   requestEmbeddings,
   requestStructuredOpenAi,
+  requestStructuredOpenAiDetailed,
 };

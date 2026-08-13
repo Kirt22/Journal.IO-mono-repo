@@ -200,6 +200,7 @@ type PrivacyExportJadeMessage = {
   role: string;
   text: string;
   status: string;
+  blocks: IJadeMessage["blocks"];
   createdAt: string;
 };
 
@@ -526,6 +527,7 @@ const buildJadeConversations = (
       role: message.role,
       text: message.text,
       status: message.status,
+      blocks: Array.isArray(message.blocks) ? message.blocks : [],
       createdAt: toIsoOrNull(message.createdAt) || "",
     });
     bySession.set(key, bucket);

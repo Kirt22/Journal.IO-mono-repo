@@ -62,6 +62,7 @@ installInertModelStubs();
 
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.OPENAI_API_KEY;
+const originalFieldEncryptionMode = process.env.FIELD_ENCRYPTION_MODE;
 
 afterEach(() => {
   installInertModelStubs();
@@ -75,6 +76,11 @@ afterEach(() => {
   }
   delete process.env.AI_ALLOW_NON_PREMIUM;
   delete process.env.JADE_TURNS_PER_DAY;
+  if (typeof originalFieldEncryptionMode === "string") {
+    process.env.FIELD_ENCRYPTION_MODE = originalFieldEncryptionMode;
+  } else {
+    delete process.env.FIELD_ENCRYPTION_MODE;
+  }
 });
 
 const stubUserPremium = (isPremium: boolean) => {
@@ -251,6 +257,9 @@ test("a model reply is persisted and returned with the user's turn", async () =>
       JSON.stringify({
         output_text: JSON.stringify({
           reply: "Your entries suggest the screen-heavy evenings and the late eating travel together.",
+          points: [],
+          pointStyle: "none",
+          visualization: "none",
           usedPatternKeys: ["eats-while-watching-shows"],
           suggestedFollowUp: "",
         }),
@@ -267,6 +276,59 @@ test("a model reply is persisted and returned with the user's turn", async () =>
   assert.match(result.reply.text, /travel together/);
   assert.equal(result.reply.role, "assistant");
   assert.equal(result.userMessage.role, "user");
+  assert.equal(result.reply.blocks[0]?.type, "text");
+});
+
+test("a product privacy question gets a runtime-truthful deterministic reply", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  process.env.FIELD_ENCRYPTION_MODE = "disabled";
+  stubUserPremium(true);
+  stubSendPath({ session: makeSessionDoc() });
+
+  let fetchCalled = false;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+
+  const result = await sendJadeMessage({
+    userId: "premium-user",
+    text: "Are my messages safe and encrypted?",
+  });
+
+  assert.equal(fetchCalled, false);
+  assert.equal(result.reply.status, "product_fact");
+  assert.match(result.reply.text, /HTTPS\/TLS/);
+  assert.match(result.reply.text, /not end-to-end encrypted/i);
+  assert.match(result.reply.text, /not enabled in this environment/i);
+});
+
+test("personal safety wording is not mistaken for a product privacy question", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubUserPremium(true);
+  stubSendPath({ session: makeSessionDoc() });
+
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          reply: "That sounds unsettling. What would help you feel a little more supported right now?",
+          points: [],
+          pointStyle: "none",
+          visualization: "none",
+          usedPatternKeys: [],
+          suggestedFollowUp: "",
+        }),
+      }),
+      { status: 200 }
+    )) as typeof fetch;
+
+  const result = await sendJadeMessage({
+    userId: "premium-user",
+    text: "I don't feel safe at home",
+  });
+
+  assert.notEqual(result.reply.status, "product_fact");
 });
 
 test("the prompt payload carries distilled memory only, never raw journal text", () => {

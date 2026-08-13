@@ -2,7 +2,11 @@ import mongoose from "mongoose";
 import { jadeSessionModel, type IJadeSession } from "../../schema/jadeSession.schema";
 import { jadeMessageModel, type IJadeMessage } from "../../schema/jadeMessage.schema";
 import { ensureAiAnalysisEnabled } from "../../helpers/aiAccess.helpers";
-import { requestStructuredOpenAi } from "../../helpers/openai.helpers";
+import { requestStructuredOpenAiDetailed } from "../../helpers/openai.helpers";
+import {
+  buildProductPrivacyReply,
+  isProductPrivacyQuestion,
+} from "../../helpers/productPrivacy.helpers";
 import {
   detectJournalSafetySignal,
   hasJournalSafetySignal,
@@ -22,12 +26,20 @@ import {
 import { mineJadeSessionIntoGraph, sweepIdleJadeSessions } from "./askJadeMining.service";
 import type {
   JadeMessageResponse,
+  JadeMessageBlock,
+  JadeMessageStatus,
   JadeSendMessageResponse,
   JadeSessionListResponse,
   JadeSessionSummaryResponse,
   JadeSessionThreadResponse,
   JadeTurnLimits,
 } from "../../types/askJade.types";
+import {
+  detectJadeVisualization,
+  flattenJadeBlocks,
+  isUnsupportedJadeVisualization,
+  loadJadeVisualizationBlock,
+} from "./askJadeRichReply.service";
 
 const TITLE_MAX = 48;
 const PREVIEW_MAX = 120;
@@ -88,6 +100,7 @@ const serializeMessage = (message: IJadeMessage): JadeMessageResponse => ({
   role: message.role,
   text: message.text,
   status: message.status,
+  blocks: Array.isArray(message.blocks) ? message.blocks : [],
   createdAt: toIso(message.createdAt),
 });
 
@@ -343,14 +356,16 @@ const appendMessage = async ({
   text,
   status,
   aiModel,
+  blocks = [],
 }: {
   userId: string;
   sessionId: mongoose.Types.ObjectId;
   seq: number;
   role: "user" | "assistant";
   text: string;
-  status: "ok" | "fallback" | "support_first";
+  status: JadeMessageStatus;
   aiModel: string | null;
+  blocks?: JadeMessageBlock[];
 }): Promise<IJadeMessage> =>
   jadeMessageModel.create({
     userId,
@@ -359,6 +374,7 @@ const appendMessage = async ({
     role,
     text,
     status,
+    blocks,
     aiModel,
     tokensEstimated: Math.ceil(text.length / 4),
   });
@@ -367,10 +383,12 @@ export const sendJadeMessage = async ({
   userId,
   sessionId,
   text,
+  timeZone,
 }: {
   userId: string;
   sessionId?: string | undefined;
   text: string;
+  timeZone?: string | undefined;
 }): Promise<JadeSendMessageResponse> => {
   await ensureAiAnalysisEnabled(userId);
   await assertWithinTurnLimits(userId);
@@ -418,6 +436,7 @@ export const sendJadeMessage = async ({
     text: userText,
     status: "ok",
     aiModel: null,
+    blocks: [],
   });
 
   // Safety comes before the model, not after it: when someone writes something
@@ -425,41 +444,102 @@ export const sendJadeMessage = async ({
   // request should be made at all.
   const safetySignal = detectJournalSafetySignal(userText);
   let replyText = SUPPORT_FIRST_REPLY;
-  let replyStatus: "ok" | "fallback" | "support_first" = "support_first";
+  let replyStatus: JadeMessageStatus = "support_first";
   let replyModel: string | null = null;
+  let replyBlocks: JadeMessageBlock[] = [
+    { type: "text", text: SUPPORT_FIRST_REPLY },
+  ];
 
   if (!hasJournalSafetySignal(safetySignal)) {
-    const context = await buildJadePromptContext({
-      userId,
-      sessionId: session._id.toString(),
-      runningSummary: session.runningSummary,
-      latestUserText: userText,
-    });
-
-    const aiResponse = await requestStructuredOpenAi({
-      feature: "ask jade reply",
-      schemaName: "ask_jade_reply",
-      schema: jadeReplyJsonSchema,
-      parser: jadeReplySchema,
-      model: ASK_JADE_MODEL(),
-      maxOutputTokens: 400,
-      reasoningEffort: ASK_JADE_REASONING_EFFORT(),
-      messages: [
-        { role: "system", content: JADE_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: buildJadeUserPayload({ context, latestUserText: userText }),
-        },
-      ],
-    });
-
-    if (aiResponse) {
-      replyText = normalizeReflectionMapText(aiResponse.reply, 900);
-      replyStatus = "ok";
-      replyModel = ASK_JADE_MODEL();
+    if (isProductPrivacyQuestion(userText)) {
+      replyText = buildProductPrivacyReply();
+      replyStatus = "product_fact";
+      replyBlocks = [{ type: "text", text: replyText }];
+    } else if (isUnsupportedJadeVisualization(userText)) {
+      replyText =
+        "I can graph your logged moods and writing activity, but emotion and theme labels are not normalized enough yet for a trustworthy chart. Try asking for a 7-day or 30-day mood trend instead.";
+      replyStatus = "product_fact";
+      replyBlocks = [{ type: "text", text: replyText }];
     } else {
-      replyText = FALLBACK_REPLY;
-      replyStatus = "fallback";
+      const visualization = detectJadeVisualization(userText);
+      const [context, visualizationBlock] = await Promise.all([
+        buildJadePromptContext({
+          userId,
+          sessionId: session._id.toString(),
+          runningSummary: session.runningSummary,
+          latestUserText: userText,
+        }),
+        visualization
+          ? loadJadeVisualizationBlock({
+              userId,
+              visualization,
+              ...(timeZone ? { timeZone } : {}),
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const aiResult = await requestStructuredOpenAiDetailed({
+        feature: "ask jade reply",
+        schemaName: "ask_jade_reply",
+        schema: jadeReplyJsonSchema,
+        parser: jadeReplySchema,
+        model: ASK_JADE_MODEL(),
+        maxOutputTokens: 1000,
+        reasoningEffort: ASK_JADE_REASONING_EFFORT(),
+        messages: [
+          { role: "system", content: JADE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: buildJadeUserPayload({
+              context,
+              latestUserText: userText,
+              requestedVisualization: visualization || "none",
+            }),
+          },
+        ],
+      });
+
+      if (aiResult.data) {
+        const prose = normalizeReflectionMapText(aiResult.data.reply, 900);
+        replyBlocks = [{ type: "text", text: prose }];
+        if (
+          aiResult.data.pointStyle !== "none" &&
+          aiResult.data.points.length > 0
+        ) {
+          replyBlocks.push({
+            type: "list",
+            style: aiResult.data.pointStyle,
+            items: aiResult.data.points.map(point =>
+              normalizeReflectionMapText(point, 180)
+            ),
+          });
+        }
+        if (visualizationBlock) replyBlocks.push(visualizationBlock);
+        replyText = flattenJadeBlocks(replyBlocks);
+        replyStatus = "ok";
+        replyModel = ASK_JADE_MODEL();
+      } else if (
+        visualizationBlock &&
+        "dataState" in visualizationBlock &&
+        visualizationBlock.dataState !== "unavailable"
+      ) {
+        replyBlocks = [
+          {
+            type: "text",
+            text:
+              visualizationBlock.dataState === "empty"
+                ? "I don't have enough check-ins to draw that clearly yet, but this view will fill in as you keep tracking."
+                : "Here's the view built from the data you've logged in Journal.IO.",
+          },
+          visualizationBlock,
+        ];
+        replyText = flattenJadeBlocks(replyBlocks);
+        replyStatus = "ok";
+      } else {
+        replyText = FALLBACK_REPLY;
+        replyStatus = "fallback";
+        replyBlocks = [{ type: "text", text: FALLBACK_REPLY }];
+      }
     }
   }
 
@@ -476,6 +556,7 @@ export const sendJadeMessage = async ({
     text: replyText,
     status: replyStatus,
     aiModel: replyModel,
+    blocks: replyBlocks,
   });
 
   const refreshed = await jadeSessionModel

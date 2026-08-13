@@ -18,6 +18,9 @@ Readiness endpoint:
 
 - `GET /ready`
 
+For the canonical production variable-name inventory, see
+[`BACKEND_PRODUCTION_ENV_VARIABLES.md`](./BACKEND_PRODUCTION_ENV_VARIABLES.md).
+
 ## Required Environment Variables
 
 Minimum required for boot:
@@ -60,7 +63,7 @@ acceptable, but are available for the current feature set:
 - `OPENAI_GUIDED_REFLECTION_MODEL` and `OPENAI_GUIDED_REFLECTION_REASONING_EFFORT` optionally override guided-reflection quality and latency; the current defaults are the session-analysis model and `high` reasoning.
 - `OPENAI_EMBEDDING_MODEL` optionally overrides the default `text-embedding-3-small` model.
 - `OPENAI_MINDMAP_ENTRY_MODEL`, `OPENAI_PATTERN_GRAPH_MODEL`, and `OPENAI_USER_MEMORY_MODEL` optionally override their feature models; each falls back to `OPENAI_RESPONSES_MODEL`.
-- `OPENAI_ASK_JADE_MODEL` and `OPENAI_ASK_JADE_REASONING_EFFORT` optionally override Jade; the current default reasoning effort is `medium`.
+- `OPENAI_ASK_JADE_MODEL` and `OPENAI_ASK_JADE_REASONING_EFFORT` optionally override Jade; the current default reasoning effort is `low`.
 - `USER_MEMORY_REFRESH_EVERY`, `JADE_TURNS_PER_DAY`, `JADE_TURNS_PER_HOUR`, `JADE_MINE_EVERY`, `JADE_MINE_IDLE_MINUTES`, and `PATTERN_GRAPH_*` are tuning controls with safe code defaults.
 
 Field encryption is opt-in. If production keeps `FIELD_ENCRYPTION_MODE=disabled`

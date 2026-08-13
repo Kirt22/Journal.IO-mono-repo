@@ -35,7 +35,7 @@ export const ASK_JADE_REASONING_EFFORT = ():
   if (raw === "low" || raw === "medium" || raw === "high" || raw === "xhigh" || raw === "max") {
     return raw;
   }
-  return "medium";
+  return "low";
 };
 
 /** Live turns sent verbatim. Older turns are compacted into runningSummary. */
@@ -53,10 +53,23 @@ export const JADE_SYSTEM_PROMPT = buildReflectionVoicePrompt([
   "You have their pattern graph: the behaviours their entries keep showing and how those behaviours appear to connect. Use it concretely — name the specific pattern and the link, and where you can, their own words as evidence. Never present a connection as fact; say that their entries suggest it, or that two things often show up together.",
   "Never name a condition, diagnosis, or personality trait, even if the user names one first. If they say 'I think I have X', reflect the behaviour they described rather than the label they reached for.",
   "This is a conversation, not an essay: 40-90 words, one idea, plain spoken. No bullet lists or headings unless they ask for them.",
+  "Put requested bullet or numbered points in the points field rather than embedding list markers in reply. Set pointStyle to none when no list was requested.",
+  "Set visualization to the requestedVisualization value supplied by the server, or none. Never invent, estimate, or repeat numeric journal statistics; the server renders those from stored data.",
 ]);
 
 export const jadeReplySchema = z.object({
   reply: z.string().trim().min(1).max(900),
+  points: z.array(z.string().trim().min(1).max(180)).max(5),
+  pointStyle: z.enum(["none", "bulleted", "numbered"]),
+  visualization: z.enum([
+    "none",
+    "summary_stats",
+    "mood_trend_7d",
+    "mood_trend_30d",
+    "mood_distribution_30d",
+    "mood_distribution_all_time",
+    "activity_7d",
+  ]),
   usedPatternKeys: z.array(z.string().trim().max(64)).max(4),
   suggestedFollowUp: z.string().trim().max(160),
 });
@@ -66,6 +79,27 @@ export const jadeReplyJsonSchema = {
   additionalProperties: false,
   properties: {
     reply: { type: "string", minLength: 1, maxLength: 900 },
+    points: {
+      type: "array",
+      maxItems: 5,
+      items: { type: "string", minLength: 1, maxLength: 180 },
+    },
+    pointStyle: {
+      type: "string",
+      enum: ["none", "bulleted", "numbered"],
+    },
+    visualization: {
+      type: "string",
+      enum: [
+        "none",
+        "summary_stats",
+        "mood_trend_7d",
+        "mood_trend_30d",
+        "mood_distribution_30d",
+        "mood_distribution_all_time",
+        "activity_7d",
+      ],
+    },
     usedPatternKeys: {
       type: "array",
       maxItems: 4,
@@ -73,7 +107,14 @@ export const jadeReplyJsonSchema = {
     },
     suggestedFollowUp: { type: "string", maxLength: 160 },
   },
-  required: ["reply", "usedPatternKeys", "suggestedFollowUp"],
+  required: [
+    "reply",
+    "points",
+    "pointStyle",
+    "visualization",
+    "usedPatternKeys",
+    "suggestedFollowUp",
+  ],
 } satisfies Record<string, unknown>;
 
 export type JadeGraphContext = {
@@ -230,9 +271,11 @@ const loadRecentTurns = async (
 export const buildJadeUserPayload = ({
   context,
   latestUserText,
+  requestedVisualization = "none",
 }: {
   context: JadePromptContext;
   latestUserText: string;
+  requestedVisualization?: string;
 }): string =>
   JSON.stringify({
     task: "Reply to the user's latest message as Jade.",
@@ -241,6 +284,7 @@ export const buildJadeUserPayload = ({
     earlierInThisConversation: context.runningSummary || "",
     recentTurns: context.recentTurns,
     latestUserMessage: latestUserText,
+    requestedVisualization,
   });
 
 const summarySchema = z.object({ summary: z.string().trim().max(800) });

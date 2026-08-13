@@ -1,6 +1,7 @@
 import mongoose, { Model, Document } from "mongoose";
 import { connectMongoDB } from "../config/mongo.db.config";
 import { applyEncryptedSchemaPaths } from "../helpers/fieldEncryption.schema.helpers";
+import type { JadeMessageBlock, JadeMessageStatus } from "../types/askJade.types";
 
 /**
  * One turn in an Ask Jade conversation.
@@ -22,7 +23,8 @@ export interface IJadeMessage extends Document {
   seq: number;
   role: "user" | "assistant";
   text: string;
-  status: "ok" | "fallback" | "support_first";
+  status: JadeMessageStatus;
+  blocks: JadeMessageBlock[];
   aiModel: string | null;
   tokensEstimated: number;
   createdAt: Date;
@@ -46,10 +48,11 @@ const jadeMessageSchema = new mongoose.Schema<IJadeMessage>(
     text: { type: mongoose.Schema.Types.Mixed, required: true },
     status: {
       type: String,
-      enum: ["ok", "fallback", "support_first"],
+      enum: ["ok", "fallback", "support_first", "product_fact"],
       default: "ok",
       required: true,
     },
+    blocks: { type: mongoose.Schema.Types.Mixed, default: [] },
     aiModel: { type: String, default: null },
     tokensEstimated: { type: Number, default: 0 },
   },
@@ -62,7 +65,7 @@ jadeMessageSchema.index({ sessionId: 1, seq: 1 }, { unique: true });
 // the rate limits, so neither needs a separate counter collection.
 jadeMessageSchema.index({ userId: 1, createdAt: -1 });
 
-applyEncryptedSchemaPaths(jadeMessageSchema, [{ path: "text" }]);
+applyEncryptedSchemaPaths(jadeMessageSchema, [{ path: "text" }, { path: "blocks" }]);
 
 export const jadeMessageModel: Model<IJadeMessage> =
   connectMongoDB.model<IJadeMessage>("jade_messages", jadeMessageSchema);

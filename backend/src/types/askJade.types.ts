@@ -3,7 +3,64 @@
  * API contract can stay stable while storage evolves.
  */
 
-export type JadeMessageStatus = "ok" | "fallback" | "support_first";
+import type { MoodValue } from "./mood.types";
+
+export type JadeMessageStatus =
+  | "ok"
+  | "fallback"
+  | "support_first"
+  | "product_fact";
+
+export type JadeBlockDataState = "ready" | "empty" | "unavailable";
+
+export type JadeMessageBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "list";
+      style: "bulleted" | "numbered";
+      items: string[];
+    }
+  | {
+      type: "stats";
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      items: { label: string; value: string }[];
+    }
+  | {
+      type: "mood_trend";
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      rangeDays: 7 | 30;
+      points: {
+        dateKey: string;
+        label: string;
+        mood: MoodValue | null;
+        score: number | null;
+      }[];
+    }
+  | {
+      type: "mood_distribution";
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      range: "30d" | "all_time";
+      segments: {
+        mood: MoodValue;
+        label: string;
+        count: number;
+        percentage: number;
+      }[];
+    }
+  | {
+      type: "activity";
+      title: string;
+      dataState: JadeBlockDataState;
+      updatedAt: string | null;
+      rangeDays: 7;
+      points: { dateKey: string; label: string; count: number }[];
+    };
 
 export type JadeMessageResponse = {
   id: string;
@@ -11,6 +68,7 @@ export type JadeMessageResponse = {
   role: "user" | "assistant";
   text: string;
   status: JadeMessageStatus;
+  blocks: JadeMessageBlock[];
   createdAt: string;
 };
 

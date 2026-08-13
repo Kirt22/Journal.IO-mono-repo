@@ -21,6 +21,7 @@ import {
   decryptFieldValue,
   encryptFieldValue,
 } from "../../helpers/fieldEncryption.helpers";
+import { decryptLeanFields } from "../../helpers/fieldEncryption.schema.helpers";
 import { AI_EXTRACTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
 import {
   PATTERN_GRAPH_VERSION,
@@ -137,6 +138,44 @@ export type PatternObservation = {
   journalId: string | null;
   sessionId: string | null;
   observedAt: Date;
+};
+
+type PatternGraphEntryInsight = {
+  themes: Array<{
+    label: string;
+    rationale: string;
+    evidenceQuote: string;
+    confidence: number;
+  }>;
+  dominantRegionId: ReflectionRegionId | null;
+  entryCreatedAt: Date | string | number | null;
+  clear: boolean;
+};
+
+export const decryptPatternGraphEntryInsight = (
+  rawInsight: Record<string, unknown>
+): PatternGraphEntryInsight => {
+  const insight = decryptLeanFields(rawInsight, [
+    { encryptedPath: "themes" },
+  ]) as Record<string, unknown>;
+  const entryCreatedAt = insight.entryCreatedAt;
+
+  return {
+    themes: Array.isArray(insight.themes)
+      ? (insight.themes as PatternGraphEntryInsight["themes"])
+      : [],
+    dominantRegionId:
+      typeof insight.dominantRegionId === "string"
+        ? (insight.dominantRegionId as ReflectionRegionId)
+        : null,
+    entryCreatedAt:
+      entryCreatedAt instanceof Date ||
+      typeof entryCreatedAt === "string" ||
+      typeof entryCreatedAt === "number"
+        ? entryCreatedAt
+        : null,
+    clear: insight.clear === true,
+  };
 };
 
 const toObjectId = (value: string | null): mongoose.Types.ObjectId | null => {
@@ -1380,13 +1419,23 @@ export const updatePatternGraph = async ({
   journalId: string;
 }): Promise<void> => {
   try {
-    const insight = await entryInsightModel
+    const rawInsight = await entryInsightModel
       .findOne({ journalId, userId })
       .select("themes dominantRegionId entryCreatedAt clear")
       .lean()
       .exec();
+    const insight = rawInsight
+      ? decryptPatternGraphEntryInsight(
+          rawInsight as unknown as Record<string, unknown>
+        )
+      : null;
 
-    if (!insight || !insight.clear || !insight.themes?.length) {
+    if (
+      !insight ||
+      !insight.clear ||
+      !insight.entryCreatedAt ||
+      !insight.themes.length
+    ) {
       return;
     }
 
@@ -1398,7 +1447,7 @@ export const updatePatternGraph = async ({
           rationale: theme.rationale,
           evidenceQuote: theme.evidenceQuote,
           confidence: theme.confidence,
-          regionId: (insight.dominantRegionId as ReflectionRegionId) || null,
+          regionId: insight.dominantRegionId,
           sourceKind: "journal",
           journalId,
           sessionId: null,

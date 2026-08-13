@@ -4,6 +4,7 @@ type SafeErrorLogInput = {
   documentId?: string | null;
   status?: number | null;
   code?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type UnsafeErrorShape = {
@@ -62,10 +63,12 @@ export const buildSafeErrorLog = ({
   documentId = null,
   status = null,
   code = null,
+  metadata = null,
 }: SafeErrorLogInput) => ({
   event,
   fieldPath,
   documentId,
   status,
   code,
+  metadata,
 });

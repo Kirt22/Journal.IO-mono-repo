@@ -359,6 +359,44 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
       ],
     }),
   });
+  jadeSessionTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          _id: { toString: () => "jade-session-1" },
+          title: "Mood view",
+          messageCount: 1,
+          lastMessageAt: new Date("2026-04-02T10:00:00.000Z"),
+          createdAt: new Date("2026-04-02T10:00:00.000Z"),
+        },
+      ],
+    }),
+  });
+  jadeMessageTarget.find = () => ({
+    sort: () => ({
+      exec: async () => [
+        {
+          sessionId: "jade-session-1",
+          seq: 1,
+          role: "assistant",
+          text: "Here is your mood trend.",
+          status: "ok",
+          blocks: [
+            { type: "text", text: "Here is your mood trend." },
+            {
+              type: "mood_trend",
+              title: "Mood trend",
+              dataState: "empty",
+              updatedAt: null,
+              rangeDays: 7,
+              points: [],
+            },
+          ],
+          createdAt: new Date("2026-04-02T10:00:00.000Z"),
+        },
+      ],
+    }),
+  });
 
   const result = await exportPrivacyData("user-123");
 
@@ -386,6 +424,7 @@ test("exportPrivacyData returns the authenticated user's data export", async () 
   assert.equal(result?.patternGraph.nodes[0]?.label, "eats while watching shows");
   assert.equal(result?.patternGraph.edges.length, 1);
   assert.equal(result?.patternGraph.edges[0]?.type, "reinforces");
+  assert.equal(result?.jadeConversations[0]?.messages[0]?.blocks[1]?.type, "mood_trend");
 });
 
 test("deletePrivacyAccount removes all user-owned records", async () => {

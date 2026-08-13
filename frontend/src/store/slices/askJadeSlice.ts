@@ -74,7 +74,9 @@ type AskJadeState = Pick<
 >;
 
 type AskJadeSliceSetState = (
-  updater: Partial<AskJadeState> | ((state: AskJadeState) => Partial<AskJadeState>),
+  updater:
+    | Partial<AskJadeState>
+    | ((state: AskJadeState) => Partial<AskJadeState>),
 ) => void;
 
 type AskJadeSliceGetState = () => AskJadeState;
@@ -83,10 +85,12 @@ const GENERIC_ERROR = "Jade couldn't reply just then. Try again in a moment.";
 
 /** Entitlements can lapse mid-session, so 403 flips the screen to locked. */
 const isPremiumRequiredError = (error: unknown) =>
-  error instanceof ApiError && (error.status === 403 || error.code === 'PREMIUM_REQUIRED');
+  error instanceof ApiError &&
+  (error.status === 403 || error.code === 'PREMIUM_REQUIRED');
 
 const isTurnLimitError = (error: unknown) =>
-  error instanceof ApiError && (error.status === 429 || error.code === 'JADE_TURN_LIMIT');
+  error instanceof ApiError &&
+  (error.status === 429 || error.code === 'JADE_TURN_LIMIT');
 
 const readErrorMessage = (error: unknown): string =>
   error instanceof ApiError && error.message ? error.message : GENERIC_ERROR;
@@ -227,6 +231,7 @@ export const createAskJadeSlice = (
       role: 'user',
       text: trimmed,
       status: 'ok',
+      blocks: [],
       createdAt: new Date().toISOString(),
     };
 
@@ -308,7 +313,8 @@ export const createAskJadeSlice = (
   },
 
   loadMoreJadeSessions: async () => {
-    const { jadeSessionsCursor, jadeSessionsHasMore, isLoadingJadeSessions } = get();
+    const { jadeSessionsCursor, jadeSessionsHasMore, isLoadingJadeSessions } =
+      get();
 
     if (!jadeSessionsCursor || !jadeSessionsHasMore || isLoadingJadeSessions) {
       return;
@@ -337,7 +343,9 @@ export const createAskJadeSlice = (
     const previous = get().jadeSessions;
 
     set(state => ({
-      jadeSessions: state.jadeSessions.filter(session => session.id !== sessionId),
+      jadeSessions: state.jadeSessions.filter(
+        session => session.id !== sessionId,
+      ),
     }));
 
     try {
@@ -353,7 +361,10 @@ export const createAskJadeSlice = (
       }
     } catch (error) {
       // Put it back rather than pretending it is gone.
-      set({ jadeSessions: previous, jadeSessionsError: readErrorMessage(error) });
+      set({
+        jadeSessions: previous,
+        jadeSessionsError: readErrorMessage(error),
+      });
     }
   },
 

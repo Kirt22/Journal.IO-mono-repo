@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 import { z } from "zod";
-import { requestStructuredOpenAi } from "./openai.helpers";
+import {
+  requestStructuredOpenAi,
+  requestStructuredOpenAiDetailed,
+} from "./openai.helpers";
 
 const originalFetch = globalThis.fetch;
 const originalApiKey = process.env.OPENAI_API_KEY;
@@ -137,4 +140,30 @@ test("requestStructuredOpenAi sends a feature-level model and high reasoning eff
   assert.ok(capturedRequestBody);
   assert.equal(capturedRequestBody.model, "gpt-5.6-terra");
   assert.deepEqual(capturedRequestBody.reasoning, { effort: "high" });
+});
+
+test("requestStructuredOpenAiDetailed distinguishes incomplete output", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  console.error = () => {};
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: "resp_safe_metadata",
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 },
+        output_text: "sensitive partial content",
+      }),
+      { status: 200 }
+    )) as typeof fetch;
+
+  const result = await requestStructuredOpenAiDetailed({
+    feature: "test feature",
+    schemaName: "test_schema",
+    schema: { type: "object" },
+    parser: z.object({ value: z.string() }),
+    messages: [{ role: "system", content: "Return structured output." }],
+  });
+
+  assert.deepEqual(result, { data: null, failure: "incomplete" });
 });

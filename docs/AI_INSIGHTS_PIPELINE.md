@@ -227,6 +227,8 @@ If analysis fails:
 - retries are possible
 - user-facing messaging stays calm and non-technical
 
+Ask Jade may present stored aggregates as rich reply blocks when the user explicitly requests a graph, trend, comparison, or statistics view. These blocks reuse the insights overview and timezone-aware mood-history services; the model cannot author numeric values. Emotion/theme visualization remains outside the MVP until those signals use a normalized aggregation model.
+
 ---
 
 # 8) MVP Boundaries

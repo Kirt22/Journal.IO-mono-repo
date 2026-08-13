@@ -77,6 +77,7 @@ const message = (overrides: Record<string, unknown> = {}) => ({
   role: 'assistant' as const,
   text: 'Your entries suggest those two often show up together.',
   status: 'ok' as const,
+  blocks: [],
   createdAt: '2026-08-11T10:00:00.000Z',
   ...overrides,
 });
@@ -140,6 +141,18 @@ test('a premium user with no history sees the invitation and starter prompts', a
 
   const tree = JSON.stringify(root.toJSON());
   expect(tree).toContain("Ask me anything you've been writing about.");
+  expect(tree).toContain('Show me my mood trends as a graph.');
+  expect(tree).not.toContain('Why do I keep doing this?');
+  const starterLabels = new Set(
+    root.root
+      .findAll(
+        node =>
+          typeof node.props.accessibilityLabel === 'string' &&
+          node.props.accessibilityLabel.startsWith('Use starter prompt:'),
+      )
+      .map(node => node.props.accessibilityLabel),
+  );
+  expect(starterLabels.size).toBe(3);
 });
 
 test('keeps the composer inside the bottom safe area', async () => {
@@ -167,13 +180,14 @@ test('a starter prompt fills and enables the composer without sending', async ()
   ReactTestRenderer.act(() => {
     root.root
       .findByProps({
-        accessibilityLabel: 'Use starter prompt: Why do I keep doing this?',
+        accessibilityLabel:
+          'Use starter prompt: Show me my mood trends as a graph.',
       })
       .props.onPress();
   });
 
   expect(root.root.findByProps({ testID: 'ask-jade-input' }).props.value).toBe(
-    'Why do I keep doing this?',
+    'Show me my mood trends as a graph.',
   );
   expect(
     root.root.findByProps({ testID: 'ask-jade-send' }).props.disabled,
@@ -250,7 +264,21 @@ test('sending shows the message immediately and reveals the reply progressively'
       role: 'user',
       text: 'Why do I overeat?',
     }),
-    reply: message({ id: 'a1', seq: 2 }),
+    reply: message({
+      id: 'a1',
+      seq: 2,
+      blocks: [
+        {
+          type: 'text',
+          text: 'Your entries suggest those two often show up together.',
+        },
+        {
+          type: 'list',
+          style: 'bulleted',
+          items: ['One new-reply point'],
+        },
+      ],
+    }),
     limits: { turnsUsedToday: 1, turnsPerDay: 40, resetAt: null },
   });
 
@@ -270,6 +298,9 @@ test('sending shows the message immediately and reveals the reply progressively'
   expect(sendJadeMessage).toHaveBeenCalledWith(
     expect.objectContaining({ text: 'Why do I overeat?' }),
   );
+  expect(root.root.findAllByProps({ testID: 'jade-list-block' })).toHaveLength(
+    0,
+  );
 
   // The reply arrives whole and is typed out, so mid-reveal only part is shown.
   await ReactTestRenderer.act(async () => {
@@ -280,6 +311,7 @@ test('sending shows the message immediately and reveals the reply progressively'
   const tree = JSON.stringify(root.toJSON());
   expect(tree).toContain('Why do I overeat?');
   expect(tree).toContain('often show up together');
+  expect(tree).toContain('One new-reply point');
 });
 
 test('a failed send keeps the text and offers a retry rather than losing it', async () => {
@@ -408,4 +440,85 @@ test('crisis copy is shown at once, never typed out a word at a time', async () 
   expect(JSON.stringify(root.toJSON())).toContain(
     'Please reach out to a crisis line right now.',
   );
+});
+
+test('renders a stored reply and its rich blocks immediately without replaying the reveal', async () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({
+          id: 'rich-1',
+          blocks: [
+            { type: 'text', text: 'Here is what your check-ins suggest.' },
+            {
+              type: 'list',
+              style: 'numbered',
+              items: [
+                'Mood was steadier midweek.',
+                'Two days had no check-in.',
+              ],
+            },
+            {
+              type: 'mood_trend',
+              title: 'Mood trend · 7 days',
+              dataState: 'ready',
+              updatedAt: '2026-08-14T00:00:00.000Z',
+              rangeDays: 7,
+              points: [
+                {
+                  dateKey: '2026-08-13',
+                  label: 'Aug 13',
+                  mood: 'okay',
+                  score: 3,
+                },
+                {
+                  dateKey: '2026-08-14',
+                  label: 'Aug 14',
+                  mood: 'good',
+                  score: 4,
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+  });
+
+  const root = await mount();
+  expect(
+    root.root.findAllByProps({ testID: 'jade-list-block' }).length,
+  ).toBeGreaterThan(0);
+  expect(
+    root.root.findAllByProps({ testID: 'jade-mood_trend-block' }).length,
+  ).toBeGreaterThan(0);
+  expect(JSON.stringify(root.toJSON())).toContain('Mood was steadier midweek.');
+});
+
+test('a stored fallback restores the preceding message without auto-sending', async () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'u1', seq: 1, role: 'user', text: 'Show my mood graph' }),
+        message({
+          id: 'a1',
+          seq: 2,
+          status: 'fallback',
+          text: "I couldn't reach my thoughts just then.",
+        }),
+      ],
+    });
+  });
+
+  const root = await mount();
+  ReactTestRenderer.act(() => {
+    root.root
+      .findByProps({ accessibilityLabel: 'Edit and retry your message' })
+      .props.onPress();
+  });
+
+  expect(root.root.findByProps({ testID: 'ask-jade-input' }).props.value).toBe(
+    'Show my mood graph',
+  );
+  expect(sendJadeMessage).not.toHaveBeenCalled();
 });

@@ -187,6 +187,18 @@ test("createGuidedReflectionGoDeeper returns a short deeper response without pre
   );
 });
 
+test("guided reflection answers product privacy questions without model inference", async () => {
+  const response = await createGuidedReflectionGoDeeper({
+    userId: "privacy-user",
+    promptAnswers: [],
+    currentText: "Are my journal messages safe and encrypted?",
+  });
+
+  assert.match(response.reflection, /HTTPS\/TLS/);
+  assert.match(response.reflection, /not end-to-end encrypted/i);
+  assert.equal(response.canGoDeeper, true);
+});
+
 test("createGuidedReflectionGoDeeper responds to suggestion actions without premium", async () => {
   const response = await createGuidedReflectionGoDeeper({
     userId: "free-user",

@@ -30,6 +30,20 @@ test("sendJadeMessage rejects a non-string sessionId", () => {
   assert.equal(parseSend({ sessionId: 12345, text: "hello" }).success, false);
 });
 
+test("sendJadeMessage validates the optional client timezone header", () => {
+  const parse = (timezone: unknown) =>
+    sendJadeMessageSchema.safeParse({
+      body: { text: "Show my mood trend" },
+      query: {},
+      params: {},
+      headers: { "x-client-timezone": timezone },
+    });
+
+  assert.equal(parse("Asia/Dubai").success, true);
+  assert.equal(parse(123).success, false);
+  assert.equal(parse("x".repeat(129)).success, false);
+});
+
 test("listJadeSessions bounds the page size and accepts a cursor", () => {
   const parse = (query: unknown) =>
     listJadeSessionsSchema.safeParse({ body: {}, query, params: {} });

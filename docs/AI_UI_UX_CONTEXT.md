@@ -94,7 +94,7 @@ Phase 2 product-revamp note:
 
 - a new premium, mascot-free onboarding v2 shell exists behind `ENABLE_ONBOARDING_V2`
 - the v2 shell starts after auth only when the backend profile still needs onboarding and the flag is enabled
-- production remains on the existing onboarding fallback by default while v2 is incomplete
+- as of 2026-08-14 the flag is `true` in every build, so v2 is the shipping flow; v1 (`OnboardingScreen`) stays in the tree only as a revert target
 - Phase 3A refines v2 into a compact semi-guided setup followed by the first real guided reflection: intro, referral source, age, occupation, AI tone, current support focus, theme color, reflection ready, AI/privacy bottom sheet, guided first-entry writing, and session analysis
 - referral, age, occupation, and AI tone use compact cards with forward-only card reveal animation; support focus is multi-select with a `Skip` action and conditional Continue button
 - the v2 theme picker applies the selected global app theme preference live through the centralized theme provider; every onboarding setup screen after intro has a small back arrow, while the first guided reflection itself hides the top back button and guards hardware back with a leave-confirmation sheet

@@ -8,8 +8,10 @@ below to pick it up.
 
 ## 2026-08-15 — Biometric lock overlay: single loader
 
-**Branches pushed to:** `codex`, and `claude/face-id-loader-consolidation-7eoqrd`
-**Fix commit:** `2d1a58f` — `fix(frontend): keep a single loader on the biometric lock overlay`
+**Branch to pull:** `codex` — fix commit `2d1a58f`
+**Also on:** `claude/face-id-loader-consolidation-7eoqrd` — same change, cherry-picked, so a different hash (`7b0cff1`)
+
+Commit subject: `fix(frontend): keep a single loader on the biometric lock overlay`
 
 ### What changed
 

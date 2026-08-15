@@ -15,7 +15,6 @@ import {
 } from '../infrastructure/reactNative';
 import { Lock } from 'lucide-react-native';
 import PrimaryButton from './PrimaryButton';
-import JournalLoader from './JournalLoader';
 import { useTheme } from '../theme/provider';
 import { useAppStore } from '../store/appStore';
 import {
@@ -261,20 +260,6 @@ export default function BiometricLockOverlay() {
           {description}
         </Text>
 
-        {isBiometricAuthenticating ? (
-          <View style={styles.loadingRow}>
-            <JournalLoader size="small" color={theme.colors.primary} />
-            <Text
-              style={[
-                styles.loadingText,
-                { color: theme.colors.mutedForeground },
-              ]}
-            >
-              Checking {biometricMethodName}...
-            </Text>
-          </View>
-        ) : null}
-
         <View style={styles.actions}>
           {showUnavailableState ? (
             <PrimaryButton
@@ -364,15 +349,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     textAlign: 'center',
-  },
-  loadingRow: {
-    marginTop: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  loadingText: {
-    fontSize: 13,
   },
   actions: {
     width: '100%',

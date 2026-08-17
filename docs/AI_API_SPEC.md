@@ -87,6 +87,8 @@ Notes:
 - backend derives the Google identity from the verified token payload, not from frontend profile fields
 - backend stores the Google `sub` in the existing user Google identity field and then issues the normal app access/refresh tokens
 - when onboarding context is present, the backend persists it on the user before returning the session
+- while field encryption is migrating, lookup-hash matches take precedence over plaintext fallback rows so the migrated identity remains authoritative
+- if saving an auth identity would collide with another migrated row, the endpoint returns the standard error envelope with HTTP `409` and code `ACCOUNT_LOOKUP_CONFLICT` rather than guessing which account to use
 
 Success `data`:
 
@@ -1763,7 +1765,7 @@ Notes:
 
 ### `POST /guided-reflection/goal-suggestions`
 
-Generate up to four local onboarding goal suggestions after the first entry has been saved and the session analysis has been shown. Each suggestion must be a concrete, low-effort action tied to the user's writing or a plausible broadly useful contextual experiment, without presenting a speculative cause as fact. This endpoint returns suggestions only; it does not create goals, persist selected goals, schedule reminders, update streaks, or complete onboarding.
+Generate up to four local onboarding goal suggestions after the first entry has been saved and the session analysis has been shown. Each suggestion must be a concrete, low-effort action tied to the user's writing or a plausible broadly useful contextual experiment, without presenting a speculative cause as fact. Suggestions that repeat a saved goal are removed, overlapping candidate actions are merged, and a curated movement-first baseline bank fills the result to three suggestions when novelty filtering or low-signal writing would otherwise leave the screen sparse. This endpoint returns suggestions only; it does not create goals, persist selected goals, schedule reminders, update streaks, or complete onboarding.
 
 Request:
 

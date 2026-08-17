@@ -89,6 +89,13 @@ const getGoogleIdToken = async () => {
     const idToken = extractGoogleIdToken(result);
 
     if (!idToken) {
+      // The shape of a successful-but-tokenless response is the only clue to why
+      // it happened, and the caller collapses this into generic copy. Log the keys
+      // only — never the response itself, which carries the user's profile.
+      console.warn(
+        "[GoogleSignIn] signIn() returned no idToken. Result keys:",
+        result && typeof result === "object" ? Object.keys(result) : typeof result
+      );
       throw new Error("Google sign-in could not be completed right now. Please try again.");
     }
 
@@ -99,6 +106,15 @@ const getGoogleIdToken = async () => {
     if (errorCode === statusCodes.SIGN_IN_CANCELLED) {
       return null;
     }
+
+    // Everything below is rendered to the user as one generic sentence, so this is
+    // the only place the native failure is still visible. DEVELOPER_ERROR here
+    // means a client ID / URL scheme mismatch rather than anything the user did.
+    console.warn("[GoogleSignIn] signIn() failed", {
+      code: errorCode,
+      message: error instanceof Error ? error.message : String(error),
+      userInfo: (error as { userInfo?: unknown } | null)?.userInfo,
+    });
 
     if (errorCode === statusCodes.IN_PROGRESS) {
       throw new Error("Google sign-in is already in progress.");
@@ -118,4 +134,18 @@ const getGoogleIdToken = async () => {
   }
 };
 
-export { getGoogleIdToken };
+// The native GIDSignIn session lives in the iOS keychain and outlives the app's own
+// sign-out. Left in place, the next "Continue with Google" silently reuses the last
+// account instead of showing the chooser — which reads as "it signed me into the
+// wrong account" or "it won't let me switch".
+const signOutFromGoogle = async () => {
+  try {
+    configureGoogleSignIn();
+    await GoogleSignin.signOut();
+  } catch (error) {
+    // Clearing the Google session is best-effort; it must never block our own sign-out.
+    console.warn("[GoogleSignIn] signOut() failed", error);
+  }
+};
+
+export { getGoogleIdToken, signOutFromGoogle };

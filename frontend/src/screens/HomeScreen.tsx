@@ -1551,24 +1551,6 @@ export default function HomeScreen({
       <RevealBlock
         index={4}
         onLayout={event => {
-          reflectionSectionYRef.current = event.nativeEvent.layout.y;
-        }}
-        isReady={!isOrbHandoffPending}
-        shouldAnimate={shouldAnimateEntrance}
-        style={styles.sectionSpacing}
-      >
-        <DailyThoughtCard
-          onReflect={text => {
-            handleReflectionSeen();
-            onOpenNewEntry(text);
-          }}
-          isCompact={isCompact}
-        />
-      </RevealBlock>
-
-      <RevealBlock
-        index={5}
-        onLayout={event => {
           moodSectionYRef.current = event.nativeEvent.layout.y;
         }}
         isReady={!isOrbHandoffPending}
@@ -1834,6 +1816,24 @@ export default function HomeScreen({
             </Animated.View>
           )}
         </Animated.View>
+      </RevealBlock>
+
+      <RevealBlock
+        index={5}
+        onLayout={event => {
+          reflectionSectionYRef.current = event.nativeEvent.layout.y;
+        }}
+        isReady={!isOrbHandoffPending}
+        shouldAnimate={shouldAnimateEntrance}
+        style={styles.sectionSpacing}
+      >
+        <DailyThoughtCard
+          onReflect={text => {
+            handleReflectionSeen();
+            onOpenNewEntry(text);
+          }}
+          isCompact={isCompact}
+        />
       </RevealBlock>
 
       <RevealBlock

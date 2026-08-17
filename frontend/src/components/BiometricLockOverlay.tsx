@@ -55,6 +55,13 @@ export default function BiometricLockOverlay() {
   const unlockAppWithBiometrics = useAppStore(
     state => state.unlockAppWithBiometrics,
   );
+  const biometricLockPreview = useAppStore(state => state.biometricLockPreview);
+  const setBiometricLockPreview = useAppStore(
+    state => state.setBiometricLockPreview,
+  );
+  // Dev-only screenshot preview. __DEV__ is compile-time false in Release, so
+  // this is constant-folded to false and every branch below is stripped.
+  const isPreviewingLock = __DEV__ && biometricLockPreview;
   const currentAppStateRef = useRef(AppState.currentState ?? 'active');
   const hasPromptedDuringCurrentActiveStateRef = useRef(false);
   const backgroundedAtRef = useRef<number | null>(null);
@@ -62,11 +69,12 @@ export default function BiometricLockOverlay() {
   const isSystemPromptTransitionRef = useRef(false);
   const [isPrivacyCoverVisible, setIsPrivacyCoverVisible] = useState(false);
   const shouldEnforceLock =
-    Platform.OS === 'ios' &&
-    hasBootstrappedAuthGate &&
-    biometricLockEnabled &&
-    Boolean(sessionUser) &&
-    canAccessBiometricLock(sessionUser);
+    isPreviewingLock ||
+    (Platform.OS === 'ios' &&
+      hasBootstrappedAuthGate &&
+      biometricLockEnabled &&
+      Boolean(sessionUser) &&
+      canAccessBiometricLock(sessionUser));
 
   useEffect(() => {
     if (!shouldEnforceLock) {
@@ -78,6 +86,13 @@ export default function BiometricLockOverlay() {
   }, [shouldEnforceLock]);
 
   useEffect(() => {
+    // In preview mode the Keychain call would fail (no simulator passcode) and
+    // flip the copy to the "unavailable / Sign out" variant, which is not what
+    // the screenshot needs. Never prompt.
+    if (isPreviewingLock) {
+      return;
+    }
+
     if (
       shouldEnforceLock &&
       isBiometricAppLocked &&
@@ -103,6 +118,7 @@ export default function BiometricLockOverlay() {
   }, [
     isBiometricAppLocked,
     isBiometricAuthenticating,
+    isPreviewingLock,
     shouldEnforceLock,
     unlockAppWithBiometrics,
   ]);
@@ -196,11 +212,18 @@ export default function BiometricLockOverlay() {
     };
   }, [lockAppWithBiometrics]);
 
-  if (!shouldEnforceLock || (!isBiometricAppLocked && !isPrivacyCoverVisible)) {
+  if (
+    !shouldEnforceLock ||
+    (!isBiometricAppLocked && !isPrivacyCoverVisible && !isPreviewingLock)
+  ) {
     return null;
   }
 
-  const biometricMethodName = getBiometricMethodName(biometricLockType);
+  // A simulator reports no biometry, so preview pins the Face ID presentation
+  // rather than falling back to the generic padlock and "biometric
+  // authentication" wording.
+  const effectiveLockType = isPreviewingLock ? 'face_id' : biometricLockType;
+  const biometricMethodName = getBiometricMethodName(effectiveLockType);
   const showUnavailableState =
     biometricLockFailureReason === 'unavailable' ||
     biometricLockFailureReason === 'not_configured';
@@ -238,7 +261,7 @@ export default function BiometricLockOverlay() {
             { backgroundColor: `${theme.colors.primary}18` },
           ]}
         >
-          {biometricLockType === 'face_id' ? (
+          {effectiveLockType === 'face_id' ? (
             <Image
               accessibilityIgnoresInvertColors
               accessibilityLabel="Face ID"
@@ -274,6 +297,10 @@ export default function BiometricLockOverlay() {
               label="Try again"
               loading={isBiometricAuthenticating}
               onPress={() => {
+                if (isPreviewingLock) {
+                  return;
+                }
+
                 clearBiometricAppLockError();
                 hasPromptedDuringCurrentActiveStateRef.current = true;
                 unlockAppWithBiometrics().catch(() => undefined);
@@ -285,6 +312,13 @@ export default function BiometricLockOverlay() {
             <HapticPressable
               accessibilityRole="button"
               onPress={() => {
+                // Preview covers the whole screen and never authenticates, so
+                // this is the only way back out of it.
+                if (isPreviewingLock) {
+                  setBiometricLockPreview(false);
+                  return;
+                }
+
                 clearBiometricAppLockError();
               }}
               style={({ pressed }) => [pressed && styles.pressed]}

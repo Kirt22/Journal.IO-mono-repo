@@ -437,12 +437,21 @@ const googleMobileSignInController = async (req: Request, res: Response) => {
     });
 
     if (!result.ok) {
+      logAuthRoute("error", "google/mobile", {
+        status: result.status,
+        code: result.code,
+      });
+
       return res.status(result.status).json(
         apiResponse(false, result.message, {}, {
           error: { code: result.code },
         })
       );
     }
+
+    logAuthRoute("success", "google/mobile", {
+      email: result.user.email ? maskEmail(result.user.email) : null,
+    });
 
     return res.status(200).json(
       apiResponse(true, "You're signed in.", {
@@ -452,7 +461,10 @@ const googleMobileSignInController = async (req: Request, res: Response) => {
       })
     );
   } catch (error) {
-    console.error("Error in googleMobileSignIn:", error);
+    logAuthRoute("error", "google/mobile", {
+      status: 500,
+      reason: error instanceof Error ? error.message : String(error),
+    });
     return res
       .status(500)
       .json(apiResponse(false, API_MESSAGES.internalError, {}));

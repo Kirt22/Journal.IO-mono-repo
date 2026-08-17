@@ -656,7 +656,9 @@ test("createGuidedReflectionGoalSuggestions falls back for low-signal sessions",
   assert.ok(suggestions.goals.length <= 3);
   const firstGoal = suggestions.goals[0];
   assert.ok(firstGoal);
-  assert.match(firstGoal.title, /write|notice|carry/i);
+  // With no real signal, a reflection goal about nothing is busywork: the
+  // baseline "move your body" advice leads instead.
+  assert.match(firstGoal.title, /walk|steps|train|stretch/i);
 });
 
 const buildSummaryInput = (userId: string) => ({

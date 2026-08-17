@@ -299,6 +299,10 @@ export default function AuthChoiceScreen({
   };
 
   const handleGooglePress = async () => {
+    if (isAnyAuthLoading) {
+      return;
+    }
+
     setIsGoogleLoading(true);
     setDialogError(null);
 

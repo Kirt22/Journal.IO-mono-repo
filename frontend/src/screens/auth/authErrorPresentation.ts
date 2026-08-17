@@ -35,6 +35,12 @@ const AUTH_VALIDATION_MESSAGES = {
 } as const;
 
 const knownErrorPresentations: Record<string, AuthErrorPresentation> = {
+  ACCOUNT_LOOKUP_CONFLICT: {
+    message:
+      'We found more than one account for this sign-in, so we stopped rather than guess. Please contact support and we can merge them.',
+    surface: 'dialog',
+    title: "We couldn't pick your account",
+  },
   APPLE_ACCOUNT_ALREADY_LINKED: {
     message:
       'This email is already linked to another Apple account. Try a different sign-in method.',
@@ -188,6 +194,41 @@ const getDialogFallback = (): AuthErrorPresentation => ({
   title: 'Something went wrong',
 });
 
+// A native SDK error, a rejected token and a server fault all collapse into the
+// same provider fallback sentence. Tagging it with a short reference code is the
+// difference between a reproducible bug report and guesswork. The code only —
+// never the raw error text, which is not written for users.
+const getDiagnosticCode = (error: unknown): string | null => {
+  if (error instanceof ApiError) {
+    if (error.code) {
+      return error.code;
+    }
+
+    return error.status ? `HTTP_${error.status}` : null;
+  }
+
+  const nativeCode = (error as { code?: unknown } | null)?.code;
+
+  if (typeof nativeCode === 'string' && nativeCode) {
+    return nativeCode;
+  }
+
+  return typeof nativeCode === 'number' ? `GSI_${nativeCode}` : null;
+};
+
+const withDiagnosticCode = (
+  presentation: AuthErrorPresentation,
+  error: unknown,
+): AuthErrorPresentation => {
+  const code = getDiagnosticCode(error);
+
+  if (!code) {
+    return presentation;
+  }
+
+  return { ...presentation, message: `${presentation.message} (${code})` };
+};
+
 const getAuthErrorPresentation = (
   error: unknown,
   context: AuthErrorContext,
@@ -205,7 +246,7 @@ const getAuthErrorPresentation = (
       }
     }
 
-    return providerFallbacks[context];
+    return withDiagnosticCode(providerFallbacks[context], error);
   }
 
   if (error instanceof ApiError) {

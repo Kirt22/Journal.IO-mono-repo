@@ -102,10 +102,33 @@ describe('auth error presentation', () => {
       'google',
     );
 
+    // The generic copy is deliberate, but the code that produced it is tagged on
+    // so a report of "Google sign-in failed" can be traced to a specific cause.
     expect(presentation).toEqual({
-      message: 'Google sign-in could not be completed. Please try again.',
+      message:
+        'Google sign-in could not be completed. Please try again. (EMAIL_ALREADY_REGISTERED)',
       surface: 'dialog',
       title: 'Google sign-in failed',
     });
+  });
+
+  test('tags the provider fallback with a server status when there is no code', () => {
+    const presentation = getAuthErrorPresentation(
+      new ApiError('Internal server error', { status: 500 }),
+      'google',
+    );
+
+    expect(presentation?.message).toContain('(HTTP_500)');
+    expect(presentation?.surface).toBe('dialog');
+  });
+
+  test('surfaces an account lookup conflict as its own dialog', () => {
+    const presentation = getAuthErrorPresentation(
+      new ApiError('Conflict', { code: 'ACCOUNT_LOOKUP_CONFLICT', status: 409 }),
+      'google',
+    );
+
+    expect(presentation?.title).toBe("We couldn't pick your account");
+    expect(presentation?.message).toContain('more than one account');
   });
 });

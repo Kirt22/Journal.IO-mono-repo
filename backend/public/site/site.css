@@ -1,0 +1,1488 @@
+/* ==========================================================================
+   Journal.IO marketing site
+   One stylesheet for the landing page (/) and every legal page.
+
+   Art direction matches the v2 App Store panels (see
+   docs/APP_STORE_SCREENSHOT_PROMPTS.md): one continuous charcoal -> espresso
+   -> ember gradient, a single large soft coral glow, fine film grain, and the
+   cream app UI as the brightest thing on the page.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Fonts — subset from the app's own faces by scripts/build-site-assets.sh
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/site/fonts/BricolageGrotesque-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/site/fonts/BricolageGrotesque-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("/assets/site/fonts/SchibstedGrotesk-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("/assets/site/fonts/SchibstedGrotesk-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("/assets/site/fonts/SchibstedGrotesk-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("/assets/site/fonts/SchibstedGrotesk-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --------------------------------------------------------------------------
+   Tokens
+   -------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+
+  --ink: #141210;
+  --ink-soft: #1c1815;
+  --espresso: #2a211c;
+  --ember: #5c2e22;
+  --coral: #e8745f;
+  --coral-deep: #c85b49;
+  --cream: #fbf7f4;
+
+  --muted: rgba(251, 247, 244, 0.62);
+  --faint: rgba(251, 247, 244, 0.4);
+  --hairline: rgba(251, 247, 244, 0.1);
+  --hairline-strong: rgba(251, 247, 244, 0.18);
+
+  /* the app's real radii (frontend/src/theme/provider.tsx) */
+  --r-sm: 14px;
+  --r-lg: 24px;
+
+  --pad: clamp(20px, 5vw, 60px);
+  --shell: min(1180px, 100% - (var(--pad) * 2));
+  --section-y: clamp(88px, 13vw, 176px);
+
+  --display: "Bricolage Grotesque", "Avenir Next", -apple-system, BlinkMacSystemFont, sans-serif;
+  --text: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --t-hero: clamp(2.55rem, 8vw, 5.5rem);
+  --t-h2: clamp(1.95rem, 5vw, 3.5rem);
+  --t-h3: clamp(1.2rem, 2.2vw, 1.6rem);
+  --t-body: clamp(1rem, 0.55vw + 0.88rem, 1.15rem);
+  --t-lede: clamp(1.05rem, 0.9vw + 0.9rem, 1.35rem);
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  /* The device glows deliberately bleed past their frames. Clipping has to
+     happen on the root: overflow-x on <body> alone does nothing, because the
+     overflow propagates from <html>, which is the scroll container.
+     `clip` over `hidden` so the fixed nav and any sticky positioning survive. */
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--cream);
+  font-family: var(--text);
+  font-size: var(--t-body);
+  line-height: 1.6;
+  font-weight: 400;
+  letter-spacing: 0.002em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* One fixed film-grain layer over the whole document. This texture is what
+   keeps the flat gradients from reading as a CSS template. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0.11;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.032em;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: rgba(232, 116, 95, 0.32);
+  color: var(--cream);
+}
+
+.shell {
+  width: var(--shell);
+  margin-inline: auto;
+}
+
+/* the nav is fixed, so anchored sections need to clear it */
+:target,
+[id] {
+  scroll-margin-top: 96px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 12px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #1a0f0b;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 16px;
+}
+
+/* --------------------------------------------------------------------------
+   Shared bits
+   -------------------------------------------------------------------------- */
+
+.wordmark {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.28rem;
+  letter-spacing: -0.035em;
+  color: var(--cream);
+  white-space: nowrap;
+}
+.wordmark span {
+  color: var(--coral);
+}
+
+.overline {
+  font-family: var(--text);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--coral);
+}
+
+.lede {
+  max-width: 46ch;
+  font-size: var(--t-lede);
+  line-height: 1.55;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.rule {
+  height: 1px;
+  border: 0;
+  margin: 0;
+  background: var(--hairline);
+}
+
+/* App Store button ------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 26px;
+  border: 0;
+  border-radius: 999px;
+  font-family: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    transform 0.35s var(--ease),
+    box-shadow 0.35s var(--ease),
+    background 0.35s var(--ease);
+}
+
+.btn--app {
+  background: var(--cream);
+  color: #17110e;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.btn--app svg {
+  width: 18px;
+  height: 18px;
+  margin-top: -2px;
+  fill: currentColor;
+}
+.btn--app:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(232, 116, 95, 0.4);
+}
+
+.btn--ghost {
+  padding: 15px 4px;
+  background: none;
+  color: var(--muted);
+  box-shadow: none;
+}
+.btn--ghost:hover {
+  color: var(--cream);
+}
+.btn--ghost .arrow {
+  display: inline-block;
+  transition: transform 0.35s var(--ease);
+}
+.btn--ghost:hover .arrow {
+  transform: translateY(3px);
+}
+
+.btn--small {
+  padding: 10px 18px;
+  font-size: 0.9rem;
+}
+
+/* Device frames ---------------------------------------------------------- */
+
+.device {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  margin-inline: auto;
+}
+
+/* Ambient coral wash behind the phone. The store spec is explicit that a drop
+   shadow does nothing on a dark ground — separation comes from a glow plus a
+   thin coral rim traced along the device silhouette. */
+.device::before {
+  content: "";
+  position: absolute;
+  inset: -14% -22%;
+  z-index: 0;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(232, 116, 95, 0.34), transparent 70%);
+  filter: blur(46px);
+}
+
+.device img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  /* drop-shadow follows the PNG alpha, so this rim traces the real rounded
+     silhouette rather than a rectangle */
+  filter: drop-shadow(0 0 1.5px rgba(232, 116, 95, 0.55))
+    drop-shadow(0 34px 60px rgba(0, 0, 0, 0.55));
+}
+
+/* --------------------------------------------------------------------------
+   Nav
+   -------------------------------------------------------------------------- */
+
+.nav {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 100;
+  transition:
+    background 0.4s var(--ease),
+    border-color 0.4s var(--ease),
+    backdrop-filter 0.4s var(--ease);
+  border-bottom: 1px solid transparent;
+}
+
+.nav.is-stuck {
+  background: rgba(20, 18, 16, 0.72);
+  border-bottom-color: var(--hairline);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+.nav__inner {
+  width: var(--shell);
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 74px;
+}
+
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  margin-left: auto;
+}
+
+.nav__links a {
+  position: relative;
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--muted);
+  transition: color 0.3s var(--ease);
+}
+.nav__links a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 1px;
+  background: var(--coral);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s var(--ease);
+}
+.nav__links a:hover {
+  color: var(--cream);
+}
+.nav__links a:hover::after {
+  transform: scaleX(1);
+}
+
+.nav__cta {
+  margin-left: 6px;
+}
+
+.nav__burger {
+  display: none;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--cream);
+  cursor: pointer;
+}
+.nav__burger span {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  margin: 0 auto;
+  background: currentColor;
+  transition: transform 0.4s var(--ease), opacity 0.25s linear;
+}
+.nav__burger span + span {
+  margin-top: 5px;
+}
+
+.nav__sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 0 var(--pad);
+  background: rgba(20, 18, 16, 0.97);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.4s var(--ease), visibility 0.4s;
+}
+.nav__sheet a {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--display);
+  font-size: clamp(1.7rem, 8vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.nav__sheet .btn {
+  margin-top: 26px;
+  justify-self: start;
+}
+
+body.menu-open {
+  overflow: hidden;
+}
+body.menu-open .nav__sheet {
+  opacity: 1;
+  visibility: visible;
+}
+body.menu-open .nav__burger span:first-child {
+  transform: translateY(3.25px) rotate(45deg);
+}
+body.menu-open .nav__burger span:last-child {
+  transform: translateY(-3.25px) rotate(-45deg);
+}
+
+/* --------------------------------------------------------------------------
+   Hero
+   -------------------------------------------------------------------------- */
+
+/* No overflow clipping here — the device frame is meant to hang past the hero
+   into the strip below, so the hero has to sit above it in the stack instead. */
+.hero {
+  position: relative;
+  z-index: 2;
+  padding: clamp(140px, 20vh, 200px) 0 0;
+  background:
+    radial-gradient(115% 82% at 50% 104%, rgba(232, 116, 95, 0.34), transparent 60%),
+    radial-gradient(72% 46% at 50% 24%, rgba(232, 116, 95, 0.09), transparent 72%),
+    linear-gradient(180deg, #141210 0%, #1d1714 34%, #2a211c 62%, #43261d 100%);
+}
+
+.hero__inner {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 26px;
+}
+
+.hero h1 {
+  max-width: 15ch;
+  font-size: var(--t-hero);
+  line-height: 0.98;
+}
+
+.hero .lede {
+  max-width: 52ch;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 28px;
+  margin-top: 8px;
+}
+
+.hero__device {
+  width: min(300px, 68vw);
+  margin-top: clamp(48px, 7vw, 84px);
+  /* the frame deliberately bleeds into the section below */
+  margin-bottom: clamp(-160px, -14vw, -90px);
+}
+.hero__device .device {
+  max-width: none;
+}
+
+/* The Home orb is alive in the app and frozen in a screenshot — this slow
+   breathing glow gives the still image some of that back. */
+.hero__device .device::before {
+  animation: breathe 9s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Trust strip
+   -------------------------------------------------------------------------- */
+
+.trust {
+  position: relative;
+  z-index: 1;
+  padding: clamp(150px, 18vw, 210px) 0 0;
+  background: linear-gradient(180deg, #43261d 0%, #2b201a 42%, var(--ink) 100%);
+}
+
+.trust__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 34px;
+  padding-bottom: clamp(56px, 8vw, 88px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.trust__row li {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--faint);
+  list-style: none;
+}
+
+.trust__row {
+  margin: 0;
+  padding-left: 0;
+}
+
+/* --------------------------------------------------------------------------
+   The loop
+   -------------------------------------------------------------------------- */
+
+.loop {
+  padding: var(--section-y) 0;
+  background: var(--ink);
+}
+
+/* `ch` resolves against the element's OWN font-size, so these caps live on the
+   headings themselves — putting them on the wrapper measures body-sized `ch`
+   and squeezes a display heading down to a few words per line. */
+.loop__head {
+  margin-bottom: clamp(48px, 7vw, 80px);
+}
+.loop__head h2 {
+  max-width: 19ch;
+  margin-top: 18px;
+  font-size: var(--t-h2);
+}
+
+.loop__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(28px, 4vw, 56px);
+  padding-top: 34px;
+  border-top: 1px solid var(--hairline);
+}
+
+.loop__step h3 {
+  margin: 14px 0 10px;
+  font-size: var(--t-h3);
+  letter-spacing: -0.02em;
+}
+.loop__step p {
+  color: var(--muted);
+  font-size: 0.98rem;
+  max-width: 30ch;
+}
+.loop__num {
+  font-family: var(--display);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--coral);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Feature blocks
+   -------------------------------------------------------------------------- */
+
+.features {
+  background: linear-gradient(180deg, var(--ink) 0%, #1a1512 50%, var(--ink) 100%);
+}
+
+.feature {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: clamp(40px, 7vw, 110px);
+  padding: clamp(70px, 9vw, 120px) 0;
+}
+
+.feature + .feature {
+  border-top: 1px solid var(--hairline);
+}
+
+.feature--flip .feature__media {
+  order: 2;
+}
+
+.feature__copy h2 {
+  margin: 16px 0 20px;
+  font-size: var(--t-h2);
+  max-width: 15ch;
+}
+
+.feature__copy p {
+  color: var(--muted);
+  max-width: 42ch;
+}
+
+.feature__copy p + p {
+  margin-top: 14px;
+}
+
+.feature__note {
+  display: inline-block;
+  margin-top: 22px;
+  padding-left: 14px;
+  border-left: 1px solid var(--hairline-strong);
+  font-size: 0.88rem;
+  color: var(--faint);
+  max-width: 38ch;
+}
+
+/* each block gets a slightly different ember position so the page never feels
+   like the same section repeated */
+.feature__media {
+  position: relative;
+}
+.feature:nth-of-type(1) .device::before {
+  background: radial-gradient(50% 50% at 46% 44%, rgba(232, 116, 95, 0.34), transparent 70%);
+}
+.feature:nth-of-type(2) .device::before {
+  background: radial-gradient(50% 50% at 56% 56%, rgba(232, 116, 95, 0.3), transparent 70%);
+}
+.feature:nth-of-type(3) .device::before {
+  background: radial-gradient(50% 50% at 44% 60%, rgba(232, 116, 95, 0.32), transparent 70%);
+}
+.feature:nth-of-type(4) .device::before {
+  background: radial-gradient(50% 50% at 58% 40%, rgba(232, 116, 95, 0.3), transparent 70%);
+}
+.feature:nth-of-type(5) .device::before {
+  background: radial-gradient(50% 50% at 50% 52%, rgba(232, 116, 95, 0.36), transparent 70%);
+}
+
+/* --------------------------------------------------------------------------
+   Themes — the one light section on the page
+   -------------------------------------------------------------------------- */
+
+.themes {
+  --swatch-accent: #e87461;
+  padding: var(--section-y) 0;
+  background: var(--cream);
+  color: #2d2a26;
+}
+
+.themes .overline {
+  color: var(--swatch-accent);
+  transition: color 0.5s var(--ease);
+}
+
+.themes h2 {
+  margin: 16px 0 18px;
+  font-size: var(--t-h2);
+  max-width: 16ch;
+}
+
+.themes p {
+  max-width: 44ch;
+  color: #6f6862;
+  font-size: var(--t-lede);
+  line-height: 1.55;
+}
+
+.themes__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(40px, 6vw, 90px);
+  align-items: center;
+}
+
+.themes__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swatch {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  padding: 20px 22px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.4s var(--ease), transform 0.4s var(--ease);
+}
+
+.swatch:hover,
+.swatch[aria-current="true"] {
+  background: rgba(45, 42, 38, 0.05);
+}
+.swatch[aria-current="true"] {
+  transform: translateX(4px);
+}
+
+.swatch__name {
+  font-family: var(--display);
+  font-size: 1.06rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.swatch__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.84rem;
+  color: #8a827b;
+  letter-spacing: 0;
+}
+
+.swatch__chips {
+  display: flex;
+  gap: 6px;
+}
+
+.swatch__chips i {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(45, 42, 38, 0.1);
+}
+
+/* A small, honest recreation of the Home screen, recoloured live by whichever
+   palette is selected. Real text rather than skeleton bars — grey placeholder
+   blocks read as a loading state, not as a product. */
+.themes__preview {
+  --prev-bg: #fdfcfb;
+  --prev-card: #ffffff;
+  --prev-primary: #e87461;
+  --prev-secondary: #f5f1ed;
+  --prev-muted: #ebe7e3;
+  --prev-border: #e5dfd9;
+  --prev-fg: #2d2a26;
+
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: clamp(24px, 3vw, 34px);
+  border-radius: var(--r-lg);
+  background: var(--prev-bg);
+  color: var(--prev-fg);
+  box-shadow:
+    0 1px 0 rgba(45, 42, 38, 0.06),
+    0 30px 70px rgba(45, 42, 38, 0.14);
+  transition: background 0.55s var(--ease), color 0.55s var(--ease);
+}
+
+/* dark palettes flip the mock's own text colour */
+.themes__preview.is-dark {
+  --prev-fg: #f5f1ed;
+}
+
+.themes__preview .p-date {
+  font-size: 0.76rem;
+  color: var(--prev-fg);
+  opacity: 0.5;
+}
+
+.themes__preview .p-greet {
+  margin-bottom: 6px;
+  font-family: var(--display);
+  font-size: 1.28rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.themes__preview .p-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--r-sm);
+  background: var(--prev-card);
+  box-shadow: inset 0 0 0 1px var(--prev-border);
+  transition:
+    background 0.55s var(--ease),
+    box-shadow 0.55s var(--ease);
+}
+
+.themes__preview .p-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.themes__preview .p-moods {
+  display: flex;
+  gap: 6px;
+}
+.themes__preview .p-moods span {
+  flex: 1;
+  padding: 12px 2px;
+  border-radius: 10px;
+  background: var(--prev-secondary);
+  font-size: 0.62rem;
+  text-align: center;
+  opacity: 0.75;
+  transition: background 0.55s var(--ease), color 0.55s var(--ease);
+}
+.themes__preview .p-moods .on {
+  background: var(--prev-primary);
+  color: var(--prev-bg);
+  opacity: 1;
+}
+
+.themes__preview .p-kicker {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--prev-primary);
+  transition: color 0.55s var(--ease);
+}
+.themes__preview .p-quote {
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.themes__preview .p-pill {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 11px 22px;
+  border-radius: 999px;
+  background: var(--prev-primary);
+  color: var(--prev-bg);
+  font-size: 0.84rem;
+  font-weight: 600;
+  transition: background 0.55s var(--ease), color 0.55s var(--ease);
+}
+
+/* --------------------------------------------------------------------------
+   Privacy
+   -------------------------------------------------------------------------- */
+
+.privacy {
+  padding: var(--section-y) 0;
+  background:
+    radial-gradient(80% 60% at 82% 8%, rgba(232, 116, 95, 0.12), transparent 66%),
+    var(--ink);
+}
+
+.privacy__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  align-items: center;
+  gap: clamp(40px, 7vw, 100px);
+  margin-bottom: clamp(48px, 7vw, 78px);
+}
+
+.privacy__head h2 {
+  max-width: 17ch;
+  margin: 16px 0 20px;
+  font-size: var(--t-h2);
+}
+.privacy__head p {
+  color: var(--muted);
+  max-width: 42ch;
+}
+.privacy__top .device {
+  max-width: 280px;
+}
+.privacy__top .device::before {
+  background: radial-gradient(50% 50% at 52% 46%, rgba(232, 116, 95, 0.3), transparent 70%);
+}
+
+.privacy__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  column-gap: clamp(40px, 7vw, 110px);
+}
+
+.privacy__item {
+  padding: 30px 0;
+  border-top: 1px solid var(--hairline);
+}
+.privacy__item h3 {
+  font-size: 1.12rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+.privacy__item p {
+  color: var(--muted);
+  font-size: 0.98rem;
+  max-width: 40ch;
+}
+
+/* --------------------------------------------------------------------------
+   Plans
+   -------------------------------------------------------------------------- */
+
+.plans {
+  padding: var(--section-y) 0;
+  background: var(--ink);
+}
+
+.plans__head {
+  margin-bottom: clamp(44px, 6vw, 72px);
+}
+.plans__head h2 {
+  max-width: 20ch;
+  margin-top: 16px;
+  font-size: var(--t-h2);
+}
+
+.plans__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(34px, 6vw, 90px);
+}
+
+.plan {
+  padding-top: 26px;
+  border-top: 1px solid var(--hairline-strong);
+}
+.plan--pro {
+  border-top-color: var(--coral);
+}
+
+.plan__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.plan__label h3 {
+  font-size: 1.32rem;
+  letter-spacing: -0.025em;
+}
+.plan--pro .plan__label h3 {
+  color: var(--coral);
+}
+.plan__label span {
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.plan ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 13px;
+}
+.plan li {
+  position: relative;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+.plan li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.66em;
+  width: 6px;
+  height: 1px;
+  background: var(--coral);
+}
+
+/* --------------------------------------------------------------------------
+   Closing CTA
+   -------------------------------------------------------------------------- */
+
+.close {
+  position: relative;
+  padding: clamp(110px, 16vw, 190px) 0;
+  text-align: center;
+  background:
+    radial-gradient(90% 120% at 50% 118%, rgba(232, 116, 95, 0.46), transparent 62%),
+    linear-gradient(180deg, var(--ink) 0%, #33211a 58%, #5c2e22 100%);
+  overflow: hidden;
+}
+
+.close h2 {
+  max-width: 16ch;
+  margin: 0 auto 22px;
+  font-size: var(--t-h2);
+}
+.close p {
+  max-width: 44ch;
+  margin: 0 auto 34px;
+  color: rgba(251, 247, 244, 0.72);
+  font-size: var(--t-lede);
+}
+
+/* --------------------------------------------------------------------------
+   Footer
+   -------------------------------------------------------------------------- */
+
+.foot {
+  padding: clamp(56px, 8vw, 84px) 0 40px;
+  background: #100e0c;
+}
+
+.foot__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  gap: clamp(30px, 4vw, 56px);
+  padding-bottom: 46px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.foot__brand p {
+  margin-top: 14px;
+  max-width: 30ch;
+  color: var(--faint);
+  font-size: 0.92rem;
+}
+
+.foot__col h4 {
+  margin-bottom: 16px;
+  font-family: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.foot__col ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 11px;
+}
+.foot__col a {
+  font-size: 0.94rem;
+  color: var(--muted);
+  transition: color 0.3s var(--ease);
+}
+.foot__col a:hover {
+  color: var(--cream);
+}
+
+.foot__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 14px 30px;
+  padding-top: 26px;
+  font-size: 0.82rem;
+  color: rgba(251, 247, 244, 0.3);
+}
+.foot__bottom p {
+  max-width: 62ch;
+}
+
+/* --------------------------------------------------------------------------
+   Legal / document pages
+   -------------------------------------------------------------------------- */
+
+.doc {
+  padding: clamp(120px, 16vh, 170px) 0 var(--section-y);
+  background:
+    radial-gradient(70% 40% at 50% 0%, rgba(232, 116, 95, 0.13), transparent 68%),
+    var(--ink);
+}
+
+.doc__head {
+  padding-bottom: clamp(34px, 5vw, 54px);
+  margin-bottom: clamp(34px, 5vw, 54px);
+  border-bottom: 1px solid var(--hairline);
+}
+.doc__head h1 {
+  max-width: 18ch;
+  margin: 16px 0 18px;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+}
+.doc__head p {
+  color: var(--muted);
+  max-width: 52ch;
+  font-size: var(--t-lede);
+  line-height: 1.55;
+}
+
+.doc__body {
+  max-width: 68ch;
+}
+
+.doc__date {
+  display: inline-block;
+  margin-bottom: 40px;
+  padding: 7px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.doc__body h2 {
+  margin: 52px 0 16px;
+  font-size: clamp(1.22rem, 2.3vw, 1.55rem);
+  letter-spacing: -0.024em;
+  color: var(--coral);
+}
+.doc__body > section:first-of-type h2 {
+  margin-top: 0;
+}
+
+.doc__body p {
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.72;
+}
+
+.doc__body ul {
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.doc__body li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.66;
+}
+.doc__body li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72em;
+  width: 8px;
+  height: 1px;
+  background: var(--coral);
+}
+
+/* Inline prose links only. Buttons and the hub index live inside .doc__body
+   too, so they have to opt back out of the underline treatment. */
+.doc__body p a,
+.doc__body li a,
+.doc__note a {
+  color: var(--coral);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.doc__body .doc__actions .btn,
+.doc__body .doc__index a {
+  text-decoration: none;
+}
+.doc__actions .btn--app {
+  color: #17110e;
+}
+.doc__actions .btn--secondary {
+  color: var(--cream);
+}
+
+.doc__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 42px 0;
+}
+.doc__actions .btn--secondary {
+  background: transparent;
+  color: var(--cream);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+.doc__actions .btn--secondary:hover {
+  box-shadow: inset 0 0 0 1px var(--coral);
+  transform: translateY(-2px);
+}
+
+.doc__note {
+  margin-top: 34px;
+  padding: 22px 24px;
+  border-left: 2px solid var(--coral);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: rgba(232, 116, 95, 0.06);
+}
+.doc__note + .doc__note {
+  margin-top: 14px;
+}
+.doc__note strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--coral);
+}
+.doc__note p {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.66;
+  color: var(--muted);
+}
+
+/* legal hub index */
+.doc__index {
+  display: grid;
+  max-width: 72ch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.doc__index li {
+  padding-left: 0;
+  font-size: inherit;
+}
+.doc__index li::before {
+  content: none;
+}
+.doc__index h2 {
+  margin: 0;
+  color: var(--cream);
+}
+.doc__index p {
+  margin: 0;
+  font-size: 0.94rem;
+}
+.doc__index a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 20px;
+  padding: 26px 0;
+  border-top: 1px solid var(--hairline);
+  transition: padding 0.4s var(--ease);
+}
+.doc__index li:last-child a {
+  border-bottom: 1px solid var(--hairline);
+}
+.doc__index h2 {
+  font-size: 1.16rem;
+  letter-spacing: -0.022em;
+  transition: color 0.3s var(--ease);
+}
+.doc__index p {
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: 0.94rem;
+}
+.doc__index .chev {
+  color: var(--coral);
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity 0.35s var(--ease), transform 0.35s var(--ease);
+}
+.doc__index a:hover {
+  padding-left: 10px;
+}
+.doc__index a:hover h2 {
+  color: var(--coral);
+}
+.doc__index a:hover .chev {
+  opacity: 1;
+  transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   Reveal animation
+   Only armed once JS confirms it can un-arm them, so a JS failure can never
+   leave the page blank.
+   -------------------------------------------------------------------------- */
+
+.js [data-reveal] {
+  opacity: 0;
+  transform: translateY(24px);
+}
+
+.js [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.75s var(--ease),
+    transform 0.75s var(--ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* --------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .foot__top {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 44px;
+  }
+  .foot__brand {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 860px) {
+  .nav__links,
+  .nav__cta {
+    display: none;
+  }
+  .nav__burger {
+    display: block;
+  }
+
+  .feature,
+  .themes__grid {
+    grid-template-columns: 1fr;
+  }
+  .feature__media,
+  .feature--flip .feature__media {
+    order: -1;
+  }
+  .feature__copy h2,
+  .feature__copy p,
+  .themes p,
+  .themes h2 {
+    max-width: 34ch;
+  }
+
+  .loop__grid {
+    grid-template-columns: 1fr;
+    gap: 34px;
+  }
+  .loop__step {
+    padding-bottom: 34px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .loop__step:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .privacy__grid,
+  .plans__grid,
+  .privacy__top {
+    grid-template-columns: 1fr;
+  }
+  .privacy__top .device {
+    order: -1;
+  }
+  .plans__grid {
+    gap: 40px;
+  }
+
+  .themes__preview {
+    max-width: 460px;
+  }
+}
+
+@media (max-width: 560px) {
+  .hero__device {
+    width: min(250px, 72vw);
+    margin-bottom: -90px;
+  }
+  .trust {
+    padding-top: 140px;
+  }
+  .hero__actions {
+    gap: 4px 20px;
+  }
+  .foot__top {
+    grid-template-columns: 1fr;
+  }
+  .swatch {
+    padding: 16px 14px;
+  }
+  .swatch__chips i {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Reduced motion — the app honours Reduce Motion everywhere and so must this
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .js [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media print {
+  body::after,
+  .nav,
+  .nav__sheet {
+    display: none;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .doc {
+    background: #fff;
+  }
+  .doc__body p,
+  .doc__body li {
+    color: #222;
+  }
+  .doc__body h2 {
+    color: #000;
+  }
+}

@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Journal.IO — Notice what keeps coming back</title>
+    <meta
+      name="description"
+      content="A calm journaling app that turns what you write into patterns you can see. Ask Jade about your own history, watch themes build on the Mind Map, and keep the habit from your Home Screen."
+    />
+    <link rel="canonical" href="https://journalio.app/" />
+    <meta name="theme-color" content="#141210" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Journal.IO" />
+    <meta property="og:url" content="https://journalio.app/" />
+    <meta property="og:title" content="Journal.IO — Notice what keeps coming back" />
+    <meta
+      property="og:description"
+      content="Journaling that turns what you write into patterns you can actually see."
+    />
+    <meta property="og:image" content="https://journalio.app/assets/site/img/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Journal.IO — Notice what keeps coming back" />
+    <meta
+      name="twitter:description"
+      content="Journaling that turns what you write into patterns you can actually see."
+    />
+    <meta name="twitter:image" content="https://journalio.app/assets/site/img/og.jpg" />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/site/img/icon-32.png" />
+    <link rel="apple-touch-icon" href="/assets/site/img/icon-180.png" />
+
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/assets/site/fonts/BricolageGrotesque-Bold.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/assets/site/fonts/SchibstedGrotesk-Regular.woff2"
+      crossorigin
+    />
+    <link rel="preload" as="image" href="/assets/site/img/home.webp" fetchpriority="high" />
+    <link rel="stylesheet" href="/assets/site/site.css" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Journal.IO",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "iOS",
+        "url": "https://journalio.app/",
+        "downloadUrl": "https://apps.apple.com/app/id6770075245",
+        "description": "A calm behavioral journaling app that turns everyday writing into patterns you can see, with mood check-ins, guided reflection, a Mind Map of recurring themes, and Home Screen widgets.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <!-- ================================================================ nav -->
+    <header class="nav" id="nav">
+      <div class="nav__inner">
+        <a class="wordmark" href="/" aria-label="Journal.IO home">journal<span>.io</span></a>
+
+        <nav class="nav__links" aria-label="Primary">
+          <a href="#loop">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#themes">Themes</a>
+          <a href="#privacy">Privacy</a>
+          <a href="/support">Support</a>
+        </nav>
+
+        <a
+          class="btn btn--app btn--small nav__cta"
+          href="https://apps.apple.com/app/id6770075245"
+          target="_blank"
+          rel="noopener"
+        >
+          <svg viewBox="0 0 384 512" aria-hidden="true">
+            <path
+              d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+            />
+          </svg>
+          Download
+        </a>
+
+        <button
+          class="nav__burger"
+          type="button"
+          aria-label="Menu"
+          aria-expanded="false"
+          aria-controls="nav-sheet"
+        >
+          <span></span><span></span>
+        </button>
+      </div>
+    </header>
+
+    <div class="nav__sheet" id="nav-sheet" hidden>
+      <a href="#loop">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#themes">Themes</a>
+      <a href="#privacy">Privacy</a>
+      <a href="/support">Support</a>
+      <a
+        class="btn btn--app"
+        href="https://apps.apple.com/app/id6770075245"
+        target="_blank"
+        rel="noopener"
+      >
+        <svg viewBox="0 0 384 512" aria-hidden="true">
+          <path
+            d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+          />
+        </svg>
+        Download on the App Store
+      </a>
+    </div>
+
+    <main id="main">
+      <!-- ============================================================= hero -->
+      <section class="hero">
+        <div class="shell hero__inner">
+          <p class="overline" data-reveal>Journaling, quietly analysed</p>
+
+          <h1 data-reveal style="--reveal-delay: 80ms">Notice what keeps coming back.</h1>
+
+          <p class="lede" data-reveal style="--reveal-delay: 160ms">
+            Journal.IO turns everyday writing into patterns you can actually see — the moods, the
+            themes, and the small repeating things that quietly shape your weeks.
+          </p>
+
+          <div class="hero__actions" data-reveal style="--reveal-delay: 240ms">
+            <a
+              class="btn btn--app"
+              href="https://apps.apple.com/app/id6770075245"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg viewBox="0 0 384 512" aria-hidden="true">
+                <path
+                  d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+                />
+              </svg>
+              Download on the App Store
+            </a>
+            <a class="btn btn--ghost" href="#loop">See how it works <span class="arrow">↓</span></a>
+          </div>
+
+          <div class="hero__device" data-reveal style="--reveal-delay: 320ms">
+            <div class="device" data-parallax>
+              <img
+                src="/assets/site/img/home.webp"
+                alt="The Journal.IO home screen, showing today's greeting, a mood check-in, and the day's reflection prompt."
+                width="633"
+                height="1309"
+                fetchpriority="high"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ trust -->
+      <section class="trust">
+        <div class="shell">
+          <ul class="trust__row" data-reveal>
+            <li>Private by design</li>
+            <li>No ads</li>
+            <li>Non-clinical</li>
+            <li>Face&nbsp;ID lock</li>
+            <li>Export anytime</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================================================= loop -->
+      <section class="loop" id="loop">
+        <div class="shell">
+          <div class="loop__head" data-reveal>
+            <p class="overline">The loop</p>
+            <h2>Three minutes of writing. The app does the noticing.</h2>
+          </div>
+
+          <div class="loop__grid">
+            <div class="loop__step" data-reveal>
+              <p class="loop__num">01</p>
+              <h3>Write</h3>
+              <p>
+                Open to a blank page or a guided prompt, tag how the day felt, and close the app.
+                Saving never waits on anything.
+              </p>
+            </div>
+            <div class="loop__step" data-reveal style="--reveal-delay: 100ms">
+              <p class="loop__num">02</p>
+              <h3>Notice</h3>
+              <p>
+                Your entries get read back to you as recurring themes and mood movement — never a
+                score, never a verdict about who you are.
+              </p>
+            </div>
+            <div class="loop__step" data-reveal style="--reveal-delay: 200ms">
+              <p class="loop__num">03</p>
+              <h3>Carry forward</h3>
+              <p>
+                Each week ends with one small, practical thing worth trying. Not a lecture. One
+                thing.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= features -->
+      <div class="features" id="features">
+        <div class="shell">
+          <!-- Ask Jade -->
+          <section class="feature">
+            <div class="feature__media" data-reveal>
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/ask-jade.webp"
+                  alt="The Ask Jade chat, showing a seven-day mood trend chart above a list of patterns drawn from the user's own entries."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="feature__copy" data-reveal style="--reveal-delay: 120ms">
+              <p class="overline">Ask Jade</p>
+              <h2>Talk it through with Jade.</h2>
+              <p>
+                Tap the orb on your home screen and ask anything about your own history. Jade
+                answers in plain language and draws only on what you have written.
+              </p>
+              <p>
+                Ask for the numbers and it renders them inline — how your mood moved this week, how
+                often a theme comes up, when you actually write.
+              </p>
+              <p class="feature__note">
+                Premium. Conversations are saved, so you can pick one back up later.
+              </p>
+            </div>
+          </section>
+
+          <!-- Mind Map -->
+          <section class="feature feature--flip" id="mind-map">
+            <div class="feature__media" data-reveal>
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/mind-map.webp"
+                  alt="The Mind Map screen, showing a rotatable three-dimensional model with eight labelled reflection regions and a ranked list beneath it."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="feature__copy" data-reveal style="--reveal-delay: 120ms">
+              <p class="overline">Mind Map</p>
+              <h2>See how your thoughts connect.</h2>
+              <p>
+                Eight regions, built from your own reflections. Rotate it, zoom in, tap a region to
+                read the writing that pointed there — planning, memory, conflict, identity.
+              </p>
+              <p>
+                It fills in gradually as you write, so the shape you end up with is genuinely yours
+                rather than a template.
+              </p>
+              <p class="feature__note">
+                A map of your writing, not a measurement of your brain. Nothing here is medical.
+              </p>
+            </div>
+          </section>
+
+          <!-- Guided reflection -->
+          <section class="feature">
+            <div class="feature__media" data-reveal>
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/guided-reflection.webp"
+                  alt="A guided reflection prompt asking what one good or exciting thing happened today, with a text field below it."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="feature__copy" data-reveal style="--reveal-delay: 120ms">
+              <p class="overline">Guided reflection</p>
+              <h2>Never face a blank page.</h2>
+              <p>
+                Three questions, one at a time. Something good that happened. Something that got in
+                the way. One thing worth carrying into tomorrow.
+              </p>
+              <p>
+                Then, if you want, go deeper — Jade replies in a few sentences and leaves you with a
+                single follow-up worth sitting with.
+              </p>
+              <p class="feature__note">
+                Writing freely is always free. Guided reflection is Premium after your first one.
+              </p>
+            </div>
+          </section>
+
+          <!-- Weekly analysis -->
+          <section class="feature feature--flip">
+            <div class="feature__media" data-reveal>
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/weekly-analysis.webp"
+                  alt="A weekly analysis screen summarising recurring topics, a mood badge, and the reflection areas that came up most."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="feature__copy" data-reveal style="--reveal-delay: 120ms">
+              <p class="overline">Weekly analysis</p>
+              <h2>Patterns, not verdicts.</h2>
+              <p>
+                Analysis waits until there is genuinely enough to say something. When there is, you
+                get the themes that keep recurring, how your mood moved, and where the two seem to
+                line up.
+              </p>
+              <p>
+                The wording stays careful on purpose: your entries <em>keep pointing to</em>
+                something. They never tell you what you are.
+              </p>
+              <p class="feature__note">
+                Topics and moods are picked up from what you wrote — there is no tagging chore.
+              </p>
+            </div>
+          </section>
+
+          <!-- Widgets -->
+          <section class="feature">
+            <div class="feature__media" data-reveal>
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/streak-widget.webp"
+                  alt="An iOS Home Screen with the Journal.IO streak widget alongside the app icon."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="feature__copy" data-reveal style="--reveal-delay: 120ms">
+              <p class="overline">Home Screen widgets</p>
+              <h2>Stay consistent without opening the app.</h2>
+              <p>
+                Three widgets, one habit each. Streak shows where you are. Quick Thought opens
+                straight into a blank page. Mood Check-in is a single tap and never launches
+                anything.
+              </p>
+              <p>
+                Streaks inside the app work the same way — a record of showing up, not a thing to
+                lose.
+              </p>
+              <p class="feature__note">
+                The Streak widget is free. Quick Thought and Mood Check-in are Premium.
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- =========================================================== themes -->
+      <section class="themes" id="themes">
+        <div class="shell themes__grid">
+          <div data-reveal>
+            <p class="overline">Personalisation</p>
+            <h2>Five palettes. Pick the one you'll actually open.</h2>
+            <p>
+              Chosen during onboarding, changed whenever you like, and applied instantly across
+              every screen — the widgets included. Try one:
+            </p>
+
+            <ul class="themes__list" id="themes-list">
+              <li>
+                <button
+                  class="swatch"
+                  type="button"
+                  aria-current="true"
+                  data-bg="#FDFCFB"
+                  data-card="#FFFFFF"
+                  data-primary="#E87461"
+                  data-secondary="#F5F1ED"
+                  data-muted="#EBE7E3"
+                  data-border="#E5DFD9"
+                >
+                  <span>
+                    <span class="swatch__name">Warm Cream</span>
+                    <span class="swatch__hint">The default. Paper, not screen.</span>
+                  </span>
+                  <span class="swatch__chips" aria-hidden="true">
+                    <i style="background: #fdfcfb"></i><i style="background: #f5f1ed"></i
+                    ><i style="background: #e87461"></i>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  class="swatch"
+                  type="button"
+                  data-dark="true"
+                  data-bg="#1A1816"
+                  data-card="#2D2A26"
+                  data-primary="#FF8A75"
+                  data-secondary="#3A3732"
+                  data-muted="#3A3732"
+                  data-border="#3A3732"
+                >
+                  <span>
+                    <span class="swatch__name">Midnight Calm</span>
+                    <span class="swatch__hint">For writing after everyone's asleep.</span>
+                  </span>
+                  <span class="swatch__chips" aria-hidden="true">
+                    <i style="background: #1a1816"></i><i style="background: #3a3732"></i
+                    ><i style="background: #ff8a75"></i>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  class="swatch"
+                  type="button"
+                  data-bg="#FFF7F2"
+                  data-card="#FFFFFF"
+                  data-primary="#F2A278"
+                  data-secondary="#F8ECE5"
+                  data-muted="#F0E2DA"
+                  data-border="#EADAD2"
+                >
+                  <span>
+                    <span class="swatch__name">Soft Peach</span>
+                    <span class="swatch__hint">Warmer, a little softer on the eyes.</span>
+                  </span>
+                  <span class="swatch__chips" aria-hidden="true">
+                    <i style="background: #fff7f2"></i><i style="background: #f8ece5"></i
+                    ><i style="background: #f2a278"></i>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  class="swatch"
+                  type="button"
+                  data-bg="#F8FAF5"
+                  data-card="#FFFFFF"
+                  data-primary="#6E8B6B"
+                  data-secondary="#ECF1E8"
+                  data-muted="#E3EADB"
+                  data-border="#DDE5D7"
+                >
+                  <span>
+                    <span class="swatch__name">Forest</span>
+                    <span class="swatch__hint">Green, low contrast, unhurried.</span>
+                  </span>
+                  <span class="swatch__chips" aria-hidden="true">
+                    <i style="background: #f8faf5"></i><i style="background: #ecf1e8"></i
+                    ><i style="background: #6e8b6b"></i>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  class="swatch"
+                  type="button"
+                  data-bg="#F5FAFF"
+                  data-card="#FFFFFF"
+                  data-primary="#3B82C4"
+                  data-secondary="#EAF4FD"
+                  data-muted="#DCEAF7"
+                  data-border="#D5E5F3"
+                >
+                  <span>
+                    <span class="swatch__name">Sky Blue</span>
+                    <span class="swatch__hint">Cooler, if warm tones aren't your thing.</span>
+                  </span>
+                  <span class="swatch__chips" aria-hidden="true">
+                    <i style="background: #f5faff"></i><i style="background: #eaf4fd"></i
+                    ><i style="background: #3b82c4"></i>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="themes__preview" id="theme-preview" aria-hidden="true" data-reveal>
+            <p class="p-date">Monday, August 17</p>
+            <p class="p-greet">Good afternoon, Sam</p>
+
+            <div class="p-card">
+              <p class="p-label">How are you feeling today?</p>
+              <div class="p-moods">
+                <span>Amazing</span><span>Good</span><span class="on">Okay</span><span>Bad</span
+                ><span>Terrible</span>
+              </div>
+            </div>
+
+            <div class="p-card">
+              <p class="p-kicker">Today's reflection</p>
+              <p class="p-quote">Whatever you are feeling is allowed to be here.</p>
+            </div>
+
+            <span class="p-pill">Write an entry</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================== privacy -->
+      <section class="privacy" id="privacy">
+        <div class="shell">
+          <div class="privacy__top">
+            <div class="privacy__head" data-reveal>
+              <p class="overline">Trust</p>
+              <h2>Your journal should feel like it's yours.</h2>
+              <p>
+                Journaling only works if you're honest, and you're only honest if you feel safe. So
+                the controls are real ones, and they take effect immediately.
+              </p>
+            </div>
+            <div class="device" data-reveal style="--reveal-delay: 120ms">
+              <img
+                src="/assets/site/img/biometric.webp"
+                alt="The Journal.IO app lock screen, requesting Face ID before showing any entries."
+                width="633"
+                height="1309"
+                loading="lazy"
+              />
+            </div>
+          </div>
+
+          <div class="privacy__grid">
+            <div class="privacy__item" data-reveal>
+              <h3>Face ID and Touch ID lock</h3>
+              <p>
+                The app covers itself the moment it leaves the foreground, with a short grace window
+                so switching apps for a second doesn't nag you.
+              </p>
+            </div>
+            <div class="privacy__item" data-reveal style="--reveal-delay: 80ms">
+              <h3>Hide journal previews</h3>
+              <p>
+                Mask entry text everywhere it would otherwise be readable over your shoulder —
+                including inside the Mind Map.
+              </p>
+            </div>
+            <div class="privacy__item" data-reveal>
+              <h3>Export and delete, for real</h3>
+              <p>
+                Take everything with you, or delete your account outright from inside the app. No
+                email thread, no retention dark pattern.
+              </p>
+            </div>
+            <div class="privacy__item" data-reveal style="--reveal-delay: 80ms">
+              <h3>No ads, ever</h3>
+              <p>
+                Journal.IO is paid for by the people who use it. Your entries are not a product and
+                are never sold.
+              </p>
+            </div>
+            <div class="privacy__item" data-reveal>
+              <h3>Writing never waits on AI</h3>
+              <p>
+                Analysis runs after the fact and separately. If it fails or you skip it, your entry
+                is still saved exactly as you wrote it.
+              </p>
+            </div>
+            <div class="privacy__item" data-reveal style="--reveal-delay: 80ms">
+              <h3>Non-clinical by design</h3>
+              <p>
+                Journal.IO is not a medical product and does not diagnose. Everything the AI says is
+                supportive, hedged, and honest about being uncertain.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ plans -->
+      <section class="plans">
+        <div class="shell">
+          <div class="plans__head" data-reveal>
+            <p class="overline">Plans</p>
+            <h2>Honest about what's free.</h2>
+          </div>
+
+          <div class="plans__grid">
+            <div class="plan" data-reveal>
+              <div class="plan__label">
+                <h3>Free</h3>
+                <span>No account limits</span>
+              </div>
+              <ul>
+                <li>Unlimited journal entries</li>
+                <li>Daily mood check-ins and history</li>
+                <li>Streaks, calendar, search and favourites</li>
+                <li>Goals you create and own</li>
+                <li>The Mind Map as an educational model</li>
+                <li>The Streak Home Screen widget</li>
+                <li>All five themes</li>
+              </ul>
+            </div>
+
+            <div class="plan plan--pro" data-reveal style="--reveal-delay: 100ms">
+              <div class="plan__label">
+                <h3>Premium</h3>
+                <span>Everything in free, plus</span>
+              </div>
+              <ul>
+                <li>Ask Jade, with saved conversations</li>
+                <li>Guided reflection any time, with Go deeper</li>
+                <li>Weekly and per-entry analysis</li>
+                <li>Your personal Mind Map, all-time or weekly</li>
+                <li>Quick Thought and Mood Check-in widgets</li>
+                <li>Face ID app lock and hidden previews</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ close -->
+      <section class="close">
+        <div class="shell">
+          <h2 data-reveal>Start with today.</h2>
+          <p data-reveal style="--reveal-delay: 80ms">
+            One entry is enough to begin. The patterns turn up on their own.
+          </p>
+          <div data-reveal style="--reveal-delay: 160ms">
+            <a
+              class="btn btn--app"
+              href="https://apps.apple.com/app/id6770075245"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg viewBox="0 0 384 512" aria-hidden="true">
+                <path
+                  d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+                />
+              </svg>
+              Download on the App Store
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============================================================= footer -->
+    <footer class="foot">
+      <div class="shell">
+        <div class="foot__top">
+          <div class="foot__brand">
+            <a class="wordmark" href="/">journal<span>.io</span></a>
+            <p>
+              A calm place to write things down, and a quiet way to notice what keeps coming back.
+            </p>
+          </div>
+
+          <div class="foot__col">
+            <h4>Product</h4>
+            <ul>
+              <li><a href="#loop">How it works</a></li>
+              <li><a href="#features">Features</a></li>
+              <li><a href="#mind-map">Mind Map</a></li>
+              <li><a href="#themes">Themes</a></li>
+              <li>
+                <a href="https://apps.apple.com/app/id6770075245" target="_blank" rel="noopener"
+                  >Download</a
+                >
+              </li>
+            </ul>
+          </div>
+
+          <div class="foot__col">
+            <h4>Legal</h4>
+            <ul>
+              <li><a href="/privacy">Privacy Policy</a></li>
+              <li><a href="/terms">Terms of Service</a></li>
+              <li><a href="/acceptable-use">Usage Policy</a></li>
+              <li><a href="/privacy-choices">Privacy Choices</a></li>
+              <li><a href="/legal">Legal Hub</a></li>
+            </ul>
+          </div>
+
+          <div class="foot__col">
+            <h4>Support</h4>
+            <ul>
+              <li><a href="/support">Get help</a></li>
+              <li><a href="/privacy-choices">Delete your account</a></li>
+              <li><a href="/privacy-choices">Export your data</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="foot__bottom">
+          <p>
+            Journal.IO is not a medical device and does not provide medical advice, diagnosis, or
+            treatment. AI-supported reflections are intended to be supportive and
+            uncertainty-aware.
+          </p>
+          <p>&copy; 2026 Journal.IO</p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/assets/site/site.js" defer></script>
+  </body>
+</html>

@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Express, Request, Response } from "express";
 
 type LegalSection = {
@@ -348,13 +349,13 @@ const renderSection = (section: LegalSection): string => {
 const renderActions = (
   actions: NonNullable<LegalPageDocument["actions"]>
 ): string => `
-  <div class="action-grid">
+  <div class="doc__actions">
     ${actions
       .map(action => {
         const target = action.external ? ` target="_blank" rel="noreferrer noopener"` : "";
-        const variant = action.variant || "secondary";
+        const variant = action.variant === "primary" ? "btn--app" : "btn--secondary";
 
-        return `<a class="action-button ${variant}" href="${escapeHtml(action.href)}"${target}>${escapeHtml(action.label)}</a>`;
+        return `<a class="btn ${variant}" href="${escapeHtml(action.href)}"${target}>${escapeHtml(action.label)}</a>`;
       })
       .join("")}
   </div>
@@ -368,19 +369,19 @@ const renderNotes = ({
 
   if (helperNote) {
     notes.push(`
-      <section class="note-card">
-        <h2>Before You Submit</h2>
+      <aside class="doc__note">
+        <strong>Before You Submit</strong>
         <p>${escapeHtml(helperNote)}</p>
-      </section>
+      </aside>
     `);
   }
 
   if (privacyNote) {
     notes.push(`
-      <section class="note-card warning">
-        <h2>Privacy Note</h2>
+      <aside class="doc__note">
+        <strong>Privacy Note</strong>
         <p>${escapeHtml(privacyNote)}</p>
-      </section>
+      </aside>
     `);
   }
 
@@ -412,6 +413,83 @@ export const getRootRedirectLocationForHost = (
   return null;
 };
 
+const APPLE_LOGO_SVG = `<svg viewBox="0 0 384 512" aria-hidden="true"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>`;
+
+const SITE_NAV_LINKS: Array<{ href: string; label: string }> = [
+  { href: "/legal", label: "Legal Hub" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+  { href: "/privacy-choices", label: "Your Choices" },
+  { href: "/support", label: "Support" },
+];
+
+/**
+ * Nav and footer are shared with the landing page at backend/public/site/index.html.
+ * Keep the markup and class names in sync with backend/public/site/site.css.
+ */
+const renderSiteNav = (): string => `
+    <header class="nav is-stuck" id="nav">
+      <div class="nav__inner">
+        <a class="wordmark" href="/" aria-label="Journal.IO home">journal<span>.io</span></a>
+        <nav class="nav__links" aria-label="Primary">
+          ${SITE_NAV_LINKS.map(
+            link => `<a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`
+          ).join("\n          ")}
+        </nav>
+        <a class="btn btn--app btn--small nav__cta" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer noopener">${APPLE_LOGO_SVG}Download</a>
+        <button class="nav__burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-sheet"><span></span><span></span></button>
+      </div>
+    </header>
+    <div class="nav__sheet" id="nav-sheet" hidden>
+      ${SITE_NAV_LINKS.map(
+        link => `<a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`
+      ).join("\n      ")}
+      <a class="btn btn--app" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer noopener">${APPLE_LOGO_SVG}Download on the App Store</a>
+    </div>`;
+
+const renderSiteFooter = (): string => `
+    <footer class="foot">
+      <div class="shell">
+        <div class="foot__top">
+          <div class="foot__brand">
+            <a class="wordmark" href="/">journal<span>.io</span></a>
+            <p>A calm place to write things down, and a quiet way to notice what keeps coming back.</p>
+          </div>
+          <div class="foot__col">
+            <h4>Product</h4>
+            <ul>
+              <li><a href="/">Overview</a></li>
+              <li><a href="/#features">Features</a></li>
+              <li><a href="/#privacy">Privacy</a></li>
+              <li><a href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer noopener">Download</a></li>
+            </ul>
+          </div>
+          <div class="foot__col">
+            <h4>Legal</h4>
+            <ul>
+              <li><a href="/privacy">Privacy Policy</a></li>
+              <li><a href="/terms">Terms of Service</a></li>
+              <li><a href="/acceptable-use">Usage Policy</a></li>
+              <li><a href="/privacy-choices">Privacy Choices</a></li>
+              <li><a href="/legal">Legal Hub</a></li>
+            </ul>
+          </div>
+          <div class="foot__col">
+            <h4>Support</h4>
+            <ul>
+              <li><a href="/support">Get help</a></li>
+              <li><a href="/privacy-choices">Delete your account</a></li>
+              <li><a href="/privacy-choices">Export your data</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="foot__bottom">
+          <p>Journal.IO is not a medical device and does not provide medical advice, diagnosis, or treatment. AI-supported reflections are intended to be supportive and uncertainty-aware.</p>
+          <p>&copy; 2026 Journal.IO</p>
+        </div>
+      </div>
+    </footer>`;
+
 const renderLayout = ({
   pageTitle,
   heroTitle,
@@ -428,870 +506,35 @@ const renderLayout = ({
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(pageTitle)}</title>
-    <link rel="icon" type="image/png" href="/assets/landing/favicon.png" />
-    <link rel="apple-touch-icon" href="/assets/landing/favicon.png" />
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f7f2eb;
-        --card: #fffdf9;
-        --text: #201914;
-        --muted: #65574a;
-        --border: #e6d8ca;
-        --accent: #e87461;
-        --accent-strong: #cf5f4e;
-        --accent-soft: #f8e3de;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        background: radial-gradient(circle at top, #fff9f2 0%, var(--bg) 58%);
-        color: var(--text);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.65;
-      }
-
-      main {
-        max-width: 880px;
-        margin: 0 auto;
-        padding: 32px 20px 64px;
-      }
-
-      .shell {
-        background: rgba(255, 253, 249, 0.92);
-        border: 1px solid var(--border);
-        border-radius: 28px;
-        overflow: hidden;
-        box-shadow: 0 18px 44px rgba(73, 48, 24, 0.08);
-      }
-
-      header {
-        padding: 28px 24px 18px;
-        border-bottom: 1px solid var(--border);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(250, 244, 237, 0.9));
-      }
-
-      nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 18px;
-      }
-
-      nav a {
-        color: var(--accent);
-        text-decoration: none;
-        font-weight: 600;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: var(--accent-soft);
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(2rem, 4vw, 2.8rem);
-        line-height: 1.1;
-      }
-
-      .lede {
-        margin: 12px 0 0;
-        max-width: 58ch;
-        color: var(--muted);
-        font-size: 1rem;
-      }
-
-      .effective-date {
-        display: inline-block;
-        margin-top: 16px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 0.92rem;
-        font-weight: 600;
-      }
-
-      .content {
-        padding: 12px 24px 28px;
-      }
-
-      section + section {
-        margin-top: 28px;
-      }
-
-      h2 {
-        margin: 0 0 12px;
-        font-size: 1.15rem;
-      }
-
-      p,
-      li {
-        color: var(--muted);
-        font-size: 1rem;
-      }
-
-      ul {
-        margin: 0;
-        padding-left: 20px;
-      }
-
-      a.inline-link {
-        color: var(--accent);
-      }
-
-      .footer {
-        margin-top: 28px;
-        color: var(--muted);
-        font-size: 0.92rem;
-      }
-
-      .action-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin: 24px 0;
-      }
-
-      .action-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 48px;
-        padding: 0 18px;
-        border-radius: 999px;
-        text-decoration: none;
-        font-weight: 700;
-        transition: transform 140ms ease, box-shadow 140ms ease;
-      }
-
-      .action-button:hover {
-        transform: translateY(-1px);
-      }
-
-      .action-button.primary {
-        color: #ffffff;
-        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-        box-shadow: 0 16px 30px rgba(232, 116, 97, 0.18);
-      }
-
-      .action-button.secondary {
-        color: var(--accent);
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid var(--border);
-      }
-
-      .note-card {
-        margin-top: 18px;
-        padding: 16px 18px;
-        border-radius: 20px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.82);
-      }
-
-      .note-card.warning {
-        background: #fff7f4;
-      }
-
-      .note-card h2 {
-        margin-bottom: 8px;
-      }
-
-      .note-card p {
-        margin: 0;
-      }
-
-      .card-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 14px;
-        margin-top: 20px;
-      }
-
-      .card {
-        display: block;
-        text-decoration: none;
-        color: inherit;
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 18px;
-      }
-
-      .card h2 {
-        margin-bottom: 8px;
-      }
-
-      .card p {
-        margin: 0;
-      }
-
-      @media (max-width: 640px) {
-        main {
-          padding: 18px 14px 32px;
-        }
-
-        header,
-        .content {
-          padding-left: 18px;
-          padding-right: 18px;
-        }
-      }
-    </style>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta name="theme-color" content="#141210" />
+    <meta property="og:title" content="${escapeHtml(pageTitle)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:type" content="article" />
+    <meta property="og:image" content="${LANDING_PAGE_BASE_URL}/assets/site/img/og.jpg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/site/img/icon-32.png" />
+    <link rel="apple-touch-icon" href="/assets/site/img/icon-180.png" />
+    <link rel="preload" as="font" type="font/woff2" href="/assets/site/fonts/BricolageGrotesque-Bold.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/assets/site/fonts/SchibstedGrotesk-Regular.woff2" crossorigin />
+    <link rel="stylesheet" href="/assets/site/site.css" />
   </head>
   <body>
-    <main>
+    <a class="skip-link" href="#main">Skip to content</a>
+${renderSiteNav()}
+    <main class="doc" id="main">
       <div class="shell">
-        <header>
-          <nav>
-            <a href="/">Journal.IO</a>
-            <a href="/legal">Legal Hub</a>
-            <a href="/privacy">Privacy Policy</a>
-            <a href="/terms">Terms of Service</a>
-            <a href="/privacy-choices">Privacy Choices</a>
-            <a href="/support">Support</a>
-          </nav>
+        <div class="doc__head">
+          <p class="overline">Journal.IO</p>
           <h1>${escapeHtml(heroTitle)}</h1>
-          <p class="lede">${escapeHtml(description)}</p>
-        </header>
-        <div class="content">
+          <p>${escapeHtml(description)}</p>
+        </div>
+        <div class="doc__body">
           ${body}
-          <p class="footer">Need help with Journal.IO? Visit <a class="inline-link" href="/support">Support</a>.</p>
         </div>
       </div>
     </main>
-  </body>
-</html>`;
-
-type LandingScreenshot = {
-  title: string;
-  subtitle: string;
-  imageSrc: string;
-  fallbackLabel: string;
-};
-
-const landingScreenshots: LandingScreenshot[] = [
-  {
-    title: "Reflect. Track. Grow.",
-    subtitle: "Home, streaks, daily mood logging, prompts, and gentle AI insight cards.",
-    imageSrc: "/assets/landing/01_reflect_track_grow.png",
-    fallbackLabel: "Home dashboard",
-  },
-  {
-    title: "Write freely",
-    subtitle: "Quick capture, mood check-ins, writing prompts, manual tags, and AI tag suggestions.",
-    imageSrc: "/assets/landing/02_write_freely.png",
-    fallbackLabel: "New entry",
-  },
-  {
-    title: "See your patterns",
-    subtitle: "Weekly analysis waits for enough signal before turning entries into trend summaries.",
-    imageSrc: "/assets/landing/03_see_your_patterns.png",
-    fallbackLabel: "AI analysis",
-  },
-  {
-    title: "Stay consistent",
-    subtitle: "Streaks, achievements, 30-day activity, and reminders support the journaling habit.",
-    imageSrc: "/assets/landing/04_stay_consistent.png",
-    fallbackLabel: "Streaks",
-  },
-  {
-    title: "Look back with clarity",
-    subtitle: "Calendar history, favorites, search, and tags make older entries easier to revisit.",
-    imageSrc: "/assets/landing/05_look_back_with_clarity.png",
-    fallbackLabel: "Calendar",
-  },
-];
-
-const renderLandingScreenshots = (): string =>
-  landingScreenshots
-    .map(
-      screenshot => `
-        <article class="showcase-card">
-          <img
-            src="${escapeHtml(screenshot.imageSrc)}"
-            alt="${escapeHtml(screenshot.title)} screenshot"
-            loading="lazy"
-            onerror="this.closest('.showcase-card').classList.add('image-missing');this.remove();"
-          />
-          <div class="screenshot-fallback">
-            <span>${escapeHtml(screenshot.fallbackLabel)}</span>
-          </div>
-        </article>
-      `
-    )
-    .join("");
-
-export const getLandingPageHtml = (): string => `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Journal.IO | Reflect. Track. Grow.</title>
-    <meta
-      name="description"
-      content="Journal.IO is a calm behavioral journaling app with mood tracking, streaks, prompts, and gentle AI insights."
-    />
-    <meta property="og:title" content="Journal.IO | Reflect. Track. Grow." />
-    <meta
-      property="og:description"
-      content="A calm journal with mood tracking, practical streaks, and gentle AI insights."
-    />
-    <meta property="og:type" content="website" />
-    <link rel="icon" type="image/png" href="/assets/landing/favicon.png" />
-    <link rel="apple-touch-icon" href="/assets/landing/favicon.png" />
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #fff7ef;
-        --ink: #231f1b;
-        --muted: #6d6259;
-        --soft: #fffdf8;
-        --line: rgba(124, 82, 59, 0.16);
-        --coral: #ef725f;
-        --coral-strong: #d95e4f;
-        --coral-soft: #fff0ec;
-        --sage: #557665;
-        --shadow: 0 24px 80px rgba(100, 54, 25, 0.18);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html {
-        scroll-behavior: smooth;
-      }
-
-      body {
-        margin: 0;
-        color: var(--ink);
-        background:
-          radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.9), transparent 28%),
-          radial-gradient(circle at 85% 12%, rgba(255, 218, 190, 0.72), transparent 26%),
-          linear-gradient(180deg, #ff795f 0%, #fff2e7 34%, #fffaf4 100%);
-        font-family: ui-rounded, "Avenir Next", "Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-
-      a {
-        color: inherit;
-      }
-
-      .page {
-        overflow: hidden;
-      }
-
-      .nav {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 20px;
-        width: min(1120px, calc(100% - 32px));
-        margin: 16px auto 0;
-        padding: 12px 14px;
-        border: 1px solid rgba(255, 255, 255, 0.45);
-        border-radius: 999px;
-        background: rgba(255, 250, 244, 0.78);
-        box-shadow: 0 16px 44px rgba(83, 43, 22, 0.12);
-        backdrop-filter: blur(18px);
-      }
-
-      .brand {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 1rem;
-        font-weight: 900;
-        text-decoration: none;
-      }
-
-      .brand-mark {
-        display: grid;
-        width: 34px;
-        height: 34px;
-        place-items: center;
-        border-radius: 12px;
-        color: #ffffff;
-        background: linear-gradient(145deg, var(--coral), #ff9a7a);
-        box-shadow: 0 10px 24px rgba(217, 94, 79, 0.28);
-      }
-
-      .nav-links {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .nav-links a {
-        padding: 9px 13px;
-        border-radius: 999px;
-        color: rgba(35, 31, 27, 0.76);
-        font-size: 0.92rem;
-        font-weight: 800;
-        text-decoration: none;
-      }
-
-      .nav-links a:hover {
-        background: rgba(255, 255, 255, 0.76);
-      }
-
-      .hero {
-        width: min(1120px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 92px 0 72px;
-        text-align: center;
-      }
-
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 38px;
-        padding: 0 14px;
-        border: 1px solid rgba(255, 255, 255, 0.48);
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.32);
-        color: #ffffff;
-        font-weight: 900;
-        box-shadow: 0 14px 30px rgba(117, 55, 25, 0.12);
-      }
-
-      .hero h1 {
-        max-width: 920px;
-        margin: 26px auto 0;
-        color: #ffffff;
-        font-size: clamp(3.1rem, 9vw, 7.6rem);
-        line-height: 0.95;
-        letter-spacing: -0.075em;
-      }
-
-      .hero .lede {
-        max-width: 690px;
-        margin: 26px auto 0;
-        color: rgba(255, 255, 255, 0.92);
-        font-size: clamp(1.18rem, 2.4vw, 1.65rem);
-        font-weight: 800;
-        line-height: 1.32;
-      }
-
-      .hero-actions,
-      .hero-pills {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 12px;
-        margin-top: 30px;
-      }
-
-      .primary-cta,
-      .secondary-cta {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        min-height: 52px;
-        padding: 0 22px;
-        border-radius: 999px;
-        font-weight: 900;
-        text-decoration: none;
-      }
-
-      .cta-icon {
-        width: 18px;
-        height: 18px;
-        flex: 0 0 auto;
-      }
-
-      .primary-cta {
-        color: var(--coral-strong);
-        background: #ffffff;
-        box-shadow: 0 18px 46px rgba(105, 48, 22, 0.2);
-      }
-
-      .secondary-cta {
-        color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        background: rgba(255, 255, 255, 0.16);
-      }
-
-      .hero-pills {
-        margin-top: 24px;
-      }
-
-      .pill {
-        color: #ffffff;
-        font-size: 0.95rem;
-      }
-
-      .section {
-        width: min(1120px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 82px 0;
-      }
-
-      .section-header {
-        display: grid;
-        gap: 12px;
-        max-width: 720px;
-        margin-bottom: 30px;
-      }
-
-      .section-kicker {
-        color: var(--coral-strong);
-        font-size: 0.82rem;
-        font-weight: 950;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-
-      .section h2 {
-        margin: 0;
-        font-size: clamp(2.25rem, 5vw, 4.8rem);
-        line-height: 0.98;
-        letter-spacing: -0.065em;
-      }
-
-      .section-header p,
-      .feature-card p,
-      .trust-card p,
-      .footer p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 1.02rem;
-        line-height: 1.65;
-      }
-
-      .showcase-grid {
-        display: grid;
-        grid-template-columns: repeat(5, minmax(220px, 1fr));
-        gap: 18px;
-        overflow-x: auto;
-        padding: 8px 4px 26px;
-        scroll-snap-type: x mandatory;
-      }
-
-      .showcase-card {
-        position: relative;
-        min-height: 520px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.6);
-        border-radius: 34px;
-        background:
-          radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.5), transparent 30%),
-          linear-gradient(180deg, #ff7a61 0%, #ffc397 100%);
-        box-shadow: var(--shadow);
-        scroll-snap-align: center;
-      }
-
-      .showcase-card img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        min-height: 520px;
-        object-fit: cover;
-      }
-
-      .screenshot-fallback {
-        display: none;
-        min-height: 420px;
-        align-items: flex-end;
-        justify-content: center;
-        padding: 32px 22px;
-      }
-
-      .screenshot-fallback span {
-        display: grid;
-        width: 168px;
-        height: 330px;
-        place-items: center;
-        border: 8px solid #24211f;
-        border-radius: 38px;
-        background: linear-gradient(180deg, #fffdf9, #f8eee6);
-        color: var(--coral-strong);
-        font-weight: 950;
-        text-align: center;
-        box-shadow: 0 22px 44px rgba(82, 44, 24, 0.26);
-      }
-
-      .showcase-card.image-missing .screenshot-fallback {
-        display: flex;
-      }
-
-      .feature-grid,
-      .trust-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 18px;
-      }
-
-      .feature-card,
-      .trust-card {
-        min-height: 220px;
-        padding: 24px;
-        border: 1px solid var(--line);
-        border-radius: 28px;
-        background: rgba(255, 253, 248, 0.86);
-        box-shadow: 0 18px 54px rgba(87, 51, 29, 0.08);
-      }
-
-      .feature-card strong,
-      .trust-card strong {
-        display: block;
-        margin-bottom: 12px;
-        font-size: 1.2rem;
-      }
-
-      .feature-card span,
-      .trust-card span {
-        display: grid;
-        width: 42px;
-        height: 42px;
-        margin-bottom: 18px;
-        place-items: center;
-        border-radius: 15px;
-        color: var(--coral-strong);
-        background: var(--coral-soft);
-        font-weight: 950;
-      }
-
-      .split {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.76fr);
-        gap: 26px;
-        align-items: stretch;
-      }
-
-      .founder-note {
-        padding: 30px;
-        border-radius: 34px;
-        background: linear-gradient(145deg, #2d251f, #4d3128);
-        color: #fff7ef;
-        box-shadow: var(--shadow);
-      }
-
-      .founder-note h2 {
-        color: #ffffff;
-      }
-
-      .founder-note p {
-        color: rgba(255, 247, 239, 0.78);
-      }
-
-      .waitlist-card {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 20px;
-        padding: 30px;
-        border-radius: 34px;
-        background: linear-gradient(180deg, #ffffff, #fff1eb);
-        border: 1px solid rgba(217, 94, 79, 0.18);
-        box-shadow: 0 20px 64px rgba(100, 54, 25, 0.12);
-      }
-
-      .waitlist-card h3 {
-        margin: 0;
-        font-size: 2rem;
-        letter-spacing: -0.04em;
-      }
-
-      .waitlist-card p {
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.65;
-      }
-
-      .footer {
-        width: min(1120px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 38px 0 54px;
-        border-top: 1px solid var(--line);
-      }
-
-      .footer-row {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        gap: 18px;
-      }
-
-      .footer-links {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-      }
-
-      .footer-links a {
-        color: var(--muted);
-        font-weight: 800;
-        text-decoration: none;
-      }
-
-      @media (max-width: 840px) {
-        .nav {
-          align-items: flex-start;
-          border-radius: 28px;
-        }
-
-        .nav-links {
-          display: none;
-        }
-
-        .hero {
-          padding-top: 58px;
-        }
-
-        .feature-grid,
-        .trust-grid,
-        .split {
-          grid-template-columns: 1fr;
-        }
-
-        .showcase-grid {
-          grid-template-columns: repeat(5, minmax(250px, 78vw));
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="page">
-      <nav class="nav" aria-label="Primary navigation">
-        <a class="brand" href="/">
-          <span class="brand-mark">J</span>
-          <span>Journal.IO</span>
-        </a>
-        <div class="nav-links">
-          <a href="#showcase">Screens</a>
-          <a href="#features">Features</a>
-          <a href="#privacy">Privacy</a>
-          <a href="/support">Support</a>
-        </div>
-      </nav>
-
-      <header class="hero">
-        <h1>Reflect. Track. Grow.</h1>
-        <p class="lede">
-          Journal.IO helps you capture daily thoughts, track moods, build streaks, and notice recurring patterns with gentle AI insights.
-        </p>
-        <div class="hero-actions">
-          <a class="primary-cta" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer">
-            <svg class="cta-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M15.47 12.91c.02 2.2 1.93 2.94 1.95 2.95-.02.05-.3 1.04-1 2.07-.6.89-1.24 1.77-2.22 1.79-.95.02-1.25-.56-2.34-.56-1.08 0-1.42.54-2.32.58-.95.04-1.68-.95-2.29-1.84-1.25-1.8-2.2-5.08-.92-7.3.64-1.1 1.78-1.79 3.01-1.81.94-.02 1.82.62 2.34.62.51 0 1.47-.76 2.47-.65.42.02 1.62.17 2.39 1.29-.06.04-1.43.83-1.41 2.86Zm-1.92-6.25c.5-.61.85-1.45.76-2.29-.73.03-1.6.49-2.12 1.1-.47.54-.88 1.39-.77 2.21.81.06 1.63-.42 2.13-1.02Z"/>
-            </svg>
-            Download on the App Store
-          </a>
-          <a class="secondary-cta" href="#showcase">See the app</a>
-        </div>
-        <div class="hero-pills" aria-label="Product highlights">
-          <span class="pill">Mood tracking</span>
-          <span class="pill">Weekly insights</span>
-          <span class="pill">Private by design</span>
-        </div>
-      </header>
-
-      <section id="showcase" class="section" aria-labelledby="showcase-heading">
-        <div class="section-header">
-          <span class="section-kicker">App Preview</span>
-          <h2 id="showcase-heading">A journal that turns writing into patterns.</h2>
-          <p>
-            From quick capture to weekly analysis, the app stays focused on one calm loop: write honestly, check in, and notice what keeps showing up.
-          </p>
-        </div>
-        <div class="showcase-grid">
-          ${renderLandingScreenshots()}
-        </div>
-      </section>
-
-      <section id="features" class="section" aria-labelledby="features-heading">
-        <div class="section-header">
-          <span class="section-kicker">Core Loop</span>
-          <h2 id="features-heading">Everything supports the daily habit.</h2>
-          <p>
-            Journal.IO keeps the product simple: write, check in, review what changed, and carry one small next step forward.
-          </p>
-        </div>
-        <div class="feature-grid">
-          <article class="feature-card">
-            <span>01</span>
-            <strong>Write without friction</strong>
-            <p>Quick capture, prompts, mood selection, manual tags, and premium AI tag suggestions keep entries lightweight.</p>
-          </article>
-          <article class="feature-card">
-            <span>02</span>
-            <strong>Review real patterns</strong>
-            <p>Insights are based on saved entries, mood check-ins, topics, streaks, and enough weekly activity to avoid forced conclusions.</p>
-          </article>
-          <article class="feature-card">
-            <span>03</span>
-            <strong>Stay consistent</strong>
-            <p>Streaks, reminders, calendar history, favorites, and gentle progress states keep users returning without noisy gamification.</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="privacy" class="section" aria-labelledby="privacy-heading">
-        <div class="section-header">
-          <span class="section-kicker">Trust</span>
-          <h2 id="privacy-heading">Supportive, non-clinical, and privacy-conscious.</h2>
-          <p>
-            Journal.IO is for reflection and behavior awareness. It is not a medical, therapy, or crisis-response product, and AI copy stays uncertainty-aware.
-          </p>
-        </div>
-        <div class="trust-grid">
-          <article class="trust-card">
-            <span>AI</span>
-            <strong>Gentle AI insights</strong>
-            <p>Weekly analysis and quick reads use soft language like “may indicate” and “journal entries suggest.”</p>
-          </article>
-          <article class="trust-card">
-            <span>PV</span>
-            <strong>User-controlled privacy</strong>
-            <p>Privacy controls include hidden journal previews, biometric app lock, data export, and account deletion paths.</p>
-          </article>
-          <article class="trust-card">
-            <span>SF</span>
-            <strong>Safety-first handling</strong>
-            <p>Elevated-risk writing is routed to support-first messaging instead of normal trait or pattern interpretation.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section split" aria-labelledby="founder-heading">
-        <div class="founder-note">
-          <span class="section-kicker">Founder Built</span>
-          <h2 id="founder-heading">Built in public, one vertical slice at a time.</h2>
-          <p>
-            Journal.IO was built with product docs, AI-agent workflows, Figma-to-code implementation, backend contracts, safety guardrails, and release-readiness tracking.
-          </p>
-        </div>
-        <aside class="waitlist-card">
-          <div>
-            <h3>Now on the App Store</h3>
-            <p>Download Journal.IO for calm daily reflection, mood tracking, and supportive AI insights, or review the public policies and support options first.</p>
-          </div>
-          <a class="primary-cta" href="${APP_STORE_APP_URL}" target="_blank" rel="noreferrer">Download the app</a>
-        </aside>
-      </section>
-
-      <footer class="footer">
-        <div class="footer-row">
-          <p>Journal.IO helps users reflect, track moods, and notice recurring behavior patterns over time.</p>
-          <div class="footer-links">
-            <a href="/privacy">Privacy</a>
-            <a href="/terms">Terms</a>
-            <a href="/privacy-choices">Privacy Choices</a>
-            <a href="/support">Support</a>
-            <a href="/legal">Legal Hub</a>
-          </div>
-        </div>
-      </footer>
-    </div>
+${renderSiteFooter()}
+    <script src="/assets/site/site.js" defer></script>
   </body>
 </html>`;
 
@@ -1301,7 +544,7 @@ export const getLegalPageHtml = (slug: LegalPageSlug): string => {
   const actions = document.actions?.length ? renderActions(document.actions) : "";
   const notes = renderNotes(document);
   const body = `
-    <div class="effective-date">Effective Date: ${escapeHtml(document.effectiveDate)}</div>
+    <div class="doc__date">Effective Date: ${escapeHtml(document.effectiveDate)}</div>
     ${sections}
     ${actions}
     ${notes}
@@ -1315,6 +558,34 @@ export const getLegalPageHtml = (slug: LegalPageSlug): string => {
   });
 };
 
+const LEGAL_HUB_ENTRIES: Array<{ href: string; title: string; blurb: string }> = [
+  {
+    href: "/privacy",
+    title: "Privacy Policy",
+    blurb: "How Journal.IO collects, uses, stores, and shares app data.",
+  },
+  {
+    href: "/terms",
+    title: "Terms of Service",
+    blurb: "The rules, billing terms, and important disclaimers for using Journal.IO.",
+  },
+  {
+    href: "/acceptable-use",
+    title: "Usage Policy",
+    blurb: "Guidelines for using Journal.IO safely and responsibly.",
+  },
+  {
+    href: "/privacy-choices",
+    title: "Privacy Choices",
+    blurb: "How to delete an account, export data, and manage privacy controls.",
+  },
+  {
+    href: "/support",
+    title: "Support",
+    blurb: "How to contact Journal.IO for account, billing, privacy, and app help.",
+  },
+];
+
 export const getLegalHubHtml = (): string =>
   renderLayout({
     pageTitle: "Journal.IO Legal",
@@ -1322,34 +593,35 @@ export const getLegalHubHtml = (): string =>
     description:
       "Public legal and support pages for app-review and user access, including privacy, terms, account-deletion guidance, and support contact.",
     body: `
-      <div class="card-grid">
-        <a class="card" href="/privacy">
-          <h2>Privacy Policy</h2>
-          <p>How Journal.IO collects, uses, stores, and shares app data.</p>
-        </a>
-        <a class="card" href="/terms">
-          <h2>Terms of Service</h2>
-          <p>The rules, billing terms, and important disclaimers for using Journal.IO.</p>
-        </a>
-        <a class="card" href="/acceptable-use">
-          <h2>Usage Policy</h2>
-          <p>Guidelines for using Journal.IO safely and responsibly.</p>
-        </a>
-        <a class="card" href="/privacy-choices">
-          <h2>Privacy Choices</h2>
-          <p>How to delete an account, export data, and manage privacy controls.</p>
-        </a>
-        <a class="card" href="/support">
-          <h2>Support</h2>
-          <p>How to contact Journal.IO for account, billing, privacy, and app help.</p>
-        </a>
-      </div>
+      <ul class="doc__index">
+        ${LEGAL_HUB_ENTRIES.map(
+          entry => `
+        <li>
+          <a href="${escapeHtml(entry.href)}">
+            <span>
+              <h2>${escapeHtml(entry.title)}</h2>
+              <p>${escapeHtml(entry.blurb)}</p>
+            </span>
+            <span class="chev" aria-hidden="true">&rarr;</span>
+          </a>
+        </li>`
+        ).join("")}
+      </ul>
     `,
   });
 
 const sendHtml = (res: Response, html: string) => {
   res.status(200).type("html").send(html);
 };
+
+/**
+ * The marketing landing page is authored as real static files so the CSS and JS
+ * are editable and cacheable: backend/public/site/. Resolved the same way as the
+ * /assets static mount in app.ts (dist/.. -> backend/public).
+ */
+const SITE_DIR = path.join(__dirname, "..", "..", "public", "site");
+
+export const LANDING_PAGE_FILE = path.join(SITE_DIR, "index.html");
 
 export const registerLegalRoutes = (app: Express): void => {
   app.get("/", (req: Request, res: Response) => {
@@ -1362,7 +634,16 @@ export const registerLegalRoutes = (app: Express): void => {
       return;
     }
 
-    sendHtml(res, getLandingPageHtml());
+    res.status(200).sendFile(LANDING_PAGE_FILE);
+  });
+
+  // crawlers only look for these at the origin root, not under /assets
+  app.get("/robots.txt", (_req: Request, res: Response) => {
+    res.status(200).type("text/plain").sendFile(path.join(SITE_DIR, "robots.txt"));
+  });
+
+  app.get("/sitemap.xml", (_req: Request, res: Response) => {
+    res.status(200).type("application/xml").sendFile(path.join(SITE_DIR, "sitemap.xml"));
   });
 
   app.get("/legal", (_req: Request, res: Response) => {

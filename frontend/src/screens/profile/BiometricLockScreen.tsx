@@ -13,7 +13,7 @@ import {
 import {
   Text,
 } from '../../infrastructure/reactNative';
-import { ShieldAlert } from 'lucide-react-native';
+import { Lock, ShieldAlert } from 'lucide-react-native';
 import PremiumUpgradeCard from '../../components/PremiumUpgradeCard';
 import {
   canAccessBiometricLock,
@@ -50,6 +50,9 @@ export default function BiometricLockScreen({
   );
   const setBiometricLockEnabled = useAppStore(
     state => state.setBiometricLockEnabled,
+  );
+  const setBiometricLockPreview = useAppStore(
+    state => state.setBiometricLockPreview,
   );
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -251,6 +254,45 @@ export default function BiometricLockScreen({
           </Text>
         ) : null}
       </SectionCard>
+
+      {__DEV__ ? (
+        <HapticPressable
+          accessibilityLabel="Preview the lock screen"
+          accessibilityRole="button"
+          onPress={() => setBiometricLockPreview(true)}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <SectionCard>
+            <View style={styles.header}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: `${theme.colors.primary}1A` },
+                ]}
+              >
+                <Lock size={20} color={theme.colors.primary} />
+              </View>
+              <View style={styles.copy}>
+                <Text
+                  style={[styles.title, { color: theme.colors.foreground }]}
+                >
+                  Preview lock screen
+                </Text>
+                <Text
+                  style={[
+                    styles.subtitle,
+                    { color: theme.colors.mutedForeground },
+                  ]}
+                >
+                  Dev only, for App Store screenshots. Tap “Keep locked” to
+                  dismiss.
+                </Text>
+              </View>
+            </View>
+          </SectionCard>
+        </HapticPressable>
+      ) : null}
+
     </ProfileSectionLayout>
   );
 }

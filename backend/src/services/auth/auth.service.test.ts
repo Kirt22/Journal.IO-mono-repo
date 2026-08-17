@@ -160,6 +160,8 @@ afterEach(() => {
   delete process.env.JWT_ACCESS_SECRET;
   delete process.env.AUTH_PASSWORD_RESET_APP_URL;
   delete process.env.AUTH_PASSWORD_RESET_EXPIRES_IN;
+  delete process.env.FIELD_ENCRYPTION_MODE;
+  delete process.env.FIELD_LOOKUP_HMAC_KEY;
   if (originalNodeEnv === undefined) {
     delete process.env.NODE_ENV;
   } else {
@@ -777,4 +779,113 @@ test("signInWithApple rejects linking when the email is already bound to another
 
   assert.equal(result.status, 409);
   assert.equal(result.code, "APPLE_ACCOUNT_ALREADY_LINKED");
+});
+
+test("signInWithGoogle prefers the migrated row when an unmigrated twin exists", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+  process.env.FIELD_ENCRYPTION_MODE = "migration";
+  process.env.FIELD_LOOKUP_HMAC_KEY = Buffer.alloc(32, 7).toString("base64");
+
+  // One identity, two rows: the migrated one already carries its lookup hashes and
+  // the older plaintext twin predates the migration. Matching both at once and
+  // letting Mongo pick returned the twin, whose save then collided with the unique
+  // index the migrated row holds — which is how legacy accounts lost Google sign-in.
+  const migratedUser = buildUserDocument({
+    _id: { toString: () => "migrated-row" },
+    email: "alex@example.com",
+    googleUserId: "google-sub-123",
+    authProviders: ["google"],
+  });
+  const unmigratedTwin = buildUserDocument({
+    _id: { toString: () => "unmigrated-twin" },
+    email: "alex@example.com",
+    googleUserId: "google-sub-123",
+    authProviders: ["google"],
+  });
+
+  setGoogleIdTokenVerifierForTests(async () => ({
+    googleSub: "google-sub-123",
+    email: "alex@example.com",
+    emailVerified: true,
+    name: "Alex",
+    picture: null,
+  }));
+
+  const queriedFields: string[] = [];
+
+  userTarget.findOne = async query => {
+    const [field] = Object.keys(query);
+    queriedFields.push(field as string);
+
+    if (field === "googleUserIdLookupHash") {
+      return migratedUser;
+    }
+
+    if (field === "googleUserId") {
+      return unmigratedTwin;
+    }
+
+    return null;
+  };
+  userTarget.updateOne = async () => ({ acknowledged: true });
+
+  const result = await signInWithGoogle({ idToken: "google-id-token" });
+
+  assert.equal(result.ok, true);
+
+  if (!result.ok) {
+    return;
+  }
+
+  assert.deepEqual(queriedFields, ["googleUserIdLookupHash"]);
+  assert.equal(migratedUser.emailVerified, true);
+  assert.equal(unmigratedTwin.emailVerified, false);
+});
+
+test("signInWithGoogle reports a duplicate identity conflict instead of throwing", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+
+  try {
+    const duplicateKeyError = Object.assign(
+      new Error("E11000 duplicate key error collection: users index: emailLookupHash_1"),
+      { code: 11000, keyPattern: { emailLookupHash: 1 } }
+    );
+    const existingUser = buildUserDocument({
+      email: "alex@example.com",
+      googleUserId: "google-sub-123",
+      authProviders: ["google"],
+    });
+
+    existingUser.save = async () => {
+      throw duplicateKeyError;
+    };
+
+    setGoogleIdTokenVerifierForTests(async () => ({
+      googleSub: "google-sub-123",
+      email: "alex@example.com",
+      emailVerified: true,
+      name: "Alex",
+      picture: null,
+    }));
+
+    userTarget.findOne = async query =>
+      "googleUserId" in query ? existingUser : null;
+    userTarget.updateOne = async () => ({ acknowledged: true });
+
+    const result = await signInWithGoogle({ idToken: "google-id-token" });
+
+    assert.equal(result.ok, false);
+
+    if (result.ok) {
+      return;
+    }
+
+    assert.equal(result.status, 409);
+    assert.equal(result.code, "ACCOUNT_LOOKUP_CONFLICT");
+  } finally {
+    console.error = originalConsoleError;
+  }
 });

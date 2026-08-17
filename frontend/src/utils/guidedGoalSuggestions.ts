@@ -5,7 +5,7 @@ const CATEGORY_KEYWORDS: Array<{
   category: FirstReflectionGoalCategory;
   pattern: RegExp;
 }> = [
-  { category: 'sleep', pattern: /\b(sleep|bed|rest|night)\b/i },
+  { category: 'sleep', pattern: /\b(sleep|bed|bedtime|rest|night|wake|wake-up)\b/i },
   {
     category: 'relationships',
     pattern: /\b(friend|family|partner|relationship|talk|connect)\b/i,
@@ -17,6 +17,13 @@ const CATEGORY_KEYWORDS: Array<{
   {
     category: 'confidence',
     pattern: /\b(confidence|brave|courage|believe|trust myself)\b/i,
+  },
+  // Body-and-fuel baselines. Placed after `stress` so a calming walk still reads
+  // as stress support, but before `focus` so "Drink water first thing" is not
+  // labelled Focus because of the word "start" in its description.
+  {
+    category: 'general',
+    pattern: /\b(walk|steps|gym|workout|train|stretch|water|meal|eat|sun|daylight)\b/i,
   },
   {
     category: 'journaling_habit',

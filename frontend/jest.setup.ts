@@ -187,6 +187,7 @@ jest.mock("@react-native-google-signin/google-signin", () => ({
         idToken: "mock-google-id-token",
       },
     })),
+    signOut: jest.fn(async () => undefined),
   },
   statusCodes: {
     SIGN_IN_CANCELLED: "SIGN_IN_CANCELLED",

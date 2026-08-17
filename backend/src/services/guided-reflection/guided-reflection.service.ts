@@ -37,7 +37,10 @@ import { buildUserReflectionMemory } from "../mindmap/entryInsight.service";
 import {
   getSavedGoalSuggestionContext,
   prepareNovelGoalSuggestions,
+  topUpGoalSuggestions,
 } from "../goals/goals.service";
+import { buildGeneralBaselineGoals } from "../../helpers/generalGoalSuggestions.helpers";
+import type { GoalSuggestionCategory } from "../../types/goals.types";
 
 type GuidedReflectionPromptAnswer = {
   questionId: string;
@@ -140,16 +143,8 @@ type BrainSessionMap = {
   mindMapSeedText: string;
 };
 
-type FirstReflectionGoalCategory =
-  | "journaling_habit"
-  | "stress"
-  | "mood"
-  | "relationships"
-  | "self_awareness"
-  | "sleep"
-  | "focus"
-  | "confidence"
-  | "general";
+/** Shared with the entry-based goal path so one bank can serve both. */
+type FirstReflectionGoalCategory = GoalSuggestionCategory;
 
 type FirstReflectionGoalSuggestion = {
   title: string;
@@ -1986,7 +1981,11 @@ const buildFallbackGoalSuggestions = (
   ]
     .join(" ")
     .toLowerCase();
-  const goals: FirstReflectionGoalSuggestion[] = [
+  // Exactly one writing goal. Two of them ("write for 5 minutes" plus "write one
+  // line after dinner") are the same action at different detail levels, and this
+  // bank is also shown to the model as fallbackExamples — so any overlap here
+  // teaches it to produce overlapping goals.
+  const reflectionGoals: FirstReflectionGoalSuggestion[] = [
     {
       title: "Write for 5 minutes",
       description:
@@ -1996,14 +1995,6 @@ const buildFallbackGoalSuggestions = (
       icon: "journal",
     },
     {
-      title: "Write one line after dinner",
-      description:
-        "After dinner, write one line about what repeated in your day.",
-      frequency: "daily",
-      category: "self_awareness",
-      icon: "mood",
-    },
-    {
       title: "Start tomorrow in 5 minutes",
       description: `Before noon, spend five minutes on: ${carry}.`,
       frequency: "as_needed",
@@ -2011,6 +2002,13 @@ const buildFallbackGoalSuggestions = (
       icon: "target",
     },
   ];
+  // Baseline advice that holds when the session gave us little to work with:
+  // move the body, then sleep, daylight, and contact. When there is no real
+  // signal it leads, because a reflection goal about nothing is busywork.
+  const baselineGoals = buildGeneralBaselineGoals(sessionText, 3);
+  const goals: FirstReflectionGoalSuggestion[] = hasEnoughSignal
+    ? [...reflectionGoals, ...baselineGoals]
+    : [...baselineGoals, ...reflectionGoals];
 
   if (sessionText.includes("stress") || sessionText.includes("pressure")) {
     goals.unshift({
@@ -2426,14 +2424,24 @@ const createGuidedReflectionGoalSuggestions = async (
   const withNovelGoals = async (
     response: GuidedReflectionGoalSuggestionsResponse,
     useEmbeddings: boolean
-  ): Promise<GuidedReflectionGoalSuggestionsResponse> => ({
-    ...response,
-    goals: await prepareNovelGoalSuggestions(
+  ): Promise<GuidedReflectionGoalSuggestionsResponse> => {
+    const novelGoals = await prepareNovelGoalSuggestions(
       response.goals,
       existingGoalContext,
       useEmbeddings
-    ),
-  });
+    );
+
+    return {
+      ...response,
+      // Novelty filtering can reject everything when saved goals already cover
+      // the session, so top up from the baseline bank rather than return none.
+      goals: await topUpGoalSuggestions(
+        novelGoals,
+        buildGeneralBaselineGoals(sessionText, Number.MAX_SAFE_INTEGER),
+        existingGoalContext
+      ),
+    };
+  };
 
   if (!hasEnoughSignal) {
     return withNovelGoals(fallback, false);
@@ -2492,6 +2500,7 @@ const createGuidedReflectionGoalSuggestions = async (
           "Do not create medical, clinical, diagnostic, shame-based, or treatment-plan goals.",
           "Anchor goals in the user's real themes while allowing a broadly useful contextual action, such as a walk or change of setting, when it is a plausible experiment. Direct advice is welcome when the useful action is clear, but never state a speculative hidden cause as fact.",
           "Do not repeat or paraphrase existingGoals. Changing the duration, time, meal, or trigger does not make the same core action new. Return fewer goals rather than padding.",
+          "Never return two goals that share the same core action. Merge them into one goal that keeps the specifics of both: a five-minute writing goal and a write-after-dinner goal become a single goal to write for five minutes after dinner.",
           "Every goal must be a concrete, low-effort action with a clear trigger, time limit, quantity, or first step — never vague. Prefer actions like a ten-minute walk after a named event, one sentence after dinner about a named concern, or one gym session on a named day.",
           "Avoid vague titles or descriptions such as reflect more, notice a pattern, be mindful, or work on yourself unless they specify exactly when and what to do.",
           "Use a direct imperative title of at most 30 characters and one precise description of at most 96 characters.",

@@ -117,6 +117,7 @@ When that local biometric lock is enabled, the authenticated app shell starts in
 The backend profile builder lazily marks clearly existing users as onboarding v2 complete using non-destructive signals such as legacy onboarding state, journal existence metadata, premium state, reminder records, and the configurable onboarding v2 release cutoff.
 For Google mobile sign-in, the device only forwards the Google `idToken`; the backend verifies it with Google and then issues the normal Journal.IO access and refresh tokens.
 For Apple mobile sign-in, the device forwards the Apple `identityToken` plus the raw nonce; the backend verifies the Apple signature, issuer, audience, expiry, and nonce before issuing the normal Journal.IO access and refresh tokens.
+Auth identity lookup checks deterministic lookup hashes before plaintext fallback fields while field encryption is migrating. This keeps migrated rows authoritative when legacy twins exist, and duplicate-key collisions are converted into an explicit `ACCOUNT_LOOKUP_CONFLICT` response instead of selecting an account by database order.
 Authenticated API calls use a single-flight `401` recovery path: concurrent unauthorized responses share one `/auth/refresh` request, the app atomically replaces the access token in Keychain, retries each failed request once, and clears the local session if refresh fails.
 
 Home-screen lightweight data note:
@@ -305,6 +306,7 @@ Current insights overview architecture:
   - actionable steps (fixed at 2)
   - app-guidance cards
 - the weekly enhancement now feeds the model real pattern material — the window's persisted `entry_insights` themes, recurrence-ranked patterns, the rolling long-term memory (`buildUserReflectionMemory`), the mood-by-day trend, and per-entry hour/weekday — so it can name a genuine behavioural pattern and connect it to the user's longer arc instead of counting keywords. Long-term memory now also feeds the per-entry Quick Analysis card (optional `connection` line) and single-entry goal suggestions, not only guided reflection. The weekly cache key carries a payload version (`WEEKLY_AI_ANALYSIS_VERSION`, currently `3`) so a shape change recomputes stale caches.
+- entry and guided-reflection goal suggestions share deterministic novelty handling: saved-goal repeats are dropped, overlapping candidate actions are merged, and low-signal or over-filtered results are topped up from a curated movement-first baseline bank without an extra embedding request
 - the mobile `AI Analysis` tab renders a minimal 4-card layout from the `ready` payload — a narrative card, a topic bar chart (`themeBreakdown`), a patterns card, and a 2-step actionable-steps card. The prior stats-row/highlight-box/expand interaction, the "What shaped your week" signals card, and the "Explore your Mind Map" CTA card were removed from this tab for minimalism; `scoreboard`, `emotionTrend`, and `signals` are still computed and returned (used internally / by the OpenAI prompt) but are no longer rendered here, and Mind Map itself (screen, route, endpoints) is unchanged — only its entry point from this tab was removed.
 
 Current prompts and tag architecture:

@@ -697,3 +697,94 @@ test("createGoalSuggestions falls back to safe practical suggestions from the en
     );
   }
 });
+
+test("a general entry falls back to baseline life goals, not journaling prompts", async () => {
+  userTarget.findById = () => ({
+    select: () => ({
+      exec: async () => ({
+        isPremium: true,
+        premiumPlanKey: "yearly",
+        premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        premiumSource: "revenuecat_verified",
+        goals: [],
+        journalingGoals: [],
+      }),
+    }),
+  });
+
+  journalTarget.findOne = () => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          title: "Just a day",
+          content:
+            "Today was fine I guess. Work was work, same as usual, nothing much happened. " +
+            "Got home, sat around, whatever. Just another day really, same old thing.",
+          tags: [],
+        }),
+      }),
+    }),
+  });
+
+  const result = await createGoalSuggestions({
+    userId: "user-1",
+    journalId: "journal-1",
+  });
+
+  assert.equal(result.suggestions.length, 3);
+  assert.equal(result.suggestions[0]?.title, "Walk 20 minutes");
+  assert.equal(
+    result.suggestions.some(suggestion => /write|journal|reflect/i.test(suggestion.title)),
+    false,
+    "a general entry gets body-and-routine advice rather than more writing"
+  );
+});
+
+test("suggestions are topped up when saved goals already cover the entry", async () => {
+  userTarget.findById = () => ({
+    select: () => ({
+      exec: async () => ({
+        isPremium: true,
+        premiumPlanKey: "yearly",
+        premiumExpiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        premiumSource: "revenuecat_verified",
+        // Covers every goal the stress-flavoured keyword fallback produces.
+        goals: [
+          makeGoal({ id: "g1", title: "Notice one pressure point", icon: "anxiety" }),
+          makeGoal({ id: "g2", title: "Add one softer reset", icon: "calm" }),
+          makeGoal({
+            id: "g3",
+            title: "Close the day in one sentence",
+            icon: "journal",
+          }),
+        ],
+        journalingGoals: [],
+      }),
+    }),
+  });
+
+  journalTarget.findOne = () => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          title: "Heavy workday",
+          content:
+            "Work felt heavy and stressful today. I want a calmer reset and one simpler plan for tomorrow.",
+          tags: ["work"],
+        }),
+      }),
+    }),
+  });
+
+  const result = await createGoalSuggestions({
+    userId: "user-1",
+    journalId: "journal-1",
+  });
+
+  // Dedup would leave nothing here; the baseline bank keeps the screen useful.
+  assert.equal(result.suggestions.length, 3);
+  for (const suggestion of result.suggestions) {
+    assert.equal(suggestion.iconSource, "automatic");
+    assert.ok(suggestion.description, "top-ups carry a description");
+  }
+});

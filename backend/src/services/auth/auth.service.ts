@@ -257,7 +257,16 @@ const buildAppleLookupHash = (appleSub?: string | null) =>
     path: "users.appleUserId",
   });
 
-const buildLookupQuery = ({
+// A single identity can exist as two rows while field encryption is mid-migration:
+// one already encrypted and carrying its *LookupHash values, and an older plaintext
+// twin that predates the migration. Querying both shapes at once with `$or` matches
+// both rows and leaves `findOne` to pick by natural order, which can return the
+// unmigrated twin. Writing that twin back then collides with the unique partial
+// indexes the migrated row already holds and the save fails with E11000.
+//
+// Look the hash up first instead, so the migrated row always wins, and only fall
+// back to the plaintext column when no hashed row exists.
+const findUserByLookup = async ({
   hashField,
   plainField,
   value,
@@ -268,37 +277,39 @@ const buildLookupQuery = ({
   value: string;
   hash: string | null;
 }) => {
-  if (!hash) {
-    return { [plainField]: value };
+  if (hash) {
+    const userByHash = await userModel.findOne({ [hashField]: hash });
+
+    if (userByHash) {
+      return userByHash;
+    }
+
+    if (getFieldEncryptionMode() !== "migration") {
+      return null;
+    }
   }
 
-  if (getFieldEncryptionMode() === "migration") {
-    return {
-      $or: [{ [hashField]: hash }, { [plainField]: value }],
-    };
-  }
-
-  return { [hashField]: hash };
+  return userModel.findOne({ [plainField]: value });
 };
 
-const buildEmailLookupQuery = (email: string) =>
-  buildLookupQuery({
+const findUserByEmail = (email: string) =>
+  findUserByLookup({
     hashField: "emailLookupHash",
     plainField: "email",
     value: email,
     hash: buildEmailLookupHash(email),
   });
 
-const buildGoogleLookupQuery = (googleSub: string) =>
-  buildLookupQuery({
+const findUserByGoogleSub = (googleSub: string) =>
+  findUserByLookup({
     hashField: "googleUserIdLookupHash",
     plainField: "googleUserId",
     value: googleSub,
     hash: buildGoogleLookupHash(googleSub),
   });
 
-const buildAppleLookupQuery = (appleSub: string) =>
-  buildLookupQuery({
+const findUserByAppleSub = (appleSub: string) =>
+  findUserByLookup({
     hashField: "appleUserIdLookupHash",
     plainField: "appleUserId",
     value: appleSub,
@@ -310,6 +321,42 @@ const syncUserLookupHashes = (user: IUser) => {
   user.phoneNumberLookupHash = buildPhoneLookupHash(user.phoneNumber);
   user.googleUserIdLookupHash = buildGoogleLookupHash(user.googleUserId);
   user.appleUserIdLookupHash = buildAppleLookupHash(user.appleUserId);
+};
+
+const isDuplicateKeyError = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === 11000;
+
+// Two rows for one identity is a data problem, not a credentials problem. Surfacing
+// it as a bare 500 leaves the client with no code to map, so it renders the generic
+// "could not be completed" copy and the real cause stays invisible.
+const ACCOUNT_LOOKUP_CONFLICT_FAILURE: AuthFailure = {
+  ok: false,
+  status: 409,
+  code: "ACCOUNT_LOOKUP_CONFLICT",
+  message:
+    "We found more than one account for this sign-in. Please contact support so we can merge them.",
+};
+
+const saveUserOrDetectConflict = async (user: IUser, route: string) => {
+  try {
+    await user.save();
+    return true;
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      console.error(
+        `[Auth][${route}] duplicate identity rows for a single account`,
+        {
+          userId: String(user._id),
+          keyPattern: (error as { keyPattern?: unknown }).keyPattern,
+        }
+      );
+      return false;
+    }
+
+    throw error;
+  }
 };
 
 const maskEmailForLogs = (email: string) => {
@@ -690,15 +737,6 @@ const buildPasswordResetLink = (token: string) => {
   }
 };
 
-const isDuplicateKeyError = (error: unknown): error is { code: number } => {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof (error as { code?: unknown }).code === "number"
-  );
-};
-
 const isEmailVerified = (user: IUser) => {
   return Boolean(user.emailVerified || user.emailVerifiedAt);
 };
@@ -884,7 +922,7 @@ const signUpWithEmail = async ({
   const onboardingGoals = normalizedOnboardingContext?.goals || [];
   const displayName = deriveDisplayNameFromEmail(normalizedEmail);
 
-  let user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+  let user = await findUserByEmail(normalizedEmail);
 
   if (user && isEmailVerified(user)) {
     return {
@@ -951,7 +989,7 @@ const resendEmailVerification = async ({
   | AuthFailure
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+  const user = await findUserByEmail(normalizedEmail);
 
   if (!user || !getStoredPasswordHash(user)) {
     return {
@@ -1001,7 +1039,7 @@ const verifyEmail = async ({
   | AuthFailure
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+  const user = await findUserByEmail(normalizedEmail);
 
   if (!user || !getStoredPasswordHash(user)) {
     return {
@@ -1093,7 +1131,10 @@ const verifyEmail = async ({
   }
 
   syncUserLookupHashes(user);
-  await user.save();
+
+  if (!(await saveUserOrDetectConflict(user, "verify_email"))) {
+    return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+  }
 
   const tokens = await issueTokens(user);
 
@@ -1120,7 +1161,7 @@ const signInWithEmail = async ({
   const normalizedEmail = normalizeEmail(email);
   const normalizedOnboardingContext = sanitizeOnboardingContext(onboardingContext);
   const onboardingGoals = normalizedOnboardingContext?.goals || [];
-  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+  const user = await findUserByEmail(normalizedEmail);
   const storedPasswordHash = user ? getStoredPasswordHash(user) : null;
 
   if (!user || !storedPasswordHash || !verifyPasswordHash(password, storedPasswordHash)) {
@@ -1158,7 +1199,10 @@ const signInWithEmail = async ({
   }
 
   syncUserLookupHashes(user);
-  await user.save();
+
+  if (!(await saveUserOrDetectConflict(user, "sign_in_with_email"))) {
+    return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+  }
 
   const tokens = await issueTokens(user);
 
@@ -1175,7 +1219,7 @@ const requestPasswordReset = async ({
   AuthSuccess<{ challenge: PasswordResetChallenge }>
 > => {
   const normalizedEmail = normalizeEmail(email);
-  const user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+  const user = await findUserByEmail(normalizedEmail);
   const hasStoredPassword = Boolean(user && getStoredPasswordHash(user));
   const emailVerified = Boolean(user && isEmailVerified(user));
 
@@ -1284,6 +1328,13 @@ const signInWithGoogle = async (
   try {
     googleProfile = await verifyGoogleIdTokenImpl(input.idToken);
   } catch (error) {
+    // Never log input.idToken — the message alone distinguishes an expired token
+    // from an audience mismatch or a JWKS fetch failure.
+    console.error(
+      "[Auth][google/mobile] Google ID token verification failed:",
+      error instanceof Error ? error.message : error
+    );
+
     return {
       ok: false,
       status: 401,
@@ -1313,12 +1364,10 @@ const signInWithGoogle = async (
     email: normalizedEmail,
   };
 
-  let user = await userModel.findOne(
-    buildGoogleLookupQuery(googleProfile.googleSub)
-  );
+  let user = await findUserByGoogleSub(googleProfile.googleSub);
 
   if (!user && normalizedEmail) {
-    user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+    user = await findUserByEmail(normalizedEmail);
 
     if (
       user &&
@@ -1380,7 +1429,10 @@ const signInWithGoogle = async (
     }
 
     syncUserLookupHashes(user);
-    await user.save();
+
+    if (!(await saveUserOrDetectConflict(user, "google/mobile"))) {
+      return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+    }
   }
 
   const tokens = await issueTokens(user);
@@ -1413,6 +1465,13 @@ const signInWithApple = async (
       }
     );
   } catch (error) {
+    // Never log input.identityToken — the message alone is enough to tell an
+    // expired token apart from an audience or nonce mismatch.
+    console.error(
+      "[Auth][apple/mobile] Apple identity token verification failed:",
+      error instanceof Error ? error.message : error
+    );
+
     return {
       ok: false,
       status: 401,
@@ -1442,12 +1501,10 @@ const signInWithApple = async (
     email: normalizedEmail,
   };
 
-  let user = await userModel.findOne(
-    buildAppleLookupQuery(appleProfile.appleSub)
-  );
+  let user = await findUserByAppleSub(appleProfile.appleSub);
 
   if (!user && normalizedEmail) {
-    user = await userModel.findOne(buildEmailLookupQuery(normalizedEmail));
+    user = await findUserByEmail(normalizedEmail);
 
     if (
       user &&
@@ -1508,7 +1565,10 @@ const signInWithApple = async (
     }
 
     syncUserLookupHashes(user);
-    await user.save();
+
+    if (!(await saveUserOrDetectConflict(user, "apple/mobile"))) {
+      return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+    }
   }
 
   const tokens = await issueTokens(user);

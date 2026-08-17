@@ -15,7 +15,7 @@ import {
   type AuthUser,
 } from '../services/authService';
 import { getAppleSignInCredential } from '../config/appleSignIn';
-import { getGoogleIdToken } from '../config/googleSignIn';
+import { getGoogleIdToken, signOutFromGoogle } from '../config/googleSignIn';
 import {
   getProfile,
   updatePremiumStatus,
@@ -389,6 +389,11 @@ type AppStoreState = {
   isBiometricAuthenticating: boolean;
   biometricLockFailureReason: BiometricAppLockFailureReason | null;
   biometricLockFailureMessage: string | null;
+  // Dev-only: forces BiometricLockOverlay into its clean locked state so the
+  // App Store screenshot can be captured. A simulator has no device passcode,
+  // so the real Keychain-backed lock can never be enabled there. Guarded by
+  // __DEV__ at every use site, so it cannot reach a Release build.
+  biometricLockPreview: boolean;
   legalBrowserUrl: string | null;
   legalBrowserTitle: string | null;
   pendingWidgetAction: PendingWidgetAction | null;
@@ -480,6 +485,7 @@ type AppStoreState = {
     lockAppWithBiometrics: () => void;
     unlockAppWithBiometrics: () => Promise<BiometricLockAuthResult>;
     clearBiometricAppLockError: () => void;
+    setBiometricLockPreview: (nextValue: boolean) => void;
     openLegalBrowser: (payload: { url: string; title?: string | null }) => void;
     closeLegalBrowser: () => void;
     queueWidgetAction: (action: WidgetDeepLinkAction) => void;
@@ -526,6 +532,7 @@ type AppStoreSnapshot = Pick<
   | 'isBiometricAuthenticating'
   | 'biometricLockFailureReason'
   | 'biometricLockFailureMessage'
+  | 'biometricLockPreview'
   | 'legalBrowserUrl'
   | 'legalBrowserTitle'
   | 'pendingWidgetAction'
@@ -569,6 +576,7 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   isBiometricAuthenticating: false,
   biometricLockFailureReason: null,
   biometricLockFailureMessage: null,
+  biometricLockPreview: false,
   legalBrowserUrl: null,
   legalBrowserTitle: null,
   pendingWidgetAction: null,
@@ -1862,6 +1870,9 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     await clearCachedAuthUser();
     await clearStoredOnboardingData();
     await clearMoodWidgetSessionLocal();
+    // Without this the native Google session survives, so the next sign-in skips
+    // the account chooser and silently reuses whoever signed in last.
+    await signOutFromGoogle();
 
     set({
       ...createInitialJournalSliceState(),
@@ -2192,6 +2203,20 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set({
       biometricLockFailureReason: null,
       biometricLockFailureMessage: null,
+    });
+  },
+  setBiometricLockPreview: nextValue => {
+    if (!__DEV__) {
+      return;
+    }
+
+    set({
+      biometricLockPreview: nextValue,
+      // The overlay reads its copy from these, so clear any stale failure
+      // state to guarantee the default "Journal.IO is locked" wording.
+      biometricLockFailureReason: null,
+      biometricLockFailureMessage: null,
+      isBiometricAuthenticating: false,
     });
   },
   openLegalBrowser: ({ url, title = null }) => {

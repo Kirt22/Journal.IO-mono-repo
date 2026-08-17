@@ -1884,6 +1884,7 @@ describe("appStore", () => {
 
     jest.doMock("../src/config/googleSignIn", () => ({
       getGoogleIdToken,
+      signOutFromGoogle: jest.fn(async () => undefined),
     }));
     jest.doMock("../src/services/authService", () => ({
       resendEmailVerification: jest.fn(),

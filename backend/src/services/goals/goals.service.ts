@@ -9,6 +9,10 @@ import {
   filterNovelGoalSuggestions,
   type GoalIntent,
 } from "../../helpers/goalSuggestions.helpers";
+import {
+  assessGoalSignal,
+  buildEntryBaselineGoals,
+} from "../../helpers/generalGoalSuggestions.helpers";
 import { buildUserReflectionMemory } from "../mindmap/entryInsight.service";
 import { hasActivePremiumEntitlement } from "../../helpers/premiumEntitlement.helpers";
 import { randomUUID } from "crypto";
@@ -97,8 +101,11 @@ const goalSuggestionsJsonSchema = {
         // listed in `required`.
         required: ["title", "description", "icon", "frequency"],
         properties: {
-          title: { type: "string" },
-          description: { type: "string" },
+          // The maxLengths must mirror the Zod parser above. Without them a
+          // single over-long title fails validation and discards *every*
+          // suggestion in the batch.
+          title: { type: "string", maxLength: 80 },
+          description: { type: "string", maxLength: 180 },
           icon: { type: "string", enum: [...GOAL_ICON_KEYS] },
           frequency: { type: "string", enum: [...GOAL_FREQUENCIES] },
         },
@@ -822,10 +829,12 @@ const prepareNovelGoalSuggestions = async <
 >(
   candidates: T[],
   context: SavedGoalSuggestionContext,
-  useEmbeddings = true
+  useEmbeddings = true,
+  maxCandidates = 4
 ): Promise<Array<T & { iconSource: "automatic" }>> => {
   const novel = await filterNovelGoalSuggestions(candidates, context.goals, {
     useEmbeddings,
+    maxCandidates,
   });
   const unavailable = new Set(context.usedIcons);
 
@@ -839,6 +848,51 @@ const prepareNovelGoalSuggestions = async <
 
     return { ...candidate, icon, iconSource: "automatic" as const };
   });
+};
+
+/** Below this a goals screen looks broken, so the baseline bank fills the gap. */
+const MIN_GOAL_SUGGESTIONS = 3;
+
+/**
+ * Novelty filtering can legitimately reject everything when a user's saved goals
+ * already cover the entry. Rather than return an empty list, fill up from the
+ * general baseline bank — the advice that holds regardless of what was written.
+ */
+const topUpGoalSuggestions = async <T extends GoalIntent & { icon: GoalIconKey }>(
+  accepted: Array<T & { iconSource: "automatic" }>,
+  bank: T[],
+  context: SavedGoalSuggestionContext,
+  limit = MIN_GOAL_SUGGESTIONS
+): Promise<Array<T & { iconSource: "automatic" }>> => {
+  const needed = limit - accepted.length;
+
+  if (needed <= 0) {
+    return accepted;
+  }
+
+  const extendedContext: SavedGoalSuggestionContext = {
+    goals: [
+      ...context.goals,
+      ...accepted.map((goal) => ({
+        title: goal.title,
+        description: goal.description ?? null,
+        icon: goal.icon,
+        status: "active" as const,
+      })),
+    ],
+    usedIcons: [...context.usedIcons, ...accepted.map((goal) => goal.icon)],
+  };
+
+  // Deterministic only: the bank is curated and already distinct, so paying for
+  // embeddings here buys nothing and would delay a response the user is waiting on.
+  const topUps = await prepareNovelGoalSuggestions(
+    bank,
+    extendedContext,
+    false,
+    bank.length
+  );
+
+  return [...accepted, ...topUps.slice(0, needed)];
 };
 
 const createGoalSuggestions = async (
@@ -870,7 +924,14 @@ const createGoalSuggestions = async (
     throw new Error("Entry not found.");
   }
 
-  const fallback = createFallbackSuggestions(journal.content || "");
+  const entryContent = String(journal.content || "");
+  const signal = assessGoalSignal(entryContent);
+  const isGeneralEntry = signal.level === "general";
+  // A general entry cannot ground a tailored goal, so the examples shown to the
+  // model become the movement-first baseline instead of more journaling prompts.
+  const fallback = isGeneralEntry
+    ? buildEntryBaselineGoals(entryContent, MIN_GOAL_SUGGESTIONS)
+    : createFallbackSuggestions(entryContent);
 
   // Best-effort long-term memory so goals can anchor in the user's real recurring
   // patterns, not just this one entry. Never blocks suggestion generation.
@@ -903,6 +964,10 @@ const createGoalSuggestions = async (
           "You write Journal.IO goal suggestions. Suggest small supportive non-clinical goals from this saved entry. Keep them practical, optional, and emotionally safe. Never diagnose, shame, or overstate certainty.",
           "Use the entry and longTermMemory as evidence, while allowing a broadly useful contextual action such as a walk, a change of setting, or a small routine when it is a plausible experiment. Direct advice is welcome when the useful action is clear, but never assert a speculative hidden cause as fact.",
           "Do not repeat or paraphrase anything in existingGoals. A changed duration, time of day, meal, or trigger does not make the same core action a new goal. Return fewer goals when only a few are genuinely new, and never pad.",
+          "Never return two goals that share the same core action. Merge them into one goal that keeps the specifics of both: a five-minute writing goal and a write-after-dinner goal become a single goal to write for five minutes after dinner.",
+          isGeneralEntry
+            ? "This entry is general and does not name a specific situation. Do not invent specifics or guess a hidden cause. Suggest broadly beneficial baseline actions a supportive coach recommends when nothing in particular stands out: movement first (a daily walk, a step target, a gym session), then sleep timing, daylight, food and water, and one point of human contact. Keep each goal concrete and countable."
+            : "",
           // Without an explicit instruction models bias toward the first enum member.
           "Set `icon` to the single best-fitting key from the provided enum for what the goal is about, and use `target` when nothing fits. Set `frequency` to how often the goal should realistically recur: `daily` for a small everyday action, `weekly` for something done once a week, `as_needed` for a one-off.",
           personalization?.systemDirective,
@@ -918,9 +983,9 @@ const createGoalSuggestions = async (
           userProfile: personalization?.promptProfile ?? null,
           title: journal.title,
           tags: Array.isArray(journal.tags) ? journal.tags : [],
-          entry: String(journal.content || "")
-            .trim()
-            .slice(0, 1400),
+          entrySignal: signal.level,
+          entryTopics: signal.domains,
+          entry: entryContent.trim().slice(0, 1400),
           longTermMemory: longTermMemory || "No prior entries yet.",
           existingGoals: existingGoalContext.goals,
           fallbackExamples: fallback,
@@ -930,10 +995,15 @@ const createGoalSuggestions = async (
   });
 
   const candidates = aiResponse?.suggestions?.slice(0, 4) || fallback;
-  const suggestions = await prepareNovelGoalSuggestions(
+  const novelSuggestions = await prepareNovelGoalSuggestions(
     candidates,
     existingGoalContext,
     true
+  );
+  const suggestions = await topUpGoalSuggestions(
+    novelSuggestions,
+    buildEntryBaselineGoals(entryContent, Number.MAX_SAFE_INTEGER),
+    existingGoalContext
   );
 
   return {
@@ -950,6 +1020,7 @@ export {
   getSavedGoalSuggestionContext,
   normalizeUserGoals,
   prepareNovelGoalSuggestions,
+  topUpGoalSuggestions,
   setGoalCompletion,
   setGoalStatus,
   updateGoal,

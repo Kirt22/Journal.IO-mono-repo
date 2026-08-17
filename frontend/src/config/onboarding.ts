@@ -1,6 +1,13 @@
 export const CURRENT_ONBOARDING_VERSION = 2;
 
-export const ENABLE_ONBOARDING_V2 = __DEV__;
+/**
+ * Selects the onboarding flow in `AppNavigator`'s `OnboardingRoute`.
+ *
+ * Held at `__DEV__` while v2 was a Phase 2 placeholder, which meant every
+ * Release bundle silently shipped v1. v2 is complete, so this is now `true` in
+ * all builds; flip it back to `false` to fall through to `OnboardingScreen`.
+ */
+export const ENABLE_ONBOARDING_V2 = true;
 
 export const REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT = true;
 

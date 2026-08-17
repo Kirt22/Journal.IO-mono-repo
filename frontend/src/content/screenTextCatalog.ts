@@ -284,6 +284,8 @@ export const screenTextCatalog = {
     "Password is required.",
     "Use at least 8 characters.",
     "This reset link is missing a token. Please request a new one.",
+    "We found more than one account for this sign-in, so we stopped rather than guess. Please contact support and we can merge them.",
+    "We couldn't pick your account",
     "This email is already linked to another Apple account. Try a different sign-in method.",
     "Apple sign-in failed",
     "An account already exists for this email. Sign in instead.",

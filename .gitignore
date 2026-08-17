@@ -134,3 +134,24 @@ frontend/.yarn/*
 !frontend/.yarn/releases
 !frontend/.yarn/sdks
 !frontend/.yarn/versions
+
+
+############################################
+# APP STORE CONNECT
+############################################
+
+# API private keys — these live in ~/.appstoreconnect/, never in the repo
+*.p8
+asc-config.json
+
+tools/asc-mcp/dist/
+tools/asc-mcp/node_modules/
+
+
+############################################
+# DATA REPAIR BACKUPS
+############################################
+
+# JSON dumps written by backend/scripts/merge-duplicate-user.mjs before it writes.
+# These contain real user documents and must never be committed.
+backend/backups/

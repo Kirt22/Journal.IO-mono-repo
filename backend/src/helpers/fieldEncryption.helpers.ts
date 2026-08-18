@@ -401,6 +401,27 @@ export const assertFieldEncryptionReady = (
   const config = getFieldEncryptionConfig(env);
 
   if (config.mode === "disabled") {
+    // `computeLookupHash` keys off the *presence* of the HMAC key, not the mode, so
+    // a disabled deployment that still holds the key keeps hashing every lookup
+    // while no row is having hashes written. Sign-in then searches by a digest that
+    // legacy rows do not carry, and before the plaintext fallback was corrected in
+    // `findUserByLookup` that hid every account without a hash — which locked all
+    // but one production account out on 2026-08-18.
+    //
+    // Warn rather than throw. The fallback now covers this case, so the combination
+    // is survivable, and turning a recovered misconfiguration into a refusal to
+    // boot would trade a fixed bug for a total outage. It is still never
+    // intentional, so it must be loud.
+    if (config.lookupHmacKey) {
+      console.warn(
+        "[FieldEncryption] FIELD_LOOKUP_HMAC_KEY is set while FIELD_ENCRYPTION_MODE " +
+          "is disabled. Lookup hashes are computed for every sign-in but never " +
+          "written. Sign-in still works via the plaintext fallback, but this pairing " +
+          "is a misconfiguration: clear the key, or set the mode to migration and " +
+          "configure the encryption keys."
+      );
+    }
+
     return;
   }
 

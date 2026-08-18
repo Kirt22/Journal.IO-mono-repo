@@ -1,23 +1,30 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  getLandingPageHtml,
+  LANDING_PAGE_FILE,
   getLegalHubHtml,
   getLegalPageHtml,
   getRootRedirectLocationForHost,
 } from "./legal.routes";
 
-test("getLandingPageHtml renders the Journal.IO marketing landing page", () => {
-  const html = getLandingPageHtml();
+test("the marketing landing page ships as a static file next to the build", () => {
+  assert.ok(
+    existsSync(LANDING_PAGE_FILE),
+    `expected the landing page at ${LANDING_PAGE_FILE}`
+  );
 
-  assert.match(html, /Reflect\. Track\. Grow\./);
+  const html = readFileSync(LANDING_PAGE_FILE, "utf8");
+
+  assert.match(html, /Notice what keeps coming back\./);
   assert.match(html, /Download on the App Store/);
   assert.match(html, /https:\/\/apps\.apple\.com\/app\/id6770075245/);
   assert.match(html, /href="\/privacy"/);
   assert.match(html, /href="\/support"/);
-  assert.match(html, /href="\/assets\/landing\/favicon\.png"/);
-  assert.match(html, /\/assets\/landing\/01_reflect_track_grow\.png/);
-  assert.match(html, /Supportive, non-clinical/);
+  assert.match(html, /href="\/assets\/site\/site\.css"/);
+  assert.match(html, /\/assets\/site\/img\/home\.webp/);
+  // the non-clinical boundary has to stay on the page
+  assert.match(html, /not a medical device/);
 });
 
 test("getLegalPageHtml renders the privacy policy page", () => {
@@ -25,8 +32,17 @@ test("getLegalPageHtml renders the privacy policy page", () => {
 
   assert.match(html, /Journal\.IO Privacy Policy/);
   assert.match(html, /href="\/support"/);
-  assert.match(html, /href="\/assets\/landing\/favicon\.png"/);
+  assert.match(html, /href="\/assets\/site\/site\.css"/);
   assert.match(html, /Effective Date: August 8, 2026/);
+});
+
+test("legal pages share the landing page shell", () => {
+  const html = getLegalPageHtml("terms");
+
+  assert.match(html, /<header class="nav/);
+  assert.match(html, /<footer class="foot"/);
+  assert.match(html, /journal<span>\.io<\/span>/);
+  assert.match(html, /src="\/assets\/site\/site\.js"/);
 });
 
 test("getLegalPageHtml renders the terms page", () => {

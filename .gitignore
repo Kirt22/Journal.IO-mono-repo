@@ -79,12 +79,14 @@ frontend/ios/*.perspectivev3
 !frontend/ios/default.perspectivev3
 
 frontend/ios/xcuserdata
+frontend/ios/**/xcuserdata/
 frontend/ios/*.xccheckout
 frontend/ios/*.moved-aside
 frontend/ios/DerivedData
 frontend/ios/*.hmap
 frontend/ios/*.ipa
 frontend/ios/*.xcuserstate
+frontend/ios/**/*.xcuserstate
 
 **/.xcode.env.local
 
@@ -155,3 +157,22 @@ tools/asc-mcp/node_modules/
 # JSON dumps written by backend/scripts/merge-duplicate-user.mjs before it writes.
 # These contain real user documents and must never be committed.
 backend/backups/
+
+
+############################################
+# LOCAL TOOLING / GENERATED CONTEXT
+############################################
+
+/.mcp.json
+/graphify-out/
+
+
+############################################
+# LOCAL SCREENSHOT WORK
+############################################
+
+/frontend/Background screens handoff/
+/frontend/Screenshots/
+/frontend/iphone ss with frame/
+/frontend/journalio-panels/
+/frontend/journalio-panels-iPad/

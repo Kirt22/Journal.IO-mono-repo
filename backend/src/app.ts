@@ -21,7 +21,10 @@ export const createApp = (): Express => {
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use("/assets", express.static(path.join(__dirname, "..", "public")));
+  app.use(
+    "/assets",
+    express.static(path.join(__dirname, "..", "public"), { maxAge: "7d" })
+  );
   app.get("/reset-password", passwordResetPageController);
 
   app.get("/health", (_req: Request, res: Response) => {

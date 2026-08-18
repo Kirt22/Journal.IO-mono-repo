@@ -889,3 +889,135 @@ test("signInWithGoogle reports a duplicate identity conflict instead of throwing
     console.error = originalConsoleError;
   }
 });
+
+// Regression: the 2026-08-18 production lockout.
+//
+// Production ran FIELD_ENCRYPTION_MODE=disabled while FIELD_LOOKUP_HMAC_KEY was
+// still set. `computeLookupHash` keys off the presence of the key rather than the
+// mode, so every sign-in was hashed, but no row was having hashes written — and
+// the fallback was gated on `mode === "migration"`, so it never reached the
+// plaintext column. Every account without a hash became invisible: 17 of 19
+// production accounts could not sign in, and the password was never even checked.
+test("signInWithEmail falls back to plaintext when the mode is disabled but a lookup key is set", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+  process.env.FIELD_ENCRYPTION_MODE = "disabled";
+  process.env.FIELD_LOOKUP_HMAC_KEY = Buffer.alloc(32, 9).toString("base64");
+
+  const password = "strong-password";
+  // A legacy row: real plaintext email, no lookup hash ever written to it.
+  const legacyUser = buildUserDocument({
+    passwordHash: buildLegacyPasswordHash(password),
+    emailVerified: true,
+    emailVerifiedAt: new Date("2026-05-22T20:46:39.668Z"),
+  });
+
+  const queriedFields: string[] = [];
+
+  userTarget.findOne = async query => {
+    const [field] = Object.keys(query);
+    queriedFields.push(field as string);
+
+    // Mirrors production: the hashed lookup misses, the plaintext one hits.
+    if (field === "emailLookupHash") {
+      return null;
+    }
+
+    if (field === "email" && query.email === "alex@example.com") {
+      return legacyUser;
+    }
+
+    return null;
+  };
+  userTarget.updateOne = async () => ({ acknowledged: true });
+
+  const result = await signInWithEmail({
+    email: "alex@example.com",
+    password,
+  });
+
+  assert.equal(result.ok, true);
+  // The hash must be tried first, then the plaintext column — not stop at the hash.
+  assert.deepEqual(queriedFields, ["emailLookupHash", "email"]);
+});
+
+test("signInWithEmail does not fall back to plaintext when the mode is enforced", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+  process.env.FIELD_ENCRYPTION_MODE = "enforced";
+  process.env.FIELD_LOOKUP_HMAC_KEY = Buffer.alloc(32, 9).toString("base64");
+
+  const password = "strong-password";
+  const legacyUser = buildUserDocument({
+    passwordHash: buildLegacyPasswordHash(password),
+    emailVerified: true,
+  });
+
+  const queriedFields: string[] = [];
+
+  userTarget.findOne = async query => {
+    const [field] = Object.keys(query);
+    queriedFields.push(field as string);
+
+    return field === "email" ? legacyUser : null;
+  };
+  userTarget.updateOne = async () => ({ acknowledged: true });
+
+  const result = await signInWithEmail({
+    email: "alex@example.com",
+    password,
+  });
+
+  // Enforced mode genuinely forbids reading plaintext, so the miss must stand.
+  assert.equal(result.ok, false);
+
+  if (result.ok) {
+    return;
+  }
+
+  assert.equal(result.code, "INVALID_CREDENTIALS");
+  assert.deepEqual(queriedFields, ["emailLookupHash"]);
+});
+
+test("signInWithGoogle reports a conflict instead of a 500 when creating a duplicate row", async () => {
+  process.env.JWT_ACCESS_SECRET = "test-access-secret";
+
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+
+  try {
+    // When the lookup misses a row that does exist, the flow falls through to
+    // creating a second account for the same identity and the unique partial index
+    // on plaintext `email` rejects it. That E11000 used to escape `userModel.create`
+    // uncaught and surfaced as a bare 500 on Google sign-in.
+    const duplicateKeyError = Object.assign(
+      new Error("E11000 duplicate key error collection: users index: email_1"),
+      { code: 11000, keyPattern: { email: 1 } }
+    );
+
+    setGoogleIdTokenVerifierForTests(async () => ({
+      googleSub: "google-sub-123",
+      email: "alex@example.com",
+      emailVerified: true,
+      name: "Alex",
+      picture: null,
+    }));
+
+    userTarget.findOne = async () => null;
+    userTarget.create = async () => {
+      throw duplicateKeyError;
+    };
+    userTarget.updateOne = async () => ({ acknowledged: true });
+
+    const result = await signInWithGoogle({ idToken: "google-id-token" });
+
+    assert.equal(result.ok, false);
+
+    if (result.ok) {
+      return;
+    }
+
+    assert.equal(result.status, 409);
+    assert.equal(result.code, "ACCOUNT_LOOKUP_CONFLICT");
+  } finally {
+    console.error = originalConsoleError;
+  }
+});

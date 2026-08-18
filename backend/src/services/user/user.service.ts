@@ -235,8 +235,31 @@ const lazilyMigrateExistingUserOnboarding = async (
     changed = true;
   }
 
-  if (changed) {
+  if (!changed) {
+    return;
+  }
+
+  // This backfill runs on every authenticated profile build, so it sits on both
+  // sign-in paths. It is opportunistic by design — the comment above says an app
+  // update must not block login — but an unguarded save made it the opposite: a
+  // duplicate-key error here escaped as a bare 500 and took sign-in down with it.
+  // Swallow only the conflict, and only after recording it; anything else is a
+  // real fault and must still surface.
+  try {
     await user.save();
+  } catch (error) {
+    if ((error as { code?: number } | null)?.code === 11000) {
+      console.error(
+        "[User] onboarding backfill hit a duplicate identity row; leaving the account unmigrated",
+        {
+          userId: String(user._id),
+          keyPattern: (error as { keyPattern?: unknown }).keyPattern,
+        }
+      );
+      return;
+    }
+
+    throw error;
   }
 };
 

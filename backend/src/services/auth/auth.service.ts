@@ -266,6 +266,14 @@ const buildAppleLookupHash = (appleSub?: string | null) =>
 //
 // Look the hash up first instead, so the migrated row always wins, and only fall
 // back to the plaintext column when no hashed row exists.
+//
+// The fallback is gated on `enforced` alone, not on "is the mode migration". A key
+// can outlive the mode that introduced it: `computeLookupHash` produces a digest
+// whenever FIELD_LOOKUP_HMAC_KEY is set, *regardless* of the mode, so a disabled
+// deployment that still holds the key hashes every lookup. Skipping the plaintext
+// fallback there hides every row that never had a hash written — which locked all
+// but one production account out of sign-in until 2026-08-18. Only `enforced`
+// genuinely forbids reading plaintext (see `decryptFieldValue`).
 const findUserByLookup = async ({
   hashField,
   plainField,
@@ -284,7 +292,7 @@ const findUserByLookup = async ({
       return userByHash;
     }
 
-    if (getFieldEncryptionMode() !== "migration") {
+    if (getFieldEncryptionMode() === "enforced") {
       return null;
     }
   }
@@ -353,6 +361,30 @@ const saveUserOrDetectConflict = async (user: IUser, route: string) => {
         }
       );
       return false;
+    }
+
+    throw error;
+  }
+};
+
+// The create path needs the same treatment as `saveUserOrDetectConflict`. When a
+// lookup misses a row that does exist, the flow falls through to creating a second
+// account for the same identity, and the unique partial indexes reject it. Letting
+// that E11000 escape turns a recoverable data conflict into a bare 500 — which is
+// exactly how the 2026-08-18 lockout surfaced on Google sign-in.
+const createUserOrDetectConflict = async <T>(
+  create: () => Promise<T>,
+  route: string
+): Promise<T | null> => {
+  try {
+    return await create();
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      console.error(
+        `[Auth][${route}] identity already exists on another row; refusing to create a duplicate`,
+        { keyPattern: (error as { keyPattern?: unknown }).keyPattern }
+      );
+      return null;
     }
 
     throw error;
@@ -1384,13 +1416,21 @@ const signInWithGoogle = async (
   }
 
   if (!user) {
-    user = await createGoogleUser({
-      googleProfile,
-      ...(input.onboardingContext
-        ? { onboardingContext: input.onboardingContext }
-        : {}),
-      onboardingCompleted: input.onboardingCompleted,
-    });
+    user = await createUserOrDetectConflict(
+      () =>
+        createGoogleUser({
+          googleProfile,
+          ...(input.onboardingContext
+            ? { onboardingContext: input.onboardingContext }
+            : {}),
+          onboardingCompleted: input.onboardingCompleted,
+        }),
+      "google/mobile"
+    );
+
+    if (!user) {
+      return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+    }
   } else {
     if (!user.authProviders.includes("google")) {
       user.authProviders = [...user.authProviders, "google"];
@@ -1521,13 +1561,21 @@ const signInWithApple = async (
   }
 
   if (!user) {
-    user = await createAppleUser({
-      appleProfile,
-      ...(input.onboardingContext
-        ? { onboardingContext: input.onboardingContext }
-        : {}),
-      onboardingCompleted: input.onboardingCompleted,
-    });
+    user = await createUserOrDetectConflict(
+      () =>
+        createAppleUser({
+          appleProfile,
+          ...(input.onboardingContext
+            ? { onboardingContext: input.onboardingContext }
+            : {}),
+          onboardingCompleted: input.onboardingCompleted,
+        }),
+      "apple/mobile"
+    );
+
+    if (!user) {
+      return ACCOUNT_LOOKUP_CONFLICT_FAILURE;
+    }
   } else {
     if (!user.authProviders.includes("apple")) {
       user.authProviders = [...user.authProviders, "apple"];

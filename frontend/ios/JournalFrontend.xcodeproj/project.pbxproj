@@ -83,20 +83,20 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = JournalFrontend/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalFrontend/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = JournalFrontend/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-SemiBold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-SemiBold.ttf"; sourceTree = "<group>"; };
+		1B3DE8BF31D34283BF2FD324 /* BricolageGrotesque-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-SemiBold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-SemiBold.ttf"; sourceTree = "<group>"; };
 		1E75643E2C9B4F5400AB1A01 /* JournalFrontend.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = JournalFrontend.entitlements; path = JournalFrontend/JournalFrontend.entitlements; sourceTree = "<group>"; };
-		3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-Bold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-Bold.ttf"; sourceTree = "<group>"; };
+		3324434402BC4238B76C749D /* BricolageGrotesque-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "BricolageGrotesque-Bold.ttf"; path = "../src/assets/fonts/BricolageGrotesque-Bold.ttf"; sourceTree = "<group>"; };
 		3937E96E97B4A368FE07FF8B /* JournalMindMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalMindMapView.swift; path = JournalFrontend/JournalMindMapView.swift; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-JournalFrontend.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.debug.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.debug.xcconfig"; sourceTree = "<group>"; };
-		409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-BricolageGrotesque.txt"; path = "../src/assets/fonts/OFL-BricolageGrotesque.txt"; sourceTree = "<group>"; };
-		4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Medium.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Medium.ttf"; sourceTree = "<group>"; };
+		409C66CC870A4A38BBB9921A /* OFL-BricolageGrotesque.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-BricolageGrotesque.txt"; path = "../src/assets/fonts/OFL-BricolageGrotesque.txt"; sourceTree = "<group>"; };
+		4E14BF27A4074003AAB6EA3D /* SchibstedGrotesk-Medium.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Medium.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Medium.ttf"; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-JournalFrontend.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-JournalFrontend.release.xcconfig"; path = "Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-JournalFrontend.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-JournalFrontend.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Italic.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Italic.ttf"; sourceTree = "<group>"; };
-		723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-SemiBold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-SemiBold.ttf"; sourceTree = "<group>"; };
+		6DAD61C4143F49288FA0AB7F /* SchibstedGrotesk-Italic.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Italic.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Italic.ttf"; sourceTree = "<group>"; };
+		723CADC581C54CF382896DAA /* SchibstedGrotesk-SemiBold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-SemiBold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-SemiBold.ttf"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = JournalFrontend/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = JournalFrontend/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Regular.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Regular.ttf"; sourceTree = "<group>"; };
+		90803CB465E34FF487DE9227 /* SchibstedGrotesk-Regular.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Regular.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Regular.ttf"; sourceTree = "<group>"; };
 		B10000000000000000000001 /* WidgetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WidgetBridge.swift; path = JournalFrontend/WidgetBridge.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* WidgetBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WidgetBridge.m; path = JournalFrontend/WidgetBridge.m; sourceTree = "<group>"; };
 		B10000000000000000000003 /* JournalWidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = JournalWidgetShared.swift; path = JournalWidgets/Shared/JournalWidgetShared.swift; sourceTree = "<group>"; };
@@ -113,8 +113,8 @@
 		B1000000000000000000000E /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		B1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = JournalWidgets/Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000010 /* StreakWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreakWidget.swift; path = JournalWidgets/StreakWidget.swift; sourceTree = "<group>"; };
-		E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Bold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Bold.ttf"; sourceTree = "<group>"; };
-		EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-SchibstedGrotesk.txt"; path = "../src/assets/fonts/OFL-SchibstedGrotesk.txt"; sourceTree = "<group>"; };
+		E74148A80F0D4BF18590F0D9 /* SchibstedGrotesk-Bold.ttf */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "SchibstedGrotesk-Bold.ttf"; path = "../src/assets/fonts/SchibstedGrotesk-Bold.ttf"; sourceTree = "<group>"; };
+		EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 9; includeInIndex = 0; lastKnownFileType = unknown; name = "OFL-SchibstedGrotesk.txt"; path = "../src/assets/fonts/OFL-SchibstedGrotesk.txt"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -219,7 +219,6 @@
 				EC9F7929F4AF4E0590043FB3 /* OFL-SchibstedGrotesk.txt */,
 			);
 			name = Resources;
-			path = "";
 			sourceTree = "<group>";
 		};
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
@@ -403,9 +402,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -442,9 +445,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-JournalFrontend/Pods-JournalFrontend-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -501,7 +508,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
@@ -534,7 +541,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = JournalFrontend/JournalFrontend.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = U5BP5WRA82;
 				INFOPLIST_FILE = JournalFrontend/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;

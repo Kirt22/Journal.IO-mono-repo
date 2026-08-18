@@ -15,6 +15,24 @@ services:
         value: 10000
       - key: MONGO_URI
         sync: false
+      # Field encryption. Declared here so the live mode is reviewable in git —
+      # leaving it dashboard-only is how production ended up disabled while
+      # FIELD_LOOKUP_HMAC_KEY was still set, which hid every account that had no
+      # lookup hash. The mode and the keys must be changed together: `migration`
+      # and `enforced` both require ACTIVE_KEY_ID, KEYS_JSON and the canaries, and
+      # `disabled` requires that LOOKUP_HMAC_KEY be cleared.
+      - key: FIELD_ENCRYPTION_MODE
+        value: disabled
+      - key: FIELD_ENCRYPTION_ACTIVE_KEY_ID
+        sync: false
+      - key: FIELD_ENCRYPTION_KEYS_JSON
+        sync: false
+      - key: FIELD_LOOKUP_HMAC_KEY
+        sync: false
+      - key: FIELD_ENCRYPTION_CANARY
+        sync: false
+      - key: FIELD_LOOKUP_HMAC_CANARY
+        sync: false
       - key: JWT_ACCESS_SECRET
         sync: false
       - key: JWT_ACCESS_EXPIRES_IN

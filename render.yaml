@@ -21,8 +21,18 @@ services:
       # lookup hash. The mode and the keys must be changed together: `migration`
       # and `enforced` both require ACTIVE_KEY_ID, KEYS_JSON and the canaries, and
       # `disabled` requires that LOOKUP_HMAC_KEY be cleared.
+      #
+      # Moved to `migration` on 2026-08-19, after an audit confirmed zero duplicate
+      # identities and zero already-encrypted rows. Migration encrypts on write and
+      # still reads plaintext, so unmigrated rows stay reachable via the fallback in
+      # `findUserByLookup`. Do NOT advance to `enforced` until a backfill has
+      # encrypted every existing row: `decryptFieldValue` throws on any plaintext it
+      # reads in that mode, so rows nobody has saved since the flip would break.
+      #
+      # From here on the keys are load-bearing. Once ciphertext exists, clearing
+      # KEYS_JSON or ACTIVE_KEY_ID makes that data permanently unrecoverable.
       - key: FIELD_ENCRYPTION_MODE
-        value: disabled
+        value: migration
       - key: FIELD_ENCRYPTION_ACTIVE_KEY_ID
         sync: false
       - key: FIELD_ENCRYPTION_KEYS_JSON

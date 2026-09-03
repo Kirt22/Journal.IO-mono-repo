@@ -260,6 +260,35 @@ To avoid it recurring, use `npm run ios:clean` instead of `npm run ios` when rei
 
 Verify success by looking for `created from CHS widget descriptor` in the same log query.
 
+## Archive Fails In `[CP] Copy XCFrameworks`
+
+Symptom: a Release archive fails in the `react-native-skia` pod with
+`rsync: .../libs/ios/libskia.xcframework/ios-arm64_arm64e/*: (l)stat: No such file or directory`,
+often alongside bare `Command Libtool failed with a nonzero exit code` messages from
+unrelated pods. Those usually carry no diagnostic of their own because Xcode is
+cancelling in-flight tasks after the real failure — but a nearly full disk produces the
+same silent Libtool failures, so check `df -h /System/Volumes/Data` before assuming they
+are only collateral. `~/Library/Developer/Xcode/DerivedData` and `.../Archives` are the
+usual reclaim targets; a Release archive of this app needs several GB of headroom.
+
+The prebuilt Skia binaries are not in the `@shopify/react-native-skia` tarball. They
+ship in `react-native-skia-apple-ios` / `-macos` / `-tvos` and are copied into
+`node_modules/@shopify/react-native-skia/libs/<platform>/` by the Skia podspec during
+`pod install`. Any `npm install` replaces the package directory and takes `libs/` with
+it, and nothing warns: `Podfile.lock` and `Pods/Manifest.lock` still agree, so
+CocoaPods sees no reason to run.
+
+`frontend/scripts/install-skia-apple-libs.mjs` runs on `postinstall` and performs the
+same copy, so this should no longer happen. If it does, confirm and repair with:
+
+```bash
+ls frontend/node_modules/@shopify/react-native-skia/libs/ios/libskia.xcframework
+cd frontend/ios && pod install
+```
+
+Then delete the failed run's `ArchiveIntermediates` from DerivedData before archiving
+again, since the aborted copy leaves a half-populated `XCFrameworkIntermediates`.
+
 ok now we will go back work on the onboarding, it is still
 not over. ok now when i go from the 'your personalisation is
 ready' onboarding scrren and then the bottom sheet that

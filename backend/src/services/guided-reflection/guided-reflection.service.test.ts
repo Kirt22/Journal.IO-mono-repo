@@ -19,11 +19,23 @@ type FindByIdQueryResult<T> = {
   };
 };
 
+type FindOneAndUpdateQueryResult<T> = {
+  lean: () => {
+    exec: () => Promise<T>;
+  };
+};
+
 const userTarget = userModel as unknown as {
   findById: (userId: string) => FindByIdQueryResult<unknown>;
+  findOneAndUpdate: (
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ) => FindOneAndUpdateQueryResult<unknown>;
 };
 
 const originalFindById = userTarget.findById;
+const originalFindOneAndUpdate = userTarget.findOneAndUpdate;
 const originalApiKey = process.env.OPENAI_API_KEY;
 const originalNodeEnv = process.env.NODE_ENV;
 const originalPremiumAccessOverride =
@@ -109,6 +121,7 @@ beforeEach(() => {
 
 afterEach(() => {
   userTarget.findById = originalFindById;
+  userTarget.findOneAndUpdate = originalFindOneAndUpdate;
   globalThis.fetch = originalFetch;
 
   if (typeof originalApiKey === "string") {
@@ -1682,4 +1695,252 @@ test("an assistant sentence can never become evidence or a trigger quote", async
   assert.equal(analysis.triggersObserved[0]?.evidenceQuote, "");
   // The trigger itself survives — only the unsupported attribution is dropped.
   assert.equal(analysis.triggersObserved[0]?.trigger, "a moved deadline");
+});
+
+// --- One-time onboarding AI allowance -------------------------------------
+//
+// The first guided reflection runs before the trial is ever offered, so a plain
+// premium check is false for every new account and the whole first session would
+// be served from the deterministic templates. These cover the counted allowance
+// that lets it reach the model exactly once per account.
+
+/**
+ * Stands in for the conditional findOneAndUpdate, including its atomicity: the
+ * increment only lands when the filter matches, which is what stops two
+ * concurrent go-deeper turns from both passing the cap.
+ */
+const stubOnboardingAllowance = (state: {
+  onboardingCompleted: boolean;
+  // Optional on purpose: accounts created before the field existed have no
+  // value at all, and the filter has to keep matching them.
+  onboardingAiCallsUsed?: number;
+}) => {
+  const claims: Array<{ cap: number; granted: boolean }> = [];
+
+  userTarget.findOneAndUpdate = (filter) => {
+    const cap = (
+      filter.onboardingAiCallsUsed as { $not: { $gte: number } }
+    ).$not.$gte;
+    // Mirrors { $not: { $gte: cap } }, which matches a missing field where a
+    // plain { $lt: cap } would not.
+    const granted =
+      filter.onboardingCompleted === false &&
+      !state.onboardingCompleted &&
+      !((state.onboardingAiCallsUsed as number) >= cap);
+
+    if (granted) {
+      // $inc initialises a missing field to 1.
+      state.onboardingAiCallsUsed = (state.onboardingAiCallsUsed ?? 0) + 1;
+    }
+    claims.push({ cap, granted });
+
+    return {
+      lean: () => ({
+        exec: async () => (granted ? { _id: "onboarding-user" } : null),
+      }),
+    };
+  };
+
+  return claims;
+};
+
+const GO_DEEPER_INPUT = {
+  userId: "onboarding-user",
+  promptAnswers: [
+    {
+      questionId: "good_exciting",
+      question: "What was one good or exciting thing that happened today?",
+      answer: "I finished the report I had been avoiding for a week",
+    },
+    {
+      questionId: "hurdle",
+      question: "What was one hurdle or stressful moment you faced today?",
+      answer: "My manager rescheduled our one to one again and I went quiet",
+    },
+    {
+      questionId: "carry_tomorrow",
+      question: "What would you like to carry into tomorrow?",
+      answer: "Saying the thing instead of swallowing it",
+    },
+  ],
+  currentText: "I keep going silent whenever a meeting with him moves.",
+  onboardingContext: { reflectionTone: ["practical"] },
+} satisfies Parameters<typeof createGuidedReflectionGoDeeper>[0];
+
+const MODEL_REFLECTION =
+  "You went quiet the moment the meeting moved, and that is the second time " +
+  "this week the same rescheduling has produced the same silence rather than " +
+  "a reply. Finishing the report shows you can act when the path is clear; " +
+  "the silence shows what happens when it is not. Tomorrow, send one sentence " +
+  "asking for a new time before the day fills up.";
+
+/**
+ * Counts the structured /responses calls so a test can tell a real model turn
+ * from template copy, rather than pattern-matching on wording.
+ */
+const stubGoDeeperModel = () => {
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).includes("/responses")) {
+      calls.push(String(url));
+    }
+
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          reflection: MODEL_REFLECTION,
+          nextQuestion: "What did you want to say when the meeting moved?",
+          canGoDeeper: true,
+          sessionSignals: {
+            triggers: [],
+            activeTrigger: "the meeting being rescheduled",
+            triggerStage: "test",
+          },
+        }),
+      }),
+      { status: 200 }
+    );
+  }) as typeof fetch;
+
+  return calls;
+};
+
+const stubNonPremiumUser = () => {
+  userTarget.findById = () => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({ isPremium: false }),
+      }),
+    }),
+  });
+};
+
+test("the onboarding allowance lets a non-premium first reflection reach the model", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  const state = { onboardingCompleted: false, onboardingAiCallsUsed: 0 };
+  const claims = stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 1);
+  assert.equal(response.reflection, MODEL_REFLECTION);
+  // Spending exactly one call per allowed turn is what keeps the cap meaningful.
+  assert.equal(state.onboardingAiCallsUsed, 1);
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0]?.granted, true);
+});
+
+test("the onboarding allowance stops at its cap", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  const state = {
+    onboardingCompleted: false,
+    onboardingAiCallsUsed: Number.MAX_SAFE_INTEGER,
+  };
+  stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 0);
+  assert.notEqual(response.reflection, MODEL_REFLECTION);
+  assert.ok(response.reflection.length > 0);
+});
+
+test("a finished onboarding falls back to the plain premium gate", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  const state = { onboardingCompleted: true, onboardingAiCallsUsed: 0 };
+  stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 0);
+  assert.notEqual(response.reflection, MODEL_REFLECTION);
+  // The allowance is one-time: replaying onboarding must not mint more calls.
+  assert.equal(state.onboardingAiCallsUsed, 0);
+});
+
+test("a premium user never spends the onboarding allowance", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  userTarget.findById = () => ({
+    select: () => ({
+      lean: () => ({
+        exec: async () => ({
+          isPremium: true,
+          premiumPlanKey: "lifetime",
+          premiumSource: "revenuecat_verified",
+        }),
+      }),
+    }),
+  });
+  const state = { onboardingCompleted: false, onboardingAiCallsUsed: 0 };
+  const claims = stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 1);
+  assert.equal(response.reflection, MODEL_REFLECTION);
+  assert.equal(claims.length, 0);
+  assert.equal(state.onboardingAiCallsUsed, 0);
+});
+
+test("a safety signal answers without the model or the allowance", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  const state = { onboardingCompleted: false, onboardingAiCallsUsed: 0 };
+  const claims = stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper({
+    ...GO_DEEPER_INPUT,
+    currentText: "I want to kill myself tonight.",
+  });
+
+  assert.equal(calls.length, 0);
+  assert.equal(claims.length, 0);
+  assert.equal(state.onboardingAiCallsUsed, 0);
+  assert.notEqual(response.reflection, MODEL_REFLECTION);
+});
+
+test("a database failure in the allowance degrades to the template", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  userTarget.findOneAndUpdate = () => ({
+    lean: () => ({
+      exec: async () => {
+        throw new Error("connection lost");
+      },
+    }),
+  });
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 0);
+  assert.ok(response.reflection.length > 0);
+  assert.ok(response.nextQuestion.length > 0);
+});
+
+test("an account predating the counter still gets the onboarding allowance", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  stubNonPremiumUser();
+  // No onboardingAiCallsUsed at all, as every account created before this
+  // field shipped. A { $lt: cap } filter would silently skip these users and
+  // leave them on template copy forever.
+  const state: { onboardingCompleted: boolean; onboardingAiCallsUsed?: number } =
+    { onboardingCompleted: false };
+  stubOnboardingAllowance(state);
+  const calls = stubGoDeeperModel();
+
+  const response = await createGuidedReflectionGoDeeper(GO_DEEPER_INPUT);
+
+  assert.equal(calls.length, 1);
+  assert.equal(response.reflection, MODEL_REFLECTION);
+  assert.equal(state.onboardingAiCallsUsed, 1);
 });

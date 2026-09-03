@@ -215,6 +215,14 @@ For App Store upload, use Xcode:
 
 If env values change, create a fresh archive. Already uploaded builds keep the env values bundled at archive time.
 
+If an archive fails in the `react-native-skia` `[CP] Copy XCFrameworks` phase with
+an rsync `No such file or directory`, the prebuilt Skia binaries are missing from
+`frontend/node_modules/@shopify/react-native-skia/libs/`. They are not part of that
+package's npm tarball: they ship in `react-native-skia-apple-ios` / `-macos` / `-tvos`
+and are copied into `libs/<platform>/` by the Skia podspec at `pod install` time, and
+by `frontend/scripts/install-skia-apple-libs.mjs` on `npm install`. Run
+`cd frontend/ios && pod install` and archive again.
+
 ## Scripts
 
 Backend:

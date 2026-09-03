@@ -127,6 +127,13 @@ export interface IUser extends Document {
   onboardingVersion?: number | null;
   onboardingCompletedAt?: Date | null;
   onboardingPayload?: IOnboardingPayload | null;
+  /**
+   * AI calls this account has spent on the one-time onboarding allowance, which
+   * lets the first guided reflection reach the model before the user has been
+   * offered the trial. Counts up to ONBOARDING_AI_CALL_CAP and is never reset,
+   * so replaying onboarding cannot farm free model calls.
+   */
+  onboardingAiCallsUsed: number;
   avatarColor?: string | null;
   profileSetupCompleted: boolean;
   onboardingCompleted: boolean;
@@ -284,6 +291,7 @@ const userSchema = new mongoose.Schema<IUser>(
       type: onboardingPayloadSchema,
       default: null,
     },
+    onboardingAiCallsUsed: { type: Number, default: 0, required: true },
     avatarColor: { type: String, default: null },
     profileSetupCompleted: { type: Boolean, default: false, required: true },
     onboardingCompleted: { type: Boolean, default: false, required: true },

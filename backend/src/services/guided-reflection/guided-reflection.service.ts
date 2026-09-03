@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { userModel } from "../../schema/user.schema";
 import {
   detectJournalSafetySignal,
   hasJournalSafetySignal,
@@ -1933,11 +1934,66 @@ const getSuggestionInstruction = (action?: GuidedSuggestionAction) => {
 };
 
 /**
+ * Ceiling on the one-time onboarding allowance below. One first-reflection
+ * summary, up to six go-deeper turns (the client's own MAX_DEEPER_REFLECTIONS),
+ * one session analysis and one goal-suggestion call come to nine; the rest is
+ * headroom for a retry. Lower this to trim the per-signup cost.
+ */
+const ONBOARDING_AI_CALL_CAP = 12;
+
+/**
  * Guided reflection is a premium experience. Development access follows the
  * same global entitlement override as every other Premium surface.
+ *
+ * The exception is onboarding. The first guided reflection runs before the user
+ * has been offered the trial (see the Onboarding -> FirstGuidedReflection ->
+ * ... -> OnboardingTrialIntro order in the app's navigator), so a plain
+ * entitlement check is false for every new account and the whole first session
+ * — the one that has to show what this app actually does — would be served from
+ * the deterministic templates further down this file. So an account that has
+ * not finished onboarding gets a small, counted allowance of real calls.
+ *
+ * The claim is a conditional findOneAndUpdate rather than a read followed by a
+ * write: two go-deeper turns can be in flight at once, and only an atomic
+ * increment guaranteed by the query filter keeps them from both passing the cap.
+ * The counter is never reset, so restarting onboarding cannot mint more calls.
  */
-const canUseGuidedReflectionAi = (userId: string) =>
-  canUseOpenAiForUser(userId);
+const canUseGuidedReflectionAi = async (userId: string) => {
+  if (!isOpenAiConfigured()) {
+    return false;
+  }
+
+  if (await canUseOpenAiForUser(userId)) {
+    return true;
+  }
+
+  // Never throws: a cast error or a database hiccup here must cost the caller
+  // its template reply, not the whole request. Guided reflection is built so an
+  // unavailable model degrades instead of failing, and the allowance check has
+  // to hold that same contract.
+  try {
+    const claimed = await userModel
+      .findOneAndUpdate(
+        {
+          _id: userId,
+          onboardingCompleted: false,
+          // $not/$gte rather than $lt: comparison operators only match values
+          // of the same BSON type, so a plain { $lt: cap } skips every account
+          // created before this field existed — exactly the mid-onboarding
+          // users the allowance is for. $inc initialises a missing field to 1.
+          onboardingAiCallsUsed: { $not: { $gte: ONBOARDING_AI_CALL_CAP } },
+        },
+        { $inc: { onboardingAiCallsUsed: 1 } },
+        { new: true, projection: { _id: 1 } }
+      )
+      .lean()
+      .exec();
+
+    return Boolean(claimed);
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Best-effort embedding of the user's own writing in this session, used to pull
@@ -2644,10 +2700,9 @@ const createGuidedReflectionGoDeeper = async (
     userProfile,
     systemDirective,
   } = await resolveGuidedReflectionPersonalization(input);
-  const fallback = buildFallbackDeeperResponse(personalizedInput);
 
   if (!(await canUseGuidedReflectionAi(input.userId))) {
-    return fallback;
+    return buildFallbackDeeperResponse(personalizedInput);
   }
 
   const queryEmbedding = await buildSessionQueryEmbedding(input);
@@ -2733,7 +2788,7 @@ const createGuidedReflectionGoDeeper = async (
   });
 
   if (!aiResponse) {
-    return fallback;
+    return buildFallbackDeeperResponse(personalizedInput);
   }
 
   return {

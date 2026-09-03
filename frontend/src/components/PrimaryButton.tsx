@@ -16,7 +16,7 @@ type PrimaryButtonProps = {
   disabled?: boolean;
   loading?: boolean;
   variant?: "solid" | "outline" | "ghost";
-  tone?: "default" | "accent";
+  tone?: "default" | "accent" | "apple";
   icon?: ReactNode;
   size?: "md" | "sm";
   hapticEvent?: HapticEvent | false;
@@ -38,10 +38,17 @@ const PrimaryButton = ({
   const isOutline = variant === "outline";
   const isGhost = variant === "ghost";
   const isAccent = tone === "accent";
-  const solidBackground = isAccent ? theme.colors.primary : theme.colors.success;
+  const isApple = tone === "apple";
+  const solidBackground = isAccent
+    ? theme.colors.primary
+    : isApple
+      ? theme.colors.apple
+      : theme.colors.success;
   const solidText = isAccent
     ? theme.colors.primaryForeground
-    : theme.colors.successForeground;
+    : isApple
+      ? theme.colors.appleForeground
+      : theme.colors.successForeground;
   const outlineBackground = theme.colors.secondary;
   const outlineBorder = theme.colors.border;
   const outlineText = theme.colors.foreground;

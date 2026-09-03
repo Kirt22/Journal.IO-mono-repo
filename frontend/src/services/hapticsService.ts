@@ -25,6 +25,7 @@ let cachedPresets: PulsarPresets | null | undefined;
 let cachedSettings: PulsarSettings | null | undefined;
 let lastHapticAt = 0;
 let hasConfiguredPulsar = false;
+let runtimeHapticsSuppressed = false;
 
 const HAPTIC_THROTTLE_MS = 220;
 const AUTH_INTRO_REVEAL_THROTTLE_MS = 120;
@@ -109,7 +110,7 @@ const getHapticThrottleMs = (event: HapticEvent) =>
     : HAPTIC_THROTTLE_MS;
 
 const triggerHaptic = async (event: HapticEvent) => {
-  if (!useAppStore.getState().hapticsEnabled) {
+  if (runtimeHapticsSuppressed || !useAppStore.getState().hapticsEnabled) {
     return undefined;
   }
 
@@ -152,5 +153,13 @@ const stopHaptics = async () => {
   return undefined;
 };
 
-export { stopHaptics, triggerHaptic };
+const setRuntimeHapticsSuppressed = (suppressed: boolean) => {
+  runtimeHapticsSuppressed = suppressed;
+
+  if (suppressed) {
+    stopHaptics().catch(() => undefined);
+  }
+};
+
+export { setRuntimeHapticsSuppressed, stopHaptics, triggerHaptic };
 export type { HapticEvent };

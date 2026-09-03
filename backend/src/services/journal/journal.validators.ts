@@ -31,6 +31,11 @@ const createJournalSchema = z.object({
     type: z.enum(["open_ended", "guided"]).optional(),
     entryKind: z.enum(["journal", "quick_thought"]).optional(),
     aiPrompt: z.string().min(1).optional(),
+    // What the app itself wrote into `content` — section labels, its own
+    // reflection, the questions it asked, any inserted writing prompt. Bounded
+    // because it is client-supplied; the authorship helper only ever removes
+    // these strings, so a bad value costs text, never adds it.
+    appAuthoredSegments: z.array(z.string().min(1).max(600)).max(40).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
   }),
@@ -55,6 +60,7 @@ const editJournalSchema = z.object({
     content: z.string().min(1, "Content is required"),
     type: z.enum(["open_ended", "guided"]).optional(),
     aiPrompt: z.string().min(1).optional(),
+    appAuthoredSegments: z.array(z.string().min(1).max(600)).max(40).optional(),
     images: z.array(z.string().min(1)).optional(),
     tags: z.array(z.string().min(1)).optional(),
     isFavorite: z.boolean().optional(),

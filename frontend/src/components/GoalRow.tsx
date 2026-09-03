@@ -29,6 +29,7 @@ import { getGoalIconEmoji } from '../constants/goalIcons';
 import { formatReminderTime } from '../constants/reminderTimes';
 import { GOAL_FREQUENCY_LABELS } from '../utils/goalPeriod';
 import { getGoalPresentationColors } from '../utils/goalPresentation';
+import { shouldClaimRowSwipe } from '../utils/rowSwipeGesture';
 import type { SavedGoal } from '../services/goalsService';
 
 export type GoalRowPresentation = 'home' | 'manage';
@@ -44,6 +45,11 @@ type GoalRowProps = {
   onUnarchive?: (goal: SavedGoal) => void;
   presentation?: GoalRowPresentation;
   accentIndex?: number;
+  /**
+   * Bumped by the parent whenever the list scrolls. An open action tray left
+   * behind while the user scrolls away is stale UI, so it closes itself.
+   */
+  closeSignal?: number;
 };
 
 const TRAY_WIDTH = 132;
@@ -57,6 +63,7 @@ export default function GoalRow({
   onUnarchive,
   presentation = 'home',
   accentIndex,
+  closeSignal,
 }: GoalRowProps) {
   const theme = useTheme();
   const translateX = useRef(new Animated.Value(0)).current;
@@ -123,6 +130,8 @@ export default function GoalRow({
     }).start();
   }, [goal.isCompletedForPeriod, isReduceMotionEnabled, tickFill]);
 
+  const snapRef = useRef<(open: boolean) => void>(() => undefined);
+
   const snap = (open: boolean) => {
     isOpenRef.current = open;
     Animated.spring(translateX, {
@@ -134,11 +143,19 @@ export default function GoalRow({
     }).start();
   };
 
+  snapRef.current = snap;
+
+  useEffect(() => {
+    if (closeSignal === undefined || !isOpenRef.current) {
+      return;
+    }
+
+    snapRef.current(false);
+  }, [closeSignal]);
+
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 8 &&
-        Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3,
+      onMoveShouldSetPanResponder: (_, gesture) => shouldClaimRowSwipe(gesture),
       onPanResponderGrant: () => {
         translateX.stopAnimation(value => {
           startXRef.current = value;

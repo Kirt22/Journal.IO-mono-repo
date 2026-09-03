@@ -3,6 +3,7 @@ import ReactTestRenderer from 'react-test-renderer';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { ThemeProvider } from '../src/theme/provider';
 import { getTheme } from '../src/theme/theme';
+import { fontFamilies } from '../src/theme/typography';
 import JournalWordmark, {
   getInkCurrentHorizontalPath,
   getInkCurrentPresentationMetrics,
@@ -242,6 +243,106 @@ test('settles once when reduced motion is enabled', async () => {
   expect(onIntroMergeComplete).toHaveBeenCalledWith(reducedMotionResult);
   expect(onIntroComplete).toHaveBeenCalledTimes(1);
   expect(onIntroComplete).toHaveBeenCalledWith(reducedMotionResult);
+
+  ReactTestRenderer.act(() => root!.unmount());
+  reduceMotionSpy.mockRestore();
+  jest.useRealTimers();
+});
+
+test('draws every layer of the mark in the display face', () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="dark">
+        <JournalWordmark />
+      </ThemeProvider>,
+    );
+  });
+
+  const markNodes = root!.root.findAll(
+    node =>
+      node.props.children === 'journal' || node.props.children === '.io',
+  );
+
+  expect(markNodes.length).toBeGreaterThan(0);
+  markNodes.forEach(node => {
+    expect(StyleSheet.flatten(node.props.style).fontFamily).toBe(
+      fontFamilies.display.bold,
+    );
+  });
+});
+
+test('lets the coral io layer size to its own content', () => {
+  const theme = getTheme('dark');
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="dark">
+        <JournalWordmark />
+      </ThemeProvider>,
+    );
+  });
+
+  // Pinning the overlay's right edge capped it at the width the layer beneath
+  // measured, so `numberOfLines` truncated it to a period plus an ellipsis.
+  const coralLayers = root!.root.findAll(
+    node =>
+      node.props.children === '.io' &&
+      StyleSheet.flatten(node.props.style)?.color === theme.colors.primary &&
+      StyleSheet.flatten(node.props.style)?.position === 'absolute',
+  );
+
+  expect(coralLayers.length).toBeGreaterThan(0);
+  coralLayers.forEach(node => {
+    expect(StyleSheet.flatten(node.props.style).right).toBeUndefined();
+  });
+});
+
+test('draws the intro trail in the display face it converges on', async () => {
+  jest.useFakeTimers();
+  const reduceMotionSpy = jest
+    .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
+    .mockResolvedValue(false);
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <ThemeProvider modeOverride="light">
+        <JournalWordmark playInkCurrentIntro />
+      </ThemeProvider>,
+    );
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    jest.advanceTimersByTime(250);
+    await Promise.resolve();
+  });
+
+  const trailCopies = root!.root.findAll(
+    node =>
+      typeof node.props.testID === 'string' &&
+      node.props.testID.startsWith('journal-ink-copy-'),
+  );
+
+  expect(trailCopies.length).toBeGreaterThan(0);
+  trailCopies.forEach(copy => {
+    expect(StyleSheet.flatten(copy.props.style).fontFamily).toBe(
+      fontFamilies.display.bold,
+    );
+  });
+
+  // The nested `.io` carries no size of its own, so without an explicit family
+  // it resolves to the UI face and overrides what it inherits.
+  root!.root
+    .findAll(node => node.props.children === '.io')
+    .forEach(node => {
+      expect(StyleSheet.flatten(node.props.style).fontFamily).toBe(
+        fontFamilies.display.bold,
+      );
+    });
 
   ReactTestRenderer.act(() => root!.unmount());
   reduceMotionSpy.mockRestore();

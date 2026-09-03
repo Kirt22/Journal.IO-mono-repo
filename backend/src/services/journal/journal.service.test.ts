@@ -27,6 +27,7 @@ const userTarget = userModel as unknown as {
   findById: (userId: string) => FindByIdQueryResult<unknown>;
 };
 const journalTarget = journalModel as unknown as {
+  findOneAndUpdate?: (...args: unknown[]) => { exec: () => Promise<unknown> };
   findOne: (query: unknown) => {
     exec: () => Promise<unknown>;
   };
@@ -164,6 +165,8 @@ test("getJournalSessionAnalysis replays the saved snapshot without regenerating"
     analysis: "This session suggests a calmer response to pressure.",
     majorInsight: "A small pause appeared associated with more steadiness.",
     observedTrends: ["Calm"],
+    triggersObserved: [],
+    patternAssessment: [],
     detectedTopics: ["calm"],
     detectedMood: "good",
     brainSessionMap: {
@@ -407,4 +410,78 @@ test("suggestJournalTags uses OpenAI-selected tags when available and still keep
   });
 
   assert.deepEqual(result.tags, ["self-care", "sadness"]);
+});
+
+test("a guided entry is re-analysed from the user's words, not the whole blob", async () => {
+  // The saved guided entry is one blob of mixed authorship. Feeding it whole is
+  // how Journal.IO's own reflection gets read back as the person's writing.
+  const jadeReflection =
+    "Protecting your morning seems tied to the focused hour you keep reaching for.";
+  const guidedBlob = [
+    "One good or exciting thing from today:\nI finished the deck before lunch.",
+    "One hurdle or stressful moment:\nMy manager messaged me and I went quiet.",
+    `Journal.IO reflection:\n${jadeReflection}`,
+    "Going deeper:\nQuestion:\nWhat gets in the way?\nMy response:\nI put it off until the afternoon.",
+  ].join("\n\n");
+
+  mockUserAiAccess(true);
+  const guidedDoc = () => ({
+      _id: "journal-1",
+      title: "Today's reflection",
+      entryKind: "journal",
+      type: "guided",
+      content: guidedBlob,
+      aiPrompt: "Onboarding first guided reflection",
+      appAuthoredSegments: [
+        "One good or exciting thing from today:",
+        "One hurdle or stressful moment:",
+        "Journal.IO reflection:",
+        "Going deeper:",
+        "Question:",
+        "My response:",
+        jadeReflection,
+        "What gets in the way?",
+      ],
+      sessionAnalysisSnapshot: null,
+      createdAt: new Date("2026-08-10T00:00:00.000Z"),
+      tags: [],
+      detectedTopics: [],
+      isFavorite: false,
+      save: async () => undefined,
+  });
+  // Chainable: the read path uses .exec(), the persist path uses .select().
+  journalTarget.findOne = () => {
+    const chain: Record<string, unknown> = {
+      exec: async () => guidedDoc(),
+      select: () => chain,
+      lean: () => chain,
+    };
+    return chain as { exec: () => Promise<unknown> };
+  };
+  // Echo the write back, the way Mongo's { new: true } would, so persist
+  // returns the freshly generated analysis rather than falling through.
+  journalTarget.findOneAndUpdate = (...args: unknown[]) => ({
+    exec: async () => {
+      const update = args[1] as {
+        $set: { sessionAnalysisSnapshot: unknown };
+      };
+      return {
+        ...guidedDoc(),
+        sessionAnalysisSnapshot: update.$set.sessionAnalysisSnapshot,
+        save: async () => undefined,
+      };
+    },
+  });
+
+  const analysis = await getJournalSessionAnalysis({
+    userId: "user-1",
+    journalId: "journal-1",
+  });
+
+  assert.ok(analysis);
+  // Deterministic fallback (no OpenAI key in tests) quotes the user's own
+  // sentences back. None of them may be Journal.IO's.
+  assert.doesNotMatch(analysis.analysis, /Protecting your morning/i);
+  assert.doesNotMatch(analysis.analysis, /What gets in the way/i);
+  assert.doesNotMatch(analysis.analysis, /Journal\.IO reflection/i);
 });

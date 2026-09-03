@@ -62,6 +62,7 @@ import {
   PURCHASE_UPDATING_SUCCESS_TITLE,
 } from "./paywallShared";
 import { PREMIUM_FEATURES } from "./paywallContent";
+import { fontFamilies } from "../../theme/typography";
 
 type SubscriptionPlanKey = "weekly" | "monthly" | "yearly" | "lifetime" | null | undefined;
 
@@ -1469,6 +1470,7 @@ const styles = StyleSheet.create({
     right: 4,
   },
   heroTitle: {
+    fontFamily: fontFamilies.display.bold,
     textAlign: "center",
     fontWeight: "700",
     letterSpacing: -1.2,
@@ -1484,6 +1486,7 @@ const styles = StyleSheet.create({
     lineHeight: 42,
   },
   heroSubtitle: {
+    fontFamily: fontFamilies.ui.regular,
     textAlign: "center",
     maxWidth: 260,
     fontSize: 14,

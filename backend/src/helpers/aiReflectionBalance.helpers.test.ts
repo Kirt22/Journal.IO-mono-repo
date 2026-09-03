@@ -10,7 +10,8 @@ test("reflection balance guidance is challenge-aware without manufacturing negat
   assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /55%/);
   assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /45%/);
   assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /Do not invent/i);
-  assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /warm, steady, constructive/i);
+  assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /plain, direct, and adult/i);
+  assert.match(AI_REFLECTION_BALANCE_GUIDANCE, /state the conclusion rather than circling it/i);
 });
 
 test("extraction and action guidance preserve evidence and user agency", () => {
@@ -19,6 +20,6 @@ test("extraction and action guidance preserve evidence and user agency", () => {
     AI_EXTRACTION_BALANCE_GUIDANCE,
     /negated, conflicted, or distressed/i
   );
-  assert.match(AI_ACTION_BALANCE_GUIDANCE, /small, optional, constructive/i);
+  assert.match(AI_ACTION_BALANCE_GUIDANCE, /specific, directive, and grounded/i);
   assert.match(AI_ACTION_BALANCE_GUIDANCE, /Never invent a problem/i);
 });

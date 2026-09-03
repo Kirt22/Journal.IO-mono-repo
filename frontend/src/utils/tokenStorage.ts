@@ -6,14 +6,17 @@ export {
 } from "./keychainStorage";
 export {
   clearOnboardingCompleted,
+  clearOnboardingResumePoint,
   clearPostAuthPaywallSeen,
   clearStoredOnboardingData,
   getOnboardingCompleted,
+  getOnboardingResumePoint,
   getPostAuthPaywallSeen,
   getStoredOnboardingData,
   hasSeenInstall,
   markInstallSeen,
   saveOnboardingCompleted,
+  saveOnboardingResumePoint,
   savePostAuthPaywallSeen,
   saveStoredOnboardingData,
 } from "./appStorage";

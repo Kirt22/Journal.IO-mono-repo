@@ -22,6 +22,7 @@ import OnboardingV2Screen from '../screens/onboarding/OnboardingV2Screen';
 import FirstGuidedReflectionScreen from '../screens/onboarding/FirstGuidedReflectionScreen';
 import OnboardingMindMapLoaderScreen from '../screens/onboarding/OnboardingMindMapLoaderScreen';
 import OnboardingMindMapScreen from '../screens/onboarding/OnboardingMindMapScreen';
+import OnboardingMindMapShareScreen from '../screens/onboarding/OnboardingMindMapShareScreen';
 import FirstReflectionRatingScreen from '../screens/onboarding/FirstReflectionRatingScreen';
 import OnboardingRemindersScreen from '../screens/onboarding/OnboardingRemindersScreen';
 import OnboardingWidgetSetupScreen from '../screens/onboarding/OnboardingWidgetSetupScreen';
@@ -43,6 +44,7 @@ import AccountScreen from '../screens/profile/AccountScreen';
 import {
   SettingsAccountSection,
   SettingsAboutLegalSection,
+  SettingsCommunitySection,
   SettingsMoreSection,
   SettingsPersonalizationSection,
   SettingsPrivacyDataSection,
@@ -55,7 +57,11 @@ import WidgetsScreen from '../screens/profile/WidgetsScreen';
 import RemindersScreen from '../screens/reminders/RemindersScreen';
 import InAppBrowserModal from '../components/InAppBrowserModal';
 import { ENABLE_ONBOARDING_V2 } from '../config/onboarding';
-import { useAppStore } from '../store/appStore';
+import {
+  recordOnboardingProgress,
+  resumeOnboardingRoute,
+  useAppStore,
+} from '../store/appStore';
 import { ThemeTransitionOverlay, useTheme } from '../theme/provider';
 import {
   navigateMainApp,
@@ -220,7 +226,33 @@ function FirstReflectionMindMapRoute() {
 
   return (
     <OnboardingMindMapScreen
-      onContinue={() => navigation.replace('FirstReflectionRating', route.params)}
+      onContinue={selectedRegionId =>
+        navigation.replace('FirstReflectionMindMapShare', {
+          ...route.params,
+          selectedRegionId,
+        })
+      }
+      sessionAnalysis={route.params.sessionAnalysis}
+    />
+  );
+}
+
+function FirstReflectionMindMapShareRoute() {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList, 'FirstReflectionMindMapShare'>
+  >();
+  const route = useRoute<
+    RouteProp<RootStackParamList, 'FirstReflectionMindMapShare'>
+  >();
+  const { selectedRegionId, ...nextParams } = route.params;
+
+  return (
+    <OnboardingMindMapShareScreen
+      onMaybeLater={() => navigation.replace('FirstReflectionRating', nextParams)}
+      // A completed share is the step's goal; keeping the user on it afterwards
+      // would leave "Maybe later" as the only way forward.
+      onShared={() => navigation.replace('FirstReflectionRating', nextParams)}
+      selectedRegionId={selectedRegionId}
       sessionAnalysis={route.params.sessionAnalysis}
     />
   );
@@ -619,6 +651,7 @@ function ProfileHubRoute() {
             onOpenWidgets={() => navigation.navigate('Widgets')}
           />
           <SettingsAboutLegalSection />
+          <SettingsCommunitySection />
           <SettingsSupportSection />
           <SettingsSignOutSection onSignOut={signOut} />
         </>
@@ -898,7 +931,15 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} linking={rootLinkingConfig}>
+    <NavigationContainer
+      linking={rootLinkingConfig}
+      // The boot path picks the screen through `initialRouteName`, which cannot
+      // carry params — so a resumed onboarding is applied here, once the
+      // container can actually be navigated.
+      onReady={resumeOnboardingRoute}
+      onStateChange={recordOnboardingProgress}
+      ref={navigationRef}
+    >
       <RootStack.Navigator
         initialRouteName={getInitialRouteName(stage)}
         screenOptions={{ headerShown: false }}
@@ -945,6 +986,15 @@ export default function AppNavigator() {
         <RootStack.Screen
           name="FirstReflectionMindMap"
           component={FirstReflectionMindMapRoute}
+          options={{
+            animation: 'fade',
+            animationDuration: 300,
+            gestureEnabled: false,
+          }}
+        />
+        <RootStack.Screen
+          name="FirstReflectionMindMapShare"
+          component={FirstReflectionMindMapShareRoute}
           options={{
             animation: 'fade',
             animationDuration: 300,

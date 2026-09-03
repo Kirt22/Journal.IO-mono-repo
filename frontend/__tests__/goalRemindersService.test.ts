@@ -22,6 +22,7 @@ import {
   GOAL_REMINDER_BUDGET,
   buildGoalNotificationId,
   cancelAllGoalReminders,
+  setRuntimeGoalNotificationsSuppressed,
   syncGoalReminderNotifications,
 } from '../src/services/goalRemindersService';
 import type { SavedGoal } from '../src/services/goalsService';
@@ -66,6 +67,7 @@ beforeEach(() => {
     authorizationStatus: 1,
   });
   mockNotifee.getTriggerNotificationIds.mockResolvedValue([]);
+  setRuntimeGoalNotificationsSuppressed(false);
 });
 
 afterEach(() => {
@@ -168,6 +170,20 @@ test('never requests permission during a sync', async () => {
 
   // Permission is only ever asked for on explicit intent, in the goal sheet.
   expect(mockNotifee.requestPermission).not.toHaveBeenCalled();
+});
+
+test('runtime suppression clears goal reminders without scheduling replacements', async () => {
+  mockNotifee.getTriggerNotificationIds.mockResolvedValue([
+    buildGoalNotificationId('g1', 0),
+  ]);
+  setRuntimeGoalNotificationsSuppressed(true);
+
+  await syncGoalReminderNotifications([makeGoal({ id: 'g1' })]);
+
+  expect(mockNotifee.cancelTriggerNotifications).toHaveBeenCalledWith([
+    buildGoalNotificationId('g1', 0),
+  ]);
+  expect(mockNotifee.createTriggerNotification).not.toHaveBeenCalled();
 });
 
 test('respects the budget and gives every goal its next occurrence first', async () => {

@@ -80,7 +80,7 @@ const MINING_SYSTEM_PROMPT = [
   "You are reading only what one person said about themselves in a supportive conversation.",
   "Name up to four behavioural patterns their own words point to. A pattern is a behaviour tied to its trigger or to the feeling it regulates — 'eats while watching shows', 'goes quiet after a disagreement' — never a mood, a one-off event, or a plan.",
   AI_EXTRACTION_BALANCE_GUIDANCE,
-  "Never name a condition, a diagnosis, or a personality trait, even if the person used that word themselves. Describe what they do, not what they think they are.",
+  "Describe what the person does and the pattern it belongs to, naming a recognised psychological pattern where their words support one. Do not record a formal disorder as an established medical fact.",
   "evidenceQuote must be copied verbatim from their messages, or left empty. Never write a quote yourself.",
   "Only name a pattern the conversation genuinely supports. Returning no themes is the right answer for small talk.",
 ].join(" ");

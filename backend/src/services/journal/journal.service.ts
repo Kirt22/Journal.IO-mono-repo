@@ -8,6 +8,7 @@ import {
   requestStructuredOpenAi,
 } from "../../helpers/openai.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
+import { extractJournalAuthorship } from "../../helpers/journalAuthorship.helpers";
 import { normalizeJournalEntryKind } from "../../helpers/journalEntryKind.helpers";
 import { filterReservedJournalTags } from "../../helpers/journalTags.helpers";
 import {
@@ -175,6 +176,12 @@ const journalQuickAnalysisSchema = z.object({
   }),
   connection: z.string().trim().max(200).nullable(),
 });
+// Every maxLength here mirrors a .max() in journalQuickAnalysisSchema above.
+// The two must stay in step: the parser rejects an over-long field, but the
+// model only knows a limit exists if the JSON schema states it. When these
+// drifted apart, the model wrote a naturally-sized narrative, Zod threw it out,
+// and the entry paid for a second model call to produce a reflection that had
+// already been written once.
 const journalQuickAnalysisJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -192,9 +199,9 @@ const journalQuickAnalysisJsonSchema = {
       additionalProperties: false,
       required: ["headline", "narrative", "highlight"],
       properties: {
-        headline: { type: "string" },
-        narrative: { type: "string" },
-        highlight: { type: "string" },
+        headline: { type: "string", maxLength: 90 },
+        narrative: { type: "string", maxLength: 220 },
+        highlight: { type: "string", maxLength: 180 },
       },
     },
     scorecard: {
@@ -202,7 +209,7 @@ const journalQuickAnalysisJsonSchema = {
       additionalProperties: false,
       required: ["vibeLabel", "vibeTone", "cards"],
       properties: {
-        vibeLabel: { type: "string" },
+        vibeLabel: { type: "string", maxLength: 40 },
         vibeTone: {
           type: "string",
           enum: ["coral", "blue", "sage", "amber", "slate"],
@@ -220,8 +227,8 @@ const journalQuickAnalysisJsonSchema = {
                 type: "string",
                 enum: ["words", "mood", "focus", "depth"],
               },
-              label: { type: "string" },
-              value: { type: "string" },
+              label: { type: "string", maxLength: 20 },
+              value: { type: "string", maxLength: 28 },
               tone: {
                 type: "string",
                 enum: ["coral", "blue", "sage", "amber", "slate"],
@@ -240,7 +247,7 @@ const journalQuickAnalysisJsonSchema = {
         additionalProperties: false,
         required: ["label", "tone"],
         properties: {
-          label: { type: "string" },
+          label: { type: "string", maxLength: 32 },
           tone: {
             type: "string",
             enum: ["coral", "blue", "sage", "amber", "slate"],
@@ -258,13 +265,13 @@ const journalQuickAnalysisJsonSchema = {
           additionalProperties: false,
           required: ["title", "description", "evidence", "tone"],
           properties: {
-            title: { type: "string" },
-            description: { type: "string" },
+            title: { type: "string", maxLength: 60 },
+            description: { type: "string", maxLength: 180 },
             evidence: {
               type: "array",
               minItems: 1,
               maxItems: 3,
-              items: { type: "string" },
+              items: { type: "string", maxLength: 40 },
             },
             tone: {
               type: "string",
@@ -277,13 +284,13 @@ const journalQuickAnalysisJsonSchema = {
           additionalProperties: false,
           required: ["title", "description", "evidence", "tone"],
           properties: {
-            title: { type: "string" },
-            description: { type: "string" },
+            title: { type: "string", maxLength: 60 },
+            description: { type: "string", maxLength: 180 },
             evidence: {
               type: "array",
               minItems: 1,
               maxItems: 3,
-              items: { type: "string" },
+              items: { type: "string", maxLength: 40 },
             },
             tone: {
               type: "string",
@@ -296,13 +303,13 @@ const journalQuickAnalysisJsonSchema = {
           additionalProperties: false,
           required: ["title", "description", "evidence", "tone"],
           properties: {
-            title: { type: "string" },
-            description: { type: "string" },
+            title: { type: "string", maxLength: 60 },
+            description: { type: "string", maxLength: 180 },
             evidence: {
               type: "array",
               minItems: 1,
               maxItems: 3,
-              items: { type: "string" },
+              items: { type: "string", maxLength: 40 },
             },
             tone: {
               type: "string",
@@ -317,12 +324,12 @@ const journalQuickAnalysisJsonSchema = {
       additionalProperties: false,
       required: ["title", "description", "focus"],
       properties: {
-        title: { type: "string" },
-        description: { type: "string" },
-        focus: { type: "string" },
+        title: { type: "string", maxLength: 60 },
+        description: { type: "string", maxLength: 180 },
+        focus: { type: "string", maxLength: 36 },
       },
     },
-    connection: { type: ["string", "null"] },
+    connection: { type: ["string", "null"], maxLength: 200 },
   },
 } satisfies Record<string, unknown>;
 
@@ -1105,15 +1112,16 @@ const generateOpenAiJournalQuickAnalysis = async ({
     schemaName: "journal_quick_analysis",
     schema: journalQuickAnalysisJsonSchema,
     parser: journalQuickAnalysisSchema,
-    maxOutputTokens: 320,
+    maxOutputTokens: 800,
     messages: [
       {
         role: "system",
         content: [
-          "You write Journal.IO quick entry reflections. Keep them non-clinical, uncertainty-aware, emotionally safe, and grounded in this entry. Never diagnose or claim certainty. Keep the copy concise enough for a mobile card. Use a warm, sharp, soft Gen Z psychologist tone: modern and emotionally aware, but not slang-heavy. Prefer signals, friction points, and useful next steps over personality labels.",
+          "You write Journal.IO quick entry reflections. Keep them grounded in this entry and state what it actually shows rather than hedging toward it. You may name a recognised psychological pattern the entry supports; do not assert a formal disorder as established medical fact. Keep the copy concise enough for a mobile card. Use a sharp, modern, emotionally aware tone, not slang-heavy. Lead with the signal, the friction point, or the useful next step.",
           "When the entry names a behaviour, coping habit, or avoidance, notice its likely trigger or the feeling it regulates rather than judging it — name the pattern and its cost, never call the behaviour good or bad, never shame.",
           "longTermMemory is a private, best-effort recollection of this user's past entries. Use the optional connection field ONLY when today genuinely echoes a specific past thread in that memory: write one short, warm sentence naming the concrete link (e.g. 'This is the third time work deadlines have shown up right before you feel this way.'). If there is no real connection, or memory is empty, set connection to null. Never invent history.",
           personalization?.systemDirective,
+          "Write every field in English. Hard character limits, and a field that runs over is cut off mid-word: summary.headline 90 characters, summary.narrative 220, summary.highlight 180, scorecard.vibeLabel 40, each card label 20 and value 28, each patternTag label 32, each signal title 60 and description 180, each evidence phrase 40, nextStep title 60 and description 180 and focus 36, connection 200. Aim for roughly 80% of each limit so the last sentence lands inside it — summary.narrative should be about 175 characters, not 220. Never abbreviate to fit; rewrite shorter.",
           AI_REFLECTION_BALANCE_GUIDANCE,
         ]
           .filter(Boolean)
@@ -1288,6 +1296,7 @@ const syncEntryMindMapScore = async ({
   entryType,
   content,
   aiPrompt,
+  appAuthoredSegments,
   tags,
   isFavorite,
   entryCreatedAt,
@@ -1297,6 +1306,7 @@ const syncEntryMindMapScore = async ({
   entryType: "open_ended" | "guided";
   content: string;
   aiPrompt: string | null;
+  appAuthoredSegments: string[];
   tags: string[];
   isFavorite: boolean;
   entryCreatedAt: Date;
@@ -1307,12 +1317,21 @@ const syncEntryMindMapScore = async ({
     entryType,
     content,
     aiPrompt,
+    appAuthoredSegments,
     tags,
     isFavorite,
     entryCreatedAt,
   });
 
-  void runEntryAiScore({ userId, journalId, content, aiPrompt, tags })
+  void runEntryAiScore({
+    userId,
+    journalId,
+    content,
+    aiPrompt,
+    entryType,
+    appAuthoredSegments,
+    tags,
+  })
     .then((upgraded) => (upgraded ? markUserMindMapStale(userId) : undefined))
     .catch((error) => {
       console.error("Failed to run entry Mind Map AI scoring:", error);
@@ -1330,6 +1349,9 @@ const createJournal = async (
     type: normalizeJournalEntryMode(input.type),
     entryKind: normalizeJournalEntryKind(input.entryKind, input.title),
     aiPrompt: input.aiPrompt?.trim() || null,
+    appAuthoredSegments: (input.appAuthoredSegments || [])
+      .map((segment) => segment.trim())
+      .filter(Boolean),
     tags: filterReservedJournalTags(input.tags || []),
     detectedTopics: metadata.detectedTopics,
     detectedMood: metadata.detectedMood,
@@ -1359,6 +1381,7 @@ const createJournal = async (
       entryType: journal.type === "guided" ? "guided" : "open_ended",
       content: journal.content,
       aiPrompt: journal.aiPrompt,
+      appAuthoredSegments: journal.appAuthoredSegments || [],
       tags: journal.tags || [],
       isFavorite: Boolean(journal.isFavorite),
       entryCreatedAt: journal.createdAt,
@@ -1452,6 +1475,7 @@ const updateJournal = async (
       entryType: journal.type === "guided" ? "guided" : "open_ended",
       content: journal.content,
       aiPrompt: journal.aiPrompt,
+      appAuthoredSegments: journal.appAuthoredSegments || [],
       tags: journal.tags || [],
       isFavorite: Boolean(journal.isFavorite),
       entryCreatedAt: journal.createdAt,
@@ -1682,6 +1706,18 @@ const getJournalSessionAnalysis = async ({
     return storedAnalysis;
   }
 
+  // Split the entry before analysing it. A guided entry is one blob holding the
+  // app's section labels, its own reflection and every question it asked,
+  // interleaved with what the person typed; an open-ended entry can hold any
+  // writing prompts they tapped to insert. Passing `journal.content` whole is
+  // how Journal.IO's own sentences end up quoted back as the user's evidence.
+  const authorship = extractJournalAuthorship({
+    content: journal.content,
+    type: journal.type,
+    aiPrompt: journal.aiPrompt,
+    appAuthoredSegments: journal.appAuthoredSegments,
+  });
+
   const analysis = await createGuidedReflectionSessionAnalysis({
     userId,
     journalId,
@@ -1689,9 +1725,12 @@ const getJournalSessionAnalysis = async ({
       {
         questionId: "open_ended_entry",
         question: journal.aiPrompt || "What felt most important today?",
-        answer: journal.content,
+        answer: authorship.userText,
       },
     ],
+    ...(authorship.appText
+      ? { appAuthoredContext: authorship.appText }
+      : {}),
   });
 
   return persistJournalSessionAnalysisSnapshot({

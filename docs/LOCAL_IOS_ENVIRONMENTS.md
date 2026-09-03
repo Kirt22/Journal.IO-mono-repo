@@ -4,11 +4,11 @@ This is the source of truth for running Journal.IO in the three supported iOS en
 
 ## Environment Map
 
-| Environment | App target | Backend target | Frontend env file | API URL shape |
-| --- | --- | --- | --- | --- |
-| Simulator | iOS Simulator | Backend on this Mac | `frontend/.env.simulator` | `http://127.0.0.1:3001/api/v1` |
-| Local test | Physical iPhone Debug build | Backend on this Mac | `frontend/.env.local` | `http://<mac-lan-ip>:3001/api/v1` |
-| Local prod | Physical iPhone Release build | Hosted production backend | `frontend/.env.production` | `https://api.journalio.app/api/v1` |
+| Environment | App target                    | Backend target            | Frontend env file          | API URL shape                      |
+| ----------- | ----------------------------- | ------------------------- | -------------------------- | ---------------------------------- |
+| Simulator   | iOS Simulator                 | Backend on this Mac       | `frontend/.env.simulator`  | `http://127.0.0.1:3001/api/v1`     |
+| Local test  | Physical iPhone Debug build   | Backend on this Mac       | `frontend/.env.local`      | `http://<mac-lan-ip>:3001/api/v1`  |
+| Local prod  | Physical iPhone Release build | Hosted production backend | `frontend/.env.production` | `https://api.journalio.app/api/v1` |
 
 `APP_ENV` selects the frontend file:
 
@@ -23,10 +23,10 @@ The selected env file is the primary source for `API_BASE_URL`. The optional `fr
 The local backend supports one global Premium override in `backend/.env`:
 
 ```env
-DEV_PREMIUM_ACCESS_OVERRIDE=pro
+DEV_PREMIUM_ACCESS_OVERRIDE=free
 ```
 
-Use `pro` to force effective Premium access, `free` to force the Free experience, or `auto` to use the account's server-verified RevenueCat entitlement. The override changes runtime authorization and the `isPremium` value returned in authenticated profiles without modifying stored subscription data. It is ignored when `NODE_ENV=production`.
+Use `pro` to force effective Premium access, `free` to force the Free experience, or `default` to use the account's server-verified RevenueCat entitlement. This is the only development access bypass: AI, Mind Map, widgets, biometric lock, and every other Premium gate use the same effective value. It changes runtime authorization and the `isPremium` value returned in authenticated profiles without modifying stored subscription data, and it is ignored when `NODE_ENV=production`.
 
 Restart the backend after changing the value, then refresh or relaunch the app so it reloads the authenticated profile. Authentication, ownership, and safety checks remain enforced in every mode.
 
@@ -129,6 +129,54 @@ npm run ios:local-test -- --device "Kirtan’s iPhone"
 
 If the phone cannot connect, verify the LAN IP has not changed, allow Node/backend connections through the Mac firewall, accept iOS local-network permission, and confirm the backend health endpoint from another device at `http://<mac-lan-ip>:3001/health`.
 
+### Replay Onboarding In The Normal App
+
+Set `replayOnboarding` to `true` in
+`frontend/src/utils/devLaunchConfig.json`, then use the regular local-test
+commands above. In a Debug build, an existing authenticated account will open
+Onboarding after its session is validated even if the backend profile already
+completed the current onboarding version. Authentication is never bypassed, and
+release builds continue to use the backend profile as the source of truth.
+
+This is a routing-only development replay. It does not reset the account or mark
+onboarding incomplete. Completing the full journey can still write test data to
+the selected local backend. Set `replayOnboarding` to `false` to restore normal
+server-driven routing. The replay follows the complete production journey; it
+does not expose a fixture-backed skip button. Do not start a `start:demo:*` Metro
+command for this workflow.
+
+### Demo Mode On The Phone
+
+Demo Mode is not limited to the Simulator. It is a Metro-side bundle swap, not a
+property of the installed app: `metro.config.js` rewrites `/index.bundle` to
+`/index.demo.bundle` whenever `DEMO_MODE_ENABLED=true` and the build is not a
+production one. A Debug build always asks Metro for `index`, so the Metro process
+you start decides whether the phone gets Demo Mode. Reinstalling is not required
+to switch it on or off.
+
+Replace the terminal 2 and terminal 3 commands with the demo variants:
+
+```bash
+cd frontend
+npm run start:demo:local-test
+```
+
+```bash
+cd frontend
+npm run ios:demo:local-test -- --device "Kirtan’s iPhone"
+```
+
+Open the developer menu with a shake gesture. The `Demo:` entries appear once the
+demo bundle has loaded; `[DemoMode] ... ready` in the Metro log confirms the
+bootstrap ran. Only captured scenarios activate, and drafts are listed as
+`(capture required)`.
+
+Demo Mode serves every API call from a fixture through the `apiClient` adapter
+seam, so the local backend is not used while a scenario is active. The Debug
+device build still embeds a non-demo fallback bundle, so if the phone cannot
+reach Metro it silently launches the normal app instead of the demo one. Treat a
+missing `Demo:` entry as a Metro connection problem first.
+
 ## 3. Local Prod
 
 Use this when a production-configured Release app runs on a real iPhone and talks to the hosted production backend. No local backend or Metro process is required.
@@ -212,33 +260,31 @@ To avoid it recurring, use `npm run ios:clean` instead of `npm run ios` when rei
 
 Verify success by looking for `created from CHS widget descriptor` in the same log query.
 
-
-
 ok now we will go back work on the onboarding, it is still
-  not over. ok now when i go from the 'your personalisation is
-  ready' onboarding scrren and then the bottom sheet that
-  opens for agreeing terms and conditions to the first entry
-  screen have a loader taht appers on the begin my first
-  reflection button and have a 2-3 second delay to enter there
-  right now i immidieatly entr and also there is no screen
-  transition animation add that also.
-  now as for as the first reflection screen, everything is
-  fine but then when i click finsih entry there is no no
-  loader on that button and now i wnat to remocve the review
-  entry screen entirely. no need of taht screen. and also
-  remove the lodaer screens that you added like this one -
-  [Image #1] now need for all this. [Image #2] agian in this
-  image also i dont need a loader scfreen like this also, so
-  no once i cick finsih session then i will directly go to the
-  ai anamlysis screen and agian thereis no screeen transition
-  animation add alsl that and also make sure that the whole
-  onboarding which includes the first reflection is is done by
-  react navigation and make sure taht al the current animation
-  are not at all disturbed, and i believe it is alredy don ein
-  react-navition but if not add that strictly use react-
-  naivegiton acroos the app, no manual navigation. and aging
-  for the onboarding context the onbording beofr eth efirst
-  reflection is alredy set and i love how it has come so if
-  ther react-navigation is not set then add it but plz make
-  sure it stays exctly the same no chage in the animation and
-  the screen transtions.
+not over. ok now when i go from the 'your personalisation is
+ready' onboarding scrren and then the bottom sheet that
+opens for agreeing terms and conditions to the first entry
+screen have a loader taht appers on the begin my first
+reflection button and have a 2-3 second delay to enter there
+right now i immidieatly entr and also there is no screen
+transition animation add that also.
+now as for as the first reflection screen, everything is
+fine but then when i click finsih entry there is no no
+loader on that button and now i wnat to remocve the review
+entry screen entirely. no need of taht screen. and also
+remove the lodaer screens that you added like this one -
+[Image #1] now need for all this. [Image #2] agian in this
+image also i dont need a loader scfreen like this also, so
+no once i cick finsih session then i will directly go to the
+ai anamlysis screen and agian thereis no screeen transition
+animation add alsl that and also make sure that the whole
+onboarding which includes the first reflection is is done by
+react navigation and make sure taht al the current animation
+are not at all disturbed, and i believe it is alredy don ein
+react-navition but if not add that strictly use react-
+naivegiton acroos the app, no manual navigation. and aging
+for the onboarding context the onbording beofr eth efirst
+reflection is alredy set and i love how it has come so if
+ther react-navigation is not set then add it but plz make
+sure it stays exctly the same no chage in the animation and
+the screen transtions.

@@ -35,6 +35,16 @@ const SETTLE_FADE_MS = 120;
  * the whole screen, so it must never be able to stick.
  */
 const TARGET_TIMEOUT_MS = 800;
+/**
+ * Absolute deadline, armed the moment a hand-off is adopted and never disarmed.
+ *
+ * `TARGET_TIMEOUT_MS` only covers the "Home never reported" case and is dropped
+ * as soon as a target arrives, which left the whole travel with no backstop: an
+ * interrupted `Animated.timing` reports `finished: false`, so `land()` — the
+ * only caller of `completeOrbHandoff` on that path — never ran, and Home stayed
+ * gated at opacity 0 forever. This one fires regardless of phase or target.
+ */
+const HANDOFF_DEADLINE_MS = TARGET_TIMEOUT_MS + TRAVEL_DURATION_MS + SETTLE_FADE_MS;
 
 type Phase = 'travelling' | 'settling';
 
@@ -59,23 +69,34 @@ export default function OrbHandoffOverlay() {
   const orbAccents = useMemo(() => getOrbAccents(theme.mode), [theme.mode]);
   const ambientOpacity = getAmbientOrbOpacity(theme.mode);
 
+  // Identity of the hand-off we last reset our animation values for. A second
+  // hand-off in the same session has to reset them again, even if a stranded
+  // `rendered` from the first is still mounted — keying off `rendered` being
+  // null (and mutating state inside a `useState` updater to do it) meant an
+  // interrupted settle fade permanently wedged every later hand-off.
+  const adoptedRef = useRef<OrbHandoffState | null>(null);
+
   // Adopt a new handoff, and pick up the target once Home reports it.
   useEffect(() => {
     if (handoff) {
-      setRendered(current => {
-        if (!current) {
-          progress.setValue(0);
-          fade.setValue(1);
-          setPhase('travelling');
-        }
-        return handoff;
-      });
+      // `beginOrbHandoff` always publishes a fresh object, and
+      // `reportOrbHandoffTarget` only ever fills in `to` on that same one, so
+      // comparing `from` identifies the hand-off across both updates.
+      if (adoptedRef.current?.from !== handoff.from) {
+        adoptedRef.current = handoff;
+        progress.setValue(0);
+        fade.setValue(1);
+        setPhase('travelling');
+      }
+
+      setRendered(handoff);
       return;
     }
 
     // Cleared by someone else (sign-out, restart) rather than by our own
     // landing — tear down rather than leaving a stranded orb on screen.
     if (phaseRef.current !== 'settling') {
+      adoptedRef.current = null;
       setRendered(null);
     }
   }, [fade, handoff, progress]);
@@ -106,7 +127,11 @@ export default function OrbHandoffOverlay() {
         easing: Easing.linear,
         useNativeDriver: true,
       }).start(() => {
+        // Deliberately not gated on `finished`: a stopped fade must still tear
+        // the overlay down, or it stays parked in `settling` and blocks the
+        // next hand-off from ever resetting.
         if (isActive) {
+          adoptedRef.current = null;
           setRendered(null);
         }
       });
@@ -122,11 +147,11 @@ export default function OrbHandoffOverlay() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       });
-      animation.start(({ finished }) => {
-        if (finished) {
-          land();
-        }
-      });
+      // Land on `finished: false` too. An interruption — a `setValue` from
+      // anywhere, or this effect's own cleanup — is not a reason to strand the
+      // hand-off; `completeOrbHandoff` is idempotent, and snapping the orb home
+      // early beats never releasing Home's reveal blocks.
+      animation.start(land);
     };
 
     if (typeof jest !== 'undefined') {
@@ -139,9 +164,6 @@ export default function OrbHandoffOverlay() {
 
     AccessibilityInfo.isReduceMotionEnabled()
       .then(enabled => {
-        if (!isActive) {
-          return;
-        }
         if (enabled) {
           // No travel, but the orb still has to end up where Home expects it.
           progress.setValue(1);
@@ -150,6 +172,9 @@ export default function OrbHandoffOverlay() {
         }
         travel();
       })
+      // Both paths re-check `isActive` themselves, so there is no early return
+      // here: an orphaned pass that bailed silently was one more way to leave
+      // the hand-off with neither `travel()` nor `land()` ever running.
       .catch(travel);
 
     return () => {
@@ -166,6 +191,7 @@ export default function OrbHandoffOverlay() {
 
     const timer = setTimeout(() => {
       completeOrbHandoff();
+      adoptedRef.current = null;
       setRendered(null);
     }, TARGET_TIMEOUT_MS);
 
@@ -173,6 +199,24 @@ export default function OrbHandoffOverlay() {
       clearTimeout(timer);
     };
   }, [completeOrbHandoff, rendered]);
+
+  // The backstop for everything else. Keyed on the hand-off itself rather than
+  // on `rendered`, so re-renders and target reports cannot keep pushing it out.
+  useEffect(() => {
+    if (!from) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      completeOrbHandoff();
+      adoptedRef.current = null;
+      setRendered(null);
+    }, HANDOFF_DEADLINE_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [completeOrbHandoff, from]);
 
   if (!from) {
     return null;

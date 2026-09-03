@@ -1,0 +1,34 @@
+{
+  "device": {
+    "frame": "assets/device-frame.png",
+    "screenBounds": {
+      "x": 30,
+      "y": 28,
+      "width": 573,
+      "height": 1245
+    },
+    "placement": {
+      "x": 850,
+      "y": -110,
+      "height": 980
+    }
+  },
+  "slides": [
+    {
+      "headline": "Notice what keeps coming back.",
+      "subhead": "Turn daily writing into patterns you can actually see.",
+      "screenshot": "screenshots/home.png",
+      "background": "warm",
+      "footerLabels": [
+        "Private by design",
+        "No ads"
+      ]
+    },
+    {
+      "headline": "A calmer way to see your week.",
+      "subhead": "Supportive insights grounded in what you choose to write.",
+      "screenshot": "screenshots/weekly-insights.png",
+      "background": "solid"
+    }
+  ]
+}

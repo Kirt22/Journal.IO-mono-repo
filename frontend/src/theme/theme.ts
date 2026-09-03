@@ -34,6 +34,8 @@ export type ThemeColors = {
   inputBackground: string;
   success: string;
   successForeground: string;
+  apple: string;
+  appleForeground: string;
   warning: string;
   warningForeground: string;
   info: string;
@@ -65,6 +67,8 @@ const lightColors: ThemeColors = {
   inputBackground: '#F9F7F5',
   success: '#6BAA75',
   successForeground: '#FFFFFF',
+  apple: '#000000',
+  appleForeground: '#FFFFFF',
   warning: '#E89B3C',
   warningForeground: '#FFFFFF',
   info: '#5B9BD5',
@@ -90,6 +94,8 @@ const darkColors: ThemeColors = {
   inputBackground: '#2D2A26',
   success: '#7BC786',
   successForeground: '#1A1816',
+  apple: '#000000',
+  appleForeground: '#FFFFFF',
   warning: '#FFB75E',
   warningForeground: '#1A1816',
   info: '#74B9FF',

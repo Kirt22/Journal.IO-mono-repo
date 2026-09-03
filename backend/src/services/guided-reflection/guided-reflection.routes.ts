@@ -13,12 +13,14 @@ import {
   createGuidedReflectionGoalSuggestionsSchema,
   createGuidedReflectionSessionAnalysisSchema,
 } from "./guided-reflection.validators";
+import { authenticatedAiRateLimit } from "../../middleware/security.middleware";
 
 const guidedReflectionRouter = Router();
 
 guidedReflectionRouter.post(
   "/first-summary",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(createFirstReflectionSummarySchema),
   createFirstReflectionSummaryController
 );
@@ -26,6 +28,7 @@ guidedReflectionRouter.post(
 guidedReflectionRouter.post(
   "/go-deeper",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(createGuidedReflectionGoDeeperSchema),
   createGuidedReflectionGoDeeperController
 );
@@ -33,6 +36,7 @@ guidedReflectionRouter.post(
 guidedReflectionRouter.post(
   "/session-analysis",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(createGuidedReflectionSessionAnalysisSchema),
   createGuidedReflectionSessionAnalysisController
 );
@@ -40,6 +44,7 @@ guidedReflectionRouter.post(
 guidedReflectionRouter.post(
   "/goal-suggestions",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(createGuidedReflectionGoalSuggestionsSchema),
   createGuidedReflectionGoalSuggestionsController
 );

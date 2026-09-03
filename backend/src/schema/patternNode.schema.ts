@@ -17,10 +17,11 @@ import { applyEncryptedSchemaPaths } from "../helpers/fieldEncryption.schema.hel
  * from it; this collection exists so patterns can be *related* to one another,
  * which counting themes per entry could never express.
  *
- * A node is always a behaviour the user's own writing keeps showing — "eats
- * while watching shows" — carrying why it was noticed and the user's own
- * sentence as evidence. It is never a condition, diagnosis, or personality
- * trait; `isClinicalPatternLabel` guards that on every write.
+ * A node is a pattern the user's own writing keeps showing — usually a
+ * behaviour like "eats while watching shows" — carrying why it was noticed and
+ * the user's own sentence as evidence. Clinically-worded labels are allowed:
+ * the filter that used to reject them dropped the node outright rather than
+ * rewording it, which lost the pattern instead of softening it.
  *
  * Row-per-node rather than one embedded array per user: writes arrive from
  * fire-and-forget background work and can overlap, so a read-modify-write of a

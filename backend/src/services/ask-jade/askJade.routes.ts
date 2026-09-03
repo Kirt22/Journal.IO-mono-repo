@@ -13,6 +13,7 @@ import {
   listJadeSessionsSchema,
   sendJadeMessageSchema,
 } from "./askJade.validators";
+import { authenticatedAiRateLimit } from "../../middleware/security.middleware";
 
 const askJadeRouter: Router = Router();
 
@@ -28,6 +29,7 @@ askJadeRouter.get(
 askJadeRouter.post(
   "/messages",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(sendJadeMessageSchema),
   sendJadeMessageController
 );

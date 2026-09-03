@@ -59,7 +59,7 @@ Claude Code and confirm with `claude mcp list`.
 ```toml
 [mcp_servers.app_store_connect]
 command = "node"
-args = ["/Users/kirtansolanki/Desktop/Personal Projects/Journal.IO/tools/asc-mcp/dist/index.js"]
+args = ["/Users/kirtansolanki/Desktop/VS_Code_files/Journal.IO/tools/asc-mcp/dist/index.js"]
 ```
 
 ## Tools

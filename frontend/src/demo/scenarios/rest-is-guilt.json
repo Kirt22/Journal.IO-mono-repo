@@ -1,0 +1,324 @@
+{
+  "id": "rest-is-guilt",
+  "label": "Mood tracks productivity, not wellbeing",
+  "status": "draft",
+  "fictional": true,
+  "generatedAt": null,
+  "sourceModels": {},
+  "captureVersion": 1,
+  "inputHash": null,
+  "outputHash": null,
+  "entries": [
+    {
+      "dayOffset": -29,
+      "timeOfDay": "23:10",
+      "mood": 5,
+      "answers": [
+        "shipped two features and cleared the inbox",
+        "nothing, good day",
+        "same output tomorrow"
+      ]
+    },
+    {
+      "dayOffset": -28,
+      "timeOfDay": "23:30",
+      "mood": 4,
+      "answers": [
+        "another solid day, got through the backlog",
+        "bit tired by the evening",
+        "pushing through"
+      ]
+    },
+    {
+      "dayOffset": -27,
+      "timeOfDay": "22:50",
+      "mood": 2,
+      "answers": [
+        "didn't do much, took it easy",
+        "felt restless all day, kept opening the laptop and closing it",
+        "an actual proper day off"
+      ]
+    },
+    {
+      "dayOffset": -26,
+      "timeOfDay": "23:15",
+      "mood": 5,
+      "answers": [
+        "made up for yesterday, worked all day",
+        "none",
+        "keeping it up"
+      ]
+    },
+    {
+      "dayOffset": -25,
+      "timeOfDay": "22:40",
+      "mood": 4,
+      "answers": [
+        "good progress on the side project",
+        "nothing",
+        "more of the same"
+      ]
+    },
+    {
+      "dayOffset": -24,
+      "timeOfDay": "23:45",
+      "mood": 2,
+      "answers": [
+        "saw friends, was nice",
+        "felt like i wasted the whole day",
+        "not thinking about it like that"
+      ]
+    },
+    {
+      "dayOffset": -23,
+      "timeOfDay": "22:20",
+      "mood": 5,
+      "answers": [
+        "big day, cleared everything",
+        "none",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -22,
+      "timeOfDay": "23:55",
+      "mood": 4,
+      "answers": [
+        "worked late, got a lot done",
+        "eyes hurt",
+        "finishing the module"
+      ]
+    },
+    {
+      "dayOffset": -21,
+      "timeOfDay": "22:35",
+      "mood": 2,
+      "answers": [
+        "slept in, watched something",
+        "kept thinking i should be doing something",
+        "letting a sunday be a sunday"
+      ]
+    },
+    {
+      "dayOffset": -20,
+      "timeOfDay": "23:05",
+      "mood": 5,
+      "answers": [
+        "back on it, productive monday",
+        "nothing",
+        "keeping momentum"
+      ]
+    },
+    {
+      "dayOffset": -19,
+      "timeOfDay": "22:55",
+      "mood": 4,
+      "answers": [
+        "solid work day",
+        "none really",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -18,
+      "timeOfDay": "23:20",
+      "mood": 4,
+      "answers": [
+        "finished ahead of schedule",
+        "bit flat by the end",
+        "not overthinking it"
+      ]
+    },
+    {
+      "dayOffset": -17,
+      "timeOfDay": "22:10",
+      "mood": 2,
+      "answers": [
+        "rest day, went for a walk",
+        "felt guilty the whole walk, that's mad",
+        "working out why rest feels like that"
+      ]
+    },
+    {
+      "dayOffset": -16,
+      "timeOfDay": "23:40",
+      "mood": 5,
+      "answers": [
+        "huge day, everything done",
+        "none",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -15,
+      "timeOfDay": "23:00",
+      "mood": 4,
+      "answers": [
+        "good session on the project",
+        "nothing",
+        "keeping going"
+      ]
+    },
+    {
+      "dayOffset": -14,
+      "timeOfDay": "22:45",
+      "mood": 2,
+      "answers": [
+        "did nothing on purpose today",
+        "hated it. couldn't relax at all",
+        "trying it again anyway"
+      ]
+    },
+    {
+      "dayOffset": -13,
+      "timeOfDay": "23:25",
+      "mood": 5,
+      "answers": [
+        "back at it, great day",
+        "none",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -12,
+      "timeOfDay": "22:30",
+      "mood": 3,
+      "answers": [
+        "steady day",
+        "starting to notice i only feel okay on days i produced something",
+        "sitting with that"
+      ]
+    },
+    {
+      "dayOffset": -11,
+      "timeOfDay": "23:50",
+      "mood": 5,
+      "answers": [
+        "worked till late, finished the feature",
+        "none",
+        "shipping it"
+      ]
+    },
+    {
+      "dayOffset": -10,
+      "timeOfDay": "22:15",
+      "mood": 2,
+      "answers": [
+        "took the day off",
+        "spent it feeling like i was behind",
+        "behind on what though"
+      ]
+    },
+    {
+      "dayOffset": -9,
+      "timeOfDay": "23:15",
+      "mood": 4,
+      "answers": [
+        "productive again",
+        "nothing",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -8,
+      "timeOfDay": "22:40",
+      "mood": 4,
+      "answers": [
+        "good day at work",
+        "none",
+        "keeping it going"
+      ]
+    },
+    {
+      "dayOffset": -7,
+      "timeOfDay": "23:05",
+      "mood": 2,
+      "answers": [
+        "saw family, didn't open the laptop",
+        "the whole time i was working out what i'd have to do tomorrow to catch up",
+        "noticing i can't be anywhere without doing that"
+      ]
+    },
+    {
+      "dayOffset": -6,
+      "timeOfDay": "22:25",
+      "mood": 5,
+      "answers": [
+        "massive day, cleared everything",
+        "none",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -5,
+      "timeOfDay": "23:35",
+      "mood": 4,
+      "answers": [
+        "another good one",
+        "tired",
+        "sleeping properly"
+      ]
+    },
+    {
+      "dayOffset": -4,
+      "timeOfDay": "22:50",
+      "mood": 2,
+      "answers": [
+        "rest day",
+        "same thing again. good days are days i produced. that's the whole scoring system",
+        "asking where that came from"
+      ]
+    },
+    {
+      "dayOffset": -3,
+      "timeOfDay": "23:20",
+      "mood": 4,
+      "answers": [
+        "worked, felt normal",
+        "nothing",
+        "same"
+      ]
+    },
+    {
+      "dayOffset": -2,
+      "timeOfDay": "22:05",
+      "mood": 3,
+      "answers": [
+        "read a book for two hours and only felt bad about it once",
+        "still felt it though",
+        "once is better than the whole time"
+      ]
+    },
+    {
+      "dayOffset": -1,
+      "timeOfDay": "22:35",
+      "mood": 4,
+      "answers": [
+        "did a bit, rested a bit, both were fine",
+        "took work to allow that",
+        "more days like this one"
+      ]
+    },
+    {
+      "dayOffset": 0,
+      "timeOfDay": "22:20",
+      "mood": 3,
+      "answers": [
+        "a month of this written down",
+        "still measure the day by what came out of it",
+        "working out where i learned that"
+      ]
+    }
+  ],
+  "askJadeQuestions": [
+    "why does resting make me feel guilty?",
+    "what do my good days have in common?",
+    "am I actually enjoying any of this?",
+    "what happens on days I don't work?",
+    "where did I learn to measure myself like this?"
+  ],
+  "askJadeFallbackQuestion": "What pattern stands out most across these entries?",
+  "filmingEntryDayOffset": 0,
+  "goalSourceDayOffset": -4,
+  "captured": null
+}

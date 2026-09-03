@@ -17,6 +17,7 @@ import { useTheme } from '../theme/provider';
 import JournalWordmark, {
   type JournalWordmarkIntroResult,
 } from './JournalWordmark';
+import { fontFamilies } from '../theme/typography';
 
 type AuthHeroProps = {
   title: string;
@@ -195,6 +196,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   subtitle: {
+    fontFamily: fontFamilies.ui.regular,
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center',

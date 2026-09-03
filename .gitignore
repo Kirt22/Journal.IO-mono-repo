@@ -176,3 +176,15 @@ backend/backups/
 /frontend/iphone ss with frame/
 /frontend/journalio-panels/
 /frontend/journalio-panels-iPad/
+/screenshots/
+/product-hunt-gallery/
+/out/
+
+__pycache__/
+*.pyc
+
+# Local Pillow venv for the Product Hunt gallery generator (docs/PRODUCT_HUNT_GALLERY.md).
+/.venv/
+
+# Interrupted dependency repairs can leave full package trees under this name.
+**/node_modules.broken/

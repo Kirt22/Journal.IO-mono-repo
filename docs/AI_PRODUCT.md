@@ -26,11 +26,16 @@ Journal.IO does not:
 - present medical conclusions
 - position AI output as clinical advice
 
-Insight language must remain uncertainty-aware, for example:
+Insight language must be direct and evidence-led. State what the entries show
+and cite the evidence, rather than hedging a supported conclusion:
 
-- "journal entries suggest"
-- "a recurring pattern may be"
-- "appears associated with"
+- "you logged working late on nine of those fourteen days"
+- "this is avoidance, and it shows up every time plans get difficult"
+- "you cancelled twice in March and never rescheduled"
+
+Reserve tentative phrasing ("may", "appears to") for claims that are genuinely
+uncertain, and say plainly which is which. Hedging a conclusion the writing
+supports reads as evasion, not care.
 
 ---
 
@@ -43,7 +48,7 @@ Primary user journey represented by the latest design context:
 3. Create account (email path)
 4. Verify email (email path)
 5. Sign in (returning email users)
-6. First-reflection completion journey: session Mind Map, streak, and optional reminders
+6. First-reflection completion journey: session Mind Map, optional share card, streak, and optional reminders
 7. Post-auth paywall for eligible non-premium users after onboarding is complete; first-run profile defaults are completed automatically
 8. Home dashboard
 9. Core journaling loops (new entry, history/calendar, manual Goals, insights, Mind Map, profile/settings/privacy)
@@ -64,6 +69,7 @@ Primary user journey represented by the latest design context:
 - privacy and safety controls
 - user-owned manual goals available without Premium
 - an educational iOS Mind Map that never presents personal data without Premium and AI consent
+- optional image sharing for personalized all-time, per-session, and first-reflection Mind Map signals
 - focused iOS Home Screen widgets for free streak tracking, Premium Quick Thought launch, and a privacy-minimal Premium daily mood check-in
 
 ## Revamp Implementation Note

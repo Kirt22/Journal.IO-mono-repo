@@ -29,6 +29,9 @@ const createJournalEntry = async (payload: CreateJournalPayload) => {
     type: payload.type || 'open_ended',
     entryKind: payload.entryKind,
     aiPrompt: payload.aiPrompt?.trim() || undefined,
+    appAuthoredSegments: payload.appAuthoredSegments?.length
+      ? payload.appAuthoredSegments
+      : undefined,
     images: payload.images || [],
     tags: payload.tags || [],
     isFavorite: payload.isFavorite ?? false,

@@ -6,10 +6,26 @@ import {
 } from 'react-native-webview';
 import type { BrainMapColors } from '../brainMapTheme';
 import type { MindMapNativeRegion } from '../mindMapRegionTypes';
-import { buildMindMapHtml, type MindMapSceneTheme } from './buildMindMapHtml';
+import {
+  buildMindMapHtml,
+  type MindMapPresentationMode,
+  type MindMapSceneTheme,
+} from './buildMindMapHtml';
 
 export type NativeMindMapRegionPressEvent = {
   nativeEvent: { regionId: string };
+};
+
+/**
+ * Where the selected pin landed in the share snapshot, as fractions of the
+ * captured square. The pins are DOM overlays, so they are not in the WebGL
+ * capture — the card redraws the marker at these coordinates instead.
+ */
+export type MindMapSharePin = {
+  x: number;
+  y: number;
+  rank: number;
+  visible: boolean;
 };
 
 export type WebMindMapViewProps = ViewProps & {
@@ -19,9 +35,20 @@ export type WebMindMapViewProps = ViewProps & {
   themeMode: 'dark' | 'light';
   cameraResetToken?: number;
   reduceMotionEnabled?: boolean;
+  presentationMode?: MindMapPresentationMode;
+  // Bump to ask the scene for a fresh share snapshot. Rendered into an explicit
+  // frame inside the WebView, so the capture never depends on this view's layout.
+  shareCaptureToken?: number;
+  /** Width / height of the frame the snapshot has to fill, so it is not letterboxed. */
+  shareCaptureAspect?: number;
+  onContentReady?: () => void;
+  onSceneError?: (message?: string) => void;
   onReady?: () => void;
   onRegionPress?: (event: NativeMindMapRegionPressEvent) => void;
+  onShareSnapshot?: (dataUri: string, pin: MindMapSharePin | null) => void;
 };
+
+const SHARE_SNAPSHOT_SIZE = 900;
 
 type SceneTheme = MindMapSceneTheme;
 
@@ -85,8 +112,14 @@ export default function WebMindMapView({
   themeMode,
   cameraResetToken,
   reduceMotionEnabled,
+  presentationMode = 'interactive',
+  shareCaptureToken,
+  shareCaptureAspect,
+  onContentReady,
+  onSceneError,
   onReady,
   onRegionPress,
+  onShareSnapshot,
   style,
   ...rest
 }: WebMindMapViewProps) {
@@ -96,7 +129,10 @@ export default function WebMindMapView({
   // first frame. Captured once; later theme changes flow through __setMindMap
   // (updating the CSS vars live) rather than reloading the WebView.
   const initialTheme = useRef(buildSceneTheme(graphPalette, themeMode)).current;
-  const html = useMemo(() => buildMindMapHtml(initialTheme), [initialTheme]);
+  const html = useMemo(
+    () => buildMindMapHtml(initialTheme, presentationMode),
+    [initialTheme, presentationMode],
+  );
 
   const payloadJson = useMemo(() => {
     const theme = buildSceneTheme(graphPalette, themeMode);
@@ -140,9 +176,38 @@ export default function WebMindMapView({
     );
   }, [isReady, cameraResetToken]);
 
+  // The scene needs its data before it can frame the highlighted region, so the
+  // request rides behind the payload injection above.
+  useEffect(() => {
+    if (!isReady || shareCaptureToken === undefined) {
+      return;
+    }
+    const aspect =
+      shareCaptureAspect && shareCaptureAspect > 0 ? shareCaptureAspect : 1;
+    const width = Math.round(
+      aspect >= 1 ? SHARE_SNAPSHOT_SIZE : SHARE_SNAPSHOT_SIZE * aspect,
+    );
+    const height = Math.round(
+      aspect >= 1 ? SHARE_SNAPSHOT_SIZE / aspect : SHARE_SNAPSHOT_SIZE,
+    );
+    webViewRef.current?.injectJavaScript(
+      'window.__captureShare && window.__captureShare({ width: ' +
+        String(width) +
+        ', height: ' +
+        String(height) +
+        ', dpr: 1 }); true;',
+    );
+  }, [isReady, payloadJson, shareCaptureAspect, shareCaptureToken]);
+
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
-      let message: { type?: string; regionId?: string } | null = null;
+      let message: {
+        type?: string;
+        message?: string;
+        regionId?: string;
+        snapshot?: string;
+        pin?: MindMapSharePin | null;
+      } | null = null;
       try {
         message = JSON.parse(event.nativeEvent.data);
       } catch {
@@ -161,9 +226,24 @@ export default function WebMindMapView({
 
       if (message.type === 'pinTap' && message.regionId) {
         onRegionPress?.({ nativeEvent: { regionId: message.regionId } });
+        return;
+      }
+
+      if (message.type === 'contentReady') {
+        onContentReady?.();
+        return;
+      }
+
+      if (message.type === 'shareSnapshot' && message.snapshot) {
+        onShareSnapshot?.(message.snapshot, message.pin ?? null);
+        return;
+      }
+
+      if (message.type === 'error') {
+        onSceneError?.(message.message ?? 'The Mind Map renderer could not finish.');
       }
     },
-    [onReady, onRegionPress],
+    [onContentReady, onReady, onRegionPress, onSceneError, onShareSnapshot],
   );
 
   return (
@@ -174,6 +254,7 @@ export default function WebMindMapView({
       source={{ html }}
       originWhitelist={['*']}
       onMessage={handleMessage}
+      onError={() => onSceneError?.('The Mind Map renderer could not load.')}
       scrollEnabled={false}
       bounces={false}
       overScrollMode="never"

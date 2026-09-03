@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   buildPatternEdgeKey,
   computeNodeStrength,
-  isClinicalPatternLabel,
   isValidUmbrellaLabel,
   medianLagHours,
   patternGraphRefinementJsonSchema,
@@ -39,33 +38,25 @@ test("toPatternKey degrades to a stable fallback instead of an empty key", () =>
   assert.equal(toPatternKey("the a an"), "pattern");
 });
 
-test("isClinicalPatternLabel rejects diagnoses, abbreviations, and trait nouns", () => {
-  assert.equal(isClinicalPatternLabel("anxiety"), true);
-  assert.equal(isClinicalPatternLabel("Generalised Anxiety"), true);
-  assert.equal(isClinicalPatternLabel("ADHD brain"), true);
-  assert.equal(isClinicalPatternLabel("has an eating disorder"), true);
-  assert.equal(isClinicalPatternLabel("neuroticism"), true);
-  assert.equal(isClinicalPatternLabel("conscientiousness"), true);
+test("umbrella labels no longer filter clinical vocabulary", () => {
+  // The clinical-term guard was removed deliberately: naming a recognised
+  // pattern directly is the product's voice now. Filtering these dropped the
+  // node entirely rather than rewording it, so the graph lost the pattern.
+  assert.equal(isValidUmbrellaLabel("avoidant attachment disorder"), true);
+  assert.equal(isValidUmbrellaLabel("work anxiety"), true);
+  assert.equal(isValidUmbrellaLabel("depressive withdrawal"), true);
 });
 
-test("isClinicalPatternLabel accepts behaviour phrasing, including feeling words", () => {
-  assert.equal(isClinicalPatternLabel("bracing for things going wrong"), false);
-  assert.equal(isClinicalPatternLabel("soothing tension with screens"), false);
-  // A feeling in a moment is not a diagnosis — the entry pipeline already
-  // describes tone this way, so these must survive.
-  assert.equal(isClinicalPatternLabel("goes quiet when overwhelmed"), false);
-  assert.equal(isClinicalPatternLabel("feels anxious before meetings"), false);
-});
-
-test("isValidUmbrellaLabel requires a multi-word, non-clinical behaviour phrase", () => {
+test("isValidUmbrellaLabel still requires a multi-word phrase", () => {
   assert.equal(isValidUmbrellaLabel("bracing for things going wrong"), true);
   assert.equal(isValidUmbrellaLabel("soothing tension with screens"), true);
 
-  // Single-token labels are almost always a state noun — the exact framing the
-  // product retired.
+  // The surviving rule is about specificity, not clinical language: a bare
+  // state noun describes nothing the person actually does, whether or not the
+  // word is a clinical one.
   assert.equal(isValidUmbrellaLabel("procrastination"), false);
   assert.equal(isValidUmbrellaLabel("anxiety"), false);
-  assert.equal(isValidUmbrellaLabel("avoidant attachment disorder"), false);
+  assert.equal(isValidUmbrellaLabel(""), false);
 });
 
 test("buildPatternEdgeKey is order-stable for co_occurs and order-sensitive otherwise", () => {

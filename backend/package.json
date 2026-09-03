@@ -10,12 +10,18 @@
     "start": "node dist/app.js",
     "start:simulator": "HOST=127.0.0.1 PORT=3001 node dist/app.js",
     "check:production:domains": "node scripts/check-production-domains.mjs",
-    "test": "npm run build && node scripts/run-tests.mjs"
+    "demo:capture": "npm run build && node scripts/capture-demo-scenario.mjs",
+    "seed:demo": "npm run build && node scripts/seed-demo-entries.mjs",
+    "teardown:demo": "node scripts/teardown-demo-entries.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/demo-fixture-utils.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
   "devDependencies": {
     "@types/nodemon": "^1.19.6",
     "nodemon": "^3.1.10",
@@ -31,8 +37,10 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "google-auth-library": "^10.1.0",
+    "helmet": "8.3.0",
+    "express-rate-limit": "8.7.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
+    "mongoose": "9.7.2",
     "typescript": "^5.9.3",
     "zod": "^4.1.13"
   }

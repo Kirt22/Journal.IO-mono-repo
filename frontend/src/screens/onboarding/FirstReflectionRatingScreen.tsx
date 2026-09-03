@@ -27,6 +27,7 @@ import ButtonLoadingContent from '../../components/ButtonLoadingContent';
 import { triggerHaptic } from '../../services/hapticsService';
 import { requestAppRating } from '../../services/appRatingService';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   onContinue: () => void;
@@ -546,6 +547,7 @@ export default function FirstReflectionRatingScreen({ onContinue }: Props) {
 
 const styles = StyleSheet.create({
   body: {
+    fontFamily: fontFamilies.ui.regular,
     fontSize: 15,
     lineHeight: 22,
     marginTop: 22,
@@ -625,6 +627,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: -0.5,

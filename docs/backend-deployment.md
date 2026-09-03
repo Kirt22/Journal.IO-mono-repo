@@ -77,12 +77,11 @@ is changed to `migration` or `enforced`, add all of these before deployment:
 - `FIELD_ENCRYPTION_CANARY`
 - `FIELD_LOOKUP_HMAC_CANARY`
 
-Do not enable development bypasses in production. Leave these unset or false:
-`AI_ALLOW_NON_PREMIUM`, `GUIDED_REFLECTION_ALLOW_NON_PREMIUM`,
-`MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS`, `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY`,
-and `DEV_PREMIUM_ACCESS_OVERRIDE`. `AI_INSIGHTS_DEV_ALLOW_EARLY_READY` is a
-legacy flag and is ignored by the current release-safe implementation; remove
-it from the production environment rather than relying on it.
+Do not enable development access selection in production. Leave
+`DEV_PREMIUM_ACCESS_OVERRIDE` unset or set it to `default`; production resolves
+every value to verified RevenueCat access. The retired feature-specific AI,
+guided-reflection, Mind Map, and early-ready variables are no longer read and
+should be removed from any host environment where they remain.
 
 The `PRODUCTION_*` variables used by `backend/scripts/check-production-domains.mjs`
 are for the optional local domain-check script, not backend runtime boot. The

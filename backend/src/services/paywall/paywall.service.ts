@@ -35,7 +35,7 @@ type TrackPaywallEventInput = {
   placementKey: string;
   screenKey?: string;
   eventType: PaywallEventType;
-  templateKey?: string;
+  templateKey?: PaywallTemplateKey;
   offeringKey?: PaywallOfferingKey;
   wasInterruptive?: boolean;
   metadata?: Record<string, unknown>;

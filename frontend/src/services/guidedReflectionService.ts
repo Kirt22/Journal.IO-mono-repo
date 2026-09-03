@@ -1,5 +1,12 @@
 import type { GoalIconKey } from "../constants/goalIcons";
-import { request } from "../utils/apiClient";
+import { AI_REQUEST_TIMEOUT_MS, request } from "../utils/apiClient";
+
+/**
+ * These four routes all wait on a model call, so the default 20s deadline would
+ * cut them off mid-thought. Raised here rather than loosening the default,
+ * which exists to stop a dead backend from hanging the app on boot.
+ */
+const AI_REQUEST_BEHAVIOR = { timeoutMs: AI_REQUEST_TIMEOUT_MS };
 
 type GuidedReflectionOnboardingContext = {
   ageRange?: string;
@@ -29,6 +36,31 @@ type GuidedSuggestionAction =
   | "small_next_step"
   | "summarize";
 
+/**
+ * One trigger -> emotional response link a guided turn surfaced.
+ *
+ * Guided reflection keeps no server-side session, so this state rides on the
+ * client the same way `previousDeeperReflections` already does: the server
+ * returns the full merged list each turn, the client stores it verbatim, and
+ * sends it straight back on the next call. The client never merges or edits it
+ * — the server re-validates everything on arrival.
+ */
+export type GuidedSessionTrigger = {
+  trigger: string;
+  emotionalResponse: string;
+  evidenceQuote: string;
+  confidence: number;
+  sessionOccurrences: number;
+};
+
+export type GuidedSessionSignals = {
+  triggers: GuidedSessionTrigger[];
+  /** The trigger the next question is aimed at. Empty when none yet. */
+  activeTrigger: string;
+  /** Which rung of the probing ladder the next question sits on. */
+  triggerStage: "surface" | "test" | "function" | "none";
+};
+
 type GuidedReflectionThreadMessagePayload = {
   role: "user" | "assistant";
   kind: string;
@@ -49,6 +81,7 @@ type GuidedReflectionGoDeeperPayload = {
   threadMessages?: GuidedReflectionThreadMessagePayload[];
   currentText: string;
   suggestionAction?: GuidedSuggestionAction;
+  previousSignals?: GuidedSessionTrigger[];
   onboardingContext?: GuidedReflectionOnboardingContext;
 };
 
@@ -57,6 +90,7 @@ type GuidedReflectionSessionAnalysisPayload = {
   promptAnswers: GuidedReflectionPromptAnswer[];
   aiSummary?: string;
   threadMessages?: GuidedReflectionThreadMessagePayload[];
+  sessionSignals?: GuidedSessionTrigger[];
   onboardingContext?: GuidedReflectionOnboardingContext;
 };
 
@@ -136,6 +170,7 @@ type FirstReflectionSummaryResponse = {
   // draw the user deeper. Becomes the first question of the go-deeper thread.
   followUpQuestion: string;
   takeaway?: string;
+  sessionSignals?: GuidedSessionSignals;
 };
 
 type GuidedReflectionGoDeeperResponse = {
@@ -145,12 +180,34 @@ type GuidedReflectionGoDeeperResponse = {
   nextQuestion: string;
   // False once the reflection reaches a natural, resolved stopping point.
   canGoDeeper: boolean;
+  // Every trigger the session has surfaced so far, not just this turn — store
+  // it as-is and send it straight back as `previousSignals`.
+  sessionSignals?: GuidedSessionSignals;
 };
 
 type GuidedReflectionSessionAnalysisResponse = {
   analysis: string;
   majorInsight: string;
   observedTrends: string[];
+  /**
+   * Trigger -> response links the session evidenced, each graded against what
+   * the pattern graph already knows. `status` and `occurrences` are set by the
+   * server from the graph, never by the model.
+   */
+  triggersObserved?: {
+    trigger: string;
+    emotionalResponse: string;
+    evidenceQuote: string;
+    confidence: number;
+    status: "emerging" | "recurring" | "confirmed";
+    occurrences: number;
+  }[];
+  patternAssessment?: {
+    label: string;
+    basis: string;
+    status: "emerging" | "recurring" | "confirmed";
+    occurrences: number;
+  }[];
   topicsObserved?: string[];
   detectedTopics: string[];
   detectedMood: "amazing" | "good" | "okay" | "bad" | "terrible";
@@ -171,7 +228,8 @@ const createFirstReflectionSummary = async (
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    AI_REQUEST_BEHAVIOR
   );
 
   return response.data;
@@ -185,7 +243,8 @@ const createGuidedReflectionDeeperResponse = async (
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    AI_REQUEST_BEHAVIOR
   );
 
   return response.data;
@@ -199,7 +258,8 @@ const createGuidedReflectionSessionAnalysis = async (
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    AI_REQUEST_BEHAVIOR
   );
 
   return response.data;
@@ -213,7 +273,8 @@ const createGuidedReflectionGoalSuggestions = async (
     {
       method: "POST",
       body: JSON.stringify(payload),
-    }
+    },
+    AI_REQUEST_BEHAVIOR
   );
 
   return response.data;

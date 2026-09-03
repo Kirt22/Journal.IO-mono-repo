@@ -10,11 +10,8 @@ import BiometricLockScreen from '../src/screens/profile/BiometricLockScreen';
 import { resetAppStore, useAppStore } from '../src/store/appStore';
 
 jest.mock('../src/utils/devLaunchConfig.json', () => ({
-  stage: 'onboarding',
-  activeTab: 'home',
-  email: null,
+  replayOnboarding: false,
   apiBaseUrl: 'http://192.168.1.226:3001/api/v1',
-  enableBiometricLockForTesting: false,
 }));
 
 jest.mock('../src/services/paywallService', () => ({

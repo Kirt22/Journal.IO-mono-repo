@@ -51,7 +51,7 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
         heading: "Overview",
         paragraphs: [
           "Journal.IO is a behavioral journaling product designed to help users reflect, notice patterns, and build practical habits over time.",
-          "This service is not a medical product. Any AI-supported outputs are intended to be supportive, non-clinical, and uncertainty-aware.",
+          "This service is not a medical product. AI-supported outputs speak directly about patterns in what you write, but they do not diagnose conditions, provide treatment, or advise on medication, and they are not clinical findings.",
         ],
       },
       {
@@ -228,7 +228,7 @@ const legalDocuments: Record<LegalPageSlug, LegalPageDocument> = {
       {
         heading: "Support and Safety",
         paragraphs: [
-          "Journal.IO is not a medical, psychiatric, therapy, or crisis-response service. Its AI-supported features are intended to be supportive, non-clinical, and uncertainty-aware.",
+          "Journal.IO is not a medical, psychiatric, therapy, or crisis-response service. Its AI-supported features speak directly and name behavioural and psychological patterns in what you write, but they do not diagnose conditions, provide treatment, advise on medication, or replace professional care.",
           "If you need help with your account or the app, submit a request through the Journal.IO support page. For immediate safety concerns, contact local emergency services or a trusted support person.",
         ],
       },
@@ -484,7 +484,7 @@ const renderSiteFooter = (): string => `
           </div>
         </div>
         <div class="foot__bottom">
-          <p>Journal.IO is not a medical device and does not provide medical advice, diagnosis, or treatment. AI-supported reflections are intended to be supportive and uncertainty-aware.</p>
+          <p>Journal.IO is not a medical device and does not provide medical advice, diagnosis, or treatment. AI-supported reflections speak directly about patterns in your own writing, but they are not clinical findings.</p>
           <p>&copy; 2026 Journal.IO</p>
         </div>
       </div>

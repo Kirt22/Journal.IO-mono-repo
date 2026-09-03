@@ -1,4 +1,5 @@
 module.exports = {
+  modulePathIgnorePatterns: ['<rootDir>/node_modules.broken/'],
   preset: 'react-native',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   transformIgnorePatterns: [

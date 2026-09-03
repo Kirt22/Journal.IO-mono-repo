@@ -49,6 +49,7 @@ const SETTINGS_ICONS = {
   exportData: require('../../assets/png/settings/icons8-export-64.png'),
   haptics: require('../../assets/png/settings/icons8-phone-vibration-28.png'),
   hideEntries: require('../../assets/png/settings/icons8-hide-67.png'),
+  instagram: require('../../assets/png/onboarding/referral-instagram.png'),
   notifications: require('../../assets/png/settings/icons8-notification-64.png'),
   privacyChoices: require('../../assets/png/settings/icons8-privacy-64.png'),
   privacyPolicy: require('../../assets/png/settings/icons8-privacy-policy-64.png'),
@@ -56,7 +57,13 @@ const SETTINGS_ICONS = {
   support: require('../../assets/png/settings/icons8-support-100.png'),
   termsOfService: require('../../assets/png/settings/icons8-terms-and-conditions-64.png'),
   theme: require('../../assets/png/settings/icons8-theme-48.png'),
+  tiktok: require('../../assets/png/onboarding/referral-tiktok.png'),
   widgets: require('../../assets/png/settings/icons8-color-widgets-48.png'),
+} as const;
+
+const COMMUNITY_URLS = {
+  instagram: 'https://www.instagram.com/journalio.app/',
+  tiktok: 'https://www.tiktok.com/@journalio.app',
 } as const;
 
 type SettingsScreenProps = {
@@ -533,6 +540,53 @@ export function SettingsAboutLegalSection() {
   );
 }
 
+export function SettingsCommunitySection() {
+  const theme = useTheme();
+
+  const openCommunityLink = (url: string, title: string) => {
+    triggerHaptic('legal').catch(() => undefined);
+    openDeviceBrowserUrl(url).catch(error => {
+      Alert.alert(
+        title,
+        error instanceof Error
+          ? error.message
+          : `Unable to open ${title} right now.`,
+      );
+    });
+  };
+
+  return (
+    <View style={styles.personalizationSection}>
+      <Text
+        style={[styles.sectionEyebrow, { color: theme.colors.mutedForeground }]}
+      >
+        Community
+      </Text>
+      <View
+        style={[
+          styles.personalizationList,
+          { borderTopColor: theme.colors.border },
+        ]}
+      >
+        <SettingsListRow
+          accessibilityLabel="Open Instagram"
+          description="@journalio.app"
+          icon={SETTINGS_ICONS.instagram}
+          label="Instagram"
+          onPress={() => openCommunityLink(COMMUNITY_URLS.instagram, 'Instagram')}
+        />
+        <SettingsListRow
+          accessibilityLabel="Open TikTok"
+          description="@journalio.app"
+          icon={SETTINGS_ICONS.tiktok}
+          label="TikTok"
+          onPress={() => openCommunityLink(COMMUNITY_URLS.tiktok, 'TikTok')}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function SettingsSupportSection() {
   const theme = useTheme();
 
@@ -814,6 +868,8 @@ export default function SettingsScreen({
       <SettingsMoreSection onOpenWidgets={onOpenWidgets} />
 
       <SettingsAboutLegalSection />
+
+      <SettingsCommunitySection />
 
       <SettingsSupportSection />
 

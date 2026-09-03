@@ -137,7 +137,7 @@ Frontend state management split:
 
 Biometric lock boundary:
 
-- local Face ID/Touch ID app lock is guarded exclusively by the current authenticated Premium entitlement; development launch configuration cannot bypass it
+- local Face ID/Touch ID app lock is guarded by effective Premium access; it has no feature-specific bypass and follows the same non-production `DEV_PREMIUM_ACCESS_OVERRIDE` selector as every other Premium surface
 - service-layer enable attempts from free sessions return `premium_required` before writing the preference or Keychain marker, while the Settings row opens the contextual paywall directly
 - app backgrounding immediately mounts a privacy cover; an unlocked app only arms a new biometric challenge after 60 seconds away, while cold launch and an already-locked state authenticate without the grace bypass
 
@@ -171,7 +171,7 @@ Onboarding first guided reflection exception:
 
 - `POST /guided-reflection/first-summary` and `POST /guided-reflection/go-deeper` are authenticated onboarding-value endpoints used before the first real entry is saved
 - the main-app Guided entry point is Premium-only; the backend AI path also requires active Premium, while deterministic safe fallback copy keeps onboarding and failure handling non-blocking
-- first-summary and go-deeper return 45-70 word reflections plus a separate 6-14 word practical question; prompts explicitly prohibit diagnosis or claims of professional authority
+- first-summary and go-deeper return up to 90-word reflections plus a separate 6-14 word practical question; prompts state the conclusion the writing supports, and prohibit asserting a formal diagnosis as fact or claiming professional authority
 - OpenAI-backed interpretation uses shared evidence-led balance guidance: when both sides are supported, roughly 55% of attention goes to friction, setbacks, contradictions, avoidance, risks, or unmet needs and 45% to strengths and progress. The model must never manufacture negativity or force the ratio onto one-sided/low-signal writing; the response tone stays constructive while structured mood remains evidence-based.
 - they do not persist journal records or inferred labels; the mobile app still saves exactly one real journal entry through the existing journal create route after review
 - `POST /guided-reflection/session-analysis` runs after that single entry is saved and always returns `detectedTopics`, `detectedMood`, and `brainSessionMap`; when `journalId` is supplied, the full validated response is stored atomically as a versioned snapshot on the owned journal
@@ -198,7 +198,7 @@ AI outputs should be:
 - structured
 - deterministic in shape
 - parseable
-- safe and non-clinical
+- safe, and free of a formal diagnosis asserted as fact
 
 Typical extracted fields:
 
@@ -272,14 +272,14 @@ Current insights overview architecture:
   2. **Semantic recall** — at session time the current answers are embedded (`requestEmbedding`, `OPENAI_EMBEDDING_MODEL`, default `text-embedding-3-small`) and ranked by in-memory cosine similarity against the user's stored `entry_insights` embeddings (`loadRelevantEntryInsights`), surfacing the *most relevant* past entries rather than just the most recent. No vector DB — Atlas Vector Search is the future scale path.
   3. **Recurring themes** — recurrence-ranked patterns seen ≥2× (`aggregateRecurringPatterns`). Still the fallback, but superseded by layer 4 once a user's graph is established.
   4. **Pattern graph** — a per-user graph of the behaviours their entries keep showing and how those behaviours appear to connect (`patternGraph.service.ts`, collections `pattern_nodes` / `pattern_edges`). Layers 1-3 could only ever say *what* recurs; this is the first layer that can say *how two patterns relate* — "the screen-heavy evenings and the eating past fullness look like the same loop". It is a materialized projection of `entry_insights.themes` (plus themes mined from Ask Jade sessions), so the whole graph is replayable from those sources and is never a second write path.
-     - **Nodes** are behaviours, never conditions. `isClinicalPatternLabel` rejects diagnoses, abbreviations, and Big Five / dark-triad trait nouns on every write — the graph must not reintroduce the trait framing that behavioural `patterns` deliberately replaced (see below). Node identity uses two keys: `toThemeId` (exact slug) and `toPatternKey` (token-sorted and lightly stemmed, so "avoids conflict" / "avoiding conflict" / "conflict avoidance" resolve to one node).
+     - **Nodes** are patterns the user's writing keeps showing, usually behaviours. Clinically-worded labels are allowed: the `isClinicalPatternLabel` write filter was removed because rejecting a label silently dropped the node instead of rewording it. What a node may never be is invented — every node carries the user's own sentence as evidence. Node identity uses two keys: `toThemeId` (exact slug) and `toPatternKey` (token-sorted and lightly stemmed, so "avoids conflict" / "avoiding conflict" / "conflict avoidance" resolve to one node).
      - **Edges** come from three tiers: `co_occurrence` and `temporal` are deterministic and free; `ai_inferred` is one throttled model pass (`OPENAI_PATTERN_GRAPH_MODEL`, `PATTERN_GRAPH_REFINE_EVERY`, default every 5 entries, low reasoning effort) that names the mechanism between pairs the deterministic tiers only counted. The model may only relate and group nodes that already exist — any endpoint it invents is dropped before a write, and any evidence quote it did not copy verbatim from the user's stored words is discarded.
      - **God nodes** are umbrella clusters over member patterns, and are named as behavioural phrases ("bracing for things going wrong", "soothing tension with screens"), never as a state or condition. They are fully derived from the latest refinement, require ≥2 established members and confidence ≥0.6, and are capped at 6 per user.
      - **No graph database and no vector database.** Nodes and edges are ordinary Mongo collections with per-user compound indexes; near-duplicate node merging reuses the same in-memory cosine as layer 2. Atlas Vector Search remains the only sanctioned future scale path.
      - Drift control is deterministic: `computeNodeStrength` decays by recency, single-sighting nodes go dormant at 90 days and are deleted at 180, weak edges are pruned at 60 days, and inferred edges expire at 180 days without reconfirmation. Edges below 0.55 confidence never reach a prompt, and a `precedes` edge needs 3 observations before it is treated as a sequence rather than coincidence.
-  Guided reflection is **premium-gated** (`canUseGuidedReflectionAi`); `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` bypasses for dev. All memory layers are best-effort: any failure degrades gracefully and never breaks the core flow. The graph block clamps itself to 700 characters *before* the composed memory's 2200-character clamp, so it can never starve the rolling narrative in the six call sites that share that budget.
+  Guided reflection is **premium-gated** (`canUseGuidedReflectionAi`) and follows the single non-production `DEV_PREMIUM_ACCESS_OVERRIDE` selector used by every other Premium surface. All memory layers are best-effort: any failure degrades gracefully and never breaks the core flow. The graph block clamps itself to 700 characters *before* the composed memory's 2200-character clamp, so it can never starve the rolling narrative in the six call sites that share that budget.
 - **Ask Jade (premium)** is the conversational surface of the same reflection companion, reached by tapping the Home hero orb. Backend `services/ask-jade/`, mounted at `/api/v1/ask-jade`; collections `jade_sessions` and `jade_messages` (row-per-message, so a long chat never rewrites a growing document). Frontend `screens/jade/AskJadeScreen.tsx` + `store/slices/askJadeSlice.ts`.
-  - **One voice, one set of limits.** The guided-reflection `SYSTEM_PROMPT` was lifted into `helpers/reflectionVoice.helpers.ts` and is shared by both surfaces, so the crisis handling and no-diagnosis hard limits cannot drift apart. Jade appends only its own deltas: its name, a chat-length format, and an explicit refusal clause — it is a support partner for the user's own patterns, not a general-purpose assistant.
+  - **One voice, one set of limits.** The guided-reflection `SYSTEM_PROMPT` was lifted into `helpers/reflectionVoice.helpers.ts` and is shared by both surfaces, so the crisis handling and formal-diagnosis limits cannot drift apart. Jade appends only its own deltas: its name, a chat-length format, and an explicit refusal clause — it is a support partner for the user's own patterns, not a general-purpose assistant.
   - **Context per turn:** the pattern graph slice (`buildJadeGraphContext`), long-term memory, an AI-compacted `runningSummary` of older turns, and the last 12 turns verbatim. The user's live message is embedded so recall is about *this* question rather than just recent entries. **No raw journal text is ever sent** — the same invariant every other memory layer holds.
   - `requestStructuredOpenAi` has no `assistant` role, so prior turns are JSON-encoded inside one `user` message, exactly as guided reflection already does. Model `OPENAI_ASK_JADE_MODEL`, `reasoningEffort` `OPENAI_ASK_JADE_REASONING_EFFORT` (default `low`), with a 1,000-token reply ceiling so reasoning cannot crowd out the structured payload.
   - **Failure is a reply, not an error.** The OpenAI helper classifies configuration, HTTP, incomplete, empty, invalid-JSON, schema, and exception failures while logging metadata only. Ask Jade persists a deterministic fallback and still returns `200`; the client offers `Edit and retry`. Safety short-circuits first, followed by deterministic runtime-aware product privacy facts, with no model request for either.
@@ -344,6 +344,21 @@ Current streaks architecture:
   - 30-day activity presence
   - milestone achievements
 - the frontend keeps the existing Make layout and only swaps in the API-backed values
+
+---
+
+### Dev-only Demo Mode
+
+Demo Mode is a filming-only replay path and is not a second product architecture:
+
+- A Demo-enabled, non-production Metro server rewrites the native `index` request to `frontend/index.demo.js`, which imports the bootstrap before the normal entry. Production keeps `frontend/index.js`, excluding the bootstrap and its statically imported scenario fixtures from the module graph.
+- The bootstrap installs one adapter in `frontend/src/utils/apiClient.ts`. Existing screens, navigation, hooks, Zustand stores, TanStack Query consumers, and service response types remain unchanged.
+- `DemoMode.activeScenarioId` is the single scenario switch. A null value preserves the normal API path; a selected scenario resolves journals, guided reflection, Ask Jade, insights, Mind Map, and goals from one captured fixture.
+- Fixture `dayOffset` values are materialized into local calendar dates at load time. Date labels and range metadata are recomputed so the same capture remains a live 30-day history.
+- Demo mutations use an in-memory overlay and disappear on reload. Unrecognized writes fail closed before the API client can reach the backend; no demo operation is allowed to sync into an authenticated account.
+- The native development menu supplies scenario selection, reset, current-state indication, and Film Mode. Film Mode suppresses haptics, reminder notifications, notification scheduling, and development log overlays without changing screen code.
+- `yarn demo:capture <scenario-id>` builds and calls the real backend services against a separately named scratch MongoDB database. It rejects non-fictional or incomplete input, product fallbacks, AI call failures, and empty goal output before atomically replacing a fixture.
+- Captured fixtures store normalized service payloads, source-model identifiers, generation time, and input/output SHA-256 hashes. Frozen output must be regenerated by the pipeline rather than manually improved.
 
 ---
 

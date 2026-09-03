@@ -1158,8 +1158,12 @@ const verifyEmail = async ({
     user.authProviders = [...user.authProviders, "email"];
   }
 
-  if (onboardingCompleted !== undefined) {
-    user.onboardingCompleted = onboardingCompleted;
+  // One-way, like every sign-in path. Verification can happen again long after
+  // onboarding is done — a client passing `false` here used to reset a finished
+  // account back to incomplete, which the profile backfill would then flip
+  // straight back. Only account creation gets to set this in both directions.
+  if (onboardingCompleted) {
+    user.onboardingCompleted = true;
   }
 
   syncUserLookupHashes(user);

@@ -78,6 +78,9 @@ conversational surface. Reuse it rather than inventing a second one.
   streaming transport. This is a temporary waiting state, so the reveal and a
   "thinking" indicator are permitted loops — they are not a third ambient
   animation.
+- Every completed message exposes compact explicit Copy and Share icon controls
+  beneath its bubble. Hide those controls while a newly requested reply is
+  revealing, and do not attach copy or share behavior to a bubble long press.
 - Safety-sensitive replies are rendered at once, never revealed progressively,
   and carry a distinct destructive-tinted treatment.
 - A failed send marks its bubble and returns the text to the composer. Never
@@ -157,7 +160,8 @@ conversational surface. Reuse it rather than inventing a second one.
   failures in the shared inline notice. Show provider and non-connectivity
   server failures in the themed dialog instead, without exposing raw backend or
   SDK copy. Provider dialogs offer `Not now` and `Try again`; user cancellation
-  stays silent. Connectivity failures defer to the shared gate or offline banner.
+  stays silent. Connectivity failures defer to the shared connectivity splash or
+  offline banner.
 - Auth notices enter with a short opacity and 8px upward settle, and Auth dialogs
   use the standard restrained spring. Both settle immediately under Reduce
   Motion, remain accessible alerts, and must not add error haptics.
@@ -204,12 +208,30 @@ conversational surface. Reuse it rather than inventing a second one.
 - Use the shared backend-readiness state and `/ready` probe. Do not infer that
   the app is online from device Wi-Fi state or that a failed read means the
   underlying collection is empty.
-- During checking or offline states, signed-out and pre-main routes use the
-  shared Auth ink/bubble backdrop with one centered themed loader. Do not stack
-  a connectivity dialog, retry button, or raw network error above that gate.
+- One rule decides the treatment: **a full-screen surface means the user is not
+  yet authenticated; the banner plus disabled actions means they are in the
+  app.** Nothing else takes over the whole screen for connectivity.
+- During checking or offline states, signed-out and pre-main routes use
+  `ConnectivitySplash` — the shared Auth ink/bubble backdrop with the compact
+  `JournalWordmark` centered on it. The mark renders static: the ink-current
+  intro belongs to the Auth entrance and must not be spent on a waiting screen.
+  Compact matches the 160x44 wordmark in the iOS launch storyboard, so the
+  native launch image hands off without the mark shifting.
+- That surface stays silent and wordless for its first 5 seconds. Only once the
+  wait is genuinely long does it fade in one muted line and a single retry
+  control. Do not add a connectivity dialog, a raw network error, or a second
+  action to it, and do not show the copy immediately — a cold start on a slow
+  connection resolves inside that window, and announcing a failure that never
+  happened is worse than the silence.
+- Retry goes through the shared `runConnectivityProbe`, never a direct probe
+  call, so the poll loop and the button cannot put two requests on the wire.
 - Previously verified authenticated sessions remain readable with the shared
   offline banner. Disable server-backed actions and label unhydrated content as
   unavailable offline rather than rendering a normal empty state.
+- The stage list that decides "authenticated surface" is duplicated in
+  `ConnectivityBoundary`, `appStore`, and `App.tsx`. Adding an authenticated
+  stage means updating all three; a stage missing from the boundary's copy gets
+  a full-screen takeover where the banner was intended.
 - Keep an already-mounted composer draft in memory when connectivity drops, but
   do not persist it, queue it, submit it automatically, or silently replay any
   protected write after reconnect.

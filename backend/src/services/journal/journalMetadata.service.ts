@@ -2,18 +2,21 @@ import {
   normalizeDetectedTopics,
   type DetectedMood,
 } from "../../helpers/entryMetadata.helpers";
+import { decryptLeanFields } from "../../helpers/fieldEncryption.schema.helpers";
 import {
   journalModel,
   type JournalSessionAnalysisSource,
 } from "../../schema/journal.schema";
 import type { GuidedReflectionSessionAnalysisResponse } from "../guided-reflection/guided-reflection.service";
 import { syncJournalUpdatedInsights } from "../insights/insights.service";
+import { ingestSessionTriggersIntoGraph } from "../mindmap/patternGraph.service";
 
 /**
- * Bumped from 1 when fallback snapshots became replaceable, so a stored
+ * Bumped from 1 when fallback snapshots became replaceable, and from 2 when the
+ * analysis became a third-person report of triggers and patterns, so a stored
  * snapshot's provenance is readable without inspecting its analysis body.
  */
-const SESSION_ANALYSIS_SNAPSHOT_VERSION = 2;
+const SESSION_ANALYSIS_SNAPSHOT_VERSION = 3;
 
 const persistJournalDetectedMetadata = async ({
   userId,
@@ -77,7 +80,24 @@ const getJournalSessionAnalysisSnapshot = async ({
     .lean()
     .exec();
 
-  return journal?.sessionAnalysisSnapshot?.analysis || null;
+  const snapshot = journal?.sessionAnalysisSnapshot;
+
+  if (!snapshot) {
+    return null;
+  }
+
+  // `.lean()` skips the schema getters, so the analysis blob is still
+  // ciphertext here. It is encrypted on the subdocument schema, so `analysis`
+  // is the path sealed into its AAD — decrypting it as
+  // `sessionAnalysisSnapshot.analysis` would fail the auth-tag check.
+  const decrypted = decryptLeanFields(snapshot as Record<string, unknown>, [
+    { encryptedPath: "analysis" },
+  ]);
+
+  return (
+    (decrypted.analysis as GuidedReflectionSessionAnalysisResponse | null) ||
+    null
+  );
 };
 
 /**
@@ -104,6 +124,14 @@ const isStaleSessionAnalysisSnapshot = (
   }
 
   if (analysis.isFallback === true) {
+    return true;
+  }
+
+  // Pre-v3 snapshots were written in second person and reported no triggers.
+  // The version number is not carried this far down (callers pass the analysis
+  // body alone), but the absence of `triggersObserved` is itself the marker —
+  // a v3 analysis always sets it, to `[]` when it genuinely found none.
+  if (analysis.triggersObserved === undefined) {
     return true;
   }
 
@@ -170,6 +198,17 @@ const persistJournalSessionAnalysisSnapshot = async ({
       detectedTopics: journal.sessionAnalysisSnapshot.analysis.detectedTopics,
       detectedMood: journal.sessionAnalysisSnapshot.analysis.detectedMood,
     });
+
+    // Fire-and-forget, like every other graph write: this is what turns a
+    // trigger observed once into one observed twice, but the user is waiting on
+    // the analysis and must never wait on the graph.
+    void ingestSessionTriggersIntoGraph({
+      userId,
+      journalId,
+      triggers: journal.sessionAnalysisSnapshot.analysis.triggersObserved || [],
+      observedAt: journal.createdAt || new Date(),
+    });
+
     return journal.sessionAnalysisSnapshot.analysis;
   }
 

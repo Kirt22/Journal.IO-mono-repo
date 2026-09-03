@@ -9,6 +9,7 @@ import {
   Image,
   Platform,
   StyleSheet,
+  useWindowDimensions,
   View,
   type ImageSourcePropType,
 } from 'react-native';
@@ -22,6 +23,19 @@ import {
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/provider';
+
+// The bar is capped so it does not stretch edge to edge on a tablet — the app
+// ships for iPhone and iPad alike. On a phone it has to stay full-bleed, and at
+// a flat 430 it stopped doing that on the 440pt devices (16/17 Pro Max), which
+// showed a strip of background down each side of the bar and a top hairline
+// that ended short of both edges. Splitting the two cases at a width no phone
+// reaches and no iPad falls below leaves every phone untouched.
+const TABLET_MIN_WIDTH = 600;
+const TABLET_BAR_MAX_WIDTH = 430;
+
+export function getBottomNavBarMaxWidth(width: number) {
+  return width >= TABLET_MIN_WIDTH ? TABLET_BAR_MAX_WIDTH : undefined;
+}
 
 const HOME_TAB_ICON = require('../assets/png/navigation/icons8-home-64.png');
 const ENTRIES_TAB_ICON = require('../assets/png/navigation/icons8-list-64.png');
@@ -96,12 +110,14 @@ export default function BottomNav({
     };
   }, [entranceProgress, shouldAnimateEntranceOnMount]);
 
+  const { width } = useWindowDimensions();
   const barStyle = useMemo(
     () => ({
       backgroundColor: theme.colors.card,
       borderTopColor: theme.colors.border,
+      maxWidth: getBottomNavBarMaxWidth(width),
     }),
-    [theme.colors.border, theme.colors.card],
+    [theme.colors.border, theme.colors.card, width],
   );
 
   const handlePress = (key: BottomNavKey) => {
@@ -246,7 +262,6 @@ const styles = StyleSheet.create({
   bar: {
     borderTopWidth: 1,
     width: '100%',
-    maxWidth: 430,
     alignSelf: 'center',
   },
   inner: {

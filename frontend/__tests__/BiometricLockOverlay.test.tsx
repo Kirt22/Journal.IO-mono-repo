@@ -7,11 +7,8 @@ import ReactTestRenderer from 'react-test-renderer';
 import { AppState, Platform } from 'react-native';
 
 jest.mock('../src/utils/devLaunchConfig.json', () => ({
-  stage: 'onboarding',
-  activeTab: 'home',
-  email: null,
+  replayOnboarding: false,
   apiBaseUrl: 'http://192.168.1.226:3001/api/v1',
-  enableBiometricLockForTesting: false,
 }));
 
 import BiometricLockOverlay from '../src/components/BiometricLockOverlay';

@@ -46,7 +46,6 @@ const insightsSchema = new mongoose.Schema<IInsights>(
       type: mongoose.Schema.Types.ObjectId,
       ref: "users",
       required: true,
-      unique: true,
     },
     totalEntries: { type: Number, required: true, default: 0 },
     totalWords: { type: Number, required: true, default: 0 },

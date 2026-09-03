@@ -45,7 +45,7 @@ Error:
 - OpenAI-backed reflection, analysis, extraction, memory, writing-prompt, Mind Map, and goal-generation features use an evidence-led, challenge-forward balance.
 - When both difficult and positive material are present, prompts target roughly 55% interpretive attention on supported friction, setbacks, contradictions, avoidance, risks, or unmet needs and 45% on supported strengths, progress, resources, or protective factors.
 - The ratio is not a sentiment quota: models must not invent or exaggerate negative material, and low-signal or clearly one-sided writing must not be distorted to satisfy it.
-- User-facing language remains warm, constructive, non-clinical, uncertainty-aware, and agency-focused without using reassurance to erase unresolved difficulty.
+- User-facing language is direct, plain, and evidence-led: it states the conclusion the user's own writing supports rather than hedging toward it, cites the entry, date, or quoted words behind a claim, and never uses reassurance to erase unresolved difficulty. It may name recognised psychological patterns (avoidance, numbing, rumination, attachment behaviour, burnout or depressive markers) and apply them to the user directly. It must not assert a formal medical or psychiatric diagnosis as established fact, claim clinical authority, offer treatment, or advise on medication.
 - Structured mood fields continue to reflect the writing itself; they are never forced to a positive value to make the response sound supportive.
 
 ---
@@ -289,7 +289,7 @@ Success `data`:
 Notes:
 
 - this endpoint is used only for the onboarding demo screen
-- response copy must stay supportive, non-clinical, and uncertainty-aware
+- response copy must stay direct and evidence-led, and must not assert a formal diagnosis as fact or claim clinical authority
 - raw demo journal text must not be logged or persisted
 
 ---
@@ -1005,11 +1005,26 @@ Request:
   "type": "open_ended",
   "entryKind": "journal",
   "aiPrompt": "What are you grateful for today?",
+  "appAuthoredSegments": ["What are you grateful for today?"],
   "images": [],
   "tags": ["reflection"],
   "isFavorite": false
 }
 ```
+
+**`appAuthoredSegments`** is the exact list of strings Journal.IO itself put into `content`. The app
+writes into the user's entry — the guided composer interleaves its section labels, its own
+reflection and every follow-up question with what the person typed, and the open-ended composer
+inserts any writing prompt the user taps. Without this manifest the backend cannot tell the two
+apart, and the app's words get read back as the person's: quoted as their evidence, treated as a
+topic they raised, and mined into their pattern graph as a behaviour they show.
+
+- Optional, max 40 items of ≤600 characters each. Encrypted at rest alongside `content`.
+- `aiPrompt` is **not** a substitute: it holds a single value, so a multi-prompt open-ended entry
+  leaves the earlier prompts unrecoverable, and a guided entry's `aiPrompt` is the fixed label
+  `"Onboarding first guided reflection"`, which never appears in the content at all.
+- Entries saved before this field existed fall back to a structural parse (guided) or the existing
+  prompt-echo strip (open-ended). See `helpers/journalAuthorship.helpers`.
 
 Success `data`:
 
@@ -1179,7 +1194,7 @@ Request:
 }
 ```
 
-Success `data` uses the same structured shape as `POST /guided-reflection/session-analysis`, including `analysis`, `majorInsight`, `observedTrends`, `detectedTopics`, `detectedMood`, `brainSessionMap`, and `hasEnoughSignal`.
+Success `data` uses the same structured shape as `POST /guided-reflection/session-analysis`, including `analysis`, `majorInsight`, `observedTrends`, `triggersObserved`, `patternAssessment`, `detectedTopics`, `detectedMood`, `brainSessionMap`, and `hasEnoughSignal`. It is the same engine, so open-ended entry analysis is third-person and trigger-reporting too.
 
 Notes:
 
@@ -1197,7 +1212,7 @@ Notes:
 
 Generate a concise, therapeutically informed but non-clinical reflection after the user answers the three required daily prompts. The response keeps the practical reflection separate from one short `followUpQuestion`.
 
-**Premium gating:** guided reflection is a premium experience. The AI path requires an active premium entitlement (`canUseGuidedReflectionAi`). Set `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` to bypass the premium check in development/testing while still requiring OpenAI configuration. When the gate fails, the route still returns deterministic, non-clinical fallback copy (including a `followUpQuestion`) — it never opens a paywall or errors.
+**Premium gating:** guided reflection is a premium experience. The AI path requires effective Premium access (`canUseGuidedReflectionAi`). In non-production, the sole access selector is `DEV_PREMIUM_ACCESS_OVERRIDE=default|pro|free`; `default` uses the account's verified RevenueCat entitlement. When the gate fails, the route still returns deterministic, non-clinical fallback copy (including a `followUpQuestion`) — it never opens a paywall or errors.
 
 Request:
 
@@ -1238,18 +1253,33 @@ Success `data`:
 {
   "reflection": "Your early start appears to have created useful momentum, while the old habit added friction later. Noticing both keeps one difficult moment from defining the whole day. Tomorrow, protect one small aligned action with a clear time or trigger, then treat completing it as information rather than a test of your worth.",
   "followUpQuestion": "What feeling was strongest when the old habit appeared?",
-  "takeaway": "Hold the full picture, then choose one small next step."
+  "takeaway": "Hold the full picture, then choose one small next step.",
+  "sessionSignals": {
+    "triggers": [
+      {
+        "trigger": "being pulled into an old habit",
+        "emotionalResponse": "loses the morning momentum",
+        "evidenceQuote": "I felt pulled into an old habit",
+        "confidence": 0.6,
+        "sessionOccurrences": 1
+      }
+    ],
+    "activeTrigger": "being pulled into an old habit",
+    "triggerStage": "surface"
+  }
 }
 ```
 
 Notes:
 
 - protected route
-- **premium-gated** (`canUseGuidedReflectionAi`); `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` bypasses in dev. Fallback copy is returned on gate failure — never a paywall or error.
+- **premium-gated** (`canUseGuidedReflectionAi`); non-production access follows the single global `DEV_PREMIUM_ACCESS_OVERRIDE` selector. Fallback copy is returned on gate failure — never a paywall or error.
 - runs at high reasoning effort (`OPENAI_GUIDED_REFLECTION_REASONING_EFFORT`, default `high`) for genuine depth
 - injected with cross-session **long-term memory** (rolling narrative + semantically-relevant past entries + recurring themes) for premium users; the current session is embedded to pull the most relevant history
-- `reflection` is 45-70 words and remains practical, grounded, supportive, and uncertainty-aware
+- `reflection` is 45-90 words and remains practical, grounded, and direct: the conclusion the entry supports, then one specific next step
 - `followUpQuestion` is always present, 6-14 words, and at most 100 characters; the mobile client renders it outside the response card as the next composer prompt
+- `sessionSignals` opens the session's **trigger thread**. A trigger is the situation, person, time, or thought that came right before a feeling. `triggerStage` names the rung the question sits on (`surface` → `test` → `function`, or `none`). Guided reflection keeps no server-side session, so the client stores this verbatim and echoes it back as `previousSignals` on the next `/go-deeper` call — the same way it already replays `previousDeeperReflections`
+- every `evidenceQuote` is re-checked against the user's own writing server-side and cleared if it is not present; a trigger whose composed label names a condition rather than a behaviour is dropped entirely
 - if OpenAI is unavailable or disabled, returns deterministic, non-clinical Journal.IO reflection copy (still with a `followUpQuestion`)
 - does not save journal content; the mobile app still saves exactly one entry later through `POST /journal/create_journal`
 - safety-sensitive text returns support-first copy and skips normal reflective interpretation
@@ -1299,6 +1329,15 @@ Request:
   ],
   "currentText": "I think I need to protect my morning better.",
   "suggestionAction": "go_deeper",
+  "previousSignals": [
+    {
+      "trigger": "falling behind on work",
+      "emotionalResponse": "loses the focused hour",
+      "evidenceQuote": "I felt behind on work",
+      "confidence": 0.6,
+      "sessionOccurrences": 1
+    }
+  ],
   "onboardingContext": {
     "reflectionTone": ["practical"]
   }
@@ -1311,24 +1350,47 @@ Success `data`:
 {
   "reflection": "Protecting your morning seems tied to the focused hour you keep reaching for — it sounds less like time management and more like guarding something that matters to you.",
   "nextQuestion": "What tends to get in the way of that first hour before it even starts?",
-  "canGoDeeper": true
+  "canGoDeeper": true,
+  "sessionSignals": {
+    "triggers": [
+      {
+        "trigger": "falling behind on work",
+        "emotionalResponse": "loses the focused hour",
+        "evidenceQuote": "I felt behind on work",
+        "confidence": 0.7,
+        "sessionOccurrences": 2
+      }
+    ],
+    "activeTrigger": "falling behind on work",
+    "triggerStage": "test"
+  }
 }
 ```
 
 Notes:
 
 - protected route
-- **premium-gated** (`canUseGuidedReflectionAi`); `GUIDED_REFLECTION_ALLOW_NON_PREMIUM=true` bypasses in dev. Falls back to deterministic copy on gate failure.
+- **premium-gated** (`canUseGuidedReflectionAi`); non-production access follows the single global `DEV_PREMIUM_ACCESS_OVERRIDE` selector. Falls back to deterministic copy on gate failure.
 - accepts the original onboarding prompt answers, the first summary, previous deeper reflections, optional thread messages, the current optional text, and an optional suggestion action
 - this is an adaptive, user-paced deepening turn: it returns a 45-70 word grounded `reflection`, one separate 6-14 word `nextQuestion`, and `canGoDeeper` (false once the reflection reaches a natural stopping point)
 - when the user references something heavy, the response acknowledges it without diagnosing, claiming professional authority, or pushing the user deeper
 - runs on the latest model tier (`OPENAI_GUIDED_REFLECTION_MODEL`) at high reasoning effort (`OPENAI_GUIDED_REFLECTION_REASONING_EFFORT`, default `high`), injected with cross-session **long-term memory** (rolling narrative + semantic recall + recurring themes) so it can gently check in on ongoing threads from past sessions.
 - `suggestionAction` may be `gentle_prompt`, `go_deeper`, `another_perspective`, `small_next_step`, or `summarize` (still accepted for compatibility)
 - the client applies a soft cap (~6 turns) so deepening cannot run forever; the backend's `canGoDeeper` drives the natural stopping point
+- **the question is trigger-driven.** Each turn walks one rung of a ladder and reports it in `sessionSignals.triggerStage`:
+  - `surface` — a feeling is named but not what preceded it; the question asks what was happening immediately before, concretely
+  - `test` — a candidate trigger has been named once but never checked; the question asks whether the same situation produced the same response at other times
+  - `function` — the trigger held up; the question asks what the response does for them (what it protects from, what it costs)
+  - a rung is never skipped, and the turn does not change topic while a candidate trigger is still untested
+- `previousSignals` is the merged trigger list the previous turn returned, echoed back by the client. It is **untrusted input**: clinical labels are dropped and every `evidenceQuote` is re-checked against the user's own writing before any of it reaches a prompt or the pattern graph. This holds on the deterministic paths too (safety, low-signal, privacy, AI-unavailable), which are the easiest ones to force
+- `sessionSignals.triggers` is always the **full merged list for the session**, not just this turn's additions — the client stores it verbatim and never merges. Two differently-worded sightings of one trigger merge into one entry with `sessionOccurrences: 2`
+- when the model is unavailable, the deterministic fallback still walks the ladder (`"What was happening right before that feeling showed up?"` at `surface`, `"What does that reaction do for you in the moment?"` once a trigger has two sightings) rather than abandoning the thread
 
 ### `POST /guided-reflection/session-analysis`
 
-Generate the session-level analysis shown after the first onboarding journal entry has been saved. This is not a diagnosis, therapy, or medical interpretation; it is a fuller behavioral reflection over the whole first-guided-reflection session.
+Generate the session-level analysis shown after the first onboarding journal entry has been saved. This is not a diagnosis, therapy, or medical interpretation.
+
+**This is a third-person report, not a reflection.** It is written *about* the session from the outside and never addresses the reader: no `you`/`your` in any field, the person is referred to as `they`/`them`, and it offers no comfort, encouragement, advice, or next step. Its job is to say what the session covered, what set off which emotional response, and which of those look like repeating patterns. A generated field that slips back into second person is replaced server-side with deterministic third-person copy rather than shipped (the rest of the response survives). The live in-session `reflection` from `/first-summary` and `/go-deeper` keeps its warm second-person companion voice — only this endpoint reports.
 
 Every successful response includes a required `brainSessionMap`. The map classifies the completed reflection into exactly one dominant brain-inspired reflection center, 1-3 secondary centers, and a complete score breakdown for all 8 centers sorted by score descending. Evidence snippets must come from the user's own prompt answers or user-authored thread messages only.
 
@@ -1354,6 +1416,15 @@ Request:
     }
   ],
   "aiSummary": "Today shows discipline alongside the discomfort of feeling judged.",
+  "sessionSignals": [
+    {
+      "trigger": "pressure from his dad",
+      "emotionalResponse": "turns discipline into self-judgement",
+      "evidenceQuote": "I felt judged",
+      "confidence": 0.7,
+      "sessionOccurrences": 2
+    }
+  ],
   "threadMessages": [
     {
       "role": "user",
@@ -1377,9 +1448,27 @@ Success `data`:
 
 ```json
 {
-  "analysis": "This session suggests a useful contrast between discipline and the discomfort of feeling judged. The strongest signal is that the user is trying to keep discipline connected to steadiness rather than pressure. The entry also shows a tomorrow-oriented anchor, which can make the reflection practical instead of only emotional. A broader pattern may be emerging around noticing outside judgment, returning to personal alignment, and choosing one grounded action.",
-  "majorInsight": "Major insight: the clearest signal is the move from external pressure toward one self-directed choice.",
-  "observedTrends": ["Discipline", "Pressure", "Family", "Tomorrow"],
+  "analysis": "This session returned to discipline three times, and each time it arrived alongside the discomfort of being judged. Their writing puts the shift from steadiness to pressure right after their dad is mentioned, not before it. They then move toward a tomorrow-oriented anchor, which appears to be how they steady themselves once the judgement lands. This is the second session where that same sequence shows.",
+  "majorInsight": "Major insight: pressure from their dad appears to come right before discipline turns into self-judgement.",
+  "observedTrends": ["Judgement from dad", "Discipline as pressure", "Family", "Tomorrow"],
+  "triggersObserved": [
+    {
+      "trigger": "pressure from his dad",
+      "emotionalResponse": "turns discipline into self-judgement",
+      "evidenceQuote": "I felt judged",
+      "confidence": 0.7,
+      "status": "recurring",
+      "occurrences": 2
+    }
+  ],
+  "patternAssessment": [
+    {
+      "label": "turns discipline into self-judgement after family pressure",
+      "basis": "Named in this session and in an earlier entry.",
+      "status": "recurring",
+      "occurrences": 2
+    }
+  ],
   "topicsObserved": ["discipline", "stress", "family"],
   "detectedTopics": ["discipline", "stress", "family"],
   "detectedMood": "bad",
@@ -1757,7 +1846,33 @@ Notes:
 - `detectedTopics` carries at least one taxonomy entry whenever `hasEnoughSignal` is true: the prompt requires one, and if the model still returns none the server falls back to `detectEntryMetadataHeuristically`. It never invents a tag, so the Topics Detected card keeps an empty state for the rare case where neither finds anything
 - responses built from the deterministic fallback carry `isFallback: true`. This is provenance for the snapshot layer, not user-facing copy — see the regeneration note under `POST /journal/session_analysis`. Open-ended entries arrive as a single `open_ended_entry` prompt answer, so the fallback derives its sentences from the user's own writing rather than the three guided question ids
 - when `journalId` is supplied this route replays the stored snapshot, and applies the same staleness check as `POST /journal/session_analysis`: a stale snapshot is regenerated and overwritten instead of replayed, so both entry points into the same snapshot behave identically
-- output must remain non-clinical, behavior-focused, uncertainty-aware, and must not claim diagnosis or therapy
+- output must remain behavior-focused and evidence-led, and must not assert a formal diagnosis as fact or claim therapy
+- **app-authored text is never treated as the user's.** The model payload splits authorship at the
+  top level: `userAuthored` (their answers, their thread messages, their full text, and a
+  `wordCount`) versus `appAuthoredContext` (the questions they were asked, Journal.IO's own
+  reflections, and anything the app inserted into a saved entry). The prompt forbids quoting or
+  attributing anything in the second group, and states that a question's subject is not evidence the
+  person raised it. Every `evidenceQuote` and evidence chip is additionally re-validated server-side
+  against the user's own writing, so an app-authored sentence cannot survive as their words even if
+  the model tries.
+- **low signal is measured on the user's words only.** The gate previously read a blob that included
+  `aiSummary` and every assistant turn, and Journal.IO's own 45-70 word reflection clears the
+  8-informative-word threshold by itself — so a session where the person typed four words returned a
+  full, confident analysis. It now reads `getUserWrittenSessionText`, and a genuinely thin session
+  returns the low-signal state with empty `triggersObserved` / `patternAssessment` and nothing
+  entering the pattern graph. Safety detection deliberately still scans the full session including
+  app text: scanning more is the safer error.
+- for a saved entry, `POST /journal/session_analysis` splits `content` with
+  `extractJournalAuthorship` before analysing — the user's half becomes the answer, the app's half is
+  passed as `appAuthoredContext`. This is what stops a guided entry's stored `Journal.IO:` blocks
+  being re-read as the person's writing on every regeneration.
+- **third-person voice is enforced, not just requested.** `analysis`, `majorInsight`, `neuroscienceSummary`, `mostNoticedText`, `mindMapSeedText`, and every center's `shortInsight` are checked for second-person pronouns after generation. A failing field is swapped for the deterministic third-person copy and the swap is logged (the matched pronoun only, never the sentence). The rest of the response is kept — rejecting it wholesale would also lose the brain map and the topics
+- `triggersObserved` reports the trigger → emotional-response links the session evidenced. `status` (`emerging` | `recurring` | `confirmed`) and `occurrences` are attached **server-side from the pattern graph** and are never taken from the model: a fabricated "the fourth time this has happened" is the one error this feature cannot afford, because that is precisely the claim a user would act on. The graph counts are also fed *into* the prompt as `knownPatterns`, so the prose agrees with the number attached to the response
+- `patternAssessment` carries the behaviours worth tracking. The model supplies `label` and `basis`; the server attaches `status` and `occurrences`. A label naming a condition rather than a behaviour is dropped
+- the two lists are unioned from the live turns' `sessionSignals` and the end-of-session pass — a trigger named on turn two is often buried by turn six, so the final call is not the only witness
+- low-signal, safety-signal, and deterministic-fallback responses return **empty** `triggersObserved` and `patternAssessment`. A wrong trigger is worse than none: it would enter the graph and start accumulating occurrences
+- confirmed triggers are folded into the per-user **pattern graph** as ordinary `pattern` nodes with `sourceKind: "guided"` (composed into the graph's existing behaviour-tied-to-trigger phrasing, e.g. `"goes quiet after criticism at work"`, so a trigger found here merges with one mined from Ask Jade or extracted from a written entry rather than living as a third node). Ingestion is fire-and-forget after the snapshot is persisted and never blocks the response. Guided observations are weighted at `0.9` — above chat's `0.8`, below a written entry's `1.0`
+- **snapshot version 3.** Snapshots written before this change were second-person and carried no `triggersObserved`; the absence of that field marks them stale, so an old entry regenerates into the report voice the next time it is opened
 - `brainSessionMap` is required even when OpenAI is unavailable, returns malformed output, or the session is low-signal
 - clear non-AI fallback sessions may use deterministic local center scoring from the user's writing; low-signal or no-reliable-map fallback responses use Self-Reflection & Identity as dominant with non-flat low/neutral scores across the remaining centers
 - if OpenAI is unavailable, returns deterministic, non-clinical Journal.IO reflection copy
@@ -2499,11 +2614,21 @@ Behavior:
   - `ready`: the most recent closed premium week had at least 4 active journal days and has a full report
 - minimum threshold for a report is `4` active journal days inside the closed 7-day premium week
 - when OpenAI is configured, the backend uses the deterministic weekly signal as a baseline and asks OpenAI to refine the user-facing summary, pattern tags, action plan, and support guidance before caching the final response
+- **`patterns` are grounded in real trigger data, not re-invented each week.** The enhancement prompt receives two new inputs:
+  - `windowTriggers` — the trigger → response links this week's own session analyses evidenced, deduped across entries (so one trigger written two ways counts once, seen twice) with `entriesThisWeek` and lifetime `timesSeenOverall`
+  - `confirmedPatterns` — what this user's **pattern graph** has established across their whole history (every entry and Ask Jade chat, not just this window), with lifetime counts and the date span they cover. This is what finally lets the weekly read say "the fourth week running" instead of starting from zero each Monday
+  Patterns must be drawn from those two first; inventing one from `recentEntries` is the fallback for when both are empty, and then the prompt asks for fewer, softer patterns rather than forced ones.
+- each pattern carries `trigger` (what came right before the behaviour, `""` when the material never showed one) and `status` (`emerging` | `recurring` | `confirmed`). **`status` is server-authoritative**: the model proposes a grade, and any `confirmed` the pattern graph does not actually back is demoted to `recurring` before the response is cached
+- the weekly excerpt is user-authored only: entries are split with `extractJournalAuthorship` before
+  `analyzeJournalTextQuality` runs, so a guided entry's stored Journal.IO reflections never reach the
+  weekly model as the week's writing. Prompt-carryover detection still runs against the *original*
+  entry — stripping first would hide the very echo it exists to catch
+- weekly `themeBreakdown` now folds `detectedTopics` in alongside the user's own `tags`, matching what the all-time overview counts already did. Previously an AI-detected topic reached the overview tab but never the weekly breakdown, so a week of guided entries could show no themes at all
 - if OpenAI is unavailable, the endpoint still returns the deterministic weekly analysis payload
-- the AI-analysis cache key is scoped to `window start + window end + timezone + status`, so the route no longer behaves like a rolling last-7-days cache
+- the AI-analysis cache key is scoped to `window start + window end + timezone + status`, plus a payload version — bumped to `4` when triggers and pattern status were added, so every cached weekly regenerates rather than serving the older shape
 - before weekly synthesis, the backend strips prompt carryover from saved journal content and down-weights low-signal entries such as filler or obvious gibberish so those entries lower confidence and appear as a clarity signal instead of dominating the topic read
 - self-harm, suicide-risk, or harm-to-others wording is kept out of normal weekly trait/pattern scoring; the weekly payload switches to support-first summary/action copy and skips OpenAI refinement for that window
-- development early-ready reports are disabled unless `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY=true` is explicitly set outside production
+- development and production use the same four-active-day readiness rule; there is no early-ready override
 - the mobile `AI Analysis` tab renders a minimal 4-card layout from the `ready` payload: a narrative card (`summary.headline` + `summary.narrative` only — no `highlight`), a topic bar chart (`themeBreakdown.items`), a patterns card (`patterns`, capped at 3), and an actionable-steps card (`actionPlan.steps`, fixed at 2). `scoreboard`, `emotionTrend`, and `signals` are still returned (used internally and by the OpenAI enhancement prompt) but are not rendered by these cards.
 
 Collecting response:
@@ -2681,7 +2806,9 @@ Ready response:
     "patterns": [
       {
         "label": "Late-night spiral",
-        "insight": "The behaviour and the trigger/feeling it connects to, in the user's own terms.",
+        "insight": "The behaviour and the trigger it connects to, in the user's own terms.",
+        "trigger": "a deadline moving earlier",
+        "status": "recurring",
         "evidence": ["11:40pm entry", "work deadline"],
         "nudge": "One gentle, practical, non-judgmental thing to try.",
         "tone": "coral"
@@ -2892,6 +3019,12 @@ Behavior:
 - same Premium gate as the global map: `403 PREMIUM_REQUIRED`
 - returns `404` when the entry is not found for the authenticated user (ownership enforced)
 - each journal entry is scored across the 8 regions at save time: a deterministic heuristic row is written synchronously (so the map is instantly available), then a background AI pass upgrades it. This route reads the persisted score, computing + persisting a heuristic row on the fly if none exists yet.
+- **scoring and theme extraction read the user's words only.** The entry is split with
+  `extractJournalAuthorship` before it is scored, so Journal.IO's own reflections inside a guided
+  entry — and any writing prompt inserted into an open-ended one — cannot become an
+  `entry_insights` theme and from there a `pattern_nodes` row with an occurrence count. Without this
+  the app would confirm its own conclusions; Ask Jade already refuses to mine its own turns for the
+  same reason. Safety detection still scans the raw entry.
 - `ready` responses include `source` (`ai` | `heuristic`) and `refining` (`true` while still heuristic-only). The client refetches once quietly to pick up the AI upgrade.
 - safety-sensitive entries return `support_first` without ranked regions.
 
@@ -3351,7 +3484,7 @@ Field naming should remain consistent across request validators, controllers, se
 
 # 6) Insight Safety and Language Requirements
 
-Any endpoint returning AI-generated insight summaries must avoid diagnostic language and remain uncertainty-aware.
+Any endpoint returning AI-generated insight summaries may name behavioural and psychological patterns directly, but must not assert a formal medical or psychiatric diagnosis as established fact.
 Safety-sensitive content must be handled as support-first content, not normal personality or pattern analysis. The journal entry can remain saved, but analysis copy must avoid diagnostic labels, harmful instructions, or certainty.
 
 Allowed tone examples:

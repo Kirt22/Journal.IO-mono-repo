@@ -14,6 +14,8 @@ export type MindMapSceneTheme = {
   tipText: string;
 };
 
+export type MindMapPresentationMode = 'interactive' | 'share';
+
 /**
  * Self-contained HTML for the Mind Map 3D WebView renderer.
  *
@@ -29,7 +31,10 @@ export type MindMapSceneTheme = {
  *  - Scene background and pin/tip colors follow the app theme; the anatomical
  *    lobe colors stay constant because they are semantic.
  */
-export function buildMindMapHtml(theme?: MindMapSceneTheme): string {
+export function buildMindMapHtml(
+  theme?: MindMapSceneTheme,
+  presentationMode: MindMapPresentationMode = 'interactive',
+): string {
   return (
     '<!DOCTYPE html><html lang="en"><head>' +
     '<meta charset="utf-8">' +
@@ -50,6 +55,9 @@ export function buildMindMapHtml(theme?: MindMapSceneTheme): string {
     '<script>' +
     BUFFER_GEOMETRY_UTILS_SOURCE +
     '</script>' +
+    '<script>window.__MIND_MAP_PRESENTATION__="' +
+    presentationMode +
+    '";</script>' +
     '<script>' +
     SCENE_SCRIPT +
     '</script>' +
@@ -97,6 +105,13 @@ const STYLE = [
   'border-radius:999px;border:2px solid var(--strong);animation:pinpulse 2s ease-out infinite;pointer-events:none}',
   '.pin.sel{transform:translate(-50%,-50%) scale(1.16);box-shadow:0 3px 12px rgba(40,20,10,.5),0 0 0 2.5px #fff;z-index:2}',
   '.pin.active{transform:translate(-50%,-50%) scale(1.16);box-shadow:0 3px 12px rgba(40,20,10,.5),0 0 0 2.5px #fff;z-index:2}',
+  '.share-mode .pin{pointer-events:none}',
+  // A still frame cannot show a pulse, so the share highlight is a static halo
+  // instead of the animated ring the interactive scene uses.
+  '.share-mode .pin.strong::after{content:"";position:absolute;left:50%;top:50%;width:52px;height:52px;',
+  'margin:-26px 0 0 -26px;border-radius:999px;border:none;animation:none;opacity:1;',
+  'background:radial-gradient(circle,var(--strong) 0%,rgba(0,0,0,0) 68%);opacity:.42;z-index:-1}',
+  '.share-mode .tip{display:none}',
   '@keyframes pinpulse{0%{transform:scale(.75);opacity:.65}100%{transform:scale(1.9);opacity:0}}',
   // Loading overlay — a calm pulsing orb that paints before the heavy brain build
   // blocks the thread, then fades out once the first frame renders.
@@ -129,6 +144,8 @@ const SCENE_SCRIPT = [
   "var tip = document.getElementById('tip');",
   "var pinsEl = document.getElementById('pins');",
   "var loaderEl = document.getElementById('loader');",
+  "var shareMode = window.__MIND_MAP_PRESENTATION__ === 'share';",
+  "if(shareMode){ document.body.classList.add('share-mode'); }",
   "var loaderHidden = false;",
   "function hideLoader(){ if(loaderHidden) return; loaderHidden = true; if(loaderEl){ loaderEl.classList.add('hide'); setTimeout(function(){ if(loaderEl && loaderEl.parentNode){ loaderEl.parentNode.removeChild(loaderEl); } }, 650); } }",
 
@@ -272,7 +289,7 @@ const SCENE_SCRIPT = [
 
   // ---- scene / renderer ----
   "var scene = new THREE.Scene();",
-  "var renderer = new THREE.WebGLRenderer({ canvas:canvas, antialias:true, alpha:true });",
+  "var renderer = new THREE.WebGLRenderer({ canvas:canvas, antialias:true, alpha:true, preserveDrawingBuffer:shareMode });",
   "renderer.setClearColor(0x000000, 0);",
   "if(THREE.SRGBColorSpace){ renderer.outputColorSpace = THREE.SRGBColorSpace; } else { renderer.outputEncoding = THREE.sRGBEncoding; }",
   "scene.add(group);",
@@ -295,16 +312,17 @@ const SCENE_SCRIPT = [
   "controls.autoRotate = true;",
   "controls.autoRotateSpeed = 0.7;",
   "controls.target.set(0, -0.05, 0);",
+  "controls.enabled = !shareMode;",
 
   "var reduceMotion = false;",
   "var idleTimer;",
-  "function pauseSpin(){ controls.autoRotate = false; clearTimeout(idleTimer); idleTimer = setTimeout(function(){ controls.autoRotate = !reduceMotion; }, 3500); }",
+  "function pauseSpin(){ if(shareMode) return; controls.autoRotate = false; clearTimeout(idleTimer); idleTimer = setTimeout(function(){ controls.autoRotate = !reduceMotion; }, 3500); }",
   "controls.addEventListener('start', pauseSpin);",
 
   // ---- resize ----
   "function resize(){",
   "  var w = canvas.clientWidth||1, h = canvas.clientHeight||1;",
-  "  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));",
+  "  renderer.setPixelRatio(Math.min(shareMode?3:2, window.devicePixelRatio||1));",
   "  renderer.setSize(w, h, false);",
   "  camera.aspect = w/h; camera.updateProjectionMatrix();",
   "}",
@@ -333,6 +351,138 @@ const SCENE_SCRIPT = [
   "}",
   "function applySelected(){",
   "  pinEls.forEach(function(p){ p.el.classList.toggle('sel', p.region.id===selectedId); });",
+  "}",
+  // Aim the camera at the highlighted region, but frame the whole brain. Looking
+  // straight down the region's surface normal crops the model and reads as an
+  // anonymous blob, so the direction is blended toward the canonical 3/4 START
+  // angle and the distance comes from the scene's own bounding sphere — the full
+  // brain then fits at any FOV instead of at one hand-tuned number.
+  "var SHARE_TARGET = new THREE.Vector3(0,-0.05,0);",
+  // Fit the camera to the real geometry, per axis.
+  //
+  // A Box3 bounding sphere circumscribes the axis-aligned *box*, not the object:
+  // for this brain that is radius 2.52 against a true 1.79, so the camera sat
+  // ~1.4x too far before the sphere-vs-ellipsoid waste on top of it, and the
+  // brain filled barely half the frame. Instead, project sampled vertices onto
+  // the camera basis and solve for the nearest distance that still contains
+  // every one of them.
+  //
+  // With the camera at `target + dir*D`, forward f = -dir, and w = vertex - target,
+  // a point is inside the frustum when |w.r| <= (D - w.dir)*tan(hHalf) and
+  // |w.u| <= (D - w.dir)*tan(vHalf) — so D = max over vertices of those bounds.
+  "var _fitV=new THREE.Vector3(), _fitW=new THREE.Vector3();",
+  "var _fitF=new THREE.Vector3(), _fitR=new THREE.Vector3(), _fitU=new THREE.Vector3();",
+  "var _fitUp=new THREE.Vector3(0,1,0);",
+  "function shareCameraDistance(direction, margin){",
+  "  var vHalf=(camera.fov*Math.PI/180)/2;",
+  "  var hHalf=Math.atan(Math.tan(vHalf)*(camera.aspect||1));",
+  "  var tanV=Math.max(0.02,Math.tan(vHalf)), tanH=Math.max(0.02,Math.tan(hHalf));",
+  "  _fitF.copy(direction).negate();",
+  "  _fitR.crossVectors(_fitF,_fitUp);",
+  "  if(_fitR.lengthSq()<1e-6){ _fitR.set(1,0,0); }",
+  "  _fitR.normalize();",
+  "  _fitU.crossVectors(_fitR,_fitF).normalize();",
+  "  group.updateWorldMatrix(true,true);",
+  "  var need=0, seen=0;",
+  "  group.traverse(function(o){",
+  "    if(!o.isMesh || !o.geometry || !o.geometry.attributes) return;",
+  "    var pa=o.geometry.attributes.position;",
+  "    if(!pa || !pa.count) return;",
+  // ~40k vertices per mesh is far more than a hull needs; stride it so the fit
+  // stays inside the capture's frame budget.
+  "    var step=Math.max(1, Math.floor(pa.count/1500));",
+  "    for(var i=0;i<pa.count;i+=step){",
+  "      _fitV.fromBufferAttribute(pa,i).applyMatrix4(o.matrixWorld);",
+  "      _fitW.subVectors(_fitV,SHARE_TARGET);",
+  "      var c=_fitW.dot(direction);",
+  "      var a=Math.abs(_fitW.dot(_fitR))/tanH + c;",
+  "      var b=Math.abs(_fitW.dot(_fitU))/tanV + c;",
+  "      var d=a>b?a:b;",
+  "      if(d>need) need=d;",
+  "      seen++;",
+  "    }",
+  "  });",
+  "  if(!seen || !(need>0)) return 4.2;",
+  "  return need*(margin||1.04);",
+  "}",
+  "function focusSelected(){",
+  "  if(!shareMode || !selectedId) return;",
+  "  var a=COORDS[selectedId] || [0,0,1];",
+  "  var surface=new THREE.Vector3(a[0],a[1],a[2]).normalize();",
+  "  surface.x*=0.82; surface.y*=0.80; surface.z*=1.20; surface.multiplyScalar(1.05);",
+  "  brain.localToWorld(surface);",
+  "  var direction=surface.clone().normalize();",
+  "  var anchor=START.clone().normalize();",
+  "  direction.multiplyScalar(0.55).addScaledVector(anchor,0.45);",
+  "  if(direction.lengthSq()<0.0001){ direction.copy(anchor); }",
+  "  direction.normalize();",
+  // Deliberately not controls.update(): OrbitControls clamps to maxDistance 5.6
+  // and would pull the camera back in, re-cropping the brain.
+  "  var dist=shareCameraDistance(direction,1.04);",
+  "  camera.position.copy(direction).multiplyScalar(dist).add(SHARE_TARGET);",
+  "  camera.up.set(0,1,0);",
+  "  camera.lookAt(SHARE_TARGET);",
+  "  camera.updateMatrixWorld();",
+  "}",
+  // The numbered pins are DOM overlays, so toDataURL never contains them. Project
+  // the selected one with the same math updatePins() uses and hand the card
+  // normalized coordinates so it can draw the marker over the image itself.
+  "function projectSelectedPin(){",
+  "  for(var i=0;i<pinEls.length;i++){",
+  "    var p=pinEls[i];",
+  "    if(p.region.id!==selectedId) continue;",
+  "    brain.updateWorldMatrix(true,false);",
+  "    _bc.setFromMatrixPosition(brain.matrixWorld);",
+  "    _camL.copy(camera.position); brain.worldToLocal(_camL);",
+  "    var sx=_camL.x>=0?1:-1;",
+  "    _w.copy(p.base); _w.x=Math.abs(_w.x)*sx; _w.applyMatrix4(brain.matrixWorld);",
+  "    var nx=_w.x-_bc.x, ny=_w.y-_bc.y, nz=_w.z-_bc.z, nl=Math.hypot(nx,ny,nz)||1;",
+  "    var cx=camera.position.x-_w.x, cy=camera.position.y-_w.y, cz=camera.position.z-_w.z, cl=Math.hypot(cx,cy,cz)||1;",
+  "    var facing=(nx*cx+ny*cy+nz*cz)/(nl*cl);",
+  "    var proj=_w.clone().project(camera);",
+  "    return { x:proj.x*0.5+0.5, y:-proj.y*0.5+0.5, rank:p.region.rank, visible:(facing>0.14 && proj.z<1) };",
+  "  }",
+  "  return null;",
+  "}",
+  "function postContentReady(){",
+  "  requestAnimationFrame(function(){ requestAnimationFrame(function(){",
+  "    renderer.render(scene,camera); updatePins();",
+  "    post({ type:'contentReady' });",
+  "  }); });",
+  "}",
+  // Snapshot for the shareable card. The canvas is sized by layout, and on a card
+  // that has not settled yet `clientWidth` can still be 0 — which used to yield a
+  // 1px-wide PNG. Render into an explicit frame at the card's own aspect ratio
+  // instead, so the capture never depends on layout and drops into its slot
+  // without letterboxing, then restore whatever the live canvas was using.
+  "function captureShare(opts){",
+  "  if(!shareMode){ post({ type:'error', message:'Snapshots need share mode.' }); return; }",
+  "  var w=Math.round((opts && opts.width) || 900);",
+  "  var h=Math.round((opts && opts.height) || 900);",
+  "  if(!(w>0)) w=900; if(!(h>0)) h=900;",
+  "  var dpr=(opts && opts.dpr) || 1;",
+  "  var prevW=canvas.clientWidth||1, prevH=canvas.clientHeight||1;",
+  "  var prevRatio=renderer.getPixelRatio();",
+  "  try {",
+  "    renderer.setPixelRatio(dpr);",
+  "    renderer.setSize(w, h, false);",
+  "    camera.aspect=w/h; camera.updateProjectionMatrix();",
+  "    focusSelected();",
+  "    renderer.render(scene,camera);",
+  "    renderer.render(scene,camera);",
+  "    if(canvas.width<200 || canvas.height<200){",
+  "      post({ type:'error', message:'The Mind Map snapshot came back empty.' });",
+  "    } else {",
+  "      post({ type:'shareSnapshot', snapshot:canvas.toDataURL('image/png'), pin:projectSelectedPin() });",
+  "    }",
+  "  } catch(e){ post({ type:'error', message:String(e) }); }",
+  "  finally {",
+  "    renderer.setPixelRatio(prevRatio);",
+  "    renderer.setSize(prevW, prevH, false);",
+  "    camera.aspect=prevW/prevH; camera.updateProjectionMatrix();",
+  "    controls.target.copy(SHARE_TARGET); controls.update();",
+  "    renderer.render(scene,camera); updatePins();",
+  "  }",
   "}",
   "function selectPin(r){",
   "  selectedId = r.id;",
@@ -384,20 +534,24 @@ const SCENE_SCRIPT = [
   "      setVar('--tip-bg', th.tipBg); setVar('--tip-text', th.tipText); setVar('--legend-text', th.legendText);",
   "    }",
   "    reduceMotion = !!(payload && payload.reduceMotion);",
-  "    controls.autoRotate = !reduceMotion;",
+  "    controls.autoRotate = !shareMode && !reduceMotion;",
   "    if(payload && typeof payload.selectedId !== 'undefined'){ selectedId = payload.selectedId; }",
   "    if(payload && payload.regions){",
   "      REGIONS = payload.regions.map(function(r,idx){",
   "        return { id:r.id, label:r.label, subtitle:r.subtitle, signalScore:(typeof r.signalScore==='number'?r.signalScore:0), rank:(r.rank||idx+1), isStrongest:!!r.isStrongest };",
   "      });",
+  "      if(shareMode && selectedId){ REGIONS=REGIONS.filter(function(r){ return r.id===selectedId; }); }",
   "      rebuildPins();",
   "    } else { applySelected(); }",
+  "    focusSelected();",
   "    hideLoader();",
+  "    postContentReady();",
   "  } catch(e){ post({ type:'error', message:String(e) }); }",
   "};",
   "window.__recenter = function(){",
-  "  camera.position.copy(START); controls.target.set(0,-0.05,0); controls.autoRotate = !reduceMotion; controls.update();",
+  "  camera.position.copy(START); controls.target.set(0,-0.05,0); controls.autoRotate = !shareMode && !reduceMotion; controls.update();",
   "};",
+  "window.__captureShare = function(opts){ captureShare(opts); };",
   // First frame has rendered the brain: signal RN (which then injects data) and
   // fade the loader; the timeout is a fallback in case no data ever arrives.
   "requestAnimationFrame(function(){ requestAnimationFrame(function(){ hideLoader(); post({ type:'ready' }); }); });",

@@ -6,6 +6,7 @@ import {
   reportBackendUnavailable,
 } from '../services/connectivityService';
 import devLaunchConfig from './devLaunchConfig.json';
+import { createRequestAbortController } from './requestAbortController';
 import {
   clearTokens,
   getAccessToken,
@@ -16,6 +17,21 @@ import {
 type DevLaunchConfig = {
   apiBaseUrl?: string | null;
 };
+
+/**
+ * Every request needs a deadline. `fetch` has none of its own, and a half-open
+ * socket — a backend that moved, a laptop that changed networks, a dev server
+ * that died mid-request — leaves the promise pending forever. On boot that is
+ * fatal rather than slow: `bootstrapAuthGate` awaits `getProfile()`, so a hung
+ * request means `hasBootstrappedAuthGate` never flips, the navigator never
+ * mounts, and the retry is deduped against a promise that will never settle.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+/**
+ * The model-backed routes genuinely take much longer than a normal call, so
+ * they raise the deadline rather than the default being loosened for everyone.
+ */
+const AI_REQUEST_TIMEOUT_MS = 120000;
 
 let hasLoggedBaseUrlResolution = false;
 let refreshAccessTokenPromise: Promise<string | null> | null = null;
@@ -151,6 +167,30 @@ const invalidateLocalSession = async () => {
   await notifySessionInvalidated().catch(() => undefined);
 };
 
+/**
+ * `fetch` plus a deadline. Aborting surfaces as the same network-shaped
+ * `ApiError` a dropped connection produces, so every existing caller — the
+ * offline fallback in `bootstrapAuthGate`, the connectivity boundary, the
+ * screens' retry states — already handles it.
+ */
+const fetchWithTimeout = async (
+  requestUrl: string,
+  options: RequestInit,
+  timeoutMs: number,
+) => {
+  const controller = createRequestAbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(requestUrl, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const refreshAccessToken = async (): Promise<string | null> => {
   if (refreshAccessTokenPromise) {
     return refreshAccessTokenPromise;
@@ -167,15 +207,19 @@ const refreshAccessToken = async (): Promise<string | null> => {
     const requestUrl = `${getBaseUrl()}/auth/refresh`;
 
     try {
-      const response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetchWithTimeout(
+        requestUrl,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            refreshToken: tokens.refreshToken,
+          }),
         },
-        body: JSON.stringify({
-          refreshToken: tokens.refreshToken,
-        }),
-      });
+        DEFAULT_REQUEST_TIMEOUT_MS,
+      );
 
       let payload: ApiResponse<{ accessToken: string }> | null = null;
 
@@ -229,7 +273,22 @@ type ApiErrorOptions = {
 
 type RequestBehaviorOptions = {
   showNetworkAlert?: boolean;
+  /** Overrides `DEFAULT_REQUEST_TIMEOUT_MS`. See `AI_REQUEST_TIMEOUT_MS`. */
+  timeoutMs?: number;
 };
+
+type RequestAdapterInput = {
+  path: string;
+  method: string;
+  options: RequestInit;
+  behavior: RequestBehaviorOptions;
+};
+
+type RequestAdapter = <T>(
+  input: RequestAdapterInput,
+) => Promise<ApiResponse<T> | null>;
+
+let requestAdapter: RequestAdapter | null = null;
 
 class ApiError extends Error {
   status?: number;
@@ -308,6 +367,20 @@ const requestWithRetry = async <T>(
   allowAuthRetry: boolean,
 ): Promise<ApiResponse<T>> => {
   const method = (options.method || 'GET').toUpperCase();
+
+  if (requestAdapter) {
+    const adapted = await requestAdapter<T>({
+      path,
+      method,
+      options,
+      behavior: _behavior,
+    });
+
+    if (adapted) {
+      return adapted;
+    }
+  }
+
   if (
     getConnectivitySnapshot().status === 'offline' &&
     method !== 'GET' &&
@@ -350,23 +423,35 @@ const requestWithRetry = async <T>(
 
   let response: Response;
 
+  const timeoutMs = _behavior.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+
   try {
-    response = await fetch(requestUrl, {
-      ...options,
-      headers,
-    });
+    response = await fetchWithTimeout(
+      requestUrl,
+      {
+        ...options,
+        headers,
+      },
+      timeoutMs,
+    );
   } catch (error) {
     reportBackendUnavailable();
+
+    const timedOut = error instanceof Error && error.name === 'AbortError';
 
     logApiClientDev('request network error', {
       requestUrl,
       method: options.method || 'GET',
+      timedOut,
+      timeoutMs,
       message:
         error instanceof Error ? error.message : 'Network request failed',
     });
 
     throw new ApiError(
-      "We're having trouble connecting right now. Please check your internet connection and try again.",
+      timedOut
+        ? "That took longer than expected. Please check your connection and try again."
+        : "We're having trouble connecting right now. Please check your internet connection and try again.",
       {
         isNetworkError: true,
         cause: error,
@@ -463,11 +548,22 @@ const registerSessionInvalidationHandler = (
   sessionInvalidationHandler = handler;
 };
 
+const registerRequestAdapter = (adapter: RequestAdapter | null) => {
+  requestAdapter = adapter;
+};
+
 export {
+  AI_REQUEST_TIMEOUT_MS,
   ApiError,
   getBackendReadinessUrl,
   getResolvedApiBaseUrl,
+  registerRequestAdapter,
   registerSessionInvalidationHandler,
   request,
 };
-export type { ApiResponse, RequestBehaviorOptions };
+export type {
+  ApiResponse,
+  RequestAdapter,
+  RequestAdapterInput,
+  RequestBehaviorOptions,
+};

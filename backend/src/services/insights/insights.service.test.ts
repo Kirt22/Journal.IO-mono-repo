@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { insightsModel } from "../../schema/insights.schema";
 import { journalModel } from "../../schema/journal.schema";
 import { mindMapEntryScoreModel } from "../../schema/mindMapEntryScore.schema";
 import { moodCheckInModel } from "../../schema/mood.schema";
 import { userModel } from "../../schema/user.schema";
 import {
+  aiAnalysisEnhancementSchema,
   getInsightsOverview,
   getInsightsAiAnalysis,
   getInsightsMindMap,
+  buildWindowTriggers,
   mergeAiAnalysisEnhancement,
+  MIND_MAP_REGION_COPY_DIRECTIVES,
   PremiumFeatureRequiredError,
 } from "./insights.service";
 
@@ -79,10 +84,6 @@ const originalFindOne = insightsTarget.findOne;
 const originalJournalFind = journalTarget.find;
 const originalMoodFind = moodTarget.find;
 const originalNodeEnv = process.env.NODE_ENV;
-const originalAiInsightsDevEarlyReady =
-  process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY;
-const originalAiInsightsExperimentalEarlyReady =
-  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
 const VERIFIED_PREMIUM_ACCESS = {
   isPremium: true,
   premiumPlanKey: "yearly",
@@ -100,18 +101,6 @@ afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
   } else {
     delete process.env.NODE_ENV;
-  }
-  if (typeof originalAiInsightsDevEarlyReady === "string") {
-    process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY =
-      originalAiInsightsDevEarlyReady;
-  } else {
-    delete process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY;
-  }
-  if (typeof originalAiInsightsExperimentalEarlyReady === "string") {
-    process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY =
-      originalAiInsightsExperimentalEarlyReady;
-  } else {
-    delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
   }
 });
 
@@ -250,9 +239,8 @@ test("getInsightsAiAnalysis returns a collecting payload during the first premiu
   assert.equal(analysis.quickAnalysis.available, true);
 });
 
-test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 active days", async () => {
+test("getInsightsAiAnalysis keeps the current week collecting before 4 active days in development", async () => {
   process.env.NODE_ENV = "development";
-  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY = "true";
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -328,23 +316,19 @@ test("getInsightsAiAnalysis can return a dev-preview ready payload before 4 acti
     today: new Date("2026-04-14T10:00:00.000Z"),
   });
 
-  assert.equal(analysis.status, "ready");
+  assert.equal(analysis.status, "collecting");
 
-  if (analysis.status !== "ready") {
-    throw new Error("Expected ready AI analysis payload.");
+  if (analysis.status !== "collecting") {
+    throw new Error("Expected collecting AI analysis payload.");
   }
 
   assert.equal(analysis.window.startDate, "2026-04-11");
-  assert.equal(analysis.window.activeDays, 2);
-  assert.equal(analysis.freshness.confidence, "low");
-  assert.equal(analysis.freshness.confidenceLabel, "Dev preview");
-  assert.match(analysis.freshness.note, /Development override/i);
+  assert.equal(analysis.progress.activeDays, 2);
+  assert.equal(analysis.progress.entriesNeeded, 2);
 });
 
-test("getInsightsAiAnalysis ignores the old dev-preview flag in release-safe mode", async () => {
+test("getInsightsAiAnalysis keeps normal readiness rules without an override", async () => {
   process.env.NODE_ENV = "development";
-  process.env.AI_INSIGHTS_DEV_ALLOW_EARLY_READY = "true";
-  delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -425,7 +409,6 @@ test("getInsightsAiAnalysis ignores the old dev-preview flag in release-safe mod
 
 test("getInsightsAiAnalysis recomputes cached dev-preview reports in release mode", async () => {
   process.env.NODE_ENV = "development";
-  delete process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY;
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -523,7 +506,6 @@ test("getInsightsAiAnalysis recomputes cached dev-preview reports in release mod
 
 test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly analysis", async () => {
   process.env.NODE_ENV = "development";
-  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY = "true";
 
   userTarget.findById = (_userId: string) => ({
     select: () => ({
@@ -541,12 +523,14 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
 
   insightsTarget.findOne = () => ({
     exec: async () => ({
-      totalEntries: 2,
-      totalWords: 180,
+      totalEntries: 4,
+      totalWords: 280,
       totalFavorites: 0,
       dailyJournalCounts: new Map([
         ["2026-04-12", 1],
         ["2026-04-13", 1],
+        ["2026-04-14", 1],
+        ["2026-04-11", 1],
       ]),
       tagCounts: new Map(),
       moodCounts: new Map(),
@@ -580,6 +564,20 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
                 isFavorite: false,
                 createdAt: new Date("2026-04-13T12:00:00.000Z"),
               },
+              {
+                content: "I made room for a quiet lunch and returned to work with more focus.",
+                aiPrompt: null,
+                tags: ["rest", "work"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-14T12:00:00.000Z"),
+              },
+              {
+                content: "A short evening walk helped me leave the unfinished tasks for tomorrow.",
+                aiPrompt: null,
+                tags: ["rest", "boundaries"],
+                isFavorite: false,
+                createdAt: new Date("2026-04-11T12:00:00.000Z"),
+              },
             ],
           }),
         }),
@@ -598,7 +596,7 @@ test("getInsightsAiAnalysis down-weights prompt-led low-signal entries in weekly
 
   const analysis = await getInsightsAiAnalysis("user-123", {
     timeZone: "Asia/Kolkata",
-    today: new Date("2026-04-14T10:00:00.000Z"),
+    today: new Date("2026-04-18T10:00:00.000Z"),
   });
 
   assert.equal(analysis.status, "ready");
@@ -1296,6 +1294,8 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
         insight: "Base pattern insight",
         evidence: ["Base evidence"],
         nudge: "Base nudge",
+        trigger: "",
+        status: "emerging" as const,
         tone: "coral" as const,
       },
     ],
@@ -1344,6 +1344,8 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
       {
         label: "AI pattern",
         insight: "AI pattern insight",
+        trigger: "a moved deadline",
+        status: "emerging" as const,
         evidence: ["AI evidence"],
         nudge: "AI nudge",
         tone: "blue" as const,
@@ -1356,4 +1358,313 @@ test("mergeAiAnalysisEnhancement only replaces the user-facing narrative section
   assert.equal(merged.actionPlan.headline, "AI action headline");
   assert.equal(merged.patterns[0]?.label, "AI pattern");
   assert.equal(merged.patterns[0]?.insight, "AI pattern insight");
+});
+
+// --- Weekly analysis grounded in triggers ---------------------------------
+
+const makeTriggerEntry = (
+  trigger: string,
+  emotionalResponse: string,
+  occurrences = 1
+) => ({
+  content: "",
+  tags: [],
+  detectedTopics: [],
+  appAuthoredSegments: [],
+  isFavorite: false,
+  createdAt: new Date("2026-08-10T00:00:00.000Z"),
+  triggersObserved: [
+    {
+      trigger,
+      emotionalResponse,
+      evidenceQuote: "",
+      confidence: 0.7,
+      status: "emerging" as const,
+      occurrences,
+    },
+  ],
+});
+
+test("buildWindowTriggers counts one trigger written two ways as one", () => {
+  const triggers = buildWindowTriggers([
+    makeTriggerEntry("my manager messaging me", "goes quiet"),
+    makeTriggerEntry("messages from the manager", "going quiet"),
+  ]);
+
+  assert.equal(triggers.length, 1, "re-wordings must not split the week's count");
+  assert.equal(triggers[0]?.entriesThisWeek, 2);
+});
+
+test("buildWindowTriggers keeps genuinely different triggers apart", () => {
+  const triggers = buildWindowTriggers([
+    makeTriggerEntry("criticism at work", "goes quiet"),
+    makeTriggerEntry("a late night scroll", "loses sleep"),
+  ]);
+
+  assert.equal(triggers.length, 2);
+});
+
+test("buildWindowTriggers reports lifetime counts without summing them", () => {
+  // Lifetime occurrences come from the graph. Adding them per entry would
+  // inflate "seen 3 times" into "seen 6 times" the moment a trigger appeared
+  // twice in one week — a count the user would act on.
+  const triggers = buildWindowTriggers([
+    makeTriggerEntry("criticism at work", "goes quiet", 3),
+    makeTriggerEntry("criticism at work", "goes quiet", 3),
+  ]);
+
+  assert.equal(triggers[0]?.entriesThisWeek, 2);
+  assert.equal(triggers[0]?.timesSeenOverall, 3);
+});
+
+test("buildWindowTriggers ignores entries with no session analysis", () => {
+  const triggers = buildWindowTriggers([
+    {
+      content: "A plain entry with no analysis snapshot yet.",
+      tags: [],
+      detectedTopics: [],
+      appAuthoredSegments: [],
+      isFavorite: false,
+      createdAt: new Date("2026-08-10T00:00:00.000Z"),
+      triggersObserved: [],
+    },
+  ]);
+
+  assert.deepEqual(triggers, []);
+});
+
+test("a 'confirmed' status the graph does not back is demoted to recurring", () => {
+  const base = {
+    status: "ready" as const,
+    window: {
+      startDate: "2026-08-03",
+      endDate: "2026-08-09",
+      label: "Aug 3-9",
+      entryCount: 5,
+      activeDays: 5,
+      totalWords: 400,
+      minimumActiveDays: 4,
+    },
+    freshness: {
+      generatedAt: new Date().toISOString(),
+      confidence: "high" as const,
+      confidenceLabel: "High",
+      note: "",
+    },
+    summary: { headline: "H", narrative: "N" },
+    patternTags: [{ label: "T", tone: "blue" as const }],
+    scoreboard: { vibeLabel: "V", vibeTone: "blue" as const, cards: [] },
+    emotionTrend: { headline: "E", days: [] },
+    themeBreakdown: { headline: "T", items: [] },
+    signals: { whatHelped: [], whatDrained: [], whatKeptShowingUp: [] },
+    patterns: [],
+    actionPlan: { headline: "A", steps: [] },
+    appSupport: { headline: "S", items: [] },
+  } as unknown as Parameters<typeof mergeAiAnalysisEnhancement>[0];
+
+  const enhancement = {
+    summary: { headline: "H", narrative: "N" },
+    patternTags: [{ label: "T", tone: "blue" as const }],
+    actionPlan: {
+      headline: "A",
+      steps: [
+        { title: "1", description: "d", focus: "f" },
+        { title: "2", description: "d", focus: "f" },
+      ],
+    },
+    appSupport: {
+      headline: "S",
+      items: [
+        { title: "1", description: "d" },
+        { title: "2", description: "d" },
+        { title: "3", description: "d" },
+      ],
+    },
+    patterns: [
+      {
+        label: "goes quiet after criticism",
+        insight: "i",
+        trigger: "criticism",
+        status: "confirmed" as const,
+        evidence: ["e"],
+        nudge: "n",
+        tone: "blue" as const,
+      },
+      {
+        label: "scrolls before bed",
+        insight: "i",
+        trigger: "a late message",
+        status: "confirmed" as const,
+        evidence: ["e"],
+        nudge: "n",
+        tone: "sage" as const,
+      },
+    ],
+  } as Parameters<typeof mergeAiAnalysisEnhancement>[1];
+
+  const merged = mergeAiAnalysisEnhancement(
+    base,
+    enhancement,
+    new Set(["goes quiet after criticism"])
+  );
+
+  assert.equal(merged.patterns[0]?.status, "confirmed", "the graph backs this one");
+  assert.equal(
+    merged.patterns[1]?.status,
+    "recurring",
+    "an unbacked 'confirmed' must never reach the user as established"
+  );
+  assert.equal(merged.patterns[0]?.trigger, "criticism");
+});
+
+
+test("Mind Map region copy is instructed to be personal, not templated", () => {
+  const prompt = MIND_MAP_REGION_COPY_DIRECTIVES.join(" ");
+
+  // The whole point of the field: it replaced a per-region sentence that read
+  // identically for every user. Pin the rules that stop it drifting back.
+  assert.match(prompt, /Never write the generic version/i);
+  assert.match(prompt, /paste your sentence into a stranger's Mind Map/i);
+  assert.match(prompt, /explain the link, and the link is the whole point/i);
+
+  // Bluntness only stays honest while invention stays banned.
+  assert.match(prompt, /Never invent an event, a person, or a failing/i);
+  assert.match(prompt, /do not label them with a condition or assert a formal diagnosis as fact/i);
+
+  // The app prints the trend sentence itself; the model must not duplicate it.
+  assert.match(prompt, /never restate the trend on its own/i);
+
+  // The length ceiling is a layout constraint on the Mind Map screen.
+  assert.match(prompt, /at most 260 characters/i);
+});
+
+test("Mind Map region copy is instructed in plain language, not clinician voice", () => {
+  const prompt = MIND_MAP_REGION_COPY_DIRECTIVES.join(" ");
+
+  // This screen deliberately does NOT share the reflection-companion register
+  // that Jade and guided reflection use. It explains a person's own data back
+  // to them, so it reads like a friend rather than a report.
+  assert.match(prompt, /Talk like a friend/i);
+  assert.match(prompt, /Not a therapist, not a report, not a coach/i);
+  assert.match(prompt, /Everyday words, second person, contractions/i);
+
+  // The jargon ban is the load-bearing half — assert the actual banned terms so
+  // a future edit cannot soften it back into clinical vocabulary.
+  for (const term of [
+    "recurring pattern",
+    "emotional regulation",
+    "avoidance behaviour",
+    "attachment",
+    "markers",
+  ]) {
+    assert.ok(
+      prompt.includes(term),
+      `the banned-jargon list must still name "${term}"`
+    );
+  }
+  assert.match(prompt, /No jargon/i);
+
+  // Brain-region names are allowed only when explained in the same breath.
+  assert.match(prompt, /only if you explain it in the same breath/i);
+
+  // Warm, but explicitly not cushioned — the register change must not undo the
+  // directness won in the earlier rounds.
+  assert.match(prompt, /warm but do not cushion/i);
+  assert.match(prompt, /no lecture, no shame, no cheerleading/i);
+});
+
+test("the tone steer cannot re-soften the Mind Map register", () => {
+  // A `gentle` onboarding tone injects "soften confrontation". When that sat
+  // after these directives it silently undid the plain register for exactly the
+  // users who chose it, so ordering is the fix and ordering is invisible at a
+  // glance — pin it.
+  // Read the TS source, not the compiled output: tests run from dist/, and the
+  // ordering being asserted is a property of the source we maintain.
+  const source = readFileSync(
+    join(process.cwd(), "src/services/insights/insights.service.ts"),
+    "utf8"
+  );
+  const directiveIndex = source.lastIndexOf("...MIND_MAP_REGION_COPY_DIRECTIVES,");
+  const personalizationIndex = source.lastIndexOf(
+    "personalization?.systemDirective,",
+    directiveIndex
+  );
+
+  assert.ok(directiveIndex > 0, "the directive spread must still be present");
+  assert.ok(
+    personalizationIndex > 0 && personalizationIndex < directiveIndex,
+    "personalization?.systemDirective must come BEFORE the Mind Map directives"
+  );
+});
+
+// The Patterns card renders `label` as the row title verbatim. A hard
+// `maxLength` at the display bound made the decoder stop mid-word, so the row
+// shipped reading "what he won't say outl".
+test("an overlong pattern label is trimmed at a word boundary, not severed", () => {
+  const buildEnhancement = (label: string) => ({
+    summary: { headline: "A steady week", narrative: "You kept writing." },
+    patternTags: [{ label: "Work pacing", tone: "amber" }],
+    actionPlan: {
+      headline: "Two things this week",
+      steps: [
+        { title: "Name the trigger", description: "Write it down.", focus: "Trigger" },
+        { title: "Pause once", description: "Wait five minutes.", focus: "Pause" },
+      ],
+    },
+    appSupport: {
+      headline: "How the app helps",
+      items: [
+        { title: "Write daily", description: "Short entries are enough." },
+        { title: "Check the map", description: "See where entries land." },
+        { title: "Ask Jade", description: "Question your own writing." },
+      ],
+    },
+    patterns: [
+      {
+        label,
+        insight: "You move to the gym instead of staying with the feeling.",
+        trigger: "Feeling off",
+        status: "emerging",
+        evidence: ["went to the gym"],
+        nudge: "Name the feeling before you change the activity.",
+        tone: "coral",
+      },
+    ],
+  });
+
+  const overlong =
+    "You use the gym to regulate what you will not say out loud to anyone";
+  const parsed = aiAnalysisEnhancementSchema.parse(buildEnhancement(overlong));
+  const label = parsed.patterns[0]?.label ?? "";
+
+  assert.ok(label.length <= 48, `label was ${label.length} characters`);
+  assert.ok(label.endsWith("\u2026"), "an actually-trimmed label marks the trim");
+  // The kept portion must be whole words from the original, never a word cut
+  // in half: every word before the ellipsis has to appear in the source.
+  const kept = label.slice(0, -1).trimEnd();
+  assert.ok(overlong.startsWith(kept), `"${kept}" is not a whole-word prefix`);
+  assert.ok(/\s/.test(kept) && !kept.endsWith(" "), "trimmed at a word boundary");
+
+  // A label that already fits is passed through untouched — no stray ellipsis.
+  const short = "You check for connection, then pull back";
+  assert.equal(
+    aiAnalysisEnhancementSchema.parse(buildEnhancement(short)).patterns[0]?.label,
+    short,
+  );
+});
+
+test("weekly analysis is instructed to address the user in the second person", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/services/insights/insights.service.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /Address the user directly, in the second person/);
+  assert.match(
+    source,
+    /Third-person pronouns are only ever for other people the user wrote about/,
+  );
+  // The old instruction told the model its output would be cut mid-word. It no
+  // longer is, and leaving that in teaches the model to expect the wrong thing.
+  assert.doesNotMatch(source, /a field that runs over is cut off mid-word/);
 });

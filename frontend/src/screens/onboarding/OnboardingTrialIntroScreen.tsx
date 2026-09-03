@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { getCachedFreeTrialDays } from '../../services/revenueCatService';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   onContinue: () => void;
@@ -175,6 +176,7 @@ const styles = StyleSheet.create({
     width: 30,
   },
   offer: {
+    fontFamily: fontFamilies.ui.bold,
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: -0.2,
@@ -192,6 +194,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 26,
     fontWeight: '700',
     letterSpacing: -0.5,

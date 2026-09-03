@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 import { userModel } from "../../schema/user.schema";
 import { clearUserPersonalizationCache } from "../../helpers/userPersonalization.helpers";
+import { isThirdPersonVoice } from "../../helpers/emotionalTrigger.helpers";
 import {
   type BrainSessionMap,
   createFirstReflectionSummary,
@@ -24,18 +25,26 @@ const userTarget = userModel as unknown as {
 
 const originalFindById = userTarget.findById;
 const originalApiKey = process.env.OPENAI_API_KEY;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalPremiumAccessOverride =
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE;
 const originalFetch = globalThis.fetch;
 
 const getWordCount = (value: string) =>
   value.trim().split(/\s+/).filter(Boolean).length;
 
+// Tracks the ceiling in conciseReflectionSchema. Reflections are allowed more
+// room than they once were so they can name a conclusion and a specific next
+// step instead of gesturing at both, but they still must not sprawl.
 const assertConciseReflection = (value: string) => {
-  assert.ok(getWordCount(value) <= 70);
+  assert.ok(getWordCount(value) <= 90);
 };
 
 const assertConciseQuestion = (value: string) => {
   const wordCount = getWordCount(value);
-  assert.ok(wordCount >= 6);
+  // Mirrors conciseQuestionSchema's floor. Asserting a stricter bound here than
+  // the parser enforces would let a regression that ships fallback copy pass.
+  assert.ok(wordCount >= 4);
   assert.ok(wordCount <= 14);
   assert.ok(value.length <= 100);
 };
@@ -81,6 +90,7 @@ const assertValidBrainSessionMap = (brainSessionMap: BrainSessionMap) => {
 
 beforeEach(() => {
   delete process.env.OPENAI_API_KEY;
+  delete process.env.DEV_PREMIUM_ACCESS_OVERRIDE;
   // The personalization profile is cached per user id, and these tests reuse
   // ids across differently-stubbed users.
   clearUserPersonalizationCache();
@@ -105,6 +115,16 @@ afterEach(() => {
     process.env.OPENAI_API_KEY = originalApiKey;
   } else {
     delete process.env.OPENAI_API_KEY;
+  }
+  if (typeof originalNodeEnv === "string") {
+    process.env.NODE_ENV = originalNodeEnv;
+  } else {
+    delete process.env.NODE_ENV;
+  }
+  if (typeof originalPremiumAccessOverride === "string") {
+    process.env.DEV_PREMIUM_ACCESS_OVERRIDE = originalPremiumAccessOverride;
+  } else {
+    delete process.env.DEV_PREMIUM_ACCESS_OVERRIDE;
   }
 });
 
@@ -446,10 +466,24 @@ test("createGuidedReflectionSessionAnalysis uses the Terra high-reasoning overri
       JSON.stringify({
         output_text: JSON.stringify({
           analysis:
-            "This reflection suggests that focused movement helped create steadiness while the earlier deadline added pressure. The clearest pattern is a wish to protect calm progress instead of responding to urgency with more urgency. Keeping tomorrow's task deliberately small may support that direction without making the day feel over-controlled.",
+            "This session suggests that focused movement helped create steadiness while the earlier deadline added pressure. The clearest pattern is that they protect calm progress rather than answering urgency with more urgency. Their writing puts the pull toward smaller tasks right after the deadline moved, not before it.",
           majorInsight:
             "The clearest signal is choosing calm, bounded progress when pressure rises.",
           observedTrends: ["Focus", "Pressure", "Calm progress"],
+          triggersObserved: [
+            {
+              trigger: "the deadline moving",
+              emotionalResponse: "shrinks the task",
+              evidenceQuote: "",
+              confidence: 0.7,
+            },
+          ],
+          patternAssessment: [
+            {
+              label: "protects calm progress under pressure",
+              basis: "Named twice in this session.",
+            },
+          ],
           detectedTopics: ["focus", "stress", "calm"],
           detectedMood: "good",
           brainSessionMap: fallback.brainSessionMap,
@@ -468,6 +502,22 @@ test("createGuidedReflectionSessionAnalysis uses the Terra high-reasoning overri
   assert.deepEqual(capturedRequestBody.reasoning, { effort: "high" });
   assert.match(JSON.stringify(capturedRequestBody.input), /roughly 55%/i);
   assert.match(JSON.stringify(capturedRequestBody.input), /do not invent/i);
+  // The session-analysis prompt used to mandate hedging outright, which
+  // overrode the shared persona because it is appended after it. Pin both
+  // halves: the mandate is gone, and the replacement is present.
+  assert.doesNotMatch(
+    JSON.stringify(capturedRequestBody.input),
+    /Use hedged, behaviour-focused language/i
+  );
+  assert.match(
+    JSON.stringify(capturedRequestBody.input),
+    /Write behaviour-focused findings as statements, not as suggestions/i
+  );
+  // Third person is a report constraint, not a hedge, and must survive.
+  assert.match(
+    JSON.stringify(capturedRequestBody.input),
+    /Never use 'you' or 'your' in any field/i
+  );
   assert.equal(analysis.hasEnoughSignal, true);
   assert.match(analysis.analysis, /focused movement|steadiness/i);
   assert.deepEqual(analysis.detectedTopics, ["focus", "stress", "calm"]);
@@ -500,7 +550,7 @@ test("createGuidedReflectionSessionAnalysis handles gibberish without inventing 
   });
 
   assert.equal(analysis.hasEnoughSignal, false);
-  assert.match(analysis.analysis, /not enough clear information/i);
+  assert.match(analysis.analysis, /enough clear information/i);
   assert.match(analysis.majorInsight, /not enough clear detail/i);
   assert.deepEqual(analysis.observedTrends, [
     "More detail needed",
@@ -517,7 +567,7 @@ test("createGuidedReflectionSessionAnalysis handles gibberish without inventing 
   assert.equal(analysis.brainSessionMap.centers[0]?.score, 0.55);
   assert.equal(
     analysis.brainSessionMap.mindMapSeedText,
-    "Your first reflection has added its first signal to your Mind Map."
+    "This first reflection has added its first signal to the Mind Map."
   );
 });
 
@@ -555,7 +605,7 @@ test("createGuidedReflectionSessionAnalysis treats keyboard-smash mixed input as
   });
 
   assert.equal(analysis.hasEnoughSignal, false);
-  assert.match(analysis.analysis, /not enough clear information/i);
+  assert.match(analysis.analysis, /enough clear information/i);
   assertValidBrainSessionMap(analysis.brainSessionMap);
   assert.equal(
     analysis.brainSessionMap.dominantCenterId,
@@ -683,9 +733,9 @@ const buildSummaryInput = (userId: string) => ({
   onboardingContext: { reflectionTone: ["practical"] },
 });
 
-test("guided reflection is premium-gated: non-premium never calls the model", async () => {
-  const originalBypass = process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM;
-  delete process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM;
+test("the Free development flow keeps guided reflection premium-gated", async () => {
+  process.env.NODE_ENV = "development";
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE = "free";
   process.env.OPENAI_API_KEY = "test-key";
 
   // Configured API key + opted-in, but NOT premium → must fall back, no call.
@@ -712,17 +762,11 @@ test("guided reflection is premium-gated: non-premium never calls the model", as
   assert.equal(fetchCalled, false);
   assert.ok(summary.reflection.length > 0);
   assert.ok(summary.followUpQuestion.length > 0);
-
-  if (typeof originalBypass === "string") {
-    process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM = originalBypass;
-  } else {
-    delete process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM;
-  }
 });
 
-test("GUIDED_REFLECTION_ALLOW_NON_PREMIUM bypass lets an opted-in non-premium user reach the model", async () => {
-  const originalBypass = process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM;
-  process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM = "true";
+test("the Pro development flow lets a stored free user reach guided reflection AI", async () => {
+  process.env.NODE_ENV = "development";
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE = "pro";
   process.env.OPENAI_API_KEY = "test-key";
 
   userTarget.findById = () => ({
@@ -748,6 +792,11 @@ test("GUIDED_REFLECTION_ALLOW_NON_PREMIUM bypass lets an opted-in non-premium us
             followUpQuestion:
               "When the deadline moved, what did the pressure feel like in your body?",
             takeaway: "Protect one small, calm task tomorrow.",
+            sessionSignals: {
+              triggers: [],
+              activeTrigger: "",
+              triggerStage: "surface",
+            },
           }),
         }),
         { status: 200 }
@@ -763,12 +812,6 @@ test("GUIDED_REFLECTION_ALLOW_NON_PREMIUM bypass lets an opted-in non-premium us
 
   assert.equal(responsesCalled, true);
   assert.match(summary.followUpQuestion, /deadline|pressure|body/i);
-
-  if (typeof originalBypass === "string") {
-    process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM = originalBypass;
-  } else {
-    delete process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM;
-  }
 });
 
 const stubPremiumUserWithModelResponse = (
@@ -838,6 +881,8 @@ test("createGuidedReflectionSessionAnalysis asks the model for hasEnoughSignal a
       majorInsight:
         "The clearest signal is choosing calm, bounded progress when pressure rises.",
       observedTrends: ["Focus", "Pressure", "Calm progress"],
+      triggersObserved: [],
+      patternAssessment: [],
       detectedTopics: ["focus", "stress"],
       detectedMood: "good",
       brainSessionMap: fallback.brainSessionMap,
@@ -883,6 +928,8 @@ test("createGuidedReflectionSessionAnalysis falls back to heuristic topics when 
     majorInsight:
       "The clearest signal is choosing calm, bounded progress when pressure rises.",
     observedTrends: ["Focus", "Pressure", "Calm progress"],
+    triggersObserved: [],
+    patternAssessment: [],
     detectedTopics: [],
     detectedMood: "good",
     brainSessionMap: fallback.brainSessionMap,
@@ -911,6 +958,8 @@ test("createGuidedReflectionSessionAnalysis replaces the copy when the model rep
       "There is very little to work from here, so any pattern would be invented rather than observed from what was actually written down today.",
     majorInsight: "There is not enough here to name a reliable pattern.",
     observedTrends: ["Unclear", "Sparse"],
+    triggersObserved: [],
+    patternAssessment: [],
     detectedTopics: [],
     detectedMood: "okay",
     brainSessionMap: fallback.brainSessionMap,
@@ -922,7 +971,7 @@ test("createGuidedReflectionSessionAnalysis replaces the copy when the model rep
   );
 
   assert.equal(analysis.hasEnoughSignal, false);
-  assert.match(analysis.analysis, /not enough clear information/i);
+  assert.match(analysis.analysis, /enough clear information/i);
   assert.match(analysis.majorInsight, /not enough clear detail/i);
   // The chosen presentation keeps the other cards, so the map still comes from
   // the model rather than being blanked out.
@@ -988,6 +1037,11 @@ test("guided reflection merges the stored profile with the client onboarding con
           followUpQuestion:
             "What would finishing at a reasonable hour actually cost you tomorrow?",
           takeaway: "Protect one boundary before the week sets its own pace.",
+          sessionSignals: {
+            triggers: [],
+            activeTrigger: "",
+            triggerStage: "none",
+          },
         }),
       }),
       { status: 200 }
@@ -1042,6 +1096,14 @@ test("guided reflection merges the stored profile with the client onboarding con
   assert.match(String(systemMessage?.content), /plain-spoken/);
   assert.doesNotMatch(String(systemMessage?.content), /soften confrontation/);
   assert.match(String(systemMessage?.content), /not a diagnosis/);
+
+  // Guided reflection inherits the shared direct persona, not just Jade.
+  assert.match(String(systemMessage?.content), /Answer first/i);
+  assert.match(String(systemMessage?.content), /Avoid hedging vocabulary/i);
+  assert.match(
+    String(systemMessage?.content),
+    /never invent details, events, or failings the user did not write/i
+  );
 });
 
 test("guided reflection sends no profile when the user has no onboarding answers", async () => {
@@ -1109,4 +1171,515 @@ test("guided reflection sends no profile when the user has no onboarding answers
   // No profile means no guardrail either — there is nothing to guard.
   const systemMessage = messages.find((message) => message.role === "system");
   assert.doesNotMatch(String(systemMessage?.content), /not a diagnosis/);
+});
+
+// --- Trigger-driven guided reflection -------------------------------------
+
+const buildGoDeeperInput = (overrides: Record<string, unknown> = {}) => ({
+  userId: "free-user",
+  promptAnswers: [
+    {
+      questionId: "good_exciting",
+      question: "What was one good or exciting thing that happened today?",
+      answer: "I finished the deck before lunch.",
+    },
+    {
+      questionId: "hurdle",
+      question: "What was one hurdle or stressful moment you faced today?",
+      answer: "My manager messaged me about it and I went quiet.",
+    },
+    {
+      questionId: "carry_tomorrow",
+      question: "What would you like to carry into tomorrow?",
+      answer: "I want to answer instead of going silent.",
+    },
+  ],
+  currentText: "I went quiet for the rest of the afternoon.",
+  ...overrides,
+});
+
+const CARRIED_TRIGGER = {
+  trigger: "my manager messaging me",
+  emotionalResponse: "goes quiet",
+  evidenceQuote: "I went quiet for the rest of the afternoon.",
+  confidence: 0.7,
+  sessionOccurrences: 1,
+};
+
+test("every session analysis string is written in the third person", async () => {
+  // The whole point of the report voice: one "your" undoes it everywhere.
+  const analysis = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  const fields = [
+    analysis.analysis,
+    analysis.majorInsight,
+    analysis.brainSessionMap.neuroscienceSummary,
+    analysis.brainSessionMap.mostNoticedText,
+    analysis.brainSessionMap.mindMapSeedText,
+    ...analysis.brainSessionMap.centers.map(center => center.shortInsight),
+  ];
+
+  fields.forEach(field => {
+    assert.ok(isThirdPersonVoice(field), `second person leaked: "${field}"`);
+  });
+});
+
+test("low-signal and safety analyses are third person too", async () => {
+  const lowSignal = await createGuidedReflectionSessionAnalysis({
+    userId: "free-user",
+    promptAnswers: [
+      { questionId: "good_exciting", question: "?", answer: "asdf qwer" },
+      { questionId: "hurdle", question: "?", answer: "lksdjf zzzzz" },
+      { questionId: "carry_tomorrow", question: "?", answer: "qwer asdf" },
+    ],
+  });
+
+  assert.ok(isThirdPersonVoice(lowSignal.analysis));
+  assert.ok(isThirdPersonVoice(lowSignal.majorInsight));
+  // Nothing to work from means nothing is reported and nothing reaches the
+  // graph — an invented trigger would start accumulating occurrences.
+  assert.deepEqual(lowSignal.triggersObserved, []);
+  assert.deepEqual(lowSignal.patternAssessment, []);
+});
+
+test("a safety session reports no triggers and never mines the graph", async () => {
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    userId: "free-user",
+    promptAnswers: [
+      {
+        questionId: "good_exciting",
+        question: "?",
+        answer: "Nothing good happened at all today.",
+      },
+      {
+        questionId: "hurdle",
+        question: "?",
+        answer: "I keep thinking about killing myself and I cannot stop.",
+      },
+      {
+        questionId: "carry_tomorrow",
+        question: "?",
+        answer: "I do not know if I want tomorrow.",
+      },
+    ],
+  });
+
+  assert.deepEqual(analysis.triggersObserved, []);
+  assert.deepEqual(analysis.patternAssessment, []);
+  assert.ok(isThirdPersonVoice(analysis.analysis));
+});
+
+test("go-deeper carries trigger state through the deterministic fallback", async () => {
+  // requestStructuredOpenAi returns null on *any* failure, and on a bad day
+  // that is every turn. Losing the carried thread there would abandon the
+  // trigger mid-test — the exact failure this feature exists to fix.
+  const response = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({ previousSignals: [CARRIED_TRIGGER] })
+  );
+
+  assert.equal(response.sessionSignals.triggers.length, 1);
+  assert.equal(
+    response.sessionSignals.triggers[0]?.trigger,
+    "my manager messaging me"
+  );
+  assert.equal(response.sessionSignals.activeTrigger, "my manager messaging me");
+});
+
+test("the fallback question climbs the ladder instead of changing topic", async () => {
+  const firstRung = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({ previousSignals: [CARRIED_TRIGGER] })
+  );
+  assert.match(firstRung.nextQuestion, /right before/i);
+
+  const secondRung = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({
+      previousSignals: [{ ...CARRIED_TRIGGER, sessionOccurrences: 2 }],
+    })
+  );
+  assert.match(secondRung.nextQuestion, /what does that reaction do/i);
+});
+
+test("a session with no carried trigger keeps the generic fallback question", async () => {
+  const response = await createGuidedReflectionGoDeeper(buildGoDeeperInput());
+
+  assert.deepEqual(response.sessionSignals.triggers, []);
+  assert.equal(response.sessionSignals.triggerStage, "none");
+  assert.match(response.nextQuestion, /small change|clearest next action/i);
+});
+
+test("a client-supplied clinical trigger now survives the round trip", async () => {
+  // previousSignals arrives from the client and is untrusted. The clinical-term
+  // filter that used to sit here was removed on purpose: once the server itself
+  // emits clinical wording, filtering the echo path would strip exactly the new
+  // labels and break carried-trigger continuity.
+  //
+  // The residual exposure is bounded — a tampered client can only seed labels
+  // into its OWN user's graph, because ownership is enforced upstream. There is
+  // no cross-user write. If that ever needs closing, the fix is to validate
+  // echoed signals against server-persisted ones rather than to filter their
+  // wording.
+  const response = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({
+      previousSignals: [
+        {
+          trigger: "a deadline",
+          emotionalResponse: "depression",
+          evidenceQuote: "",
+          confidence: 0.9,
+          sessionOccurrences: 4,
+        },
+      ],
+    })
+  );
+
+  assert.equal(response.sessionSignals.triggers.length, 1);
+  assert.equal(
+    response.sessionSignals.triggers[0]?.emotionalResponse,
+    "depression"
+  );
+});
+
+test("a fabricated evidence quote is dropped while the trigger survives", async () => {
+  const response = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({
+      previousSignals: [
+        {
+          ...CARRIED_TRIGGER,
+          evidenceQuote: "I have always shut down when anyone criticises me.",
+        },
+      ],
+    })
+  );
+
+  assert.equal(response.sessionSignals.triggers.length, 1);
+  assert.equal(
+    response.sessionSignals.triggers[0]?.evidenceQuote,
+    "",
+    "a quote the user never wrote must not be shown back as their own words"
+  );
+});
+
+test("the go-deeper prompt sends carried triggers and the rung machine", async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  stubPremiumUserWithModelResponse(
+    {
+      reflection:
+        "Going quiet after that message is doing something for you, even if it does not feel like a choice in the moment. It buys a little distance while you work out what the message actually meant. That distance has a cost though, and naming it may make the next reply easier to send.",
+      nextQuestion: "What does going quiet protect you from right then?",
+      canGoDeeper: true,
+      sessionSignals: {
+        triggers: [
+          {
+            trigger: "my manager messaging me",
+            emotionalResponse: "goes quiet",
+            evidenceQuote: "I went quiet for the rest of the afternoon.",
+            confidence: 0.8,
+          },
+        ],
+        activeTrigger: "my manager messaging me",
+        triggerStage: "function",
+      },
+    },
+    body => {
+      requestBody = body;
+    }
+  );
+
+  const response = await createGuidedReflectionGoDeeper(
+    buildGoDeeperInput({
+      userId: "premium-user",
+      previousSignals: [CARRIED_TRIGGER],
+    })
+  );
+
+  const serialized = JSON.stringify(
+    (requestBody as Record<string, unknown> | null)?.input
+  );
+  assert.match(serialized, /carriedTriggers/);
+  assert.match(serialized, /turnsSupported/);
+  assert.match(serialized, /Never skip a rung/i);
+  assert.match(serialized, /triggerStage/);
+
+  // Two sightings of one trigger, not two triggers.
+  assert.equal(response.sessionSignals.triggers.length, 1);
+  assert.equal(response.sessionSignals.triggers[0]?.sessionOccurrences, 2);
+  assert.equal(response.sessionSignals.triggerStage, "function");
+});
+
+test("the session analysis prompt demands third person and forbids advice", async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const fallback = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  stubPremiumUserWithModelResponse(
+    {
+      analysis: fallback.analysis,
+      majorInsight: "They shrink the task whenever a deadline moves.",
+      observedTrends: ["Deadline pressure", "Task shrinking"],
+      triggersObserved: [],
+      patternAssessment: [],
+      detectedTopics: ["stress"],
+      detectedMood: "okay",
+      brainSessionMap: fallback.brainSessionMap,
+      hasEnoughSignal: true,
+    },
+    body => {
+      requestBody = body;
+    }
+  );
+
+  await createGuidedReflectionSessionAnalysis({
+    ...meaningfulSessionInput,
+    userId: "premium-user",
+  });
+
+  const body = requestBody as Record<string, unknown> | null;
+  const serialized = JSON.stringify(body?.input);
+  assert.match(serialized, /Never use 'you' or 'your'/);
+  assert.match(serialized, /Do not comfort, encourage, reassure, advise/);
+  assert.match(serialized, /knownPatterns/);
+
+  const schema = (
+    body?.text as { format?: { schema?: Record<string, unknown> } } | undefined
+  )?.format?.schema;
+  const required = (schema?.required as string[]) || [];
+  assert.ok(required.includes("triggersObserved"));
+  assert.ok(required.includes("patternAssessment"));
+});
+
+test("a second-person analysis is replaced rather than shipped", async () => {
+  const fallback = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  stubPremiumUserWithModelResponse({
+    analysis:
+      "Your session kept returning to the deadline, and your mood dropped right after it moved. You go quiet when the pressure rises, which is worth watching over the next week or so.",
+    majorInsight: "You shrink the task whenever a deadline moves.",
+    observedTrends: ["Deadline pressure", "Task shrinking"],
+    triggersObserved: [],
+    patternAssessment: [],
+    detectedTopics: ["stress"],
+    detectedMood: "okay",
+    brainSessionMap: fallback.brainSessionMap,
+    hasEnoughSignal: true,
+  });
+
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    ...meaningfulSessionInput,
+    userId: "premium-user",
+  });
+
+  assert.ok(isThirdPersonVoice(analysis.analysis));
+  assert.ok(isThirdPersonVoice(analysis.majorInsight));
+  assert.equal(analysis.analysis, fallback.analysis);
+  // The rest of the response survives: rejecting the whole payload would cost
+  // the brain map and the topics too.
+  assert.deepEqual(analysis.detectedTopics, ["stress"]);
+  assert.equal(analysis.detectedMood, "okay");
+});
+
+test("the analysis grades a first-sighting trigger as emerging, not confirmed", async () => {
+  const fallback = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  stubPremiumUserWithModelResponse({
+    analysis: fallback.analysis,
+    majorInsight: "They go quiet right after a message from their manager.",
+    observedTrends: ["Manager messages", "Going quiet"],
+    triggersObserved: [
+      {
+        trigger: "a message from their manager",
+        emotionalResponse: "goes quiet",
+        evidenceQuote: "",
+        confidence: 0.8,
+      },
+    ],
+    patternAssessment: [
+      { label: "goes quiet after a manager message", basis: "Named twice." },
+    ],
+    detectedTopics: ["stress"],
+    detectedMood: "okay",
+    brainSessionMap: fallback.brainSessionMap,
+    hasEnoughSignal: true,
+  });
+
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    ...meaningfulSessionInput,
+    userId: "premium-user",
+  });
+
+  assert.equal(analysis.triggersObserved.length, 1);
+  // No graph history, so this is sighting one. Reporting it as established
+  // would be the one error this feature cannot afford.
+  assert.equal(analysis.triggersObserved[0]?.status, "emerging");
+  assert.equal(analysis.triggersObserved[0]?.occurrences, 1);
+  assert.equal(analysis.patternAssessment[0]?.status, "emerging");
+});
+
+// --- App-authored text is never the user's -------------------------------
+
+const JADE_LONG_REFLECTION =
+  "Protecting your morning seems tied to the focused hour you keep reaching for, and it sounds less like time management than guarding something that genuinely matters to you right now. Keeping tomorrow's first task small enough to finish is one way to hold that line without turning it into another obligation you have to meet.";
+
+test("a thin session is thin however much Journal.IO wrote back", async () => {
+  // The bug this guards: looksLikeLowSignalText needs 8 informative words, and
+  // Jade's own reflection clears that bar by itself — so four user words used
+  // to earn a full, confident analysis built on nothing the person said.
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    userId: "free-user",
+    promptAnswers: [
+      { questionId: "good_exciting", question: "?", answer: "good day" },
+      { questionId: "hurdle", question: "?", answer: "traffic" },
+      { questionId: "carry_tomorrow", question: "?", answer: "sleep" },
+    ],
+    aiSummary: JADE_LONG_REFLECTION,
+    threadMessages: [
+      {
+        role: "assistant",
+        kind: "assistant_reflection",
+        text: JADE_LONG_REFLECTION,
+      },
+    ],
+  });
+
+  assert.equal(analysis.hasEnoughSignal, false);
+  assert.deepEqual(analysis.triggersObserved, []);
+  assert.deepEqual(analysis.patternAssessment, []);
+  assert.doesNotMatch(analysis.analysis, /protecting your morning/i);
+});
+
+test("the same session with real user writing is not low signal", async () => {
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    userId: "free-user",
+    promptAnswers: [
+      {
+        questionId: "good_exciting",
+        question: "?",
+        answer: "I finished the deck before lunch and felt genuinely relieved.",
+      },
+      {
+        questionId: "hurdle",
+        question: "?",
+        answer: "My manager messaged about it and I went quiet all afternoon.",
+      },
+      {
+        questionId: "carry_tomorrow",
+        question: "?",
+        answer: "I want to answer him instead of going silent again.",
+      },
+    ],
+  });
+
+  assert.equal(analysis.hasEnoughSignal, true);
+});
+
+test("the analysis prompt separates what the app wrote from what they wrote", async () => {
+  let requestBody: Record<string, unknown> | null = null;
+  const fallback = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  stubPremiumUserWithModelResponse(
+    {
+      analysis: fallback.analysis,
+      majorInsight: "They shrink the task whenever a deadline moves.",
+      observedTrends: ["Deadline pressure", "Task shrinking"],
+      triggersObserved: [],
+      patternAssessment: [],
+      detectedTopics: ["stress"],
+      detectedMood: "okay",
+      brainSessionMap: fallback.brainSessionMap,
+      hasEnoughSignal: true,
+    },
+    body => {
+      requestBody = body;
+    }
+  );
+
+  await createGuidedReflectionSessionAnalysis({
+    ...meaningfulSessionInput,
+    userId: "premium-user",
+    aiSummary: JADE_LONG_REFLECTION,
+    threadMessages: [
+      {
+        role: "assistant",
+        kind: "assistant_reflection",
+        text: JADE_LONG_REFLECTION,
+        promptQuestion: "What gets in the way of that first hour?",
+      },
+    ],
+  });
+
+  const body = requestBody as Record<string, unknown> | null;
+  const payload = JSON.parse(
+    String((body?.input as { content?: string }[])?.[1]?.content || "{}")
+  ) as {
+    userAuthored: { fullText: string; wordCount: number; answers: unknown[] };
+    appAuthoredContext: {
+      questionsAsked: string[];
+      assistantReflections: string[];
+    };
+  };
+
+  // Jade's words are present as context...
+  assert.ok(
+    payload.appAuthoredContext.assistantReflections.some(item =>
+      item.includes("Protecting your morning")
+    )
+  );
+  assert.ok(payload.appAuthoredContext.questionsAsked.length > 0);
+
+  // ...and absent from everything marked as the person's.
+  assert.doesNotMatch(payload.userAuthored.fullText, /Protecting your morning/);
+  // `questionId` is a key, not the question text — assert on the shape.
+  assert.deepEqual(
+    Object.keys(payload.userAuthored.answers[0] as Record<string, unknown>).sort(),
+    ["answer", "questionId"],
+    "the app's question text must not ride along inside a user answer"
+  );
+
+  const serialized = JSON.stringify(body?.input);
+  assert.match(serialized, /Never quote appAuthoredContext/);
+  assert.match(serialized, /was written by the app/);
+});
+
+test("an assistant sentence can never become evidence or a trigger quote", async () => {
+  const fallback = await createGuidedReflectionSessionAnalysis(
+    meaningfulSessionInput
+  );
+
+  stubPremiumUserWithModelResponse({
+    analysis: fallback.analysis,
+    majorInsight: "They shrink the task whenever a deadline moves.",
+    observedTrends: ["Deadline pressure", "Task shrinking"],
+    triggersObserved: [
+      {
+        trigger: "a moved deadline",
+        emotionalResponse: "shrinks the task",
+        // Jade wrote this, not the user. It must not survive.
+        evidenceQuote: "Protecting your morning seems tied to the focused hour",
+        confidence: 0.8,
+      },
+    ],
+    patternAssessment: [],
+    detectedTopics: ["stress"],
+    detectedMood: "okay",
+    brainSessionMap: fallback.brainSessionMap,
+    hasEnoughSignal: true,
+  });
+
+  const analysis = await createGuidedReflectionSessionAnalysis({
+    ...meaningfulSessionInput,
+    userId: "premium-user",
+    aiSummary: JADE_LONG_REFLECTION,
+  });
+
+  assert.equal(analysis.triggersObserved[0]?.evidenceQuote, "");
+  // The trigger itself survives — only the unsupported attribution is dropped.
+  assert.equal(analysis.triggersObserved[0]?.trigger, "a moved deadline");
 });

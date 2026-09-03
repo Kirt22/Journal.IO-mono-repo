@@ -21,6 +21,7 @@ import ButtonLoadingContent from '../../components/ButtonLoadingContent';
 import type { GuidedReflectionSessionAnalysisResponse } from '../../services/guidedReflectionService';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 const lockIcon = require('../../assets/png/entry/lock.png');
 
@@ -719,6 +720,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 28,
     fontWeight: '700',
     letterSpacing: -0.55,

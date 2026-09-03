@@ -22,6 +22,7 @@ import { Text,
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   displayName?: string;
@@ -826,6 +827,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   dated: {
+    fontFamily: fontFamilies.ui.regular,
     fontSize: 12,
     marginTop: 16,
     textAlign: 'center',
@@ -913,6 +915,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: -0.5,

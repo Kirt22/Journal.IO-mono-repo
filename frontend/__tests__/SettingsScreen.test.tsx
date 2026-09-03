@@ -17,11 +17,8 @@ import {
 } from '../src/utils/legalLinks';
 
 jest.mock('../src/utils/devLaunchConfig.json', () => ({
-  stage: 'onboarding',
-  activeTab: 'home',
-  email: null,
+  replayOnboarding: false,
   apiBaseUrl: 'http://192.168.1.226:3001/api/v1',
-  enableBiometricLockForTesting: false,
 }));
 
 jest.mock('../src/services/privacyService', () => ({
@@ -213,8 +210,21 @@ test('locks premium privacy controls for free users', async () => {
   expect(renderedText).toContain('Terms of Service');
   expect(renderedText).toContain('Privacy Choices');
   expect(renderedText).toContain('Credits');
+  expect(renderedText).toContain('Community');
+  expect(renderedText).toContain('Instagram');
+  expect(renderedText).toContain('TikTok');
+  expect(renderedText).toContain('@journalio.app');
   expect(renderedText).toContain('Support');
   expect(renderedText).toContain('Help Center');
+  expect(renderedText.indexOf('About & Legal')).toBeLessThan(
+    renderedText.indexOf('Community'),
+  );
+  expect(renderedText.indexOf('Community')).toBeLessThan(
+    renderedText.indexOf('Support'),
+  );
+  expect(renderedText.indexOf('Instagram')).toBeLessThan(
+    renderedText.indexOf('TikTok'),
+  );
   expect(renderedText).toContain('Account');
   expect(renderedText).toContain('Manage account');
   expect(renderedText).not.toContain('Subscription');
@@ -342,6 +352,12 @@ test('updates haptics and opens policy and support pages', async () => {
       .findByProps({ accessibilityLabel: 'Open Credits' })
       .props.onPress();
     root!.root
+      .findByProps({ accessibilityLabel: 'Open Instagram' })
+      .props.onPress();
+    root!.root
+      .findByProps({ accessibilityLabel: 'Open TikTok' })
+      .props.onPress();
+    root!.root
       .findByProps({ accessibilityLabel: 'Open Help Center' })
       .props.onPress();
   });
@@ -368,7 +384,15 @@ test('updates haptics and opens policy and support pages', async () => {
     'https://api.journalio.app/support',
     'Help Center',
   );
-  expect(openDeviceBrowserUrl).toHaveBeenCalledWith('https://icons8.com');
+  expect(openDeviceBrowserUrl).toHaveBeenNthCalledWith(1, 'https://icons8.com');
+  expect(openDeviceBrowserUrl).toHaveBeenNthCalledWith(
+    2,
+    'https://www.instagram.com/journalio.app/',
+  );
+  expect(openDeviceBrowserUrl).toHaveBeenNthCalledWith(
+    3,
+    'https://www.tiktok.com/@journalio.app',
+  );
   expect(triggerHaptic).toHaveBeenCalledWith('legal');
 
   await ReactTestRenderer.act(async () => {
@@ -525,7 +549,7 @@ test('initiates account deletion from Manage account', async () => {
   const finalActions = alertSpy.mock.calls[0]?.[2];
   expect(finalActions?.map(action => action.text)).toEqual([
     'Cancel',
-    'Delete Account',
+    'Delete',
   ]);
 
   const destructiveAction = finalActions?.find(

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { triggerHaptic } from '../services/hapticsService';
 import { useTheme } from '../theme/provider';
+import { fontFamilies } from '../theme/typography';
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '');
@@ -132,6 +133,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   label: {
+    fontFamily: fontFamilies.ui.medium,
     fontSize: 12,
     fontWeight: '500',
   },

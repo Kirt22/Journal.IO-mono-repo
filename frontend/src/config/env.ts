@@ -7,7 +7,6 @@ import {
   REVENUECAT_IOS_API_KEY,
   IOS_APP_STORE_ID,
   ANDROID_PLAY_STORE_PACKAGE_NAME,
-  ALLOW_NON_PREMIUM_AI,
 } from "@env";
 
 const normalizeEnvValue = (value?: string | null) => {
@@ -35,11 +34,6 @@ const env = {
   androidPlayStorePackageName: normalizeEnvValue(
     ANDROID_PLAY_STORE_PACKAGE_NAME
   ),
-  // Dev/testing only: treat the user as premium + AI-enabled so the premium
-  // Mind Map (and other AI surfaces) can be exercised without a subscription.
-  // Pair with the backend AI_ALLOW_NON_PREMIUM env. Never enable in production.
-  allowNonPremiumAi:
-    normalizeEnvValue(ALLOW_NON_PREMIUM_AI)?.toLowerCase() === "true",
 } as const;
 
 export { env };

@@ -394,3 +394,32 @@ test('opens the Home Screen widget walkthrough', async () => {
     }).length,
   ).toBeGreaterThanOrEqual(2);
 });
+
+test('scrolling the page signals open row trays to close', async () => {
+  (getWidgetManagementState as jest.Mock).mockResolvedValue(activeStreakStatus);
+
+  const root = await renderWidgetsScreen();
+
+  const readCloseSignal = () =>
+    root.root.findAll(node => node.props.closeSignal !== undefined)[0].props
+      .closeSignal;
+
+  const before = readCloseSignal();
+
+  const [scrollHost] = root.root.findAll(
+    node => typeof node.props.onScroll === 'function',
+  );
+
+  await ReactTestRenderer.act(async () => {
+    scrollHost.props.onScroll({
+      nativeEvent: {
+        contentOffset: { x: 0, y: 240 },
+        contentSize: { height: 1600, width: 390 },
+        layoutMeasurement: { height: 800, width: 390 },
+      },
+    });
+    await Promise.resolve();
+  });
+
+  expect(readCloseSignal()).toBeGreaterThan(before);
+});

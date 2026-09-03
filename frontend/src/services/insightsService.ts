@@ -1,4 +1,10 @@
-import { request } from "../utils/apiClient";
+import { AI_REQUEST_TIMEOUT_MS, request } from "../utils/apiClient";
+
+/**
+ * The analysis and mind-map routes wait on a model call. The default deadline
+ * exists to stop a dead backend hanging the app, not to cap real work.
+ */
+const AI_REQUEST_BEHAVIOR = { timeoutMs: AI_REQUEST_TIMEOUT_MS };
 import type { BrainReflectionCenterId } from "./guidedReflectionService";
 
 type InsightMood = "amazing" | "good" | "okay" | "bad" | "terrible";
@@ -167,6 +173,13 @@ type InsightsAiAnalysisReady = {
   patterns: {
     label: string;
     insight: string;
+    // What came right before the behaviour — the situation, person, time, or
+    // thought that set it off. Empty when the week's material never showed one.
+    trigger: string;
+    // How established the pattern is across this user's whole history, not just
+    // this week. Server-authoritative: the model proposes, the pattern graph
+    // decides, so a count is never something the model invented.
+    status: "emerging" | "recurring" | "confirmed";
     evidence: string[];
     nudge: string;
     tone: InsightTone;
@@ -730,9 +743,13 @@ const getInsightsOverview = async () => {
 };
 
 const getInsightsAiAnalysis = async () => {
-  const response = await request<InsightsAiAnalysis>("/insights/ai-analysis", {
-    method: "GET",
-  });
+  const response = await request<InsightsAiAnalysis>(
+    "/insights/ai-analysis",
+    {
+      method: "GET",
+    },
+    AI_REQUEST_BEHAVIOR
+  );
 
   return normalizeInsightsAiAnalysis(response.data);
 };
@@ -742,7 +759,8 @@ const getInsightsMindMap = async (range: InsightsMindMapRange) => {
     `/insights/mind-map?range=${range}`,
     {
       method: "GET",
-    }
+    },
+    AI_REQUEST_BEHAVIOR
   );
 
   return normalizeInsightsMindMap(response.data);

@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  Alert,
   Animated,
   Easing,
   Image,
@@ -16,12 +17,19 @@ import {
   NativeSyntheticEvent,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, MoreHorizontal, Send } from 'lucide-react-native';
+import {
+  ArrowLeft,
+  Copy,
+  MoreHorizontal,
+  Send,
+  Share2,
+} from 'lucide-react-native';
 import { Text, TextInput } from '../../infrastructure/reactNative';
 import { useTheme } from '../../theme/provider';
 import { typography } from '../../theme/typography';
@@ -34,6 +42,8 @@ import ShimmerBlock from '../../components/ShimmerBlock';
 import JournalLoader from '../../components/JournalLoader';
 import JadeSessionsPanel from '../../components/jade/JadeSessionsPanel';
 import JadeMessageContent from '../../components/jade/JadeMessageContent';
+import { copyToClipboard } from '../../utils/clipboard';
+import { jadeMessageToPlainText } from '../../utils/jadeMessageText';
 import type { JadeThreadMessage } from '../../store/slices/askJadeSlice';
 
 const JADE_ICON = require('../../assets/png/jade/jade-gem.png');
@@ -43,6 +53,8 @@ const MESSAGE_MAX_LENGTH = 2000;
 const LOAD_OLDER_THRESHOLD = 280;
 const TYPEWRITER_CHUNK_MS = 28;
 const THINKING_DOT_MS = 160;
+/** How long the "Copied" tag stays under the bubble before it fades away. */
+const COPY_CONFIRMATION_MS = 1600;
 
 const STARTER_PROMPTS = [
   'What patterns have you noticed in me?',
@@ -227,6 +239,9 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
 
   const [draft, setDraft] = useState('');
   const [isPanelVisible, setIsPanelVisible] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const copyFade = useRef(new Animated.Value(0)).current;
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const draftReveal = useRef(new Animated.Value(1)).current;
@@ -277,6 +292,9 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
     () => () => {
       if (historyScrollResetFrameRef.current !== null) {
         cancelAnimationFrame(historyScrollResetFrameRef.current);
+      }
+      if (copyResetTimerRef.current) {
+        clearTimeout(copyResetTimerRef.current);
       }
     },
     [],
@@ -454,11 +472,146 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
     onBack();
   }, [onBack]);
 
+  /** A failed clipboard write shows no confirmation rather than claiming success. */
+  const handleCopyMessage = useCallback(
+    (message: JadeThreadMessage) => {
+      const copied = copyToClipboard(jadeMessageToPlainText(message));
+
+      if (!copied) {
+        return;
+      }
+
+      if (copyResetTimerRef.current) {
+        clearTimeout(copyResetTimerRef.current);
+      }
+      setCopiedMessageId(message.id);
+
+      const isStatic = reduceMotion || typeof jest !== 'undefined';
+      copyFade.stopAnimation();
+
+      if (isStatic) {
+        copyFade.setValue(1);
+      } else {
+        copyFade.setValue(0);
+        Animated.timing(copyFade, {
+          duration: 140,
+          easing: Easing.out(Easing.cubic),
+          toValue: 1,
+          useNativeDriver: true,
+        }).start();
+      }
+
+      copyResetTimerRef.current = setTimeout(() => {
+        copyResetTimerRef.current = null;
+
+        if (isStatic) {
+          setCopiedMessageId(null);
+          return;
+        }
+
+        Animated.timing(copyFade, {
+          duration: 200,
+          easing: Easing.in(Easing.cubic),
+          toValue: 0,
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) {
+            setCopiedMessageId(null);
+          }
+        });
+      }, COPY_CONFIRMATION_MS);
+    },
+    [copyFade, reduceMotion],
+  );
+
+  const handleShareMessage = useCallback(async (message: JadeThreadMessage) => {
+    try {
+      await Share.share({
+        message: jadeMessageToPlainText(message),
+        title: 'Ask Jade message',
+      });
+    } catch {
+      Alert.alert('Share message', "We couldn't open sharing right now.");
+    }
+  }, []);
+
   const handleOpenPanel = useCallback(() => {
     triggerHaptic('bottomSheet').catch(() => undefined);
     setIsPanelVisible(true);
     loadJadeSessions({ refresh: true }).catch(() => undefined);
   }, [loadJadeSessions]);
+
+  const renderCopyTag = (messageId: string) =>
+    copiedMessageId === messageId ? (
+      <Animated.View
+        accessibilityLiveRegion="polite"
+        style={[styles.copiedTag, { opacity: copyFade }]}
+        testID={`ask-jade-copied-${messageId}`}
+      >
+        <Text
+          style={[styles.copiedText, { color: theme.colors.mutedForeground }]}
+        >
+          Copied
+        </Text>
+      </Animated.View>
+    ) : null;
+
+  const renderMessageActions = (
+    message: JadeThreadMessage,
+    isUser: boolean,
+    isStreaming: boolean,
+  ) => {
+    if (isStreaming) {
+      return null;
+    }
+
+    return (
+      <View
+        style={[
+          styles.messageActions,
+          isUser ? styles.messageActionsUser : styles.messageActionsAssistant,
+        ]}
+      >
+        <HapticPressable
+          accessibilityLabel="Copy message"
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={() => handleCopyMessage(message)}
+          style={({ pressed }) => [
+            styles.messageActionButton,
+            {
+              backgroundColor: hexToRgba(theme.colors.muted, 0.54),
+              borderColor: theme.colors.border,
+            },
+            pressed && styles.pressed,
+          ]}
+          testID={`ask-jade-copy-${message.id}`}
+        >
+          <Copy color={theme.colors.mutedForeground} size={15} />
+        </HapticPressable>
+        <HapticPressable
+          accessibilityLabel="Share message"
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={() => {
+            handleShareMessage(message).catch(() => undefined);
+          }}
+          style={({ pressed }) => [
+            styles.messageActionButton,
+            {
+              backgroundColor: hexToRgba(theme.colors.muted, 0.54),
+              borderColor: theme.colors.border,
+            },
+            pressed && styles.pressed,
+          ]}
+          testID={`ask-jade-share-${message.id}`}
+        >
+          <Share2 color={theme.colors.mutedForeground} size={15} />
+        </HapticPressable>
+        {renderCopyTag(message.id)}
+      </View>
+    );
+  };
 
   const renderBubble = (message: JadeThreadMessage) => {
     const isUser = message.role === 'user';
@@ -470,19 +623,23 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
 
     if (message.status === 'support_first') {
       return (
-        <View
-          key={message.id}
-          style={[
-            styles.supportBubble,
-            {
-              backgroundColor: hexToRgba(theme.colors.destructive, 0.08),
-              borderColor: hexToRgba(theme.colors.destructive, 0.3),
-            },
-          ]}
-        >
-          <Text style={[styles.bubbleText, { color: theme.colors.foreground }]}>
-            {message.text}
-          </Text>
+        <View key={message.id} style={styles.supportColumn}>
+          <View
+            style={[
+              styles.supportBubble,
+              {
+                backgroundColor: hexToRgba(theme.colors.destructive, 0.08),
+                borderColor: hexToRgba(theme.colors.destructive, 0.3),
+              },
+            ]}
+          >
+            <Text
+              style={[styles.bubbleText, { color: theme.colors.foreground }]}
+            >
+              {message.text}
+            </Text>
+          </View>
+          {renderMessageActions(message, false, isStreaming)}
         </View>
       );
     }
@@ -502,82 +659,96 @@ function AskJadeScreen({ onBack, isPremium, onUpgrade }: AskJadeScreenProps) {
         >
           <View
             style={[
-              styles.bubble,
-              isUser
-                ? {
-                    backgroundColor: hexToRgba(
-                      theme.colors.secondary,
-                      theme.mode === 'dark' ? 0.72 : 0.9,
-                    ),
-                    borderColor: hexToRgba(theme.colors.border, 0.76),
-                  }
-                : {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-              message.failed ? { borderColor: theme.colors.destructive } : null,
-              !isUser && hasRichBlocks ? styles.richBubble : null,
+              styles.bubbleColumn,
+              isUser ? styles.bubbleColumnUser : styles.bubbleColumnAssistant,
+              !isUser && hasRichBlocks ? styles.richColumn : null,
             ]}
           >
-            {isUser ? (
-              <Text
-                style={[styles.bubbleText, { color: theme.colors.foreground }]}
-              >
-                {body}
-              </Text>
-            ) : (
-              <JadeMessageContent
-                blocks={message.blocks || []}
-                displayedText={isStreaming ? streamedText : null}
-                fallbackText={message.text}
-                showRich={!isStreaming}
-              />
-            )}
-
-            {message.failed ? (
-              <HapticPressable
-                accessibilityLabel="Retry sending"
-                accessibilityRole="button"
-                onPress={() => {
-                  setDraft(message.text);
-                }}
-                style={({ pressed }) => [pressed && styles.pressed]}
-              >
+            <View
+              style={[
+                styles.bubble,
+                isUser
+                  ? {
+                      backgroundColor: hexToRgba(
+                        theme.colors.secondary,
+                        theme.mode === 'dark' ? 0.72 : 0.9,
+                      ),
+                      borderColor: hexToRgba(theme.colors.border, 0.76),
+                    }
+                  : {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    },
+                message.failed
+                  ? { borderColor: theme.colors.destructive }
+                  : null,
+                !isUser && hasRichBlocks ? styles.richBubble : null,
+              ]}
+            >
+              {isUser ? (
                 <Text
                   style={[
-                    styles.retryText,
-                    { color: theme.colors.destructive },
+                    styles.bubbleText,
+                    { color: theme.colors.foreground },
                   ]}
                 >
-                  Didn't send — tap to retry
+                  {body}
                 </Text>
-              </HapticPressable>
-            ) : null}
+              ) : (
+                <JadeMessageContent
+                  blocks={message.blocks || []}
+                  displayedText={isStreaming ? streamedText : null}
+                  fallbackText={message.text}
+                  showRich={!isStreaming}
+                />
+              )}
 
-            {!isUser && message.status === 'fallback' ? (
-              <HapticPressable
-                accessibilityLabel="Edit and retry your message"
-                accessibilityRole="button"
-                onPress={() => {
-                  const preceding = [...jadeMessages]
-                    .reverse()
-                    .find(
-                      item => item.role === 'user' && item.seq < message.seq,
-                    );
-                  if (preceding) {
-                    setDraft(preceding.text);
-                    inputRef.current?.focus();
-                  }
-                }}
-                style={({ pressed }) => [pressed && styles.pressed]}
-              >
-                <Text
-                  style={[styles.retryText, { color: theme.colors.primary }]}
+              {message.failed ? (
+                <HapticPressable
+                  accessibilityLabel="Retry sending"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setDraft(message.text);
+                  }}
+                  style={({ pressed }) => [pressed && styles.pressed]}
                 >
-                  Edit and retry
-                </Text>
-              </HapticPressable>
-            ) : null}
+                  <Text
+                    style={[
+                      styles.retryText,
+                      { color: theme.colors.destructive },
+                    ]}
+                  >
+                    Didn't send — tap to retry
+                  </Text>
+                </HapticPressable>
+              ) : null}
+
+              {!isUser && message.status === 'fallback' ? (
+                <HapticPressable
+                  accessibilityLabel="Edit and retry your message"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    const preceding = [...jadeMessages]
+                      .reverse()
+                      .find(
+                        item => item.role === 'user' && item.seq < message.seq,
+                      );
+                    if (preceding) {
+                      setDraft(preceding.text);
+                      inputRef.current?.focus();
+                    }
+                  }}
+                  style={({ pressed }) => [pressed && styles.pressed]}
+                >
+                  <Text
+                    style={[styles.retryText, { color: theme.colors.primary }]}
+                  >
+                    Edit and retry
+                  </Text>
+                </HapticPressable>
+              ) : null}
+            </View>
+            {renderMessageActions(message, isUser, isStreaming)}
           </View>
         </View>
       </MessageEntrance>
@@ -1048,17 +1219,59 @@ const styles = StyleSheet.create({
   bubbleRowAssistant: {
     justifyContent: 'flex-start',
   },
+  bubbleColumn: {
+    gap: 4,
+    maxWidth: '86%',
+  },
+  bubbleColumnUser: {
+    alignItems: 'flex-end',
+  },
+  bubbleColumnAssistant: {
+    alignItems: 'flex-start',
+  },
+  richColumn: {
+    maxWidth: '100%',
+    width: '100%',
+  },
   bubble: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 6,
-    maxWidth: '86%',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   richBubble: {
-    maxWidth: '100%',
     width: '100%',
+  },
+  copiedTag: {
+    paddingHorizontal: 4,
+  },
+  copiedText: {
+    ...typography.caption,
+  },
+  messageActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 4,
+  },
+  messageActionsUser: {
+    alignSelf: 'flex-end',
+  },
+  messageActionsAssistant: {
+    alignSelf: 'flex-start',
+  },
+  messageActionButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  supportColumn: {
+    gap: 4,
   },
   supportBubble: {
     borderRadius: 18,

@@ -51,6 +51,7 @@ import {
   type GuidedReflectionPromptAnswer,
   type GuidedReflectionSessionAnalysisResponse,
   type GuidedReflectionThreadMessagePayload,
+  type GuidedSessionTrigger,
   type GuidedSuggestionAction,
 } from '../../services/guidedReflectionService';
 import { createJournalEntry } from '../../services/journalService';
@@ -514,6 +515,31 @@ const getToneAdjustedHelperText = (
   return prompt.helper;
 };
 
+/**
+ * Section labels this composer writes into the entry. Reported to the backend
+ * so it can tell them apart from what the person typed.
+ */
+const GUIDED_ENTRY_LABELS = [
+  'One good or exciting thing from today:',
+  'One hurdle or stressful moment:',
+  'What I want to carry into tomorrow:',
+  'Journal.IO reflection:',
+  'Going deeper:',
+  'Question:',
+  'My response:',
+  'Journal.IO:',
+  'I added:',
+];
+
+/**
+ * Build the saved entry, and record exactly which strings Journal.IO
+ * contributed to it.
+ *
+ * The entry is one prose blob with app and user text interleaved, so without
+ * this manifest the backend cannot tell them apart: Jade's own reflection gets
+ * quoted back as the person's evidence, and the questions the app asked read as
+ * topics they raised. `appAuthoredSegments` is what keeps that boundary honest.
+ */
 const composeFirstReflectionEntry = ({
   answers,
   aiSummary,
@@ -522,8 +548,9 @@ const composeFirstReflectionEntry = ({
   answers: FirstReflectionAnswers;
   aiSummary: string | null;
   threadMessages: GuidedThreadMessage[];
-}) => {
+}): { content: string; appAuthoredSegments: string[] } => {
   const parts: string[] = [];
+  const appAuthored: string[] = [...GUIDED_ENTRY_LABELS];
   const good = answers.good_exciting?.trim();
   const hurdle = answers.hurdle?.trim();
   const carry = answers.carry_tomorrow?.trim();
@@ -543,6 +570,7 @@ const composeFirstReflectionEntry = ({
 
   if (aiSummary) {
     parts.push(`Journal.IO reflection:\n${aiSummary.trim()}`);
+    appAuthored.push(aiSummary.trim());
   }
 
   const deeperLines = threadMessages
@@ -551,12 +579,17 @@ const composeFirstReflectionEntry = ({
       const text = item.text.trim();
 
       if (item.role === 'user') {
-        return item.promptQuestion
-          ? `Question:\n${item.promptQuestion}\nMy response:\n${text}`
-          : `My response:\n${text}`;
+        if (item.promptQuestion) {
+          // The question was written by the app; only the response below it
+          // belongs to the person.
+          appAuthored.push(item.promptQuestion.trim());
+          return `Question:\n${item.promptQuestion}\nMy response:\n${text}`;
+        }
+        return `My response:\n${text}`;
       }
 
       if (item.role === 'assistant') {
+        appAuthored.push(text);
         return `Journal.IO:\n${text}`;
       }
 
@@ -571,7 +604,10 @@ const composeFirstReflectionEntry = ({
     parts.push(`Going deeper:\n${deeperLines.join('\n\n')}`);
   }
 
-  return parts.join('\n\n');
+  return {
+    content: parts.join('\n\n'),
+    appAuthoredSegments: Array.from(new Set(appAuthored.filter(Boolean))),
+  };
 };
 
 const getGeneratedTitle = () => "Today's reflection";
@@ -922,6 +958,16 @@ export default function FirstGuidedReflectionScreen({
     string | null
   >(null);
   const [canContinueDeeper, setCanContinueDeeper] = useState(true);
+  /**
+   * Triggers the session has surfaced so far. Guided reflection has no
+   * server-side session, so this rides here between turns exactly like the
+   * thread itself does: the server sends back the full merged list, this stores
+   * it untouched, and the next call sends it straight back. Never merged or
+   * edited here — the server re-validates it on arrival.
+   */
+  const [sessionSignals, setSessionSignals] = useState<GuidedSessionTrigger[]>(
+    [],
+  );
   const [isCompletionCtaEnabled, setIsCompletionCtaEnabled] = useState(false);
   const [goalSuggestions, setGoalSuggestions] = useState<
     FirstReflectionGoalSuggestion[]
@@ -1908,7 +1954,7 @@ export default function FirstGuidedReflectionScreen({
     nextAnswers: FirstReflectionAnswers,
     nextThreadMessages: GuidedThreadMessage[],
   ) => {
-    const content = composeFirstReflectionEntry({
+    const { content, appAuthoredSegments } = composeFirstReflectionEntry({
       answers: nextAnswers,
       aiSummary,
       threadMessages: nextThreadMessages,
@@ -1932,6 +1978,7 @@ export default function FirstGuidedReflectionScreen({
         content,
         type: 'guided',
         aiPrompt: 'Onboarding first guided reflection',
+        appAuthoredSegments,
       });
 
       addRecentJournalEntry(savedEntry);
@@ -1948,6 +1995,7 @@ export default function FirstGuidedReflectionScreen({
           promptAnswers: getPromptAnswersForDeeper(nextAnswers),
           aiSummary: aiSummary || undefined,
           threadMessages: getThreadPayload(nextThreadMessages),
+          sessionSignals,
           onboardingContext: getOnboardingContext(),
         });
       } catch {
@@ -2006,6 +2054,7 @@ export default function FirstGuidedReflectionScreen({
       });
 
       setAiSummary(summary.reflection);
+      setSessionSignals(summary.sessionSignals?.triggers || []);
       setCurrentFollowUpQuestion(summary.followUpQuestion.trim());
       setCanContinueDeeper(true);
       setCurrentInput('');
@@ -2087,9 +2136,11 @@ export default function FirstGuidedReflectionScreen({
         threadMessages: getThreadPayload(nextThreadMessages),
         currentText: trimmedText,
         suggestionAction: actionType,
+        previousSignals: sessionSignals,
         onboardingContext: getOnboardingContext(),
       });
       setIsThreadLoading(false);
+      setSessionSignals(deeper.sessionSignals?.triggers || sessionSignals);
       setCurrentFollowUpQuestion(deeper.nextQuestion.trim());
       setCanContinueDeeper(deeper.canGoDeeper);
       setMode('optional_deeper');

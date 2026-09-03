@@ -20,9 +20,7 @@ import {
   Easing,
   useWindowDimensions,
 } from 'react-native';
-import appleAuth, {
-  AppleButton,
-} from '@invertase/react-native-apple-authentication';
+import appleAuth from '@invertase/react-native-apple-authentication';
 import PrimaryButton from '../../components/PrimaryButton';
 import AuthActionIcon from '../../components/AuthActionIcon';
 import { AuthErrorDialog } from '../../components/AuthErrorFeedback';
@@ -461,35 +459,15 @@ export default function AuthChoiceScreen({
                   />
 
                   {showAppleSignIn ? (
-                    <AppleButton
-                      buttonStyle={AppleButton.Style.BLACK}
-                      buttonType={AppleButton.Type.CONTINUE}
-                      cornerRadius={12}
+                    <PrimaryButton
+                      label="Continue with Apple"
                       onPress={handleApplePress}
-                      style={[
-                        styles.appleButton,
-                        isAnyAuthLoading && styles.disabledButton,
-                      ]}
+                      loading={isAppleLoading}
+                      disabled={isAnyAuthLoading}
+                      tone="apple"
+                      icon={<AppleMark />}
                     />
                   ) : null}
-                </View>
-
-                <View
-                  testID="auth-privacy-note"
-                  style={[
-                    styles.actionGroup,
-                    styles.infoCard,
-                    { backgroundColor: theme.colors.accent },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.infoText,
-                      { color: theme.colors.mutedForeground },
-                    ]}
-                  >
-                    Private, calm, and designed to stay out of your way.
-                  </Text>
                 </View>
               </Animated.View>
             </View>
@@ -534,6 +512,19 @@ function GoogleMark() {
       <Path
         d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53Z"
         fill="#EA4335"
+      />
+    </Svg>
+  );
+}
+
+function AppleMark() {
+  const theme = useTheme();
+
+  return (
+    <Svg width={16} height={16} viewBox="0 0 384 512" fill="none">
+      <Path
+        d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5 4 299.7 8.8 326.8 18.4 354c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75-17.9 31.1 0 47.6 17.9 75.5 17.9 48.6-.7 90.4-82.5 102.6-119.3-34.6-16.3-59.3-51.2-60-91.2ZM296.8 105.5c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.8-13.6 15.5-21.6 36-20.4 58.6 26.3 2 49.4-14.5 64.3-35.2Z"
+        fill={theme.colors.appleForeground}
       />
     </Svg>
   );
@@ -605,22 +596,5 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 14,
-  },
-  appleButton: {
-    width: '100%',
-    height: 48,
-  },
-  disabledButton: {
-    opacity: 0.55,
-  },
-  infoCard: {
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  infoText: {
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
   },
 });

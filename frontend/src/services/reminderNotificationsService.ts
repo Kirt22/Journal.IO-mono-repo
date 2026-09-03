@@ -25,6 +25,7 @@ const ONBOARDING_REMINDER_TIMES: Record<string, string> = {
 };
 
 const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+let runtimeNotificationsSuppressed = false;
 
 const isPermissionGranted = (status: AuthorizationStatus) =>
   status === AuthorizationStatus.AUTHORIZED ||
@@ -169,6 +170,10 @@ const scheduleWeeklyNotification = async ({
   body: string;
   skipToday?: boolean;
 }) => {
+  if (runtimeNotificationsSuppressed) {
+    return;
+  }
+
   const trigger: TimestampTrigger = {
     type: TriggerType.TIMESTAMP,
     timestamp: getNextWeeklyTimestamp(weekday, time, { skipToday }),
@@ -208,6 +213,10 @@ const scheduleOneOffNotification = async ({
   title: string;
   body: string;
 }) => {
+  if (runtimeNotificationsSuppressed) {
+    return;
+  }
+
   const trigger: TimestampTrigger = {
     type: TriggerType.TIMESTAMP,
     timestamp,
@@ -441,6 +450,10 @@ const scheduleFreeTrialEndingReminder = async (
   return true;
 };
 
+const setRuntimeNotificationsSuppressed = (suppressed: boolean) => {
+  runtimeNotificationsSuppressed = suppressed;
+};
+
 export {
   cancelFreeTrialEndingReminder,
   cancelReminderNotifications,
@@ -451,6 +464,7 @@ export {
   requestReminderPermission,
   requestAndSyncOnboardingReminderPreference,
   scheduleFreeTrialEndingReminder,
+  setRuntimeNotificationsSuppressed,
   syncOnboardingReminderPreference,
   syncReminderNotifications,
   syncStoredDailyReminderNotifications,

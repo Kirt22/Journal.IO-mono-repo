@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Lock,
   RotateCcw,
+  Share2,
   Sparkles,
   X,
 } from 'lucide-react-native';
@@ -42,6 +43,8 @@ import { ApiError } from '../../utils/apiClient';
 import { useAppStore } from '../../store/appStore';
 import { useTheme } from '../../theme/provider';
 import JournalLoader from '../../components/JournalLoader';
+import MindMapShareCaptureModal from '../../components/MindMapShareCaptureModal';
+import type { MindMapShareRegion } from '../../components/MindMapShareCard';
 
 type Props = {
   journalId: string;
@@ -104,6 +107,7 @@ export default function EntryMindMapScreen({
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [cameraResetToken, setCameraResetToken] = useState(0);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const [shareRegion, setShareRegion] = useState<MindMapShareRegion | null>(null);
   const refineTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -202,6 +206,19 @@ export default function EntryMindMapScreen({
       null
     );
   }, [readyMap, selectedRegionId]);
+  const selectedShareRegion = useMemo<MindMapShareRegion | null>(
+    () =>
+      selectedRegion
+        ? {
+            brainRegion: selectedRegion.brainRegionSubtitle,
+            label: selectedRegion.productLabel,
+            regionId: selectedRegion.id,
+            scorePercent: Math.round(selectedRegion.signalScore * 100),
+            shortInsight: selectedRegion.shortInsight,
+          }
+        : null,
+    [selectedRegion],
+  );
 
   const renderHeader = () => (
     <View style={styles.headerRow}>
@@ -504,9 +521,28 @@ export default function EntryMindMapScreen({
               },
             ]}
           >
-            <Text style={[styles.regionTitle, { color: colors.text }]}>
-              {selectedRegion.productLabel}
-            </Text>
+            <View style={styles.regionHeading}>
+              <Text style={[styles.regionTitle, { color: colors.text }]}>
+                {selectedRegion.productLabel}
+              </Text>
+              {selectedShareRegion ? (
+                <HapticPressable
+                  accessibilityLabel="Share selected Mind Map region"
+                  accessibilityRole="button"
+                  onPress={() => setShareRegion(selectedShareRegion)}
+                  style={({ pressed }) => [
+                    styles.shareIconButton,
+                    {
+                      backgroundColor: withAlpha(colors.nodeHot, 0.1),
+                      borderColor: withAlpha(colors.nodeHot, 0.2),
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Share2 color={colors.nodeHot} size={15} />
+                </HapticPressable>
+              ) : null}
+            </View>
             <Text style={[styles.regionSubtitle, { color: colors.muted }]}>
               {selectedRegion.brainRegionSubtitle}
             </Text>
@@ -679,6 +715,10 @@ export default function EntryMindMapScreen({
         {renderHeader()}
         {renderBody()}
       </View>
+      <MindMapShareCaptureModal
+        onClose={() => setShareRegion(null)}
+        region={shareRegion}
+      />
     </SafeAreaView>
   );
 }
@@ -786,6 +826,20 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
     marginTop: 4,
+  },
+  regionHeading: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 32,
+  },
+  shareIconButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
   regionTitle: {
     fontSize: 16,

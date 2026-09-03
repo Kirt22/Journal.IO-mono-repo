@@ -9,7 +9,10 @@ import type {
   FirstReflectionGoalsPayload,
   FirstReflectionStreakPayload,
 } from '../screens/onboarding/FirstGuidedReflectionScreen';
-import type { GuidedReflectionSessionAnalysisResponse } from '../services/guidedReflectionService';
+import type {
+  BrainReflectionCenterId,
+  GuidedReflectionSessionAnalysisResponse,
+} from '../services/guidedReflectionService';
 import type { OnboardingV2Draft } from '../types/onboarding';
 
 export type MainAppStackParamList = {
@@ -66,6 +69,9 @@ export type RootStackParamList = {
   FirstReflectionGoals: FirstReflectionGoalsPayload;
   FirstReflectionMindMapLoading: FirstReflectionStreakPayload;
   FirstReflectionMindMap: FirstReflectionStreakPayload;
+  FirstReflectionMindMapShare: FirstReflectionStreakPayload & {
+    selectedRegionId: BrainReflectionCenterId;
+  };
   FirstReflectionRating: FirstReflectionStreakPayload;
   FirstReflectionStreak: FirstReflectionStreakPayload;
   // `draft` rides through to the final step so the onboarding answers can be
@@ -169,6 +175,15 @@ export function getCurrentRootRouteName() {
   }
 
   return navigationRef.getCurrentRoute()?.name ?? null;
+}
+
+/** The route currently on top of the ROOT stack, with its params. */
+export function getCurrentRootRoute() {
+  if (!navigationRef.isReady()) {
+    return null;
+  }
+
+  return navigationRef.getCurrentRoute() ?? null;
 }
 
 export function goBackOrFallback(fallback: () => void) {

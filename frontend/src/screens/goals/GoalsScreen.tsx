@@ -71,6 +71,9 @@ export default function GoalsScreen({ onBack }: GoalsScreenProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Bumped on scroll so any open GoalRow action tray closes itself rather than
+  // being left open behind content the user has scrolled past.
+  const [rowCloseSignal, setRowCloseSignal] = useState(0);
 
   const isCompact = width < 360;
   const isWide = width >= 430;
@@ -179,6 +182,10 @@ export default function GoalsScreen({ onBack }: GoalsScreenProps) {
   };
 
   /** A section header only appears when that section actually holds a goal. */
+  const handleListScroll = useCallback(() => {
+    setRowCloseSignal(value => value + 1);
+  }, []);
+
   const renderSection = (label: string, sectionGoals: SavedGoal[]) => {
     if (sectionGoals.length === 0) {
       return null;
@@ -207,6 +214,7 @@ export default function GoalsScreen({ onBack }: GoalsScreenProps) {
                 animateSections();
                 setGoalArchived(item.id, false).catch(() => undefined);
               }}
+              closeSignal={rowCloseSignal}
               presentation="manage"
             />
           ))}
@@ -250,6 +258,8 @@ export default function GoalsScreen({ onBack }: GoalsScreenProps) {
           { paddingHorizontal: horizontalPadding, maxWidth: layoutMaxWidth },
         ]}
         showsVerticalScrollIndicator={false}
+        onScroll={handleListScroll}
+        scrollEventThrottle={16}
       >
         {isLoadingGoals && !hasHydratedGoals ? (
           <View

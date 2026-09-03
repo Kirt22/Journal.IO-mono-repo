@@ -225,7 +225,13 @@ const verifyEmail = async (
       method: 'POST',
       body: JSON.stringify({
         ...payload,
-        onboardingCompleted: options.onboardingCompleted ?? false,
+        // Only sent when the caller actually knows the answer. Defaulting to
+        // `false` meant every verification told the server "this account has not
+        // finished onboarding" — which it honoured, so re-verifying an email
+        // downgraded a completed account.
+        ...(options.onboardingCompleted === undefined
+          ? {}
+          : { onboardingCompleted: options.onboardingCompleted }),
       }),
     },
     { showNetworkAlert: false },

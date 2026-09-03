@@ -45,6 +45,7 @@ import { useAppStore } from "../store/appStore";
 import { navigateMainApp } from "../navigation/navigation";
 import { useTheme } from "../theme/provider";
 import { useConnectivity } from "../hooks/useConnectivity";
+import { fontFamilies } from "../theme/typography";
 
 type NewEntryScreenProps = {
   onBack: () => void;
@@ -145,6 +146,13 @@ export default function NewEntryScreen({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+  /**
+   * Every prompt the app has inserted into the body, not just the last one.
+   * `selectedPrompt` feeds `aiPrompt`, which holds a single value — so in a
+   * multi-prompt entry the earlier prompts would otherwise be unrecoverable app
+   * text sitting inside the user's writing, read back as their own words.
+   */
+  const [insertedPrompts, setInsertedPrompts] = useState<string[]>([]);
   // Starts empty so the card shimmers instead of flashing a placeholder prompt
   // the user never asked for.
   const [writingPrompts, setWritingPrompts] = useState<WritingPrompt[]>([]);
@@ -354,6 +362,9 @@ export default function NewEntryScreen({
     // The text lands in the entry on the tap itself; the motion below shows
     // where it went rather than gating the insert behind an animation.
     setSelectedPrompt(promptText);
+    setInsertedPrompts(previous =>
+      previous.includes(promptText) ? previous : [...previous, promptText]
+    );
     setContent(previous =>
       previous.trim()
         ? `${previous.trimEnd()}\n\n${promptText}\n`
@@ -439,6 +450,7 @@ export default function NewEntryScreen({
         content: trimmedContent,
         type: "open_ended",
         aiPrompt: selectedPrompt || undefined,
+        appAuthoredSegments: insertedPrompts,
         tags: [],
       });
 
@@ -982,6 +994,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   saveButtonText: {
+    fontFamily: fontFamilies.ui.semibold,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -1026,6 +1039,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   promptText: {
+    fontFamily: fontFamilies.ui.regular,
     fontSize: 13,
     lineHeight: PROMPT_SLOT_HEIGHT,
   },

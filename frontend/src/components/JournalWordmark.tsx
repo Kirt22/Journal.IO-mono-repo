@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Text } from '../infrastructure/reactNative';
 import { useTheme } from '../theme/provider';
+import { fontFamilies } from '../theme/typography';
 
 export type JournalWordmarkIntroResult = {
   animated: boolean;
@@ -543,7 +544,14 @@ export default function JournalWordmark({
                 ]}
               >
                 journal
-                <Text style={{ color: theme.colors.primary }}>.io</Text>
+                <Text
+                  style={{
+                    color: theme.colors.primary,
+                    fontFamily: fontFamilies.display.bold,
+                  }}
+                >
+                  .io
+                </Text>
               </Animated.Text>
             );
           })
@@ -649,6 +657,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   currentLine: {
+    fontFamily: fontFamilies.display.bold,
     fontWeight: '700',
     includeFontPadding: false,
     left: 0,
@@ -666,6 +675,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   finalText: {
+    fontFamily: fontFamilies.display.bold,
     fontWeight: '700',
     includeFontPadding: false,
     textAlign: 'center',
@@ -676,11 +686,17 @@ const styles = StyleSheet.create({
     paddingRight: 4,
     position: 'relative',
   },
+  // Deliberately unconstrained on the right. The coral `.io` is a raw
+  // `Animated.Text`, so it does not pass through `infrastructure/reactNative`
+  // and only carries the family this stylesheet gives it. Pinning `right: 0`
+  // capped it at the width the layer underneath measured, and any metric
+  // difference at all made `numberOfLines` truncate it to a period plus an
+  // ellipsis — four coral dots across the mark. Sized to its own content it
+  // cannot ellipsize, whatever the face.
   ioColorOverlay: {
     bottom: 0,
     left: 0,
     position: 'absolute',
-    right: 0,
     top: 0,
   },
   inkSweepClip: {

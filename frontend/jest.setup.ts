@@ -76,10 +76,40 @@ jest.mock(
   { virtual: true }
 );
 
-jest.mock("react-native-webview", () => ({
+jest.mock("react-native-webview", () => {
+  const WebView = jest.fn(() => null);
+  return {
+    __esModule: true,
+    default: WebView,
+    WebView,
+  };
+});
+
+jest.mock("react-native-share", () => ({
   __esModule: true,
-  default: jest.fn(() => null),
+  default: {
+    open: jest.fn(async () => ({ success: true, message: "shared" })),
+  },
 }));
+
+jest.mock("react-native-view-shot", () => {
+  const ReactModule = require("react");
+  const { View } = require("react-native");
+  const capture = jest.fn(async () => "/tmp/journal-io-mind-map.png");
+  const ViewShot = ReactModule.forwardRef(
+    ({ children, ...props }: { children?: unknown }, ref: unknown) => {
+      ReactModule.useImperativeHandle(ref, () => ({ capture }));
+      return ReactModule.createElement(View, props, children ?? null);
+    }
+  );
+
+  return {
+    __esModule: true,
+    captureRef: jest.fn(async () => "/tmp/journal-io-mind-map.png"),
+    default: ViewShot,
+    releaseCapture: jest.fn(),
+  };
+});
 
 jest.mock("react-native-video", () => ({
   __esModule: true,

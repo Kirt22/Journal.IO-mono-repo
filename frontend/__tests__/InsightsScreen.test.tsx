@@ -441,14 +441,14 @@ test("supports horizontal swipes between overview and AI analysis", async () => 
   await ReactTestRenderer.act(async () => {
     swipeZone.props.onTouchStart({
       nativeEvent: {
-        locationX: 240,
-        locationY: 44,
+        pageX: 240,
+        pageY: 44,
       },
     });
     swipeZone.props.onTouchEnd({
       nativeEvent: {
-        locationX: 140,
-        locationY: 48,
+        pageX: 140,
+        pageY: 48,
       },
     });
   });
@@ -461,20 +461,82 @@ test("supports horizontal swipes between overview and AI analysis", async () => 
   await ReactTestRenderer.act(async () => {
     swipeZone.props.onTouchStart({
       nativeEvent: {
-        locationX: 140,
-        locationY: 48,
+        pageX: 140,
+        pageY: 48,
       },
     });
     swipeZone.props.onTouchEnd({
       nativeEvent: {
-        locationX: 244,
-        locationY: 46,
+        pageX: 244,
+        pageY: 46,
       },
     });
   });
 
   await waitForText(root!, "Total Entries");
 
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+  expect(extractText(root!.toJSON())).not.toContain("Weekly AI Analysis");
+});
+
+test("ignores drags that are not deliberate horizontal swipes", async () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <InsightsScreen />
+      </SafeAreaProvider>
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+
+  const swipeZone = root!.root.findByProps({
+    testID: "insights-view-swipe-zone",
+  });
+
+  const drag = async (
+    start: { pageX: number; pageY: number },
+    end: { pageX: number; pageY: number },
+    scrollDuring = false
+  ) => {
+    await ReactTestRenderer.act(async () => {
+      swipeZone.props.onTouchStart({ nativeEvent: start });
+      if (scrollDuring) {
+        const [scrollHost] = root!.root.findAll(
+          node => typeof node.props.onScroll === "function"
+        );
+        scrollHost.props.onScroll({
+          nativeEvent: {
+            contentOffset: { x: 0, y: 120 },
+            contentSize: { height: 2000, width: 400 },
+            layoutMeasurement: { height: 800, width: 400 },
+          },
+        });
+      }
+      swipeZone.props.onTouchEnd({ nativeEvent: end });
+    });
+  };
+
+  // Too short to be a swipe.
+  await drag({ pageX: 240, pageY: 44 }, { pageX: 200, pageY: 46 });
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+
+  // Diagonal: cleared the old |dx| > |dy| rule, but is not a swipe.
+  await drag({ pageX: 240, pageY: 44 }, { pageX: 170, pageY: 94 });
+  expect(extractText(root!.toJSON())).toContain("Total Entries");
+
+  // A real horizontal distance, but the page scrolled during the gesture.
+  await drag({ pageX: 240, pageY: 44 }, { pageX: 120, pageY: 48 }, true);
   expect(extractText(root!.toJSON())).toContain("Total Entries");
   expect(extractText(root!.toJSON())).not.toContain("Weekly AI Analysis");
 });

@@ -28,16 +28,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import OnboardingBottomSheet from '../../components/OnboardingBottomSheet';
-import OnboardingHero from '../../components/OnboardingHero';
 import OnboardingOptionCard from '../../components/OnboardingOptionCard';
 import OnboardingProgressDots from '../../components/OnboardingProgressDots';
 import ThemePreviewCard from '../../components/ThemePreviewCard';
 import WavingHandIcon from '../../components/WavingHandIcon';
 import {
-  ENABLE_ONBOARDING_DEV_SHORTCUTS,
   REQUIRE_ONBOARDING_V2_PRIVACY_CONSENT,
 } from '../../config/onboarding';
-import { buildDevFirstReflectionStreakPayload } from './devOnboardingFixtures';
 import { useOnboardingV2State } from '../../hooks/useOnboardingV2State';
 import { triggerHaptic } from '../../services/hapticsService';
 import { useAppStore } from '../../store/appStore';
@@ -755,27 +752,6 @@ export default function OnboardingV2Screen() {
     }, FIRST_REFLECTION_START_DELAY_MS);
   };
 
-  /**
-   * Jumps past the guided reflection, its session analysis, and goal
-   * generation, landing on the rating step with a fabricated payload.
-   *
-   * Uses `navigate` rather than `replace` so the stack ends up the same depth
-   * as the real path. Nothing is persisted — no entry is written and no goals
-   * are saved — so the streak and Mind Map steps after this render from the
-   * fixture rather than from anything the account actually has.
-   */
-  const skipToRatingForDev = () => {
-    if (!ENABLE_ONBOARDING_DEV_SHORTCUTS) {
-      return;
-    }
-
-    setIsDisclaimerVisible(false);
-    navigation.navigate(
-      'FirstReflectionRating',
-      buildDevFirstReflectionStreakPayload(draft),
-    );
-  };
-
   const continueFromOtherReferral = () => {
     const trimmedReferral = otherReferralInput.trim();
 
@@ -1135,33 +1111,20 @@ export default function OnboardingV2Screen() {
       case 'intro':
         return (
           <View style={styles.centeredCopy}>
-            <OnboardingHero variant="welcome" />
-            <View style={styles.greetingBlock}>
-              {firstName ? (
-                <View style={styles.greetingRow}>
-                  <Text
-                    style={[
-                      styles.greetingText,
-                      { color: theme.colors.foreground },
-                    ]}
-                  >
-                    Hi {firstName}
-                  </Text>
-                  <WavingHandIcon />
-                </View>
-              ) : null}
-              <Text
-                style={[
-                  styles.title,
-                  {
-                    color: theme.colors.foreground,
-                    fontSize: isCompact ? 28 : 31,
-                  },
-                ]}
-              >
-                Ready to begin?
-              </Text>
-            </View>
+            <WavingHandIcon
+              emphasizeOnMount
+              size={isCompact ? 56 : 64}
+              testID="onboarding-intro-waving-hand"
+            />
+            <Text
+              style={[
+                styles.title,
+                isCompact ? styles.titleCompact : styles.titleRegular,
+                { color: theme.colors.foreground },
+              ]}
+            >
+              Ready to begin?
+            </Text>
             <Text
               style={[styles.body, { color: theme.colors.mutedForeground }]}
             >
@@ -1598,33 +1561,6 @@ export default function OnboardingV2Screen() {
           />
           <View style={styles.backButtonSpacer} />
 
-          {/* Debug builds only — `__DEV__` compiles this out of release
-              bundles. It sits absolutely over the empty right-hand spacer, so
-              the progress dots stay centred, and it lives inside the top bar
-              rather than the screen root so the safe-area inset keeps it clear
-              of the status bar. */}
-          {ENABLE_ONBOARDING_DEV_SHORTCUTS ? (
-            <HapticPressable
-              accessibilityLabel="Dev: skip to the rating step"
-              accessibilityRole="button"
-              hitSlop={12}
-              onPress={skipToRatingForDev}
-              style={({ pressed }) => [
-                styles.devSkipButton,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.warning,
-                },
-                pressed && styles.devSkipButtonPressed,
-              ]}
-            >
-              <Text
-                style={[styles.devSkipText, { color: theme.colors.warning }]}
-              >
-                DEV SKIP
-              </Text>
-            </HapticPressable>
-          ) : null}
         </View>
         <Animated.View
           style={[
@@ -1744,28 +1680,6 @@ export default function OnboardingV2Screen() {
 }
 
 const styles = StyleSheet.create({
-  devSkipButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    // Dashed so it never reads as shippable UI.
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    justifyContent: 'center',
-    minHeight: 26,
-    paddingHorizontal: 10,
-    position: 'absolute',
-    right: 0,
-    top: 4,
-    zIndex: 20,
-  },
-  devSkipButtonPressed: {
-    opacity: 0.6,
-  },
-  devSkipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
   ageEyebrowText: {
     fontSize: 20,
     fontWeight: '700',
@@ -2113,21 +2027,6 @@ const styles = StyleSheet.create({
   },
   themeActionArea: {
     paddingTop: 18,
-  },
-  greetingBlock: {
-    alignItems: 'center',
-    gap: 5,
-  },
-  greetingRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-  },
-  greetingText: {
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: -0.2,
   },
   title: {
     fontWeight: '700',

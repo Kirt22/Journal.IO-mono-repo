@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import AddWidgetDemoPhone from '../src/components/AddWidgetDemoPhone';
 import { ADD_WIDGET_STEPS } from '../src/screens/profile/widgetInstructions';
@@ -50,10 +51,13 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-test('plays the bundled recording instead of the written steps', async () => {
+test('plays the bundled recording inside the supplied phone frame', async () => {
   const root = await render();
 
+  const frame = root.root.findByProps({ testID: 'add-widget-phone-frame' });
   const video = root.root.findByProps({ testID: 'add-widget-demo-video' });
+  expect(frame.props.accessible).toBe(false);
+  expect(frame.props.source).toBeTruthy();
   expect(video.props.muted).toBe(true);
   expect(video.props.repeat).toBe(true);
   expect(video.props.source).toBeTruthy();
@@ -61,6 +65,23 @@ test('plays the bundled recording instead of the written steps', async () => {
   ADD_WIDGET_STEPS.forEach(step => {
     expect(extractText(root.toJSON())).not.toContain(step);
   });
+
+  await act(async () => {
+    root.unmount();
+  });
+});
+
+test('scales the Figma 90px screen radius with the rendered frame', async () => {
+  const root = await render();
+
+  await act(async () => {
+    root.root.findByProps({ testID: 'add-widget-phone-container' }).props.onLayout({
+      nativeEvent: { layout: { height: 1309 } },
+    });
+  });
+
+  const screen = root.root.findByProps({ testID: 'add-widget-phone-screen' });
+  expect(StyleSheet.flatten(screen.props.style).borderRadius).toBe(90);
 
   await act(async () => {
     root.unmount();

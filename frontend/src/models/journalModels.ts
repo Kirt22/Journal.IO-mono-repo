@@ -10,6 +10,14 @@ export type CreateJournalPayload = {
   type?: JournalEntryMode;
   entryKind?: JournalEntryKind;
   aiPrompt?: string;
+  /**
+   * The exact strings the app itself put into `content` — guided section
+   * labels, Journal.IO's own reflection and questions, or any writing prompt
+   * the user tapped to insert. The backend removes these before treating the
+   * entry as the person's own words, so app text is never quoted back at them
+   * as evidence or mined into their pattern graph.
+   */
+  appAuthoredSegments?: string[];
   images?: string[];
   tags?: string[];
   isFavorite?: boolean;

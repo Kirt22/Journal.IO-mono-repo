@@ -57,6 +57,12 @@ import {
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../theme/provider';
 import { triggerHaptic } from '../services/hapticsService';
+import {
+  readViewSwipePoint,
+  resolveViewSwipe,
+  type ViewSwipePoint,
+  type ViewSwipeTouchEvent,
+} from '../utils/viewSwipeGesture';
 
 const HEADER_INSIGHTS_ICON = require('../assets/png/insights/icons8-combo-chart-100.png');
 const AI_ANALYSIS_TAB_ICON = require('../assets/png/entry/icons8-ai-100.png');
@@ -70,12 +76,7 @@ const MOOD_DISTRIBUTION_ICON = require('../assets/png/insights/icons8-pie-chart-
 const POPULAR_TOPICS_ICON = require('../assets/png/insights/icons8-quill-48.png');
 
 type InsightTab = 'overview' | 'analysis';
-type SwipeTouchEvent = {
-  nativeEvent: {
-    locationX: number;
-    locationY: number;
-  };
-};
+type SwipeTouchEvent = ViewSwipeTouchEvent;
 
 const MOOD_COLORS: Record<string, string> = {
   amazing: '#E6816D',
@@ -1561,7 +1562,10 @@ export default function InsightsScreen() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const thumbX = useRef(new Animated.Value(0)).current;
   const contentProgress = useRef(new Animated.Value(1)).current;
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeStartRef = useRef<ViewSwipePoint | null>(null);
+  // Touch events fire on the swipe zone even while the page is scrolling, so a
+  // scroll during the gesture disqualifies it outright.
+  const didScrollRef = useRef(false);
   const horizontalPadding = useMemo(
     () => Math.max(16, Math.min(24, width * 0.05)),
     [width],
@@ -1641,38 +1645,41 @@ export default function InsightsScreen() {
     setActiveTab(nextTab);
   }, []);
 
+  const handleScroll = useCallback(() => {
+    if (swipeStartRef.current) {
+      didScrollRef.current = true;
+    }
+  }, []);
+
   const handleSwipeStart = useCallback((event: SwipeTouchEvent) => {
-    swipeStartRef.current = {
-      x: event.nativeEvent.locationX,
-      y: event.nativeEvent.locationY,
-    };
+    didScrollRef.current = false;
+    swipeStartRef.current = readViewSwipePoint(event, Date.now());
   }, []);
 
   const handleSwipeEnd = useCallback(
     (event: SwipeTouchEvent) => {
       const start = swipeStartRef.current;
+      const scrolled = didScrollRef.current;
       swipeStartRef.current = null;
+      didScrollRef.current = false;
 
-      if (!start) {
+      const direction = resolveViewSwipe({
+        start,
+        end: readViewSwipePoint(event, Date.now()),
+        scrolled,
+      });
+
+      if (!direction) {
         return;
       }
 
-      const dx = event.nativeEvent.locationX - start.x;
-      const dy = event.nativeEvent.locationY - start.y;
-      const isHorizontalSwipe =
-        Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy);
-
-      if (!isHorizontalSwipe) {
-        return;
-      }
-
-      if (dx < 0 && activeTab === 'overview') {
+      if (direction === 'left' && activeTab === 'overview') {
         triggerHaptic('optionSelected').catch(() => undefined);
         handleSelectTab('analysis');
         return;
       }
 
-      if (dx > 0 && activeTab === 'analysis') {
+      if (direction === 'right' && activeTab === 'analysis') {
         triggerHaptic('optionSelected').catch(() => undefined);
         handleSelectTab('overview');
       }
@@ -1828,6 +1835,8 @@ export default function InsightsScreen() {
   return (
     <TabScreenLayout
       backgroundColor={theme.colors.background}
+      onScroll={handleScroll}
+      scrollEventThrottle={16}
       horizontalPadding={horizontalPadding}
       layoutMaxWidth={layoutMaxWidth}
       scrollContentStyle={styles.scrollContent}

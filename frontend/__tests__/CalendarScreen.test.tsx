@@ -444,10 +444,10 @@ test('swipes between the list and calendar views', async () => {
 
   ReactTestRenderer.act(() => {
     swipeZone.props.onTouchStart?.({
-      nativeEvent: { locationX: 200, locationY: 40 },
+      nativeEvent: { pageX: 200, pageY: 40 },
     } as never);
     swipeZone.props.onTouchEnd?.({
-      nativeEvent: { locationX: 100, locationY: 50 },
+      nativeEvent: { pageX: 100, pageY: 50 },
     } as never);
   });
 
@@ -461,10 +461,10 @@ test('swipes between the list and calendar views', async () => {
 
   ReactTestRenderer.act(() => {
     swipeZone.props.onTouchStart?.({
-      nativeEvent: { locationX: 100, locationY: 50 },
+      nativeEvent: { pageX: 100, pageY: 50 },
     } as never);
     swipeZone.props.onTouchEnd?.({
-      nativeEvent: { locationX: 220, locationY: 56 },
+      nativeEvent: { pageX: 220, pageY: 56 },
     } as never);
   });
 
@@ -560,10 +560,10 @@ test('card swipe claims do not switch the whole Entries view', async () => {
 
   ReactTestRenderer.act(() => {
     swipeZone.props.onTouchStart({
-      nativeEvent: { locationX: 220, locationY: 40 },
+      nativeEvent: { pageX: 220, pageY: 40 },
     });
     swipeZone.props.onTouchEnd({
-      nativeEvent: { locationX: 80, locationY: 42 },
+      nativeEvent: { pageX: 80, pageY: 42 },
     });
   });
 

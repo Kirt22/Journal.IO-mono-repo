@@ -18,7 +18,7 @@ const showFinalAccountDeletionConfirmation = (onConfirmDelete: () => void) => {
   Alert.alert('Are you sure?', undefined, [
     { text: 'Cancel', style: 'cancel' },
     {
-      text: 'Delete Account',
+      text: 'Delete',
       style: 'destructive',
       onPress: onConfirmDelete,
     },

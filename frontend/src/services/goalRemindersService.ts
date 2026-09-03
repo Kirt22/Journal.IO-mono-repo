@@ -40,6 +40,7 @@ const GOAL_REMINDER_PREFIX = 'journal-goal-reminder';
  */
 const GOAL_REMINDER_BUDGET = 24;
 const MAX_OCCURRENCES_PER_GOAL = 4;
+let runtimeGoalNotificationsSuppressed = false;
 
 const DEFAULT_REMINDER_BODY = 'A small step you chose. No pressure.';
 
@@ -244,6 +245,11 @@ const syncGoalReminderNotifications = async (
   const nowMs = options?.nowMs ?? Date.now();
 
   try {
+    if (runtimeGoalNotificationsSuppressed) {
+      await cancelAllGoalReminders();
+      return;
+    }
+
     await ensureGoalReminderChannel();
 
     if (!(await getReminderPermissionGranted())) {
@@ -321,11 +327,16 @@ const syncGoalReminderNotifications = async (
   }
 };
 
+const setRuntimeGoalNotificationsSuppressed = (suppressed: boolean) => {
+  runtimeGoalNotificationsSuppressed = suppressed;
+};
+
 export {
   GOAL_REMINDER_BUDGET,
   MAX_OCCURRENCES_PER_GOAL,
   buildGoalNotificationId,
   cancelAllGoalReminders,
   cancelGoalReminders,
+  setRuntimeGoalNotificationsSuppressed,
   syncGoalReminderNotifications,
 };

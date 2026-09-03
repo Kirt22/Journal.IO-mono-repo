@@ -10,6 +10,9 @@ const KEYCHAIN_USERNAME = "token";
 const DEVICE_ONLY_KEYCHAIN_USERNAME = "secure";
 const AUTH_USER_CACHE_SERVICE = "journalio.auth.user.secure";
 const ONBOARDING_CACHE_SERVICE = "journalio.onboardingData.secure";
+// Holds a part-finished onboarding draft, so it is as personal as the
+// completed answers next to it and gets the same device-only treatment.
+const ONBOARDING_RESUME_SERVICE = "journalio.onboardingResume.secure";
 
 const getKeychainOptions = () => ({
   service: KEYCHAIN_SERVICE,
@@ -92,6 +95,7 @@ const clearDeviceOnlyValue = async (service: string) => {
 export {
   AUTH_USER_CACHE_SERVICE,
   ONBOARDING_CACHE_SERVICE,
+  ONBOARDING_RESUME_SERVICE,
   clearDeviceOnlyValue,
   clearTokens,
   getAccessToken,

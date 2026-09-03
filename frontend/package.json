@@ -23,6 +23,7 @@
     "ios:local-prod": "APP_ENV=production BABEL_ENV=production react-native run-ios --mode Release",
     "ios:release": "APP_ENV=production BABEL_ENV=production react-native run-ios --mode Release",
     "lint": "eslint .",
+    "postinstall": "node scripts/install-skia-apple-libs.mjs",
     "start:local-prod-debug": "APP_ENV=production react-native start --host 0.0.0.0 --reset-cache",
     "start:prod-debug": "APP_ENV=production react-native start --host 0.0.0.0 --reset-cache",
     "start": "APP_ENV=simulator react-native start",

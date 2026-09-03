@@ -542,7 +542,7 @@ export const buildUserReflectionMemory = async (
 
   if (rollingMemory.structured.sensitiveTopics.length) {
     parts.push(
-      "Sensitive topics they've raised (acknowledge with care, never diagnose):\n" +
+      "Sensitive topics they've raised (acknowledge with care, never assert a formal diagnosis):\n" +
         rollingMemory.structured.sensitiveTopics
           .map(topic => `- ${topic}`)
           .join("\n")

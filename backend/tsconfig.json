@@ -1,5 +1,11 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
+
+  // rootDir is ./src, but without an explicit include TypeScript still pulls in
+  // every .ts under the package root and fails on anything outside it -- a stray
+  // node_modules.broken/ was enough to break the build and therefore npm test.
+  "include": ["src"],
+
   "compilerOptions": {
     // File Layout
     "rootDir": "./src",

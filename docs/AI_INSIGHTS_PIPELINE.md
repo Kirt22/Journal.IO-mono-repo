@@ -106,7 +106,7 @@ Current implemented weekly AI-analysis cache:
 
 Current implemented prompt and tag generation:
 
-- every OpenAI-backed interpretation/extraction path shares an evidence-led challenge balance: when both difficult and positive material exist, roughly 55% of attention goes to supported friction and unresolved difficulty and 45% to supported strengths/resources. The ratio never permits invented negative material, and all user-facing output remains warm, constructive, non-clinical, and uncertainty-aware.
+- every OpenAI-backed interpretation/extraction path shares an evidence-led challenge balance: when both difficult and positive material exist, roughly 55% of attention goes to supported friction and unresolved difficulty and 45% to supported strengths/resources. The ratio never permits invented negative material. All user-facing output is direct and evidence-led: it states the conclusion the writing supports and cites the evidence, and it never asserts a formal diagnosis as fact.
 - `GET /prompts/writing` uses OpenAI to generate a fresh personalized prompt list from recent writing patterns and recent journal excerpts when the user is eligible and OpenAI is configured
 - `POST /journal/suggest_tags` uses OpenAI to choose from Journal.IO's allowed tag set for the in-progress draft when the user is eligible and OpenAI is configured
 - journal create/edit writes an immediate deterministic `detectedTopics`/`detectedMood` baseline without blocking the save; guided and open-ended session analysis may replace it with validated structured output
@@ -119,7 +119,7 @@ Current implemented prompt and tag generation:
 - session-analysis `brainSessionMap` falls back deterministically when OpenAI is unavailable, disabled, or malformed; clear fallback sessions can still use local center scoring, while low-signal/no-reliable-map sessions use the Self-Reflection & Identity dominant baseline
 - `POST /guided-reflection/goal-suggestions` returns 0-4 local starter goals supported by the user's writing; prompts and deterministic fallbacks require specific, low-effort actions or a plausible contextual experiment rather than padded or vague reflection advice. Active and archived goals both participate in deterministic intent deduplication, eligible AI paths add one transient batch semantic comparison (`>= 0.84` cosine similarity), and an empty result is valid when no new action remains. Titles are capped at 30 characters and descriptions at 96 characters for the compact onboarding card.
 - prompt, tag, quick-analysis, weekly-analysis, and onboarding session-analysis routes fall back deterministically when the backend is not configured for OpenAI
-- weekly AI analysis uses release behavior by default; the old early-ready development preview flag is ignored, and early ready reports now require the explicit `AI_INSIGHTS_EXPERIMENTAL_EARLY_READY=true` flag in non-production only
+- weekly AI analysis uses the same four-active-day readiness rule in every environment; no development flag can force an early ready report
 
 Current implemented Mind Map cache:
 
@@ -134,7 +134,7 @@ Current implemented Mind Map cache:
 - **long-term memory** (premium): the AI insight pass also fire-and-forget refreshes a rolling `user_memories` document (`updateUserMemory`) — an AI-maintained whole-history narrative of ongoing situations, key relationships, and sensitive topics. At guided-reflection time, `buildUserReflectionMemory(userId, { queryEmbedding })` composes three layers into a token-bounded block injected into every prompt: (1) the rolling narrative, (2) semantic recall of the most relevant past entries (cosine over stored embeddings via `loadRelevantEntryInsights`), and (3) recurrence-ranked themes. All layers are best-effort and never block a save or a session.
 - the global `/insights/mind-map` route aggregates these persisted per-entry scores across the window's clear entries (favorites weighted ×1.12), falling back to per-entry keyword scoring for legacy entries with no stored row. It also aggregates persisted `entry_insights` themes into the ordered `patterns` array (recurrence-ranked, keeping the highest-confidence rationale + evidence quote per theme). The route itself makes no new OpenAI call.
 - ranges are `latest_week`, `monthly` (rolling last 30 days), and `all_time`; each has its own cache fields + cache key on the `insights` document.
-- each region carries a neutral emphasis `trend` (`rising`/`steady`/`easing`) + `trendLabel`, comparing the recent half of clear scored entries to the earlier half; the ready payload adds a supportive, non-clinical `focus` prompt. Trends never imply improvement or decline.
+- each region carries a neutral emphasis `trend` (`rising`/`steady`/`easing`) + `trendLabel`, comparing the recent half of clear scored entries to the earlier half; the ready payload adds a direct, practical `focus` prompt. Trends never imply improvement or decline.
 - **tier scoring** (v4): each region also carries a `tier` band (`low`/`balanced`/`high`/`very_high`) + `tierLabel`, and the ready payload adds a top-level `overallTier` (`{ tier, label, blurb }`). Tiers band the region's **pre-normalization weighted mean** against a fixed per-region baseline table (`REFLECTION_REGION_BASELINE` in `reflectionMap.helpers.ts`) — a deterministic "how you compare to a typical reflector" read that is band-only (never a number, percentile, or clinical judgement) and survives AI failure. `getReflectionRegionTier` / `getOverallReflectionTier` own the logic; per-entry maps compute the same tiers off the single entry's region scores. Baseline thresholds are tunable calibration constants.
 - **per-region development series**: `GET /insights/mind-map/region/:regionId/series?range=…` (`buildRegionTimeSeries` in `mindmap.service.ts`) returns the region's averaged per-entry score bucketed by day (recent windows) or week (all-time), read directly from `mindmap_entry_scores` with no OpenAI call. It powers the small development graph in the region detail modal and is fetched lazily when a region is opened.
 - `MIND_MAP_SCORER_VERSION` (in `mindmap.service.ts`) is embedded in cache keys and stored on each per-entry row; bump it to invalidate all caches + treat stored rows as stale (bumped to `4` for tier bands)
@@ -148,7 +148,7 @@ Current implemented Mind Map cache:
   - `support_first` only when safety-sensitive history leaves no safe writing to map
   - `ready` when the safe writing history is sufficient to rank all 8 regions
 - latest-week and all-time caches are stored separately, with cache keys scoped to timezone, scorer version, and response status; latest-week also includes the closed premium-week window
-- **dev bypass:** set `AI_ALLOW_NON_PREMIUM=true` **or** the dedicated non-production `MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS=true` (the latter lets a real premium account bypass without enabling the non-premium AI path). While a bypass is active: the readiness thresholds relax (`4/2/40` → `1/1/10`); `getClearMindMapJournals` accepts any safe, non-empty entry (so short / low-signal dev writing still counts); the map is **forced to `ready` as soon as there is ≥1 clear entry in the window** (`mindMapForceReady`, skipping the active-days / clear-entry / word minimums — needs ≥1 entry so the map isn't empty/NaN); and `getInsightsMindMap` skips the cached-response short-circuit so a previously cached `building` map recomputes immediately (recompute is DB/heuristic-only, no live AI). The entry must be in the **current month** for the `monthly` map the screen uses. Never set either flag in production.
+- non-production Premium access follows the single `DEV_PREMIUM_ACCESS_OVERRIDE=default|pro|free` selector. The selector never relaxes clear-writing, entry-count, active-day, word-count, cache, or safety rules.
 - journal create, edit, delete, and favorite-toggle writes mark both Mind Map caches stale without blocking the primary journal flow; create/edit also re-score the per-entry row, and a completed background AI upgrade re-marks the global caches stale so the next read reflects the AI signal
 - account deletion removes Mind Map caches, journal session-analysis snapshots, persisted per-entry scores, `entry_insights` rows (summaries + themes + evidence quotes + embeddings), the `user_memories` rolling-memory document, and the user's `pattern_nodes` / `pattern_edges`. Privacy exports include session snapshots, stored Mind Map cache payloads, the `mindMapEntryScores` array when present, and the full `patternGraph` (nodes + edges) — a user is entitled to see the patterns the app concluded about them and the connections it drew between them
 
@@ -172,7 +172,7 @@ Aggregation above answers *what recurs*. The pattern graph answers *how two recu
 
 Tier 3 (`OPENAI_PATTERN_GRAPH_MODEL`, low reasoning effort, `PATTERN_GRAPH_REFINE_EVERY` default 5) may only **relate and group patterns that already exist**. Before anything is written the response is validated: endpoints not in the exact key set are dropped, self-edges are dropped, unexplained edges are dropped, and any evidence quote not copied verbatim from a stored user sentence is discarded rather than attributed to them.
 
-**God nodes** are umbrella clusters over member patterns. They are the riskiest surface in the graph, because the obvious name for a cluster is usually a condition. Three guards: umbrella labels must be multi-word behavioural phrases ("bracing for things going wrong"), `isClinicalPatternLabel` rejects diagnoses / abbreviations / Big Five and dark-triad trait nouns, and clusters need ≥2 established members plus confidence ≥ 0.6. Umbrellas are fully derived from the latest refinement, capped at 6 per user, and chat-mined patterns may never seed one.
+**God nodes** are umbrella clusters over member patterns. Two guards remain: umbrella labels must be multi-word phrases ("bracing for things going wrong", "work anxiety"), since a single-token label is a bare state noun that names nothing the person does, and clusters need ≥2 established members plus confidence ≥ 0.6. The `isClinicalPatternLabel` filter was removed — it dropped a clinically-worded node outright rather than rewording it, losing the pattern entirely. Umbrellas are fully derived from the latest refinement, capped at 6 per user, and chat-mined patterns may never seed one.
 
 **Reaching a prompt.** `buildPatternGraphMemoryBlock` clamps to 700 characters and *replaces* the recurring-themes block once a user has ≥3 patterns seen ≥2× — recurring themes are a graph with no edges, so the only net growth in the shared 2200-character memory budget is the connection lines. Below that threshold the existing `aggregateRecurringPatterns` path is unchanged. Edges under 0.55 confidence never reach a prompt, and a `precedes` edge needs 3 observations before it is described as a sequence.
 
@@ -197,9 +197,9 @@ Output requirements:
 
 All AI-derived user-facing insight text must be:
 
-- non-clinical
-- uncertainty-aware
-- supportive
+- direct and evidence-led, stating the conclusion the user's writing supports
+- grounded in a citable entry, date, span of days, or the user's own words
+- free of a formal diagnosis asserted as fact, of claimed clinical authority, and of treatment or medication advice
 - safety-first for elevated-risk content
 
 Allowed phrases:
@@ -228,6 +228,22 @@ If analysis fails:
 - user-facing messaging stays calm and non-technical
 
 Ask Jade may present stored aggregates as rich reply blocks when the user explicitly requests a graph, trend, comparison, or statistics view. These blocks reuse the insights overview and timezone-aware mood-history services; the model cannot author numeric values. Emotion/theme visualization remains outside the MVP until those signals use a normalized aggregation model.
+
+---
+
+# 7a) Demo Capture and Replay
+
+The development-only capture command runs the real journaling and AI pipeline once, then freezes the resulting service payloads for deterministic filming:
+
+- exactly 30 fictional authored entries are inserted into an isolated scratch database using relative day offsets
+- guided reflection, per-entry analysis, Ask Jade, pattern graph updates, Mind Map scoring, weekly analysis, and goal suggestions use the normal backend services and prompts
+- the designated guided entry captures all five deeper-reflection actions
+- capture awaits normally asynchronous memory and pattern updates without changing the production default
+- any OpenAI failure, deterministic product fallback, or empty goal result aborts capture
+- captured dates are converted back to relative tokens, and source-model metadata plus input/output hashes are written atomically
+- replay performs no AI or database work; it materializes dates and returns the frozen payload through the normal frontend API contract
+
+Authored inputs may be edited before capture. Captured output must never be edited to improve the demo; prompt or model changes require a new capture.
 
 ---
 

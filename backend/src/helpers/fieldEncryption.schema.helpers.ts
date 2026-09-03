@@ -76,6 +76,18 @@ export const setEncryptedDocumentValue = (
   }
 };
 
+/**
+ * Decrypt encrypted fields on a `.lean()` row, which bypasses the schema
+ * getters installed by `applyEncryptedSchemaPaths`.
+ *
+ * `encryptedPath` must be the same path string the value was encrypted under,
+ * because that path is sealed into the ciphertext as AES-GCM additional
+ * authenticated data. For a field declared on a subdocument schema, that is the
+ * path *relative to that subschema* — so call this on the subdocument itself
+ * (`decryptLeanFields(row.structured, [{ encryptedPath: "keyRelationships" }])`)
+ * rather than reaching through the parent with a dotted path, which fails the
+ * auth-tag check and throws `FIELD_ENCRYPTION_DECRYPT_FAILED`.
+ */
 export const decryptLeanFields = <T>(
   row: T,
   paths: LeanDecryptPathDefinition[]

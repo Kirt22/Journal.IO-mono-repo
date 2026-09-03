@@ -57,9 +57,17 @@ const CLOSED_SHEET: SheetState = {
 
 type GoalsHomeCardProps = {
   onOpenGoals: () => void;
+  /**
+   * Bumped by HomeScreen whenever the page scrolls, so an open GoalRow action
+   * tray closes instead of being left open behind content scrolled past.
+   */
+  rowCloseSignal?: number;
 };
 
-export default function GoalsHomeCard({ onOpenGoals }: GoalsHomeCardProps) {
+export default function GoalsHomeCard({
+  onOpenGoals,
+  rowCloseSignal,
+}: GoalsHomeCardProps) {
   const theme = useTheme();
   const goals = useAppStore(state => state.goals);
   const isLoadingGoals = useAppStore(state => state.isLoadingGoals);
@@ -290,6 +298,7 @@ export default function GoalsHomeCard({ onOpenGoals }: GoalsHomeCardProps) {
         {previewGoals.map(goal => (
           <GoalRow
             key={goal.id}
+            closeSignal={rowCloseSignal}
             goal={goal}
             accentIndex={goals.findIndex(item => item.id === goal.id)}
             onToggleComplete={(item, completed) => {

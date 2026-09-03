@@ -44,8 +44,10 @@ const aiWritingPromptsJsonSchema = {
         additionalProperties: false,
         required: ["topic", "text"],
         properties: {
-          topic: { type: "string" },
-          text: { type: "string" },
+          // Mirrors aiWritingPromptsResponseSchema; an unbounded prompt here
+          // just gets the whole batch rejected by the parser.
+          topic: { type: "string", maxLength: 18 },
+          text: { type: "string", maxLength: 90 },
         },
       },
     },

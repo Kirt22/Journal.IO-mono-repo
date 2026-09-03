@@ -15,6 +15,20 @@ jest.mock(
   () => () => null,
 );
 
+jest.mock('../src/components/MindMapShareCaptureModal', () => {
+  const ReactModule = require('react');
+  const { View } = require('react-native');
+
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) =>
+      ReactModule.createElement(View, {
+        ...props,
+        testID: 'mind-map-share-capture-modal',
+      }),
+  };
+});
+
 jest.mock('../src/services/insightsService', () => ({
   getEntryMindMap: jest.fn(),
 }));
@@ -142,6 +156,11 @@ test('shows a local obscured Pro preview for free users without requesting analy
   expect(
     root.root.findAllByProps({ accessibilityLabel: 'Continue to goals' }),
   ).toHaveLength(0);
+  expect(
+    root.root.findAllByProps({
+      accessibilityLabel: 'Share selected Mind Map region',
+    }),
+  ).toHaveLength(0);
 });
 
 test('lets premium users continue from a ready Mind Map to goals', async () => {
@@ -161,4 +180,30 @@ test('lets premium users continue from a ready Mind Map to goals', async () => {
   });
 
   expect(onContinue).toHaveBeenCalledTimes(1);
+});
+
+test('shares the selected region from a ready per-entry Mind Map', async () => {
+  ReactTestRenderer.act(() => {
+    setSession(true);
+  });
+  const root = await renderScreen();
+
+  ReactTestRenderer.act(() => {
+    root.root
+      .findByProps({
+        accessibilityLabel: 'Share selected Mind Map region',
+      })
+      .props.onPress();
+  });
+
+  expect(
+    root.root.findByProps({ testID: 'mind-map-share-capture-modal' }).props
+      .region,
+  ).toEqual({
+    brainRegion: 'Meaning and perspective',
+    label: 'Reflection',
+    regionId: 'reflection',
+    scorePercent: 72,
+    shortInsight: 'You paused to name what may help next.',
+  });
 });

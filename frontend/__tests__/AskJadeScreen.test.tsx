@@ -4,6 +4,7 @@
 
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
+import { Alert, Share } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AskJadeScreen from '../src/screens/jade/AskJadeScreen';
 import {
@@ -14,6 +15,7 @@ import {
 import { resetAppStore, useAppStore } from '../src/store/appStore';
 import { resetConnectivityForTests } from '../src/services/connectivityService';
 import { ApiError } from '../src/utils/apiClient';
+import { copyToClipboard } from '../src/utils/clipboard';
 
 jest.mock('../src/services/askJadeService', () => ({
   deleteJadeSession: jest.fn(async () => undefined),
@@ -29,12 +31,18 @@ jest.mock('../src/services/hapticsService', () => ({
   triggerHaptic: jest.fn(async () => undefined),
 }));
 
+jest.mock('../src/utils/clipboard', () => ({
+  copyToClipboard: jest.fn(() => true),
+}));
+
 const safeAreaMetrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
 const roots: ReactTestRenderer.ReactTestRenderer[] = [];
+let alertSpy: jest.SpyInstance;
+let shareSpy: jest.SpyInstance;
 
 const createRoot = (element: React.ReactElement) => {
   const root = ReactTestRenderer.create(element);
@@ -85,6 +93,10 @@ const message = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   jest.useFakeTimers();
+  alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({
+    action: Share.sharedAction,
+  });
   resetConnectivityForTests('online');
   ReactTestRenderer.act(() => {
     resetAppStore();
@@ -95,6 +107,8 @@ afterEach(() => {
   ReactTestRenderer.act(() => {
     roots.splice(0).forEach(root => root.unmount());
   });
+  alertSpy.mockRestore();
+  shareSpy.mockRestore();
   jest.useRealTimers();
 });
 
@@ -301,6 +315,15 @@ test('sending shows the message immediately and reveals the reply progressively'
   expect(root.root.findAllByProps({ testID: 'jade-list-block' })).toHaveLength(
     0,
   );
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copy-a1' }),
+  ).toHaveLength(0);
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-share-a1' }),
+  ).toHaveLength(0);
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copy-u1' }).length,
+  ).toBeGreaterThan(0);
 
   // The reply arrives whole and is typed out, so mid-reveal only part is shown.
   await ReactTestRenderer.act(async () => {
@@ -312,6 +335,12 @@ test('sending shows the message immediately and reveals the reply progressively'
   expect(tree).toContain('Why do I overeat?');
   expect(tree).toContain('often show up together');
   expect(tree).toContain('One new-reply point');
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copy-a1' }).length,
+  ).toBeGreaterThan(0);
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-share-a1' }).length,
+  ).toBeGreaterThan(0);
 });
 
 test('a failed send keeps the text and offers a retry rather than losing it', async () => {
@@ -521,4 +550,181 @@ test('a stored fallback restores the preceding message without auto-sending', as
     'Show my mood graph',
   );
   expect(sendJadeMessage).not.toHaveBeenCalled();
+});
+
+test('explicit reply actions copy and share its text and rich blocks', async () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'u1', seq: 1, role: 'user', text: 'How was my week?' }),
+        message({
+          id: 'a1',
+          seq: 2,
+          text: 'Quieter than the one before.',
+          blocks: [
+            { type: 'text', text: 'Quieter than the one before.' },
+            {
+              type: 'stats',
+              title: 'Last 7 days',
+              dataState: 'ready',
+              updatedAt: null,
+              items: [{ label: 'Entries', value: '4' }],
+            },
+          ],
+        }),
+      ],
+    });
+  });
+
+  const root = await mount();
+
+  ReactTestRenderer.act(() => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-copy-a1' })[0]
+      .props.onPress();
+  });
+
+  expect(copyToClipboard).toHaveBeenCalledWith(
+    'Quieter than the one before.\n\nLast 7 days\nEntries: 4',
+  );
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copied-a1' }).length,
+  ).toBeGreaterThan(0);
+
+  await ReactTestRenderer.act(async () => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-share-a1' })[0]
+      .props.onPress();
+    await flushAsyncWork();
+  });
+
+  expect(Share.share).toHaveBeenCalledWith({
+    message: 'Quieter than the one before.\n\nLast 7 days\nEntries: 4',
+    title: 'Ask Jade message',
+  });
+
+  await ReactTestRenderer.act(async () => {
+    jest.advanceTimersByTime(2000);
+    await flushAsyncWork();
+  });
+
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copied-a1' }),
+  ).toHaveLength(0);
+});
+
+test('explicit actions copy and share only the selected user message', async () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'u1', seq: 1, role: 'user', text: 'How was my week?' }),
+        message({ id: 'a1', seq: 2, text: 'Quieter than the one before.' }),
+      ],
+    });
+  });
+
+  const root = await mount();
+
+  ReactTestRenderer.act(() => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-copy-u1' })[0]
+      .props.onPress();
+  });
+
+  expect(copyToClipboard).toHaveBeenCalledWith('How was my week?');
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copied-u1' }).length,
+  ).toBeGreaterThan(0);
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copied-a1' }),
+  ).toHaveLength(0);
+
+  await ReactTestRenderer.act(async () => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-share-u1' })[0]
+      .props.onPress();
+    await flushAsyncWork();
+  });
+
+  expect(Share.share).toHaveBeenCalledWith({
+    message: 'How was my week?',
+    title: 'Ask Jade message',
+  });
+});
+
+test('a clipboard that refuses the copy shows no confirmation', async () => {
+  (copyToClipboard as jest.Mock).mockReturnValueOnce(false);
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'a1', seq: 1, text: 'Quieter than the one before.' }),
+      ],
+    });
+  });
+
+  const root = await mount();
+
+  ReactTestRenderer.act(() => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-copy-a1' })[0]
+      .props.onPress();
+  });
+
+  expect(
+    root.root.findAllByProps({ testID: 'ask-jade-copied-a1' }),
+  ).toHaveLength(0);
+});
+
+test('a failed native share shows a calm error alert', async () => {
+  shareSpy.mockRejectedValueOnce(new Error('Share unavailable'));
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'a1', seq: 1, text: 'Quieter than the one before.' }),
+      ],
+    });
+  });
+
+  const root = await mount();
+
+  await ReactTestRenderer.act(async () => {
+    root.root
+      .findAllByProps({ testID: 'ask-jade-share-a1' })[0]
+      .props.onPress();
+    await flushAsyncWork();
+  });
+
+  expect(Alert.alert).toHaveBeenCalledWith(
+    'Share message',
+    "We couldn't open sharing right now.",
+  );
+});
+
+test('message bubbles do not expose a long-press copy gesture', async () => {
+  ReactTestRenderer.act(() => {
+    useAppStore.setState({
+      jadeMessages: [
+        message({ id: 'u1', seq: 1, role: 'user', text: 'How was my week?' }),
+        message({ id: 'a1', seq: 2, text: 'Quieter than the one before.' }),
+      ],
+    });
+  });
+
+  const root = await mount();
+
+  expect(
+    root.root.findAll(
+      node =>
+        typeof node.props.testID === 'string' &&
+        node.props.testID.startsWith('ask-jade-copyable-'),
+    ),
+  ).toHaveLength(0);
+  expect(
+    root.root.findAll(
+      node =>
+        typeof node.props.testID === 'string' &&
+        node.props.testID.startsWith('ask-jade-message-') &&
+        typeof node.props.onLongPress === 'function',
+    ),
+  ).toHaveLength(0);
 });

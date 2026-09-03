@@ -20,6 +20,11 @@ import {
 } from "../src/navigation/navigation";
 import * as userService from "../src/services/userService";
 
+jest.mock("../src/utils/devLaunchConfig.json", () => ({
+  replayOnboarding: false,
+  apiBaseUrl: null,
+}));
+
 jest.mock("@react-native-async-storage/async-storage", () => ({
   __esModule: true,
   default: {
@@ -94,6 +99,10 @@ const onboardingData = {
 
 describe("appStore", () => {
   beforeEach(() => {
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      replayOnboarding: false,
+      apiBaseUrl: null,
+    }));
     resetAppStore();
     jest.useFakeTimers();
     (AsyncStorage.getItem as jest.Mock).mockReset();
@@ -1074,6 +1083,10 @@ describe("appStore", () => {
     const storage = require("@react-native-async-storage/async-storage").default;
     const navigation = require("../src/navigation/navigation");
 
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      replayOnboarding: true,
+      apiBaseUrl: null,
+    }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
       clearPostAuthPaywallSeen: jest.fn(async () => undefined),
@@ -1146,6 +1159,10 @@ describe("appStore", () => {
   it("boots directly into home when a signed-in session is already stored", async () => {
     jest.resetModules();
 
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      replayOnboarding: false,
+      apiBaseUrl: null,
+    }));
     jest.doMock("../src/utils/tokenStorage", () => ({
       clearOnboardingCompleted: jest.fn(async () => undefined),
       clearPostAuthPaywallSeen: jest.fn(async () => undefined),
@@ -1189,8 +1206,64 @@ describe("appStore", () => {
     expect(freshStore.getState().session?.user.email).toBe("alex@example.com");
   });
 
-  it("boots into home from the cached verified profile when offline", async () => {
+  it("replays onboarding for a stored signed-in session in development", async () => {
     jest.resetModules();
+
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      replayOnboarding: true,
+      apiBaseUrl: null,
+    }));
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => true),
+      getPostAuthPaywallSeen: jest.fn(async () => true),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => ({
+        userId: "user-123",
+        name: "Alex",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        profileSetupCompleted: true,
+        onboardingCompleted: true,
+        onboardingVersion: 2,
+        profilePic: null,
+      })),
+      updateProfile: jest.fn(),
+    }));
+
+    const { useAppStore: freshStore } = require("../src/store/appStore");
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
+    expect(freshStore.getState().stage).toBe("onboarding");
+    expect(freshStore.getState().session?.user.email).toBe("alex@example.com");
+  });
+
+  it("replays onboarding from the cached verified profile when offline", async () => {
+    jest.resetModules();
+
+    jest.doMock("../src/utils/devLaunchConfig.json", () => ({
+      replayOnboarding: true,
+      apiBaseUrl: null,
+    }));
 
     const cachedUser = {
       userId: "user-123",
@@ -1256,7 +1329,7 @@ describe("appStore", () => {
     });
 
     expect(freshStore.getState().hasBootstrappedAuthGate).toBe(true);
-    expect(freshStore.getState().stage).toBe("main-app");
+    expect(freshStore.getState().stage).toBe("onboarding");
     expect(freshStore.getState().session).toEqual({
       accessToken: "access-token",
       refreshToken: "refresh-token",
@@ -1425,7 +1498,7 @@ describe("appStore", () => {
     expect(navigation.resetRoot).toHaveBeenCalledWith("AuthChoice");
   });
 
-  it("marks existing installs as already having seen the post-auth paywall", async () => {
+  it("routes an existing install straight to the app without claiming it saw the paywall", async () => {
     jest.resetModules();
 
     const savePostAuthPaywallSeen = jest.fn(async () => undefined);
@@ -1468,8 +1541,181 @@ describe("appStore", () => {
       await freshStore.getState().bootstrapAuthGate();
     });
 
-    expect(savePostAuthPaywallSeen).toHaveBeenCalledWith(true);
+    // Boot has never been able to route to the paywall, so writing "they have
+    // seen it" here only ever recorded something that had not happened.
+    expect(savePostAuthPaywallSeen).not.toHaveBeenCalled();
     expect(freshStore.getState().stage).toBe("main-app");
+  });
+
+  it("resumes an interrupted onboarding instead of restarting it", async () => {
+    jest.resetModules();
+
+    const draft = {
+      version: 2,
+      whatBringsYouHere: ["clarity"],
+      supportFocusAreas: ["stress"],
+      reflectionTone: ["direct"],
+      privacyConsent: true,
+      displayName: "Alex",
+    };
+
+    // `jest.resetModules()` rebuilds the keychain mock's `jest.fn()`s, so the
+    // stub has to go on the fresh instance the fresh store will import.
+    const keychain = require("react-native-keychain");
+    keychain.getGenericPassword.mockImplementation(
+      async (options?: { service?: string }) =>
+        options?.service === "journalio.onboardingResume.secure"
+          ? {
+              username: "secure",
+              password: JSON.stringify({
+                routeName: "OnboardingCommitment",
+                userId: "user-123",
+                displayName: "Alex",
+                draft,
+              }),
+            }
+          : false
+    );
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => null),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => ({
+        userId: "user-123",
+        name: "Journal User",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        // Closed the app part-way through: the first reflection is saved, but
+        // nothing has marked the journey finished.
+        createdAt: "2026-08-01T00:00:00.000Z",
+        hasJournalEntries: true,
+        journalCount: 1,
+        profileSetupCompleted: false,
+        onboardingCompleted: false,
+        onboardingVersion: null,
+        profilePic: null,
+      })),
+      updateProfile: jest.fn(),
+    }));
+
+    const navigation = require("../src/navigation/navigation");
+    const { useAppStore: freshStore, resumeOnboardingRoute } = require(
+      "../src/store/appStore"
+    );
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    // A saved journal entry is no longer read as "onboarding is done".
+    expect(freshStore.getState().stage).toBe("onboarding");
+
+    act(() => {
+      resumeOnboardingRoute();
+    });
+
+    expect(navigation.resetRoot).toHaveBeenCalledWith("OnboardingCommitment", {
+      displayName: "Alex",
+      draft,
+    });
+
+    keychain.getGenericPassword.mockImplementation(async () => false);
+  });
+
+  it("never hands one account's onboarding draft to another", async () => {
+    jest.resetModules();
+
+    const keychain = require("react-native-keychain");
+    keychain.getGenericPassword.mockImplementation(
+      async (options?: { service?: string }) =>
+        options?.service === "journalio.onboardingResume.secure"
+          ? {
+              username: "secure",
+              password: JSON.stringify({
+                routeName: "OnboardingCommitment",
+                userId: "someone-else",
+                draft: {
+                  version: 2,
+                  whatBringsYouHere: [],
+                  supportFocusAreas: [],
+                  reflectionTone: [],
+                  privacyConsent: true,
+                },
+              }),
+            }
+          : false
+    );
+
+    jest.doMock("../src/utils/tokenStorage", () => ({
+      clearOnboardingCompleted: jest.fn(async () => undefined),
+      clearPostAuthPaywallSeen: jest.fn(async () => undefined),
+      clearTokens: jest.fn(async () => undefined),
+      getAccessToken: jest.fn(async () => "access-token"),
+      getOnboardingCompleted: jest.fn(async () => false),
+      getPostAuthPaywallSeen: jest.fn(async () => null),
+      hasSeenInstall: jest.fn(async () => true),
+      getTokens: jest.fn(async () => ({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+      })),
+      markInstallSeen: jest.fn(async () => undefined),
+      saveOnboardingCompleted: jest.fn(async () => undefined),
+      savePostAuthPaywallSeen: jest.fn(async () => undefined),
+      saveTokens: jest.fn(async () => undefined),
+    }));
+    jest.doMock("../src/services/userService", () => ({
+      getProfile: jest.fn(async () => ({
+        userId: "user-123",
+        name: "Journal User",
+        phoneNumber: null,
+        email: "alex@example.com",
+        journalingGoals: [],
+        avatarColor: "#8E4636",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        profileSetupCompleted: false,
+        onboardingCompleted: false,
+        onboardingVersion: null,
+        profilePic: null,
+      })),
+      updateProfile: jest.fn(),
+    }));
+
+    const navigation = require("../src/navigation/navigation");
+    const { useAppStore: freshStore, resumeOnboardingRoute } = require(
+      "../src/store/appStore"
+    );
+
+    await act(async () => {
+      await freshStore.getState().bootstrapAuthGate();
+    });
+
+    act(() => {
+      resumeOnboardingRoute();
+    });
+
+    expect(navigation.resetRoot).not.toHaveBeenCalledWith(
+      "OnboardingCommitment",
+      expect.anything()
+    );
+
+    keychain.getGenericPassword.mockImplementation(async () => false);
   });
 
   it("clears residual secure credentials before routing a fresh install to Auth", async () => {

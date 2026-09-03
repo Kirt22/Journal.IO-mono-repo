@@ -34,6 +34,7 @@ import {
   ChevronRight,
   RefreshCw,
   RotateCcw,
+  Share2,
 } from 'lucide-react-native';
 import {
   SafeAreaView,
@@ -48,7 +49,6 @@ import {
 } from '../../features/brainMap3D/brainMapTheme';
 import type { MindMapNativeRegion } from '../../features/brainMap3D/mindMapRegionTypes';
 import type { BrainReflectionCenterId } from '../../services/guidedReflectionService';
-import { env } from '../../config/env';
 import { MainAppStackParamList } from '../../navigation/navigation';
 import {
   getInsightsMindMap,
@@ -61,6 +61,8 @@ import { trackPaywallEvent } from '../../services/paywallService';
 import MindMapRegionDetailModal, {
   type MindMapRegionModalData,
 } from '../../components/MindMapRegionDetailModal';
+import MindMapShareCaptureModal from '../../components/MindMapShareCaptureModal';
+import type { MindMapShareRegion } from '../../components/MindMapShareCard';
 import type { RegionTrendPoint } from '../../components/RegionTrendChart';
 import { getScoreTier } from '../../features/brainMap3D/regionTier';
 import { triggerHaptic } from '../../services/hapticsService';
@@ -84,56 +86,56 @@ const EDUCATIONAL_REGIONS: EducationalRegion[] = [
     label: 'Emotional Intensity',
     subtitle: 'Amygdala',
     description:
-      'A place to notice the emotional tone and intensity that can appear in reflection.',
+      'How hard things are hitting you — stress, pressure, worry, anger, feeling overwhelmed.',
   },
   {
     id: 'planning_self_control',
     label: 'Planning & Self-Control',
     subtitle: 'Prefrontal Cortex',
     description:
-      'A place to explore preparation, decisions, and the small actions you want to take.',
+      'Routines, discipline and self-control — sticking to habits, making decisions, working out what to do next.',
   },
   {
     id: 'memory_meaning',
     label: 'Memory & Meaning',
     subtitle: 'Hippocampus',
     description:
-      'A place to consider what past experiences or memories may mean to you.',
+      'Looking backwards — the past, old memories, things that keep happening again, and what it all meant.',
   },
   {
     id: 'body_inner_signals',
     label: 'Body & Inner Signals',
     subtitle: 'Insula',
     description:
-      'A place to notice rest, energy, and other signals you choose to name in writing.',
+      'Your body — sleep, tiredness, energy, hunger, tension, the physical stuff you notice.',
   },
   {
     id: 'conflict_attention',
     label: 'Conflict & Attention',
     subtitle: 'Anterior Cingulate',
     description:
-      'A place to reflect on competing demands, focus, and moments of friction.',
+      'Being pulled two ways — feeling torn or stuck, guilt, doubt, two things that do not fit together.',
   },
   {
     id: 'motivation_reward',
     label: 'Motivation & Reward',
     subtitle: 'Ventral Striatum',
     description:
-      'A place to explore what feels meaningful, satisfying, or hard to begin.',
+      'Wanting things and chasing them — progress, wins, staying consistent, and what feels worth the effort.',
   },
   {
     id: 'relationships_perspective',
     label: 'Relationships & Perspective',
     subtitle: 'Temporal-Parietal Junction',
     description:
-      'A place to reflect on connection, other viewpoints, and support.',
+      'Other people — family, friends, a partner, feeling judged or seen, and how you show up for them.',
   },
   {
     id: 'self_reflection_identity',
     label: 'Self-Reflection & Identity',
     subtitle: 'Default Mode Network',
     description:
-      'A place to explore your values, inner story, and sense of self.',
+      'Thinking about yourself — who you are, who you are turning into, your values, proving something.',
   },
 ];
 
@@ -267,6 +269,7 @@ export default function MindMapScreen({
   // Gate: only load region data once the 3D model has rendered (or the safety
   // fallback fires), so the scene always appears first.
   const [modelReady, setModelReady] = useState(false);
+  const [shareRegion, setShareRegion] = useState<MindMapShareRegion | null>(null);
 
   const reveal = useRef(new Animated.Value(0)).current;
   const panelReveal = useRef(new Animated.Value(1)).current;
@@ -275,9 +278,7 @@ export default function MindMapScreen({
   const cardFade = useRef(new Animated.Value(1)).current;
   const selectorY = useRef(new Animated.Value(0)).current;
   const pagerRef = useRef<ScrollView>(null);
-  // Dev bypass (env.allowNonPremiumAi) lets the premium Mind Map be tested
-  // without a real subscription; pair with backend AI_ALLOW_NON_PREMIUM.
-  const isEducationalMode = !env.allowNonPremiumAi && !isPremiumUser;
+  const isEducationalMode = !isPremiumUser;
 
   const handleBack = useCallback(() => {
     // Mind Map can be reached as a bottom-tab (no back stack) or pushed from
@@ -836,6 +837,16 @@ export default function MindMapScreen({
       colors.outline,
       theme.mode === 'dark' ? 0.24 : 0.12,
     );
+    const canShare = region.ready && region.signalPercent !== null;
+    const selectedShareRegion: MindMapShareRegion | null = canShare
+      ? {
+          brainRegion: region.subtitle,
+          label: region.label,
+          regionId: region.id,
+          scorePercent: region.signalPercent ?? 0,
+          shortInsight: region.body,
+        }
+      : null;
 
     return (
       <HapticPressable
@@ -843,6 +854,7 @@ export default function MindMapScreen({
         accessibilityLabel={`${region.label}. ${
           region.ready ? 'View analytics.' : 'Learn more.'
         }`}
+        hapticEvent={false}
         onPress={() => openRegionModal(region.id)}
         style={({ pressed }) => [
           styles.card,
@@ -854,7 +866,29 @@ export default function MindMapScreen({
         ]}
       >
         <Animated.View style={{ opacity: cardFade }}>
-        <Text style={[styles.eyebrow, { color: accent }]}>Selected region</Text>
+        <View style={styles.selectedCardHeader}>
+          <Text style={[styles.eyebrow, { color: accent }]}>Selected region</Text>
+          {selectedShareRegion ? (
+            <HapticPressable
+              accessibilityLabel="Share selected Mind Map region"
+              accessibilityRole="button"
+              onPress={event => {
+                event.stopPropagation();
+                setShareRegion(selectedShareRegion);
+              }}
+              style={({ pressed }) => [
+                styles.shareIconButton,
+                {
+                  backgroundColor: withAlpha(accent, 0.1),
+                  borderColor: withAlpha(accent, 0.2),
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Share2 color={accent} size={15} />
+            </HapticPressable>
+          ) : null}
+        </View>
         <Text style={[styles.statusTitle, { color: colors.text }]}>
           {region.label}
         </Text>
@@ -1343,6 +1377,10 @@ export default function MindMapScreen({
         onUpgrade={handleUpgrade}
         onDismiss={() => setModalVisible(false)}
       />
+      <MindMapShareCaptureModal
+        onClose={() => setShareRegion(null)}
+        region={shareRegion}
+      />
     </SafeAreaView>
   );
 }
@@ -1454,6 +1492,20 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     padding: 18,
+  },
+  selectedCardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 32,
+  },
+  shareIconButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
   skeletonStack: {
     gap: 12,

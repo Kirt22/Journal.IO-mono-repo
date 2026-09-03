@@ -1,6 +1,11 @@
 import { Play } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import {
+  Image,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import Video from 'react-native-video';
 import { ADD_WIDGET_DEMO_VIDEO } from '../assets/video/addWidgetDemo';
 import { useReduceMotion } from '../hooks/useReduceMotion';
@@ -10,11 +15,13 @@ import { triggerHaptic } from '../services/hapticsService';
 import { useTheme } from '../theme/provider';
 import HapticPressable from './HapticPressable';
 
-// iPhone aspect. The frame flexes to fill whatever its parent leaves and then
-// derives its width from this — so it grows on a tall device instead of being
-// pinned to a fixed fraction of the window.
-const PHONE_ASPECT = 9 / 19.5;
+const PHONE_FRAME_SOURCE = require(
+  '../assets/png/widgets/iphone-16-pro-white-titanium-frame.png',
+);
+const PHONE_FRAME_HEIGHT = 1309;
+const PHONE_ASPECT = 633 / PHONE_FRAME_HEIGHT;
 const PHONE_MAX_HEIGHT = 460;
+const PHONE_SCREEN_CORNER_RADIUS = 90;
 
 // VoiceOver cannot read a screen recording, so the written steps stand in for it.
 const WALKTHROUGH_LABEL = `Widget walkthrough. ${ADD_WIDGET_STEPS.join(' ')}`;
@@ -26,7 +33,7 @@ type Props = {
 
 /**
  * The bundled "add a widget" screen recording, played muted and looping inside
- * a drawn iPhone frame.
+ * the supplied White Titanium iPhone frame.
  *
  * Shared by the onboarding widget step and the Settings > Widgets sheet so the
  * two surfaces show the same walkthrough. If the recording is missing or the
@@ -39,6 +46,7 @@ export default function AddWidgetDemoPhone({
   const theme = useTheme();
   const reduceMotion = useReduceMotion();
 
+  const [frameHeight, setFrameHeight] = useState(maxHeight);
   const [hasVideoError, setHasVideoError] = useState(false);
   // Reduce Motion means no autoplaying loop; the user opts in instead.
   const [isPaused, setIsPaused] = useState(reduceMotion);
@@ -48,6 +56,16 @@ export default function AddWidgetDemoPhone({
   }, [reduceMotion]);
 
   const videoSource = ADD_WIDGET_DEMO_VIDEO;
+  const screenCornerRadius =
+    (frameHeight / PHONE_FRAME_HEIGHT) * PHONE_SCREEN_CORNER_RADIUS;
+
+  const handleFrameLayout = (event: LayoutChangeEvent) => {
+    const nextHeight = event.nativeEvent.layout.height;
+
+    setFrameHeight(currentHeight =>
+      Math.abs(currentHeight - nextHeight) < 0.5 ? currentHeight : nextHeight,
+    );
+  };
 
   if (videoSource === null || hasVideoError) {
     return (
@@ -85,17 +103,25 @@ export default function AddWidgetDemoPhone({
       // carries the steps. Paused, the play button owns the focus instead.
       accessible={!showPlayButton}
       accessibilityLabel={showPlayButton ? undefined : WALKTHROUGH_LABEL}
+      onLayout={handleFrameLayout}
       style={[
         styles.phoneFrame,
-        {
-          backgroundColor: theme.colors.background,
-          borderColor: theme.colors.foreground,
-          maxHeight,
-          shadowColor: theme.colors.foreground,
-        },
+        { maxHeight },
       ]}
+      testID="add-widget-phone-container"
     >
-      <View style={styles.phoneScreen}>
+      <Image
+        accessible={false}
+        resizeMode="contain"
+        source={PHONE_FRAME_SOURCE}
+        style={styles.frameArtwork}
+        testID="add-widget-phone-frame"
+      />
+
+      <View
+        style={[styles.phoneScreen, { borderRadius: screenCornerRadius }]}
+        testID="add-widget-phone-screen"
+      >
         <Video
           accessibilityElementsHidden
           importantForAccessibility="no"
@@ -140,39 +166,27 @@ export default function AddWidgetDemoPhone({
           </HapticPressable>
         ) : null}
       </View>
-
-      <View
-        pointerEvents="none"
-        style={[styles.dynamicIsland, { backgroundColor: theme.colors.foreground }]}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dynamicIsland: {
-    alignSelf: 'center',
-    borderRadius: 9,
-    height: 18,
-    position: 'absolute',
-    top: 8,
-    width: 62,
-    zIndex: 2,
+  frameArtwork: {
+    ...StyleSheet.absoluteFillObject,
+    height: '100%',
+    width: '100%',
   },
   phoneFrame: {
     aspectRatio: PHONE_ASPECT,
-    borderRadius: 44,
-    borderWidth: 6,
     flex: 1,
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.14,
-    shadowRadius: 26,
   },
   phoneScreen: {
-    borderRadius: 38,
-    flex: 1,
+    bottom: '1.22%',
+    left: '2.84%',
     overflow: 'hidden',
+    position: 'absolute',
+    right: '2.84%',
+    top: '1.07%',
   },
   playBadge: {
     alignItems: 'center',

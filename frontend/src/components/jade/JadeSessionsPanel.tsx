@@ -22,6 +22,7 @@ import { Text,
 import { useTheme } from '../../theme/provider';
 import { typography } from '../../theme/typography';
 import { triggerHaptic } from '../../services/hapticsService';
+import { shouldClaimRowSwipe } from '../../utils/rowSwipeGesture';
 import type { JadeSessionSummary } from '../../services/askJadeService';
 import JournalLoader from '../JournalLoader';
 
@@ -30,7 +31,6 @@ const NEW_CHAT_ICON = require('../../assets/png/jade/icons8-new-chat-64.png');
 /** Distance from the bottom that triggers the next page, as on the calendar. */
 const LOAD_MORE_THRESHOLD = 280;
 const DELETE_ACTION_WIDTH = 84;
-const SWIPE_CLAIM_DISTANCE = 8;
 const SWIPE_OPEN_DISTANCE = DELETE_ACTION_WIDTH * 0.4;
 
 type JadeSessionsPanelProps = {
@@ -80,12 +80,18 @@ const formatRelativeDate = (iso: string): string => {
 };
 
 function JadeSessionRow({
+  closeSignal,
   isActive,
   onDelete,
   onSelect,
   reduceMotion,
   session,
 }: {
+  /**
+   * Bumped by the panel whenever the list scrolls, so an open delete tray does
+   * not stay open behind content the user has scrolled past.
+   */
+  closeSignal?: number;
   isActive: boolean;
   onDelete: () => void;
   onSelect: () => void;
@@ -157,10 +163,17 @@ function JadeSessionRow({
     onSelect();
   }, [onSelect, settleDrawer]);
 
+  useEffect(() => {
+    if (closeSignal === undefined || currentTranslateRef.current === 0) {
+      return;
+    }
+
+    settleDrawer(false);
+  }, [closeSignal, settleDrawer]);
+
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) =>
-      Math.abs(gesture.dx) > SWIPE_CLAIM_DISTANCE &&
-      Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+      shouldClaimRowSwipe(gesture),
     onPanResponderGrant: () => {
       drawerAnimationRef.current?.stop();
       panStartRef.current = currentTranslateRef.current;
@@ -312,6 +325,8 @@ function JadeSessionsPanel({
   const wasVisibleRef = useRef(false);
   const isClosingRef = useRef(false);
   const [isModalVisible, setIsModalVisible] = useState(visible);
+  // Bumped on scroll so an open delete tray closes itself.
+  const [rowCloseSignal, setRowCloseSignal] = useState(0);
 
   // Guards against the scroll handler firing several times before the request
   // in flight resolves.
@@ -378,6 +393,8 @@ function JadeSessionsPanel({
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setRowCloseSignal(value => value + 1);
+
       if (!hasMore || isLoadingMoreRef.current) {
         return;
       }
@@ -492,6 +509,7 @@ function JadeSessionsPanel({
 
             {sessions.map(session => (
               <JadeSessionRow
+                closeSignal={rowCloseSignal}
                 isActive={session.id === activeSessionId}
                 key={session.id}
                 onDelete={() => onDeleteSession(session.id)}

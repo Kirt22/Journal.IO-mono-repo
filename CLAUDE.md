@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Journal.IO — a behavioral journaling iOS/Android app with AI-powered pattern detection. Monorepo: `backend/` (Express + MongoDB + TypeScript) and `frontend/` (React Native + TypeScript). Insight language must stay non-clinical, supportive, and uncertainty-aware (never diagnostic).
+Journal.IO — a behavioral journaling iOS/Android app with AI-powered pattern detection. Monorepo: `backend/` (Express + MongoDB + TypeScript) and `frontend/` (React Native + TypeScript). Insight language is direct and evidence-led: state the conclusion the user's own writing supports and cite the evidence, rather than hedging it into vagueness. Recognised psychological patterns may be named and applied to the user; a formal medical or psychiatric diagnosis must never be asserted as fact, and the AI must never claim clinical authority, offer treatment, or advise on medication. See `backend/src/helpers/reflectionVoice.helpers.ts` for the authoritative persona.
 
 **Authoritative docs — read before non-trivial work:**
 - `AGENTS.md` — full working rules, conventions, branch model, and doc-priority order. This is the primary instruction file; CLAUDE.md only adds the architecture/command details you'd otherwise reconstruct by hand.

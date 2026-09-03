@@ -10,6 +10,7 @@ import { Text } from '../../infrastructure/reactNative';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/provider';
 import JournalLoader from '../../components/JournalLoader';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   onComplete: () => void;
@@ -159,6 +160,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   copy: {
+    fontFamily: fontFamilies.ui.regular,
     marginTop: 14,
     fontSize: 16,
     lineHeight: 24,

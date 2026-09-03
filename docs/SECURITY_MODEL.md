@@ -41,7 +41,7 @@ Minimum requirements:
 - successful password reset must invalidate the stored refresh token so existing sessions cannot continue silently with an old password
 - RevenueCat webhooks must require a configured authorization header and must not trust unauthenticated purchase lifecycle requests
 - premium authorization must not trust `isPremium` alone; time-limited access requires a server-verified RevenueCat source and an unexpired timestamp, with periodic reconciliation covering inactive and legacy users
-- `DEV_PREMIUM_ACCESS_OVERRIDE` may force effective Pro or Free access only outside production; production must ignore it, no override may create a user session, and it must not mutate stored RevenueCat entitlement data or bypass ownership checks
+- `DEV_PREMIUM_ACCESS_OVERRIDE=default|pro|free` is the sole access bypass and may force effective Pro or Free access only outside production; production must resolve it to `default`, no override may create a user session, and it must not mutate stored RevenueCat entitlement data, relax content-readiness or safety rules, or bypass ownership checks
 - Premium Home Screen mood actions must use a separate opaque credential scoped only to the widget mood route; the extension must never receive the app access token or refresh token
 
 ---
@@ -65,7 +65,7 @@ Mobile auth tokens remain in Keychain. The cached auth profile and onboarding pa
 Auth-first onboarding must not clear Keychain tokens during normal launch migration on a known app installation. A missing app-container installation marker is treated as a full reinstall: the app must clear residual auth tokens and profile/onboarding cache before any token read or protected request, then require sign-in again. If secure-token cleanup fails, the marker must remain absent so the cleanup is retried on the next launch.
 Offline access is limited to a real token pair plus the last server-verified profile. Development `mock-*` tokens must be removed during bootstrap, and a cached-profile session must be revalidated when backend reachability returns; an unauthorized response clears both secure tokens and the profile cache before Auth is shown.
 The offline UI must not add journal bodies or composer drafts to AsyncStorage or another persistent queue. Existing mounted data may remain readable in memory, but protected writes are disabled while offline, are never replayed automatically, and still require normal backend authentication and ownership checks after reconnect.
-The iOS biometric app lock is device-local and Premium-only: its enabled preference may live in AsyncStorage, and its unlock marker must use a separate Keychain service protected by Face ID, Touch ID, or device-passcode access. No development configuration may bypass the Premium entitlement, and a free enable attempt must return before changing AsyncStorage or Keychain. It must not reuse or gate the auth-token Keychain entry, sync to the backend, log biometric state as analytics payload beyond locked-feature/paywall intent, or transmit biometric data off-device. A fresh reinstall must also remove its residual Keychain marker. Backgrounding covers journal content immediately; the 60-second foreground-return grace only suppresses a repeated prompt for a previously unlocked session and never bypasses cold-launch, long-absence, cancelled, failed, or already-locked authentication.
+The iOS biometric app lock is device-local and Premium-only: its enabled preference may live in AsyncStorage, and its unlock marker must use a separate Keychain service protected by Face ID, Touch ID, or device-passcode access. It has no feature-specific development bypass and follows the global effective Premium value; a Free-flow enable attempt must return before changing AsyncStorage or Keychain. It must not reuse or gate the auth-token Keychain entry, sync to the backend, log biometric state as analytics payload beyond locked-feature/paywall intent, or transmit biometric data off-device. A fresh reinstall must also remove its residual Keychain marker. Backgrounding covers journal content immediately; the 60-second foreground-return grace only suppresses a repeated prompt for a previously unlocked session and never bypasses cold-launch, long-absence, cancelled, failed, or already-locked authentication.
 
 Home Screen widget privacy requirements:
 
@@ -125,6 +125,14 @@ Onboarding completion is protected account state:
 - completion must not create, update, delete, or expose journal entries, subscription records, RevenueCat credentials, or reminder records
 - existing-user lazy migration must use metadata-only checks such as journal existence/count and must never read or return journal text
 
+Development Demo Mode has additional isolation requirements:
+
+- the demo bootstrap and scenario fixtures must be absent from production iOS and Android module graphs, verified by the release-bundle script with the demo flag deliberately set
+- capture may connect only to a non-production database whose name starts with `journal_io_demo_capture_`; configured application database URIs are explicitly rejected
+- capture creates only a fictional scratch user, clears the scratch database before and after a run, and logs AI metadata rather than prompts, responses, or journal text
+- active replay intercepts all supported data at the API transport boundary and blocks every unrecognized mutation before authentication or networking
+- profile, entries, sessions, and mutations in replay are fixture-backed or in-memory only; reloading discards the overlay and reset restores the normal authenticated data path
+
 ---
 
 # 5) Logging Rules
@@ -154,11 +162,11 @@ Journal.IO may contain emotionally sensitive user content.
 System behavior must:
 
 - avoid harmful instruction output
-- keep insight language non-clinical
+- keep insight language free of a formal diagnosis asserted as fact
 - route elevated-risk signals to safety handling
 - preserve user dignity and privacy in messaging
 - allow the journal write itself to succeed, then keep self-harm or harm-to-others wording out of normal AI trait/pattern scoring
-- surface support-first wording for elevated-risk analysis instead of diagnosis, certainty, or personality labeling
+- surface support-first wording for elevated-risk analysis instead of a formal diagnosis or claimed clinical certainty
 
 ---
 

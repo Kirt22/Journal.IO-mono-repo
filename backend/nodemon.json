@@ -1,0 +1,13 @@
+{
+  "watch": ["src", ".env"],
+  "ext": "ts,json,env",
+  "ignore": [
+    "src/**/*.test.ts",
+    "dist/**",
+    "backups/**",
+    "public/**",
+    "node_modules/**",
+    "node_modules.broken/**"
+  ],
+  "delay": 500
+}

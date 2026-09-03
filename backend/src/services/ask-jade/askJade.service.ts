@@ -484,7 +484,12 @@ export const sendJadeMessage = async ({
         schema: jadeReplyJsonSchema,
         parser: jadeReplySchema,
         model: ASK_JADE_MODEL(),
-        maxOutputTokens: 1000,
+        // A 1400-char reply plus up to 6 step/evidence points sits near 800
+        // tokens of visible output, and reasoning tokens are billed against
+        // this same ceiling. A truncated reply parses as null and reaches the
+        // user as a generic fallback, so keep real headroom above the worst
+        // case rather than trimming this to the typical one.
+        maxOutputTokens: 3000,
         reasoningEffort: ASK_JADE_REASONING_EFFORT(),
         messages: [
           { role: "system", content: JADE_SYSTEM_PROMPT },
@@ -500,7 +505,7 @@ export const sendJadeMessage = async ({
       });
 
       if (aiResult.data) {
-        const prose = normalizeReflectionMapText(aiResult.data.reply, 900);
+        const prose = normalizeReflectionMapText(aiResult.data.reply, 1400);
         replyBlocks = [{ type: "text", text: prose }];
         if (
           aiResult.data.pointStyle !== "none" &&
@@ -510,7 +515,7 @@ export const sendJadeMessage = async ({
             type: "list",
             style: aiResult.data.pointStyle,
             items: aiResult.data.points.map(point =>
-              normalizeReflectionMapText(point, 180)
+              normalizeReflectionMapText(point, 220)
             ),
           });
         }

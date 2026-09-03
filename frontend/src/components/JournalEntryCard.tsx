@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Star, Tag, Trash2 } from "lucide-react-native";
 import { triggerHaptic } from "../services/hapticsService";
+import { shouldClaimRowSwipe } from "../utils/rowSwipeGesture";
 import { useAppStore } from "../store/appStore";
 import { useTheme } from "../theme/provider";
 import ButtonLoadingContent from "./ButtonLoadingContent";
@@ -32,7 +33,6 @@ import {
 const ACTION_TRAY_WIDTH = 168;
 const ACTION_WIDTH = ACTION_TRAY_WIDTH / 2;
 const CARD_CORNER_RADIUS = 20;
-const SWIPE_CLAIM_DISTANCE = 8;
 const SWIPE_OPEN_DISTANCE = ACTION_TRAY_WIDTH * 0.4;
 const DOUBLE_TAP_WINDOW_MS = 300;
 const GUIDED_ENTRY_ICON = require("../assets/png/entry/icons8-yoga-48.png");
@@ -391,9 +391,7 @@ export default function JournalEntryCard({
 
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) =>
-      canRevealActions &&
-      Math.abs(gesture.dx) > SWIPE_CLAIM_DISTANCE &&
-      Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+      canRevealActions && shouldClaimRowSwipe(gesture),
     onPanResponderGrant: () => {
       clearPendingCardPress();
       drawerAnimationRef.current?.stop();

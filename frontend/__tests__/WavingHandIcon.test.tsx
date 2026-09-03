@@ -127,3 +127,59 @@ test('plays and settles the hand when Reduce Motion changes at runtime', async (
       (() => ({ remove: jest.fn() } as never)),
   );
 });
+
+test('grows while waving and settles back when emphasizeOnMount is set', async () => {
+  const animation = createAnimation();
+  mockIsReduceMotionEnabled.mockResolvedValue(false);
+  const parallelSpy = jest
+    .spyOn(Animated, 'parallel')
+    .mockReturnValue(animation as unknown as Animated.CompositeAnimation);
+  const timingSpy = jest.spyOn(Animated, 'timing');
+  const loopSpy = jest.spyOn(Animated, 'loop');
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <WavingHandIcon emphasizeOnMount size={64} testID="hero-waving-hand" />,
+    );
+    await Promise.resolve();
+  });
+
+  expect(parallelSpy).toHaveBeenCalledTimes(1);
+  expect(animation.start).toHaveBeenCalledTimes(1);
+  expect(loopSpy).not.toHaveBeenCalled();
+  // Wave out/back, then the scale swell that holds through the wave and eases
+  // down once the wave is finished.
+  expect(timingSpy.mock.calls.map(([, config]) => config.duration)).toEqual([
+    520, 420, 520, 380,
+  ]);
+  expect(
+    timingSpy.mock.calls.every(([, config]) => config.useNativeDriver),
+  ).toBe(true);
+
+  ReactTestRenderer.act(() => root!.unmount());
+  expect(animation.stop).toHaveBeenCalledTimes(1);
+
+  loopSpy.mockRestore();
+  timingSpy.mockRestore();
+  parallelSpy.mockRestore();
+});
+
+test('skips the growth animation when reduced motion is enabled', async () => {
+  mockIsReduceMotionEnabled.mockResolvedValue(true);
+  const parallelSpy = jest.spyOn(Animated, 'parallel');
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  await ReactTestRenderer.act(async () => {
+    root = ReactTestRenderer.create(
+      <WavingHandIcon emphasizeOnMount size={64} testID="static-hero-hand" />,
+    );
+    await Promise.resolve();
+  });
+
+  expect(parallelSpy).not.toHaveBeenCalled();
+  expect(JSON.stringify(root!.toJSON())).toContain('👋');
+
+  ReactTestRenderer.act(() => root!.unmount());
+  parallelSpy.mockRestore();
+});

@@ -32,6 +32,7 @@ import {
   type Reminder,
 } from '../../services/remindersService';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   onComplete: () => Promise<void>;
@@ -736,6 +737,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   fingerEmoji: {
+    fontFamily: fontFamilies.display.semibold,
     fontSize: 34,
     letterSpacing: -0.7,  },
   fingerRow: {
@@ -789,6 +791,7 @@ const styles = StyleSheet.create({
     paddingTop: 64,
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: -0.5,

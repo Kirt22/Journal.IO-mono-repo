@@ -49,7 +49,6 @@ const mindMapEntryScoreSchema = new mongoose.Schema<IMindMapEntryScore>(
       type: mongoose.Schema.Types.ObjectId,
       ref: "journals",
       required: true,
-      unique: true,
     },
     entryType: {
       type: String,

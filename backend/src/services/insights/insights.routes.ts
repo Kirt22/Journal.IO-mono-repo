@@ -13,6 +13,7 @@ import {
   getInsightsMindMapRegionSeriesSchema,
   getInsightsOverviewSchema,
 } from "./insights.validators";
+import { authenticatedAiRateLimit } from "../../middleware/security.middleware";
 
 const insightsRouter: Router = Router();
 
@@ -26,6 +27,7 @@ insightsRouter.get(
 insightsRouter.get(
   "/ai-analysis",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(getInsightsAiAnalysisSchema),
   getInsightsAiAnalysisController
 );
@@ -33,6 +35,7 @@ insightsRouter.get(
 insightsRouter.get(
   "/mind-map",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(getInsightsMindMapSchema),
   getInsightsMindMapController
 );

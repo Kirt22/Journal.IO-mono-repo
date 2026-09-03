@@ -10,19 +10,7 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: jest.fn() }),
 }));
 
-// This test counts every button on screen to prove the CTA hides while the
-// name field is focused, so the dev-only skip shortcut is switched off here.
-jest.mock('../src/config/onboarding', () => ({
-  ...jest.requireActual('../src/config/onboarding'),
-  ENABLE_ONBOARDING_DEV_SHORTCUTS: false,
-}));
-
 jest.mock('../src/components/OnboardingBottomSheet', () => () => null);
-jest.mock('../src/components/OnboardingHero', () => {
-  const ReactModule = require('react');
-  const { View } = require('react-native');
-  return () => ReactModule.createElement(View);
-});
 jest.mock('../src/components/OnboardingProgressDots', () => {
   const ReactModule = require('react');
   const { View } = require('react-native');
@@ -38,7 +26,13 @@ jest.mock('../src/components/ThemePreviewCard', () => {
   const { View } = require('react-native');
   return () => ReactModule.createElement(View);
 });
-jest.mock('../src/components/WavingHandIcon', () => () => null);
+// Rendered as a View that keeps its props so the intro hero can be asserted.
+jest.mock('../src/components/WavingHandIcon', () => {
+  const ReactModule = require('react');
+  const { View } = require('react-native');
+  return (props: Record<string, unknown>) =>
+    ReactModule.createElement(View, props);
+});
 jest.mock('../src/services/hapticsService', () => ({
   triggerHaptic: jest.fn(async () => undefined),
 }));
@@ -80,6 +74,16 @@ test('keeps welcome and name separate, dismisses Return, then personalizes the f
 
   expect(extractText(root.toJSON())).toContain('Ready to begin?');
   expect(extractText(root.toJSON())).not.toContain('Hey! What do we call you?');
+
+  // The intro step is the waving hand plus the title and body copy only — the
+  // Journal.IO wordmark and the "Hi <name>" greeting were removed.
+  expect(extractText(root.toJSON())).not.toContain('Hi Dev');
+  expect(extractText(root.toJSON())).not.toContain('Journal.IO');
+  const introHand = root.root.findAllByProps({
+    testID: 'onboarding-intro-waving-hand',
+  })[0];
+  expect(introHand.props.emphasizeOnMount).toBe(true);
+  expect(introHand.props.size).toBe(64);
 
   act(() => {
     root.root.findByProps({ testID: 'onboarding-primary-action' }).props.onPress();

@@ -36,7 +36,10 @@ import {
   ApiError,
   registerSessionInvalidationHandler,
 } from '../utils/apiClient';
-import { CURRENT_ONBOARDING_VERSION } from '../config/onboarding';
+import {
+  CURRENT_ONBOARDING_VERSION,
+  ONBOARDING_V2_RELEASE_CUTOFF,
+} from '../config/onboarding';
 import {
   completeOnboarding as completeOnboardingRequest,
   type CompleteOnboardingPayload,
@@ -52,14 +55,21 @@ import {
   saveTokens,
 } from '../utils/tokenStorage';
 import {
+  clearOnboardingResumePoint,
   clearStoredOnboardingData,
   getHapticsEnabled,
   getHideJournalPreviews,
+  getOnboardingResumePoint,
   getStoredOnboardingData,
   saveHapticsEnabled,
   saveHideJournalPreviews,
+  saveOnboardingResumePoint,
   saveStoredOnboardingData,
 } from '../utils/appStorage';
+import {
+  resolveOnboardingResumePoint,
+  type OnboardingResumePoint,
+} from '../utils/onboardingResume';
 import type {
   OnboardingCompletionData,
   OnboardingV2Draft,
@@ -83,12 +93,14 @@ import {
 } from '../services/biometricLockService';
 import devLaunchConfig from '../utils/devLaunchConfig.json';
 import {
+  getCurrentRootRoute,
   getCurrentRootRouteName,
   goBackOrFallback,
   navigateMainApp,
   navigateRoot,
   replaceMainApp,
   resetRoot,
+  type RootStackParamList,
 } from '../navigation/navigation';
 import {
   createInitialJournalSliceState,
@@ -150,6 +162,7 @@ const clearFreshInstallCredentials = async () => {
     clearTokens(),
     clearCachedAuthUser(),
     clearStoredOnboardingData(),
+    clearOnboardingResumePoint(),
     clearMoodWidgetSessionLocal(),
     disableBiometricLockService(),
   ]);
@@ -162,83 +175,6 @@ const clearFreshInstallCredentials = async () => {
     saveOnboardingCompleted(false).catch(() => undefined),
     savePostAuthPaywallSeen(false).catch(() => undefined),
   ]);
-};
-
-const isFlowStage = (value: string): value is FlowStage =>
-  value === 'onboarding' ||
-  value === 'paywall' ||
-  value === 'hosted-paywall' ||
-  value === 'lifetime-offer' ||
-  value === 'auth' ||
-  value === 'sign-in' ||
-  value === 'forgot-password' ||
-  value === 'reset-password' ||
-  value === 'create-account' ||
-  value === 'verify-email' ||
-  value === 'main-app' ||
-  value === 'new-entry' ||
-  value === 'journal-detail' ||
-  value === 'journal-edit' ||
-  value === 'complete';
-
-const getInitialStage = (): FlowStage => {
-  const launchStage = __DEV__ ? devLaunchConfig.stage : undefined;
-
-  // Onboarding is auth-protected in v2 because the first reflection saves via
-  // authenticated APIs. Never let a dev launch config put a tokenless install
-  // straight into onboarding before bootstrap has verified a session.
-  if (launchStage === 'onboarding') {
-    return 'auth';
-  }
-
-  if (
-    launchStage === 'home' ||
-    launchStage === 'calendar' ||
-    launchStage === 'insights'
-  ) {
-    return 'main-app';
-  }
-
-  if (launchStage && isFlowStage(launchStage)) {
-    return launchStage;
-  }
-
-  return 'auth';
-};
-
-const getInitialTab = (): BottomNavKey => {
-  const launchStage = __DEV__ ? devLaunchConfig.stage : undefined;
-
-  if (
-    __DEV__ &&
-    (launchStage === 'calendar' || devLaunchConfig.activeTab === 'calendar')
-  ) {
-    return 'calendar';
-  }
-
-  if (launchStage === 'insights' || devLaunchConfig.activeTab === 'insights') {
-    return 'insights';
-  }
-
-  if (devLaunchConfig.activeTab === 'mindmap') {
-    return 'mindmap';
-  }
-
-  return 'home';
-};
-
-const shouldBypassAuthGateForDevLaunch = () => {
-  if (!__DEV__ || !devLaunchConfig.stage) {
-    return false;
-  }
-
-  return ![
-    'onboarding',
-    'auth',
-    'sign-in',
-    'create-account',
-    'verify-email',
-  ].includes(devLaunchConfig.stage);
 };
 
 const normalizeNewEntryPrompt = (value?: unknown) => {
@@ -366,6 +302,13 @@ type AppStoreState = {
   activeTab: BottomNavKey;
   preferredInsightsTab: 'overview' | 'analysis' | null;
   isCompletingOnboarding: boolean;
+  /**
+   * Where an interrupted onboarding left off, read from storage during
+   * `bootstrapAuthGate`. Held in the store rather than read on demand because
+   * every consumer of it — `resetToOnboarding`, the container's `onReady` — is
+   * synchronous and cannot await the Keychain.
+   */
+  onboardingResumePoint: OnboardingResumePoint | null;
   onboardingData: OnboardingCompletionData | null;
   pendingEmail: string;
   authSource: AuthEntrySource | null;
@@ -509,6 +452,7 @@ type AppStoreSnapshot = Pick<
   | 'activeTab'
   | 'preferredInsightsTab'
   | 'isCompletingOnboarding'
+  | 'onboardingResumePoint'
   | 'onboardingData'
   | 'pendingEmail'
   | 'authSource'
@@ -541,7 +485,7 @@ type AppStoreSnapshot = Pick<
 >;
 
 const createInitialSnapshot = (): AppStoreSnapshot => ({
-  stage: getInitialStage(),
+  stage: 'auth',
   paywallReturnStage: null,
   activePaywallPlacementKey: null,
   activePaywallScreenKey: null,
@@ -550,9 +494,10 @@ const createInitialSnapshot = (): AppStoreSnapshot => ({
   postAuthPaywallStepOverride: null,
   isPaywallOverlay: false,
   isNewEntryChoiceVisible: false,
-  activeTab: getInitialTab(),
+  activeTab: 'home',
   preferredInsightsTab: null,
   isCompletingOnboarding: false,
+  onboardingResumePoint: null,
   onboardingData: null,
   pendingEmail: '',
   authSource: null,
@@ -670,6 +615,28 @@ const isAmbiguousLegacyCachedProfile = (user: AuthUser) =>
   user.createdAt === undefined &&
   user.hasJournalEntries === undefined;
 
+/**
+ * Same reasoning as the server's `shouldTreatAsExistingUser`: "they already have
+ * journal entries / premium, so they must have finished" only holds for accounts
+ * that predate onboarding v2. The v2 flow saves a real journal entry at its
+ * first guided reflection, roughly step two of fifteen, so applying it to a new
+ * account turned any app close after that point into a permanently skipped
+ * onboarding — no name, no reminders, no paywall.
+ */
+const isCreatedBeforeOnboardingV2Release = (user: AuthUser) => {
+  if (!user.createdAt) {
+    return false;
+  }
+
+  const createdAt = new Date(user.createdAt).getTime();
+
+  if (Number.isNaN(createdAt)) {
+    return false;
+  }
+
+  return createdAt < new Date(ONBOARDING_V2_RELEASE_CUTOFF).getTime();
+};
+
 const isOnboardingCompleteForCurrentVersion = (
   user: AuthUser | null | undefined,
   options: { allowLegacyCacheFallback?: boolean } = {},
@@ -682,15 +649,14 @@ const isOnboardingCompleteForCurrentVersion = (
     return true;
   }
 
-  if (
-    user.hasJournalEntries ||
-    (user.journalCount || 0) > 0 ||
-    user.isPremium
-  ) {
+  if (user.onboardingCompleted && user.onboardingVersion == null) {
     return true;
   }
 
-  if (user.onboardingCompleted && user.onboardingVersion == null) {
+  if (
+    isCreatedBeforeOnboardingV2Release(user) &&
+    (user.hasJournalEntries || (user.journalCount || 0) > 0 || user.isPremium)
+  ) {
     return true;
   }
 
@@ -704,14 +670,42 @@ const isOnboardingCompleteForCurrentVersion = (
   return false;
 };
 
+const shouldReplayOnboardingForDevLaunch = () =>
+  __DEV__ && devLaunchConfig.replayOnboarding === true;
+
+const shouldRouteToOnboarding = (
+  user: AuthUser | null | undefined,
+  options: {
+    allowLegacyCacheFallback?: boolean;
+    allowDevReplay?: boolean;
+  } = {},
+) => {
+  if (
+    options.allowDevReplay !== false &&
+    shouldReplayOnboardingForDevLaunch()
+  ) {
+    return true;
+  }
+
+  return !isOnboardingCompleteForCurrentVersion(user, {
+    allowLegacyCacheFallback: options.allowLegacyCacheFallback,
+  });
+};
+
 const resolveAuthenticatedRoute = (
   session: AuthSession | null,
+  options: { allowDevReplay?: boolean } = {},
 ): {
   nextStage: PaywallExitStage | 'paywall' | 'onboarding';
   paywallReturnStage: PaywallExitStage | null;
   showPaywall: boolean;
 } => {
-  if (!session || !isOnboardingCompleteForCurrentVersion(session.user)) {
+  if (
+    !session ||
+    shouldRouteToOnboarding(session.user, {
+      allowDevReplay: options.allowDevReplay,
+    })
+  ) {
     return {
       nextStage: 'onboarding',
       paywallReturnStage: null,
@@ -843,8 +837,85 @@ const resetToAuthChoice = () => {
   resetRoot('AuthChoice');
 };
 
+/**
+ * The stored resume point, but only when it belongs to the signed-in account.
+ * The draft holds personal answers, so it must never be inherited by whoever
+ * signs in next on this device.
+ */
+const getUsableOnboardingResumePoint = () => {
+  const state = useAppStore.getState();
+  const resumePoint = state.onboardingResumePoint;
+
+  if (!resumePoint || resumePoint.userId !== state.session?.user.userId) {
+    return null;
+  }
+
+  return resumePoint;
+};
+
+/**
+ * Onboarding is not restartable in the way "reset to the first screen" implies:
+ * the first guided reflection writes a real journal entry a couple of steps in,
+ * and the questionnaire answers behind it only reach the server on the very last
+ * screen. So an interrupted journey resumes from the furthest checkpoint we can
+ * actually re-enter rather than starting over.
+ */
 const resetToOnboarding = () => {
-  resetRoot('Onboarding');
+  const resumePoint = getUsableOnboardingResumePoint();
+
+  if (!resumePoint) {
+    resetRoot('Onboarding');
+    return;
+  }
+
+  resetRoot(resumePoint.routeName, {
+    displayName: resumePoint.displayName,
+    draft: resumePoint.draft,
+  } as RootStackParamList[OnboardingResumePoint['routeName']]);
+};
+
+/**
+ * The boot path sets `stage` and lets `getInitialRouteName` mount the right
+ * screen, which cannot carry params — so a resumed onboarding is applied once
+ * the container is ready instead.
+ */
+export const resumeOnboardingRoute = () => {
+  if (
+    useAppStore.getState().stage !== 'onboarding' ||
+    !getUsableOnboardingResumePoint()
+  ) {
+    return;
+  }
+
+  resetToOnboarding();
+};
+
+/**
+ * Remember where onboarding got to, so closing the app mid-journey resumes
+ * instead of restarting. Wired to the navigation container's `onStateChange`,
+ * which is the one place every step passes through — the flow advances by
+ * `navigation.replace` from eight different screens, and threading a save call
+ * through each of them would be eight chances to forget one.
+ *
+ * Writes are fire-and-forget: a Keychain failure must never be able to block a
+ * screen transition, and the worst case is the restart-from-scratch the user
+ * would have had anyway.
+ */
+export const recordOnboardingProgress = () => {
+  const state = useAppStore.getState();
+  const route = getCurrentRootRoute();
+  const resumePoint = resolveOnboardingResumePoint(
+    route?.name,
+    route?.params,
+    state.session?.user.userId,
+  );
+
+  if (!resumePoint) {
+    return;
+  }
+
+  useAppStore.setState({ onboardingResumePoint: resumePoint });
+  saveOnboardingResumePoint(resumePoint).catch(() => undefined);
 };
 
 const navigateAuthenticatedRoute = (
@@ -872,6 +943,7 @@ const persistAndRouteAuthenticatedSession = async ({
   pendingEmailFallback = '',
   paywallScreenKey,
   onboardingData = null,
+  allowDevOnboardingReplay = true,
 }: {
   set: (partial: Partial<AppStoreState>) => void;
   session: AuthSession;
@@ -879,11 +951,14 @@ const persistAndRouteAuthenticatedSession = async ({
   pendingEmailFallback?: string;
   paywallScreenKey: string;
   onboardingData?: OnboardingCompletionData | null;
+  allowDevOnboardingReplay?: boolean;
 }) => {
   const onboardingComplete = isOnboardingCompleteForCurrentVersion(
     session.user,
   );
-  const resolution = resolveAuthenticatedRoute(session);
+  const resolution = resolveAuthenticatedRoute(session, {
+    allowDevReplay: allowDevOnboardingReplay,
+  });
 
   await saveCachedAuthUser(session.user);
   await saveOnboardingCompleted(onboardingComplete);
@@ -934,18 +1009,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       return;
     }
 
-    if (shouldBypassAuthGateForDevLaunch()) {
-      set({ hasBootstrappedAuthGate: true });
-      return;
-    }
-
     const isFreshInstall = !(await hasSeenInstall());
 
     if (isFreshInstall) {
       await clearFreshInstallCredentials();
     }
 
-    const [hapticsEnabled, hideJournalPreviews, biometricLockSnapshot] = await Promise.all([
+    const [
+      hapticsEnabled,
+      hideJournalPreviews,
+      biometricLockSnapshot,
+      onboardingResumePoint,
+    ] = await Promise.all([
       getHapticsEnabled().catch(() => true),
       getHideJournalPreviews().catch(() => false),
       readBiometricLockSnapshot().catch(() => ({
@@ -954,11 +1029,16 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         biometricLockIsSupported: false,
         biometricLockType: null,
       })),
+      // Read even when we end up routing elsewhere: it costs one Keychain hit
+      // and it has to be in the store *before* anything can call
+      // `resetToOnboarding`, which is synchronous.
+      getOnboardingResumePoint().catch(() => null),
     ]);
 
     set({
       hapticsEnabled,
       hideJournalPreviews,
+      onboardingResumePoint: isFreshInstall ? null : onboardingResumePoint,
       ...biometricLockSnapshot,
       isBiometricAppLocked: biometricLockSnapshot.biometricLockEnabled,
     });
@@ -984,10 +1064,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         };
         const onboardingComplete =
           isOnboardingCompleteForCurrentVersion(profile);
-        const nextStage = onboardingComplete ? 'main-app' : 'onboarding';
+        const nextStage = shouldRouteToOnboarding(profile)
+          ? 'onboarding'
+          : 'main-app';
 
         await saveOnboardingCompleted(onboardingComplete);
-        await savePostAuthPaywallSeen(true);
         await saveCachedAuthUser(profile);
         if (onboardingComplete) {
           await syncReminderStateAfterAuth(null);
@@ -1057,11 +1138,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
                 canAccessBiometricLock(cachedUser),
               biometricLockFailureReason: null,
               biometricLockFailureMessage: null,
-              stage: isOnboardingCompleteForCurrentVersion(cachedUser, {
+              stage: shouldRouteToOnboarding(cachedUser, {
                 allowLegacyCacheFallback: true,
               })
-                ? 'main-app'
-                : 'onboarding',
+                ? 'onboarding'
+                : 'main-app',
             });
             return;
           }
@@ -1144,7 +1225,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       const profile = await getProfile();
       const onboardingComplete =
         isOnboardingCompleteForCurrentVersion(profile);
-      const nextStage: FlowStage = !onboardingComplete
+      const nextStage: FlowStage = shouldRouteToOnboarding(profile)
         ? 'onboarding'
         : 'main-app';
       const latestStage = get().stage;
@@ -1233,6 +1314,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         saveOnboardingCompleted(true),
         saveStoredOnboardingData(data),
         saveCachedAuthUser(updatedProfile),
+        clearOnboardingResumePoint().catch(() => undefined),
         syncOnboardingReminderPromise,
       ]);
       await persistAndRouteAuthenticatedSession({
@@ -1242,6 +1324,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         pendingEmailFallback: get().pendingEmail,
         paywallScreenKey: 'onboarding',
         onboardingData: data,
+        allowDevOnboardingReplay: false,
       });
 
       set({
@@ -1304,6 +1387,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       saveOnboardingCompleted(true),
       savePostAuthPaywallSeen(true),
       saveCachedAuthUser(nextProfile),
+      clearOnboardingResumePoint().catch(() => undefined),
     ]);
 
     set({
@@ -1869,6 +1953,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     await clearTokens();
     await clearCachedAuthUser();
     await clearStoredOnboardingData();
+    // The next account must never inherit this one's half-finished journey.
+    await clearOnboardingResumePoint().catch(() => undefined);
     await clearMoodWidgetSessionLocal();
     // Without this the native Google session survives, so the next sign-in skips
     // the account chooser and silently reuses whoever signed in last.
@@ -1889,6 +1975,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       postAuthPaywallStepOverride: null,
       preferredInsightsTab: null,
       isCompletingOnboarding: false,
+      onboardingResumePoint: null,
       onboardingData: null,
       pendingEmail: '',
       authSource: null,

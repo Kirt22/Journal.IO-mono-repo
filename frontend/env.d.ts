@@ -7,7 +7,6 @@ declare module "@env" {
   export const REVENUECAT_ANDROID_API_KEY: string | undefined;
   export const IOS_APP_STORE_ID: string | undefined;
   export const ANDROID_PLAY_STORE_PACKAGE_NAME: string | undefined;
-  export const ALLOW_NON_PREMIUM_AI: string | undefined;
   // Dev-only paywall layout preview. See src/services/devPriceOverride.ts.
   export const DEV_PRICE_STOREFRONT: string | undefined;
 }

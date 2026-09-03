@@ -993,3 +993,40 @@ test('touching the orb reacts through the orb itself, not an overlay', async () 
 
   expect(useAppStore.getState().stage).toBe('ask-jade');
 });
+
+test('reveals the hero on its own deadline when a hand-off never lands', async () => {
+  jest.useFakeTimers();
+
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    resetAppStore();
+    setPremiumSession(true);
+    useAppStore.getState().beginOrbHandoff({ x: -97, y: -39, size: 585 });
+  });
+
+  await ReactTestRenderer.act(async () => {
+    root = createRoot(renderHome());
+    jest.advanceTimersByTime(0);
+  });
+
+  const orbButton = () =>
+    root!.root.findByProps({ testID: 'home-orb-pressable' });
+
+  // Home mounted into the hand-off, so the whole hero is held for the
+  // travelling orb — every reveal block below it is at opacity 0 too.
+  expect(orbButton().props.disabled).toBe(true);
+
+  // The overlay's `land()` never runs: an interrupted animation reports
+  // `finished: false`, and the overlay may even have unmounted. Home must not
+  // stay blank waiting for a callback that is never coming.
+  await ReactTestRenderer.act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+
+  expect(orbButton().props.disabled).toBe(false);
+  // Released locally — the store entry is the overlay's to clear, not ours.
+  expect(useAppStore.getState().orbHandoff).not.toBeNull();
+
+  jest.useRealTimers();
+});

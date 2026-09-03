@@ -14,9 +14,11 @@ import {
 import {
   Text,
 } from '../../infrastructure/reactNative';
-import { RotateCcw, Sparkles } from 'lucide-react-native';
+import { RotateCcw, Share2, Sparkles } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MindMapRegionDetailSheet from '../../components/MindMapRegionDetailSheet';
+import MindMapShareCaptureModal from '../../components/MindMapShareCaptureModal';
+import type { MindMapShareRegion } from '../../components/MindMapShareCard';
 import { getMindMapRegionEducation } from '../../features/brainMap3D/mindMapEducation';
 import WebMindMapView, {
   type NativeMindMapRegionPressEvent,
@@ -28,12 +30,15 @@ import {
 import type { MindMapNativeRegion } from '../../features/brainMap3D/mindMapRegionTypes';
 import { getScoreTier } from '../../features/brainMap3D/regionTier';
 import { triggerHaptic } from '../../services/hapticsService';
-import type { GuidedReflectionSessionAnalysisResponse } from '../../services/guidedReflectionService';
+import type {
+  BrainReflectionCenterId,
+  GuidedReflectionSessionAnalysisResponse,
+} from '../../services/guidedReflectionService';
 import { useTheme } from '../../theme/provider';
 
 type Props = {
   sessionAnalysis: GuidedReflectionSessionAnalysisResponse;
-  onContinue: () => void;
+  onContinue: (selectedRegionId: BrainReflectionCenterId) => void;
   variant?: 'first' | 'session';
 };
 
@@ -61,10 +66,11 @@ export default function OnboardingMindMapScreen({
   const colors = getBrainMapColors(theme);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [cameraResetToken, setCameraResetToken] = useState(0);
-  const [selectedRegionId, setSelectedRegionId] = useState<string>(
+  const [selectedRegionId, setSelectedRegionId] = useState<BrainReflectionCenterId>(
     sessionAnalysis.brainSessionMap.dominantCenterId,
   );
   const [isDetailSheetVisible, setIsDetailSheetVisible] = useState(false);
+  const [shareRegion, setShareRegion] = useState<MindMapShareRegion | null>(null);
   const reveal = useRef(new Animated.Value(0)).current;
   const detailCardReveal = useRef(new Animated.Value(1)).current;
   const hasSelectedRegionRef = useRef(false);
@@ -136,7 +142,7 @@ export default function OnboardingMindMapScreen({
   }, [detailCardReveal, reduceMotionEnabled, selectedRegionId]);
 
   const handleRegionPress = (event: NativeMindMapRegionPressEvent) => {
-    setSelectedRegionId(event.nativeEvent.regionId);
+    setSelectedRegionId(event.nativeEvent.regionId as BrainReflectionCenterId);
     triggerHaptic('optionSelected').catch(() => undefined);
   };
 
@@ -147,12 +153,24 @@ export default function OnboardingMindMapScreen({
 
   const handleContinue = () => {
     triggerHaptic('primaryAction').catch(() => undefined);
-    onContinue();
+    onContinue(selectedRegionId);
   };
 
   const handleOpenDetails = () => {
     triggerHaptic('secondaryAction').catch(() => undefined);
     setIsDetailSheetVisible(true);
+  };
+
+  const selectedShareRegion: MindMapShareRegion = {
+    brainRegion: selectedRegion.brainRegion,
+    label: selectedRegion.productName,
+    regionId: selectedRegion.id,
+    scorePercent: selectedScore,
+    shortInsight: selectedRegion.shortInsight,
+  };
+
+  const handleShare = () => {
+    setShareRegion(selectedShareRegion);
   };
 
   return (
@@ -245,9 +263,14 @@ export default function OnboardingMindMapScreen({
           }}
         >
           <HapticPressable
-            accessibilityHint="Opens AI signal and area details"
+            accessibilityHint={
+              isSessionMap
+                ? 'Opens signal details'
+                : 'Opens AI signal and area details'
+            }
             accessibilityLabel={`View details for ${selectedRegion.productName}, score ${selectedScore} out of 100, ${selectedScoreTier.label}`}
             accessibilityRole="button"
+            hapticEvent={false}
             onPress={handleOpenDetails}
             style={({ pressed }) => [
               styles.detailCard,
@@ -263,6 +286,26 @@ export default function OnboardingMindMapScreen({
               <Text style={[styles.detailLabel, { color: colors.muted }]}>
                 {isSessionMap ? 'SESSION SIGNAL' : 'FIRST-REFLECTION SIGNAL'}
               </Text>
+              {isSessionMap ? (
+                <HapticPressable
+                  accessibilityLabel="Share selected Mind Map region"
+                  accessibilityRole="button"
+                  onPress={event => {
+                    event.stopPropagation();
+                    handleShare();
+                  }}
+                  style={({ pressed }) => [
+                    styles.shareIconButton,
+                    {
+                      backgroundColor: withAlpha(colors.nodeHot, 0.1),
+                      borderColor: withAlpha(colors.nodeHot, 0.2),
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Share2 color={colors.nodeHot} size={15} />
+                </HapticPressable>
+              ) : null}
               <View style={styles.scoreSummary}>
                 <Text style={[styles.regionScore, { color: colors.nodeHot }]}>
                   {selectedScore}
@@ -307,7 +350,7 @@ export default function OnboardingMindMapScreen({
 
         <HapticPressable
           accessibilityLabel={
-            isSessionMap ? 'Continue to Home' : 'Continue to your streak'
+            isSessionMap ? 'Continue to Home' : 'Continue to share your Mind Map'
           }
           accessibilityRole="button"
           onPress={handleContinue}
@@ -332,6 +375,10 @@ export default function OnboardingMindMapScreen({
         onDismiss={() => setIsDetailSheetVisible(false)}
         region={selectedRegion}
         visible={isDetailSheetVisible}
+      />
+      <MindMapShareCaptureModal
+        onClose={() => setShareRegion(null)}
+        region={shareRegion}
       />
     </SafeAreaView>
   );
@@ -404,6 +451,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  shareIconButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
   detailLabel: {
     flexShrink: 1,

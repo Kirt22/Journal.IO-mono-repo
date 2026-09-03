@@ -26,6 +26,20 @@ jest.mock('../src/services/paywallService', () => ({
   trackPaywallEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/components/MindMapShareCaptureModal', () => {
+  const ReactModule = require('react');
+  const { View } = require('react-native');
+
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) =>
+      ReactModule.createElement(View, {
+        ...props,
+        testID: 'mind-map-share-capture-modal',
+      }),
+  };
+});
+
 jest.mock('../src/features/brainMap3D/webRenderer/WebMindMapView', () => {
   const ReactModule = require('react');
   const { View } = require('react-native');
@@ -417,6 +431,25 @@ test('MindMapScreen switches ranges and masks evidence when previews are hidden'
   // sheet, where masked evidence reflects the entry privacy setting.
   const selectedCard = root.root.findByProps({
     accessibilityLabel: 'Planning & Self-Control. View analytics.',
+  });
+  expect(selectedCard.props.onLongPress).toBeUndefined();
+  const shareButton = root.root.findByProps({
+    accessibilityLabel: 'Share selected Mind Map region',
+  });
+
+  ReactTestRenderer.act(() => {
+    shareButton.props.onPress({ stopPropagation: jest.fn() });
+  });
+
+  expect(
+    root.root.findByProps({ testID: 'mind-map-share-capture-modal' }).props
+      .region,
+  ).toEqual({
+    brainRegion: 'Prefrontal Cortex',
+    label: 'Planning & Self-Control',
+    regionId: 'planning_self_control',
+    scorePercent: 100,
+    shortInsight: 'Planning stood out most clearly.',
   });
 
   await ReactTestRenderer.act(async () => {

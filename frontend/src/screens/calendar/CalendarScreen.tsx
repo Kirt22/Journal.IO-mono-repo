@@ -27,6 +27,12 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import TabScreenLayout from '../../components/TabScreenLayout';
+import {
+  readViewSwipePoint,
+  resolveViewSwipe,
+  type ViewSwipePoint,
+  type ViewSwipeTouchEvent,
+} from '../../utils/viewSwipeGesture';
 import JournalEntryCard from '../../components/JournalEntryCard';
 import JournalLoader from '../../components/JournalLoader';
 import { toCalendarEntries } from '../../models/calendarModels';
@@ -40,6 +46,7 @@ import { useAppStore } from '../../store/appStore';
 import { useTheme } from '../../theme/provider';
 import { useConnectivity } from '../../hooks/useConnectivity';
 import { triggerHaptic } from '../../services/hapticsService';
+import { fontFamilies } from '../../theme/typography';
 
 type ViewMode = 'list' | 'calendar';
 
@@ -366,7 +373,10 @@ export default function CalendarScreen() {
   });
   const viewTransition = useRef(new Animated.Value(1)).current;
   const titleTransition = useRef(new Animated.Value(1)).current;
-  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeStartRef = useRef<ViewSwipePoint | null>(null);
+  // Touch events fire on the swipe zone even while the list is scrolling, so a
+  // scroll during the gesture disqualifies it outright.
+  const didScrollRef = useRef(false);
   const suppressNextViewSwipeRef = useRef(false);
   const swipeSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -539,6 +549,11 @@ export default function CalendarScreen() {
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (swipeStartRef.current) {
+        didScrollRef.current = true;
+      }
+      setOpenActionsEntryId(null);
+
       if (view !== 'list') {
         return;
       }
@@ -715,15 +730,10 @@ export default function CalendarScreen() {
     [reduceMotionEnabled, titleTransition, view],
   );
 
-  const handleSwipeStart = useCallback(
-    (event: { nativeEvent: { locationX: number; locationY: number } }) => {
-      swipeStartRef.current = {
-        x: event.nativeEvent.locationX,
-        y: event.nativeEvent.locationY,
-      };
-    },
-    [],
-  );
+  const handleSwipeStart = useCallback((event: ViewSwipeTouchEvent) => {
+    didScrollRef.current = false;
+    swipeStartRef.current = readViewSwipePoint(event, Date.now());
+  }, []);
 
   const handleEntryCardSwipeClaim = useCallback(() => {
     suppressNextViewSwipeRef.current = true;
@@ -739,9 +749,11 @@ export default function CalendarScreen() {
   }, []);
 
   const handleSwipeEnd = useCallback(
-    (event: { nativeEvent: { locationX: number; locationY: number } }) => {
+    (event: ViewSwipeTouchEvent) => {
       const start = swipeStartRef.current;
+      const scrolled = didScrollRef.current;
       swipeStartRef.current = null;
+      didScrollRef.current = false;
 
       if (suppressNextViewSwipeRef.current) {
         suppressNextViewSwipeRef.current = false;
@@ -752,26 +764,23 @@ export default function CalendarScreen() {
         return;
       }
 
-      if (!start) {
+      const direction = resolveViewSwipe({
+        start,
+        end: readViewSwipePoint(event, Date.now()),
+        scrolled,
+      });
+
+      if (!direction) {
         return;
       }
 
-      const dx = event.nativeEvent.locationX - start.x;
-      const dy = event.nativeEvent.locationY - start.y;
-      const isHorizontalSwipe =
-        Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy);
-
-      if (!isHorizontalSwipe) {
-        return;
-      }
-
-      if (dx < 0 && view === 'list') {
+      if (direction === 'left' && view === 'list') {
         triggerHaptic('optionSelected').catch(() => undefined);
         handleViewModeChange('calendar');
         return;
       }
 
-      if (dx > 0 && view === 'calendar') {
+      if (direction === 'right' && view === 'calendar') {
         triggerHaptic('optionSelected').catch(() => undefined);
         handleViewModeChange('list');
       }
@@ -1264,6 +1273,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   screenTitle: {
+    fontFamily: fontFamilies.display.semibold,
     flex: 1,
     fontSize: 28,
     lineHeight: 36,

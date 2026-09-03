@@ -1,4 +1,4 @@
-import { request } from "../utils/apiClient";
+import { AI_REQUEST_TIMEOUT_MS, request } from "../utils/apiClient";
 import { CURRENT_ONBOARDING_VERSION } from "../config/onboarding";
 import type { AuthUser } from "./authService";
 import type { OnboardingCompletionData } from "../types/onboarding";
@@ -48,7 +48,9 @@ const generateOnboardingDemoAnalysis = async (
     {
       body: JSON.stringify(payload),
       method: "POST",
-    }
+    },
+    // Model-backed, so it needs more than the default connect-or-fail deadline.
+    { timeoutMs: AI_REQUEST_TIMEOUT_MS }
   );
 
   return response.data;

@@ -2,7 +2,6 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { AccessibilityInfo, Animated, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AppleButton } from '@invertase/react-native-apple-authentication';
 import AuthHero from '../src/components/AuthHero';
 import PrimaryButton from '../src/components/PrimaryButton';
 import AuthChoiceScreen from '../src/screens/auth/AuthChoiceScreen';
@@ -116,7 +115,9 @@ test('keeps auth content visible when entrance motion is disabled', () => {
   expect(
     root!.root.findByProps({ testID: 'auth-social-actions' }),
   ).toBeTruthy();
-  expect(root!.root.findByProps({ testID: 'auth-privacy-note' })).toBeTruthy();
+  expect(
+    root!.root.findAllByProps({ testID: 'auth-privacy-note' }),
+  ).toHaveLength(0);
   expect(mockTriggerHaptic).not.toHaveBeenCalled();
 
   ReactTestRenderer.act(() => root!.unmount());
@@ -174,9 +175,11 @@ test('uses the same dialog contract for Apple failures', async () => {
     await Promise.resolve();
   });
 
-  const appleButton = root!.root.findByType(AppleButton);
+  const appleButton = root!.root
+    .findAllByType(PrimaryButton)
+    .find(node => node.props.label === 'Continue with Apple');
   await ReactTestRenderer.act(async () => {
-    await appleButton.props.onPress();
+    await appleButton!.props.onPress();
     await Promise.resolve();
   });
 
@@ -184,6 +187,28 @@ test('uses the same dialog contract for Apple failures', async () => {
   expect(tree).toContain('Apple sign-in failed');
   expect(tree).not.toContain('raw-apple-sdk-failure');
   expect(root!.root.findByProps({ testID: 'auth-error-dialog' })).toBeTruthy();
+
+  ReactTestRenderer.act(() => root!.unmount());
+});
+
+test('matches the Apple and Google provider control sizes', () => {
+  let root: ReactTestRenderer.ReactTestRenderer;
+
+  ReactTestRenderer.act(() => {
+    root = renderAuthChoice(false, 'light');
+  });
+
+  const providerButtons = root!.root.findAllByType(PrimaryButton);
+  const googleButton = providerButtons.find(
+    node => node.props.label === 'Continue with Google',
+  );
+  const appleButton = providerButtons.find(
+    node => node.props.label === 'Continue with Apple',
+  );
+
+  expect(appleButton).toBeTruthy();
+  expect(appleButton!.props.size).toBe(googleButton!.props.size);
+  expect(appleButton!.props.tone).toBe('apple');
 
   ReactTestRenderer.act(() => root!.unmount());
 });

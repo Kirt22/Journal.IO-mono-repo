@@ -121,6 +121,13 @@ const quickTags = ['thought', 'idea', 'reminder', 'gratitude', 'dream'];
 const MOOD_CONFIRMATION_DELAY_MS = 120;
 const HOME_ENTRANCE_STAGGER_MS = 52;
 const HOME_ENTRANCE_DURATION_MS = 360;
+/**
+ * Backstop for the paywall orb hand-off. Comfortably past the overlay's own
+ * travel + settle + rescue budget (`OrbHandoffOverlay`), so it only ever fires
+ * when the overlay has genuinely failed to land — at which point revealing the
+ * hero without the cross-fade beats leaving Home blank.
+ */
+const ORB_HANDOFF_RELEASE_TIMEOUT_MS = 1400;
 const QUICK_NOTE_ICON = require('../assets/png/home/quill-pen.png');
 const SEARCH_ICON = require('../assets/png/home/icons8-search-64.png');
 const SETTINGS_ICON = require('../assets/png/home/icons8-settings-100.png');
@@ -416,7 +423,15 @@ export default function HomeScreen({
   // the overlay clears the store entry the orb is ours again, and the rest of
   // the screen is free to cascade in behind it.
   const arrivedFromOrbHandoff = useRef(Boolean(orbHandoff)).current;
-  const isOrbHandoffPending = arrivedFromOrbHandoff && Boolean(orbHandoff);
+  // Every reveal block below is held at opacity 0 while this is true, so a
+  // hand-off that never lands is a blank, uninteractive Home — not just a
+  // missing orb. The overlay's `land()` only runs on a *completed* animation, so
+  // Home releases on its own deadline too rather than trusting another
+  // component's callback to fire.
+  const [hasReleasedOrbHandoff, setHasReleasedOrbHandoff] = useState(
+    !arrivedFromOrbHandoff,
+  );
+  const isOrbHandoffPending = !hasReleasedOrbHandoff && Boolean(orbHandoff);
   const openPaywallForPlacement = useAppStore(
     state => state.openPaywallForPlacement,
   );
@@ -495,10 +510,15 @@ export default function HomeScreen({
   // the canvas frame lands in the 290-310pt band and the ring reads at ~250-265pt.
   const heroOrbSize = Math.min(Math.max(Math.round(width * 0.78), 260), 310);
   const orbAccents = useMemo(() => getOrbAccents(theme.mode), [theme.mode]);
+  // Bumped on scroll so an open goal-row action tray closes itself. The orb
+  // still reads contentOffset through the native driver; `listener` only adds a
+  // JS-thread callback beside it.
+  const [goalRowCloseSignal, setGoalRowCloseSignal] = useState(0);
   const handleHeroScroll = useMemo(
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: heroScrollY } } }], {
         useNativeDriver: true,
+        listener: () => setGoalRowCloseSignal(value => value + 1),
       }),
     [heroScrollY],
   );
@@ -587,6 +607,29 @@ export default function HomeScreen({
   }, [isOrbHandoffPending, publishOrbHandoffTarget]);
 
   // The overlay clears the hand-off the instant its orb lands on ours.
+  useEffect(() => {
+    if (orbHandoff) {
+      return;
+    }
+
+    setHasReleasedOrbHandoff(true);
+  }, [orbHandoff]);
+
+  // ...and this releases us anyway if it never does.
+  useEffect(() => {
+    if (!arrivedFromOrbHandoff) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setHasReleasedOrbHandoff(true);
+    }, ORB_HANDOFF_RELEASE_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [arrivedFromOrbHandoff]);
+
   useEffect(() => {
     if (!isOrbHandoffPending) {
       heroOrbOpacity.setValue(1);
@@ -1514,9 +1557,14 @@ export default function HomeScreen({
             pointerEvents={isOrbInteractive ? 'auto' : 'none'}
             testID="home-orb-pressable"
           >
+            {/* Deliberately never `paused`. Pausing stops the Reanimated frame
+                clock, which freezes the shader uniforms, which leaves Skia with
+                no reason to repaint — and the orb's first paint happens under
+                `heroOrbOpacity: 0` during a hand-off. It would come back only on
+                a remount, which is exactly the "orb missing until you revisit
+                Home" bug. Running the clock through the ~520ms travel is cheap. */}
             <Orb
               deepColor={orbAccents.deep}
-              paused={isOrbHandoffPending}
               primaryColor={theme.colors.primary}
               ref={orbRef}
               scrollY={heroScrollY}
@@ -2056,7 +2104,10 @@ export default function HomeScreen({
         shouldAnimate={shouldAnimateEntrance}
         style={styles.sectionSpacingBottom}
       >
-        <GoalsHomeCard onOpenGoals={() => onOpenGoals?.()} />
+        <GoalsHomeCard
+          onOpenGoals={() => onOpenGoals?.()}
+          rowCloseSignal={goalRowCloseSignal}
+        />
       </RevealBlock>
     </TabScreenLayout>
   );

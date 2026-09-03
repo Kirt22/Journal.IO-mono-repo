@@ -4,6 +4,7 @@ import {
   StyleSheet,
   View,
   ScrollView,
+  type ScrollViewProps,
   useWindowDimensions,
   type ViewStyle,
 } from 'react-native';
@@ -24,6 +25,8 @@ type ProfileSectionLayoutProps = {
   children: ReactNode;
   footer?: ReactNode;
   backgroundTintColor?: string | null;
+  onScroll?: ScrollViewProps['onScroll'];
+  scrollEventThrottle?: number;
 };
 
 export function ProfileSectionLayout({
@@ -32,6 +35,8 @@ export function ProfileSectionLayout({
   children,
   footer,
   backgroundTintColor = null,
+  onScroll,
+  scrollEventThrottle,
 }: ProfileSectionLayoutProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -101,6 +106,8 @@ export function ProfileSectionLayout({
             },
           ]}
           showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={scrollEventThrottle}
         >
           <View style={[styles.shell, { maxWidth: layoutMaxWidth }]}>
             <View style={styles.body}>{children}</View>

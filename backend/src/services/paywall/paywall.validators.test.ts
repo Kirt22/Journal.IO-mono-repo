@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   syncPaywallEntitlementSchema,
   syncPaywallPurchaseSchema,
+  trackPaywallEventSchema,
 } from "./paywall.validators";
 
 test("syncPaywallPurchaseSchema accepts the legacy iOS purchase payload", () => {
@@ -24,4 +25,16 @@ test("syncPaywallEntitlementSchema accepts current clients without a body", () =
   const result = syncPaywallEntitlementSchema.safeParse({});
 
   assert.equal(result.success, true);
+});
+
+test("trackPaywallEventSchema rejects unknown template keys", () => {
+  const result = trackPaywallEventSchema.safeParse({
+    body: {
+      placementKey: "profile",
+      eventType: "paywall_impression",
+      templateKey: "unknown-template",
+    },
+  });
+
+  assert.equal(result.success, false);
 });

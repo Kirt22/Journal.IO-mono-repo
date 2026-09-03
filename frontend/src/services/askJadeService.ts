@@ -1,4 +1,4 @@
-import { request } from '../utils/apiClient';
+import { AI_REQUEST_TIMEOUT_MS, request } from '../utils/apiClient';
 
 type JadeMessageStatus = 'ok' | 'fallback' | 'support_first' | 'product_fact';
 type JadeBlockDataState = 'ready' | 'empty' | 'unavailable';
@@ -198,13 +198,19 @@ const sendJadeMessage = async ({
   sessionId?: string | null;
   text: string;
 }): Promise<JadeSendResult> => {
-  const response = await request<JadeSendResult>('/ask-jade/messages', {
-    method: 'POST',
-    body: JSON.stringify({
-      ...(sessionId ? { sessionId } : {}),
-      text: text.trim(),
-    }),
-  });
+  const response = await request<JadeSendResult>(
+    '/ask-jade/messages',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(sessionId ? { sessionId } : {}),
+        text: text.trim(),
+      }),
+    },
+    // Waits on a model reply, so the default 20s deadline would cut Jade off
+    // mid-sentence. Listing and reading threads stay on the default.
+    { timeoutMs: AI_REQUEST_TIMEOUT_MS },
+  );
 
   return {
     sessionId: String(response.data?.sessionId ?? ''),

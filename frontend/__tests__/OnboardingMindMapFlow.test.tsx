@@ -17,7 +17,8 @@ jest.mock('../src/features/brainMap3D/webRenderer/WebMindMapView', () => {
 
   return {
     __esModule: true,
-    default: (props: unknown) => ReactModule.createElement(View, props),
+    default: (props: Record<string, unknown>) =>
+      ReactModule.createElement(View, props),
   };
 });
 
@@ -32,6 +33,20 @@ jest.mock('../src/components/MindMapRegionDetailSheet', () => {
         testID: 'mind-map-region-detail-sheet',
         visible,
         region,
+      }),
+  };
+});
+
+jest.mock('../src/components/MindMapShareCaptureModal', () => {
+  const ReactModule = require('react');
+  const { View } = require('react-native');
+
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) =>
+      ReactModule.createElement(View, {
+        ...props,
+        testID: 'mind-map-share-capture-modal',
       }),
   };
 });
@@ -106,6 +121,19 @@ function extractText(node: unknown): string {
   return '';
 }
 
+function extractSceneScript(html: string) {
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    .map(match => match[1])
+    .filter(Boolean);
+  const scene = scripts[scripts.length - 1];
+
+  if (!scene) {
+    throw new Error('Mind Map scene script was not generated.');
+  }
+
+  return scene;
+}
+
 function render(node: React.ReactElement) {
   return ReactTestRenderer.create(
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
@@ -162,8 +190,15 @@ test('renders first-reflection regions in the interactive Mind Map and continues
   });
   expect(map.props.regions).toHaveLength(2);
   expect(
-    root.root.findByProps({ accessibilityLabel: 'Continue to your streak' }),
+    root.root.findByProps({
+      accessibilityLabel: 'Continue to share your Mind Map',
+    }),
   ).toBeTruthy();
+  expect(
+    root.root.findAllByProps({
+      accessibilityLabel: 'Share selected Mind Map region',
+    }),
+  ).toHaveLength(0);
 
   act(() => {
     map.props.onRegionPress({
@@ -193,10 +228,12 @@ test('renders first-reflection regions in the interactive Mind Map and continues
 
   act(() => {
     root.root
-      .findByProps({ accessibilityLabel: 'Continue to your streak' })
+      .findByProps({
+        accessibilityLabel: 'Continue to share your Mind Map',
+      })
       .props.onPress();
   });
-  expect(onContinue).toHaveBeenCalledTimes(1);
+  expect(onContinue).toHaveBeenCalledWith('planning_self_control');
   act(() => {
     root.unmount();
   });
@@ -226,6 +263,36 @@ test('reuses the onboarding Mind Map layout with session-specific copy', async (
   expect(
     root.root.findByProps({ accessibilityLabel: 'Continue to Home' }),
   ).toBeTruthy();
+  expect(
+    root.root.findByProps({
+      accessibilityLabel: 'Share selected Mind Map region',
+    }),
+  ).toBeTruthy();
+  const detailCard = root.root.findByProps({
+    accessibilityLabel:
+      'View details for Self-Reflection & Identity, score 88 out of 100, Very High',
+  });
+  expect(detailCard.props.onLongPress).toBeUndefined();
+
+  act(() => {
+    root.root
+      .findByProps({
+        accessibilityLabel: 'Share selected Mind Map region',
+      })
+      .props.onPress({ stopPropagation: jest.fn() });
+  });
+
+  expect(
+    root.root.findByProps({ testID: 'mind-map-share-capture-modal' }).props
+      .region,
+  ).toEqual({
+    brainRegion: 'Default Mode Network',
+    label: 'Self-Reflection & Identity',
+    regionId: 'self_reflection_identity',
+    scorePercent: 88,
+    shortInsight:
+      'Your first reflection centered on what you want to carry forward.',
+  });
   act(() => {
     root.unmount();
   });
@@ -240,4 +307,71 @@ test('builds a clean, bounded pin tooltip without lobe labels', () => {
     "r.subtitle + '  \\u00b7  ' + Math.round(r.signalScore*100) + '%'",
   );
   expect(html).toContain('max-width:calc(100% - 24px)');
+});
+
+test('builds a static share renderer that returns a native-safe brain snapshot', () => {
+  const html = buildMindMapHtml(undefined, 'share');
+
+  expect(html).toContain('window.__MIND_MAP_PRESENTATION__="share"');
+  expect(html).toContain('preserveDrawingBuffer:shareMode');
+  expect(html).toContain("controls.enabled = !shareMode");
+  expect(html).toContain('window.__captureShare');
+  expect(html).toContain(
+    "post({ type:'shareSnapshot', snapshot:canvas.toDataURL('image/png'), pin:projectSelectedPin() });",
+  );
+});
+
+// The scene is a concatenated array of quoted JS lines, so a dropped quote is a
+// runtime crash in the WebView that no `toContain` assertion would catch.
+test('emits a scene script that actually parses as JavaScript', () => {
+  for (const mode of ['interactive', 'share'] as const) {
+    const html = buildMindMapHtml(undefined, mode);
+    const scene = extractSceneScript(html);
+
+    expect(scene.length).toBeGreaterThan(1000);
+    // Executing is intentionally avoided; construction only validates syntax.
+    // eslint-disable-next-line no-new-func
+    expect(() => new Function(scene)).not.toThrow();
+  }
+});
+
+test('captures the share snapshot at an explicit square, never at layout size', () => {
+  const html = buildMindMapHtml(undefined, 'share');
+
+  // The old path snapshotted whatever the canvas happened to be, which on an
+  // unsettled card was 1px wide. The capture now sizes the renderer itself.
+  expect(html).toContain('renderer.setSize(w, h, false);');
+  expect(html).toContain('camera.aspect=w/h; camera.updateProjectionMatrix();');
+  expect(html).toContain('if(canvas.width<200 || canvas.height<200)');
+  // …and restores whatever the live canvas was using afterwards.
+  expect(html).toContain('renderer.setSize(prevW, prevH, false);');
+  // contentReady no longer carries a snapshot.
+  expect(html).not.toContain("msg.snapshot=canvas.toDataURL");
+});
+
+test('frames the whole brain and reports where the selected pin landed', () => {
+  const html = buildMindMapHtml(undefined, 'share');
+  const scene = extractSceneScript(html);
+
+  // Distance is fitted per axis against the real vertices. A Box3 bounding sphere
+  // circumscribes the axis-aligned box rather than the object (2.52 vs a true
+  // 1.79 here), which parked the camera ~2x too far and left the brain filling
+  // barely half the frame.
+  expect(scene).not.toContain('getBoundingSphere');
+  expect(html).toContain('function shareCameraDistance(direction, margin){');
+  expect(html).toContain('_fitR.crossVectors(_fitF,_fitUp);');
+  expect(html).toContain('var a=Math.abs(_fitW.dot(_fitR))/tanH + c;');
+  expect(html).toContain('var b=Math.abs(_fitW.dot(_fitU))/tanV + c;');
+  expect(html).toContain(
+    'camera.position.copy(direction).multiplyScalar(dist).add(SHARE_TARGET);',
+  );
+  expect(html).toContain('camera.aspect=w/h; camera.updateProjectionMatrix();');
+  // controls.update() would clamp back to maxDistance and re-crop the model.
+  expect(html).toContain('camera.lookAt(SHARE_TARGET);');
+  expect(html).not.toContain('camera.position.copy(direction.multiplyScalar(3.15));');
+  // Pins are DOM overlays, so their position ships alongside the image.
+  expect(html).toContain("post({ type:'shareSnapshot', snapshot:canvas.toDataURL('image/png'), pin:projectSelectedPin() });");
+  // A still frame gets a static halo instead of the interactive pulse.
+  expect(html).toContain('.share-mode .pin.strong::after');
+  expect(html).toContain('animation:none;');
 });

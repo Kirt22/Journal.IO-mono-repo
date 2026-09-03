@@ -126,8 +126,8 @@ test("production ignores the development override", () => {
   );
 });
 
-test("auto, unset, and invalid override values use RevenueCat access", () => {
-  for (const configuredOverride of [undefined, "auto", "unexpected"]) {
+test("default, unset, and invalid override values use RevenueCat access", () => {
+  for (const configuredOverride of [undefined, "default", "auto", "unexpected"]) {
     const environment = {
       NODE_ENV: "development",
       ...(configuredOverride
@@ -137,7 +137,7 @@ test("auto, unset, and invalid override values use RevenueCat access", () => {
 
     assert.equal(
       getDevelopmentPremiumAccessOverride(environment),
-      "auto"
+      "default"
     );
     assert.equal(
       hasActivePremiumEntitlement(VERIFIED_PREMIUM_USER, NOW, environment),

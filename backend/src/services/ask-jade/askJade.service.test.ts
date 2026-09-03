@@ -74,7 +74,6 @@ afterEach(() => {
   } else {
     delete process.env.OPENAI_API_KEY;
   }
-  delete process.env.AI_ALLOW_NON_PREMIUM;
   delete process.env.JADE_TURNS_PER_DAY;
   if (typeof originalFieldEncryptionMode === "string") {
     process.env.FIELD_ENCRYPTION_MODE = originalFieldEncryptionMode;
@@ -366,12 +365,29 @@ test("the prompt payload carries distilled memory only, never raw journal text",
 });
 
 test("Jade's voice keeps the shipped safety limits and adds its own scope", () => {
-  // Jade is the same reflection companion, so the crisis and no-diagnosis
-  // limits must survive the persona deltas.
-  assert.match(JADE_SYSTEM_PROMPT, /never state, confirm, or imply a specific medical or psychiatric diagnosis/i);
+  // Jade is the same reflection companion, so the crisis limit and the
+  // formal-diagnosis limit must survive the persona deltas. Naming a pattern
+  // is allowed; awarding a disorder label as fact is not.
+  assert.match(JADE_SYSTEM_PROMPT, /never assert a formal medical or psychiatric diagnosis as established fact/i);
+  assert.match(JADE_SYSTEM_PROMPT, /never claim clinical authority, offer treatment, or advise on medication/i);
   assert.match(JADE_SYSTEM_PROMPT, /crisis line/i);
   assert.match(JADE_SYSTEM_PROMPT, /You are Jade\./);
   assert.match(JADE_SYSTEM_PROMPT, /not a general-purpose assistant/i);
+});
+
+test("Jade's voice answers directly instead of hedging", () => {
+  // The persona previously opened with what it could not know and ended every
+  // reply with a question. These are the directives that stop that, and they
+  // are the whole point of the surface — assert them so a future softening
+  // edit fails loudly rather than quietly restoring the mush.
+  assert.match(JADE_SYSTEM_PROMPT, /Answer first/i);
+  assert.match(JADE_SYSTEM_PROMPT, /Avoid hedging vocabulary/i);
+  assert.match(JADE_SYSTEM_PROMPT, /do not wait to be asked for a list/i);
+  assert.match(JADE_SYSTEM_PROMPT, /Do not answer a 'how do I' question with a reflective question/i);
+  // Directness is bounded by evidence, not by softness: the no-invention rule
+  // is what keeps a blunt claim a true one.
+  assert.match(JADE_SYSTEM_PROMPT, /never invent details, events, or failings the user did not write/i);
+  assert.match(JADE_SYSTEM_PROMPT, /do not narrate another person's private thoughts, feelings, or motives/i);
 });
 
 test("session cursors round-trip and reject tampering", () => {

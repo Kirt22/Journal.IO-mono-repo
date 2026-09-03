@@ -12,6 +12,7 @@ import {
 } from "../../helpers/openai.helpers";
 import { ensureAiAnalysisEnabled } from "../../helpers/aiAccess.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
+import { extractJournalAuthorship } from "../../helpers/journalAuthorship.helpers";
 import {
   detectJournalSafetySignal,
   hasJournalSafetySignal,
@@ -20,6 +21,7 @@ import {
 import { AI_EXTRACTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
 import {
   buildReflectionRegionScore,
+  REFLECTION_REGION_PLAIN_MEANING,
   buildHeuristicEntryContextSummary,
   buildHeuristicEntryEmotionalTone,
   buildHeuristicEntryThemes,
@@ -78,9 +80,12 @@ const MIND_MAP_ENTRY_DISCLAIMER = {
   body: "This map reflects patterns in your writing, not a medical or brain-activity measurement.",
 };
 
+// The plain-words line is what lets `noticed` explain why an area lit up. With
+// only a label and an anatomical term the model can do nothing but paraphrase
+// the label back, which is the generic sentence this copy exists to replace.
 const REGION_REFERENCE = REFLECTION_REGION_IDS.map(
   (id) =>
-    `- ${id} — ${REFLECTION_REGION_DETAILS[id].productName} (${REFLECTION_REGION_DETAILS[id].brainRegion})`
+    `- ${id} — ${REFLECTION_REGION_DETAILS[id].productName} (${REFLECTION_REGION_DETAILS[id].brainRegion}) — in plain words: ${REFLECTION_REGION_PLAIN_MEANING[id]}`
 ).join("\n");
 
 type EntryTextAnalysis = {
@@ -93,15 +98,39 @@ type EntryTextAnalysis = {
   isClear: boolean;
 };
 
+/**
+ * Reduce a saved entry to the text worth scoring — which is only the text the
+ * person actually wrote.
+ *
+ * `analyzeJournalTextQuality` alone cannot see guided app text: a guided
+ * entry's `aiPrompt` is the literal label "Onboarding first guided reflection",
+ * which never appears in the content, so its prompt-echo strip is a no-op and
+ * Journal.IO's own reflections stay in. That matters more here than anywhere
+ * else, because this text becomes `entry_insights.themes` and from there
+ * `pattern_nodes` — an AI-authored sentence would turn into a pattern with an
+ * occurrence count, the app confirming its own conclusions. Ask Jade refuses to
+ * mine its own turns for exactly this reason; so does this.
+ *
+ * Safety detection still reads the raw entry: scanning more text is the safer
+ * error.
+ */
 const analyzeEntryText = (
   content: string,
-  aiPrompt?: string | null
+  aiPrompt?: string | null,
+  type?: string | null,
+  appAuthoredSegments?: string[] | null
 ): EntryTextAnalysis => {
-  const quality = analyzeJournalTextQuality({
+  const authorship = extractJournalAuthorship({
     content,
+    type: type ?? null,
+    aiPrompt: aiPrompt ?? null,
+    appAuthoredSegments: appAuthoredSegments ?? null,
+  });
+  const quality = analyzeJournalTextQuality({
+    content: authorship.userText,
     aiPrompt: aiPrompt ?? null,
   });
-  const sourceText = quality.strippedText.trim() || content.trim();
+  const sourceText = quality.strippedText.trim() || authorship.userText.trim();
   const safetySignal = detectJournalSafetySignal(
     quality.analysisText || content || ""
   );
@@ -193,6 +222,9 @@ const buildAiRegionScores = (
       rank: index + 1,
       evidence,
       userWriting: sourceText,
+      // Blank falls through to the deterministic sentence, which is what a
+      // free user or a failed call must still get.
+      shortInsight: aiRegion?.noticed?.trim() || undefined,
     });
   });
 
@@ -227,9 +259,20 @@ const requestEntryAiScores = async (userId: string, sourceText: string) => {
           "explicitly in the rationale. " +
           "For each theme give a label, a one-line rationale for why you concluded it (naming the trigger/function), " +
           "the exact user sentence that supports it as evidenceQuote, and a 0-1 confidence. " +
-          "Be direct and genuinely insightful, but stay non-clinical and non-judgemental: name the pattern and its " +
-          "cost or function, never label a behaviour as good or bad, never shame, and never name or imply a " +
-          "medical/psychiatric condition or diagnosis, and never treat a region signal as a brain-activity measurement. " +
+          "Be direct and genuinely insightful: name the pattern and its " +
+          "cost or function, and never treat a region signal as a brain-activity measurement. " +
+          "You may name a recognised psychological pattern and apply it directly; do not assert a formal " +
+          "disorder as an established medical fact. " +
+          "For each region also write `noticed`, and switch voice for this field only: talk like a friend " +
+          "explaining the person's own entry back to them, not like a therapist writing notes. Everyday words, " +
+          "second person, contractions, at most two sentences and 260 characters. " +
+          "Explain the link — what they wrote about, what that area is about in plain words (given above as " +
+          "'in plain words'), and so why it landed where it did. No jargon: never 'recurring pattern', " +
+          "'emotional regulation', 'avoidance behaviour', 'this region'. Name the brain area only if you " +
+          "explain it in the same breath. " +
+          "'This region stood out through social perspective, belonging, or another person's role' is the failure " +
+          "case: it would fit any entry and says nothing. Return an empty string for `noticed` when the region " +
+          "barely shows up, rather than inventing a pattern to fill it. " +
           AI_EXTRACTION_BALANCE_GUIDANCE +
           " " +
           "Return all eight regions and the id of the dominant one. Regions:\n" +
@@ -359,6 +402,8 @@ type PersistEntryScoreInput = {
   entryType: "open_ended" | "guided";
   content: string;
   aiPrompt?: string | null;
+  /** What the app itself wrote into `content`. See journalAuthorship.helpers. */
+  appAuthoredSegments?: string[] | null;
   tags: string[];
   isFavorite: boolean;
   entryCreatedAt: Date;
@@ -371,7 +416,12 @@ type PersistEntryScoreInput = {
 export const persistEntryScore = async (
   input: PersistEntryScoreInput
 ): Promise<void> => {
-  const analysis = analyzeEntryText(input.content, input.aiPrompt);
+  const analysis = analyzeEntryText(
+    input.content,
+    input.aiPrompt,
+    input.entryType,
+    input.appAuthoredSegments
+  );
   const ranked = buildHeuristicRegionScores(analysis.sourceText, input.tags);
   const dominantRegionId = ranked[0]?.id ?? "self_reflection_identity";
 
@@ -422,15 +472,26 @@ export const runEntryAiScore = async ({
   journalId,
   content,
   aiPrompt,
+  entryType,
+  appAuthoredSegments,
   tags,
+  awaitSecondaryUpdates = false,
 }: {
   userId: string;
   journalId: string;
   content: string;
   aiPrompt?: string | null;
+  entryType?: "open_ended" | "guided" | null;
+  appAuthoredSegments?: string[] | null;
   tags: string[];
+  awaitSecondaryUpdates?: boolean;
 }): Promise<boolean> => {
-  const analysis = analyzeEntryText(content, aiPrompt);
+  const analysis = analyzeEntryText(
+    content,
+    aiPrompt,
+    entryType,
+    appAuthoredSegments
+  );
 
   if (
     !analysis.isSafe ||
@@ -508,12 +569,16 @@ export const runEntryAiScore = async ({
 
   // Refresh the user's rolling long-term memory now that a new AI insight
   // exists. Fire-and-forget + throttled inside updateUserMemory — never blocks.
-  void updateUserMemory(userId);
+  const secondaryUpdates = [
+    updateUserMemory(userId),
+    updatePatternGraph({ userId, journalId }),
+  ];
 
-  // Fold this entry's themes into the user's pattern graph, so the patterns can
-  // be related to one another rather than just counted. Deterministic tiers run
-  // inline; the AI refinement is throttled inside. Best-effort by contract.
-  void updatePatternGraph({ userId, journalId }).catch(() => undefined);
+  if (awaitSecondaryUpdates) {
+    await Promise.allSettled(secondaryUpdates);
+  } else {
+    secondaryUpdates.forEach(update => void update.catch(() => undefined));
+  }
 
   return result.matchedCount > 0;
 };
@@ -557,7 +622,7 @@ export const getEntryMindMap = async (
 
   const journal = await journalModel
     .findOne({ _id: journalId, userId })
-    .select("content aiPrompt tags type isFavorite createdAt")
+    .select("content aiPrompt appAuthoredSegments tags type isFavorite createdAt")
     .lean()
     .exec();
 
@@ -566,7 +631,12 @@ export const getEntryMindMap = async (
   }
 
   const entryType = journal.type === "guided" ? "guided" : "open_ended";
-  const analysis = analyzeEntryText(journal.content || "", journal.aiPrompt);
+  const analysis = analyzeEntryText(
+    journal.content || "",
+    journal.aiPrompt,
+    journal.type,
+    journal.appAuthoredSegments
+  );
 
   if (!analysis.isSafe) {
     return buildEntrySupportFirst(journalId, entryType);
@@ -874,16 +944,23 @@ export const buildRegionFocus = (
     id: ReflectionRegionId;
     signalScore: number;
     trend: ReflectionRegionTrend;
+    /**
+     * The region's personalised step when the AI pass produced one. Preferred
+     * over the fixed tip so the focus block names this person's situation
+     * rather than describing what the region measures.
+     */
+    actionStep?: string | undefined;
   }[]
 ): { headline: string; body: string; regionId: ReflectionRegionId } => {
   const rising = regions
     .filter((region) => region.trend === "rising")
     .sort((left, right) => right.signalScore - left.signalScore)[0];
-  const targetId = rising?.id ?? strongestRegionId;
+  const target = rising ?? regions.find((region) => region.id === strongestRegionId);
+  const targetId = target?.id ?? strongestRegionId;
 
   return {
     headline: "What to focus on",
-    body: REFLECTION_REGION_FOCUS_TIPS[targetId],
+    body: target?.actionStep?.trim() || REFLECTION_REGION_FOCUS_TIPS[targetId],
     regionId: targetId,
   };
 };

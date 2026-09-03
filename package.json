@@ -1,0 +1,12 @@
+{
+  "name": "journal-io-repo-tools",
+  "private": true,
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
+  "scripts": {
+    "demo:capture": "npm --prefix backend run demo:capture --",
+    "demo:validate": "npm --prefix frontend run demo:validate",
+    "demo:verify-release": "npm --prefix frontend run demo:verify-release"
+  }
+}

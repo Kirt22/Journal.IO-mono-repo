@@ -2,10 +2,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { OnboardingCompletionData } from "../types/onboarding";
 import {
   ONBOARDING_CACHE_SERVICE,
+  ONBOARDING_RESUME_SERVICE,
   clearDeviceOnlyValue,
   getDeviceOnlyValue,
   saveDeviceOnlyValue,
 } from "./keychainStorage";
+import {
+  isOnboardingResumePoint,
+  type OnboardingResumePoint,
+} from "./onboardingResume";
 
 const INSTALL_SEEN_KEY = "journalio.installSeen";
 const ONBOARDING_COMPLETED_KEY = "journalio.onboardingCompleted";
@@ -190,8 +195,37 @@ const clearPostAuthPaywallSeen = async () => {
   await AsyncStorage.removeItem(POST_AUTH_PAYWALL_SEEN_KEY);
 };
 
+/**
+ * Where an interrupted onboarding left off. Written as the user moves through
+ * the journey and read once, on the boot that routes back to onboarding.
+ */
+const getOnboardingResumePoint =
+  async (): Promise<OnboardingResumePoint | null> => {
+    const rawValue = await getDeviceOnlyValue(ONBOARDING_RESUME_SERVICE);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    try {
+      const parsedValue = JSON.parse(rawValue);
+      return isOnboardingResumePoint(parsedValue) ? parsedValue : null;
+    } catch {
+      return null;
+    }
+  };
+
+const saveOnboardingResumePoint = async (point: OnboardingResumePoint) => {
+  await saveDeviceOnlyValue(ONBOARDING_RESUME_SERVICE, JSON.stringify(point));
+};
+
+const clearOnboardingResumePoint = async () => {
+  await clearDeviceOnlyValue(ONBOARDING_RESUME_SERVICE);
+};
+
 export {
   clearOnboardingCompleted,
+  clearOnboardingResumePoint,
   clearPostAuthPaywallSeen,
   clearStoredOnboardingData,
   getHapticsEnabled,
@@ -199,6 +233,7 @@ export {
   getLastKnownStreak,
   getReflectionSeenDateKey,
   getOnboardingCompleted,
+  getOnboardingResumePoint,
   getPostAuthPaywallSeen,
   getStoredOnboardingData,
   hasSeenInstall,
@@ -206,6 +241,7 @@ export {
   saveHapticsEnabled,
   saveHideJournalPreviews,
   saveOnboardingCompleted,
+  saveOnboardingResumePoint,
   saveLastKnownStreak,
   savePostAuthPaywallSeen,
   saveReflectionSeenDateKey,

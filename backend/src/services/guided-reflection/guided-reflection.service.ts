@@ -16,7 +16,30 @@ import {
   normalizeDetectedTopics,
   type DetectedMood,
 } from "../../helpers/entryMetadata.helpers";
-import { AI_ACTION_BALANCE_GUIDANCE } from "../../helpers/aiReflectionBalance.helpers";
+import {
+  AI_ACTION_BALANCE_GUIDANCE,
+  AI_EXTRACTION_BALANCE_GUIDANCE,
+} from "../../helpers/aiReflectionBalance.helpers";
+import {
+  CARRIED_TRIGGERS_MAX,
+  EMPTY_SESSION_SIGNALS,
+  classifyTriggerStatus,
+  findSecondPersonPronoun,
+  isThirdPersonVoice,
+  mergeSessionTriggers,
+  sanitizeTriggerEvidence,
+  sessionSignalsJsonSchema,
+  sessionTriggerJsonSchema,
+  sessionSignalsAiSchema,
+  sessionTriggerAiSchema,
+  toTriggerPatternLabel,
+  type SessionSignals,
+  type SessionTrigger,
+  type TriggerStatus,
+} from "../../helpers/emotionalTrigger.helpers";
+import {
+  getPatternNodeStatsByLabels,
+} from "../mindmap/patternGraph.service";
 import {
   buildProductPrivacyReply,
   isProductPrivacyQuestion,
@@ -84,12 +107,29 @@ type GuidedReflectionGoDeeperInput = FirstReflectionSummaryInput & {
   threadMessages?: GuidedThreadMessage[];
   currentText: string;
   suggestionAction?: GuidedSuggestionAction;
+  /**
+   * Triggers earlier turns in this session already surfaced, echoed back by the
+   * client. Guided reflection has no server-side session object — the client
+   * already replays `previousDeeperReflections` and `threadMessages` the same
+   * way — so this arrives as untrusted input and is re-validated on every turn
+   * (clinical labels dropped, evidence re-checked against the user's own text).
+   */
+  previousSignals?: SessionTrigger[];
 };
 
 type GuidedReflectionSessionAnalysisInput = FirstReflectionSummaryInput & {
   journalId?: string;
   aiSummary?: string;
   threadMessages?: GuidedThreadMessage[];
+  /** What the live turns surfaced, so the end-of-session pass starts warm. */
+  sessionSignals?: SessionTrigger[];
+  /**
+   * Text the app itself put into a saved entry — writing prompts the user
+   * tapped to insert, guided section labels, Journal.IO's own earlier
+   * reflection. Passed as context so the model knows what they were responding
+   * to, and passed *separately* so it can never be mistaken for their words.
+   */
+  appAuthoredContext?: string;
 };
 
 type BrainReflectionCenterId =
@@ -172,6 +212,8 @@ type FirstReflectionSummaryResponse = {
   // writing). Becomes the first question of the adaptive go-deeper thread.
   followUpQuestion: string;
   takeaway?: string;
+  /** Trigger state for the client to echo back on the next turn. */
+  sessionSignals: SessionSignals;
 };
 
 type GuidedReflectionGoDeeperResponse = {
@@ -181,12 +223,46 @@ type GuidedReflectionGoDeeperResponse = {
   nextQuestion: string;
   // False when the session has reached a natural, resolved stopping point.
   canGoDeeper: boolean;
+  /**
+   * Everything the session has surfaced so far, not just this turn — the client
+   * stores exactly this and sends it straight back, so it never has to merge.
+   */
+  sessionSignals: SessionSignals;
+};
+
+/**
+ * One trigger the session analysis is reporting on, with how established it is
+ * across *all* of this user's entries and sessions.
+ *
+ * `status` and `occurrences` are attached server-side from the pattern graph
+ * and are never taken from the model — a count the model invented is the one
+ * error this feature cannot afford, because "the third time this has happened"
+ * is precisely the claim the user would act on.
+ */
+type SessionAnalysisTrigger = {
+  trigger: string;
+  emotionalResponse: string;
+  evidenceQuote: string;
+  confidence: number;
+  status: TriggerStatus;
+  occurrences: number;
+};
+
+type SessionAnalysisPattern = {
+  label: string;
+  basis: string;
+  status: TriggerStatus;
+  occurrences: number;
 };
 
 type GuidedReflectionSessionAnalysisResponse = {
   analysis: string;
   majorInsight: string;
   observedTrends: string[];
+  /** Trigger -> emotional response links the session actually evidenced. */
+  triggersObserved: SessionAnalysisTrigger[];
+  /** Behaviours worth tracking, graded against what the graph already knows. */
+  patternAssessment: SessionAnalysisPattern[];
   topicsObserved?: string[];
   detectedTopics: string[];
   detectedMood: DetectedMood;
@@ -243,35 +319,51 @@ type GuidedReflectionGoalSuggestionsResponse = {
 
 const getWordCount = (value: string) =>
   value.trim().split(/\s+/).filter(Boolean).length;
-const capWords = (value: string, limit = 70) =>
+const capWords = (value: string, limit = 90) =>
   value.trim().split(/\s+/).filter(Boolean).slice(0, limit).join(" ");
 
+// Both bounds are real gates, not style hints: a reflection outside them fails
+// the parse, which makes requestStructuredOpenAi return null and drops the user
+// to deterministic fallback copy. They have to track the word budget in
+// SYSTEM_PROMPT, or asking the model to be more specific silently disables AI
+// reflection altogether.
+//
+// The floor is the one that bites. SYSTEM_PROMPT now asks for tight, unpadded
+// prose, and the model answers it: sampled output lands anywhere from 39 to 76
+// words. A 45-word floor rejected roughly two in five good replies and served
+// canned copy instead — the exact failure the upper-bound comment warns about,
+// arriving from below. 30 words is still a real paragraph, and `.min(120)`
+// characters independently blocks a one-line non-answer.
 const conciseReflectionSchema = z
   .string()
   .trim()
   .min(120)
-  .max(520)
-  .refine((value) => getWordCount(value) >= 45 && getWordCount(value) <= 70);
+  .max(700)
+  .refine((value) => getWordCount(value) >= 30 && getWordCount(value) <= 90);
 const conciseQuestionSchema = z
   .string()
   .trim()
   .min(8)
   .max(160)
   .refine((value) => {
+    // Same asymmetry as the reflection floor: "What happened right before that?"
+    // is five words and is exactly the question this prompt should produce.
     const wordCount = getWordCount(value);
-    return wordCount >= 6 && wordCount <= 24;
+    return wordCount >= 4 && wordCount <= 24;
   });
 
 const reflectionSummarySchema = z.object({
   reflection: conciseReflectionSchema,
   followUpQuestion: conciseQuestionSchema,
   takeaway: z.string().trim().min(8).max(220).optional(),
+  sessionSignals: sessionSignalsAiSchema,
 });
 
 const goDeeperResponseSchema = z.object({
   reflection: conciseReflectionSchema,
   nextQuestion: conciseQuestionSchema,
   canGoDeeper: z.boolean(),
+  sessionSignals: sessionSignalsAiSchema,
 });
 
 const brainReflectionCenterIdSchema = z.enum([
@@ -330,6 +422,11 @@ const brainSessionMapSchema = z.object({
   mindMapSeedText: z.string().trim().min(20).max(220),
 });
 
+const patternAssessmentAiSchema = z.object({
+  label: z.string().trim().max(64),
+  basis: z.string().trim().max(160),
+});
+
 const sessionAnalysisResponseSchema = z.object({
   analysis: z.string().trim().min(120).max(SESSION_ANALYSIS_MAX_LENGTH),
   majorInsight: z
@@ -338,6 +435,8 @@ const sessionAnalysisResponseSchema = z.object({
     .min(20)
     .max(SESSION_ANALYSIS_MAJOR_INSIGHT_MAX_LENGTH),
   observedTrends: z.array(z.string().trim().min(3).max(32)).min(2).max(4),
+  triggersObserved: z.array(sessionTriggerAiSchema).max(3),
+  patternAssessment: z.array(patternAssessmentAiSchema).max(3),
   detectedTopics: z.array(z.enum(ENTRY_TOPIC_TAXONOMY)).max(5),
   detectedMood: z.enum(DETECTED_MOODS),
   brainSessionMap: brainSessionMapSchema,
@@ -379,7 +478,7 @@ const guidedReflectionJsonSchema = {
     reflection: {
       type: "string",
       minLength: 120,
-      maxLength: 520,
+      maxLength: 700,
     },
     followUpQuestion: {
       type: "string",
@@ -391,8 +490,9 @@ const guidedReflectionJsonSchema = {
       minLength: 8,
       maxLength: 220,
     },
+    sessionSignals: sessionSignalsJsonSchema,
   },
-  required: ["reflection", "followUpQuestion", "takeaway"],
+  required: ["reflection", "followUpQuestion", "takeaway", "sessionSignals"],
 };
 
 const goDeeperJsonSchema = {
@@ -402,7 +502,7 @@ const goDeeperJsonSchema = {
     reflection: {
       type: "string",
       minLength: 120,
-      maxLength: 520,
+      maxLength: 700,
     },
     nextQuestion: {
       type: "string",
@@ -412,8 +512,9 @@ const goDeeperJsonSchema = {
     canGoDeeper: {
       type: "boolean",
     },
+    sessionSignals: sessionSignalsJsonSchema,
   },
-  required: ["reflection", "nextQuestion", "canGoDeeper"],
+  required: ["reflection", "nextQuestion", "canGoDeeper", "sessionSignals"],
 };
 
 const BRAIN_CENTER_IDS: BrainReflectionCenterId[] = [
@@ -615,6 +716,24 @@ const sessionAnalysisJsonSchema = {
         maxLength: 32,
       },
     },
+    triggersObserved: {
+      type: "array",
+      maxItems: 3,
+      items: sessionTriggerJsonSchema,
+    },
+    patternAssessment: {
+      type: "array",
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: { type: "string", maxLength: 64 },
+          basis: { type: "string", maxLength: 160 },
+        },
+        required: ["label", "basis"],
+      },
+    },
     detectedTopics: {
       type: "array",
       maxItems: 5,
@@ -637,6 +756,8 @@ const sessionAnalysisJsonSchema = {
     "analysis",
     "majorInsight",
     "observedTrends",
+    "triggersObserved",
+    "patternAssessment",
     "detectedTopics",
     "detectedMood",
     "brainSessionMap",
@@ -704,7 +825,7 @@ const goalSuggestionsJsonSchema = {
 // speaks with the same safety limits; only the formatting directive below is
 // specific to guided reflection.
 const SYSTEM_PROMPT = buildReflectionVoicePrompt([
-  "Write in tight, human, emotionally intelligent language: one grounded observation and one practical next step, 45–70 words, no filler, clichés, or over-explaining.",
+  "Write in tight, human, emotionally intelligent language: state the conclusion their entry supports, then one specific next step they can take today. Up to about 90 words — enough to be concrete, never padded. No filler, clichés, hedging, or over-explaining.",
 ]);
 
 const BRAIN_CENTER_DETAILS: Record<
@@ -1105,6 +1226,132 @@ const getUserWrittenSessionText = (
       .map((message) => message.text),
   ].join(" ");
 
+/**
+ * Everything the user themselves typed during a go-deeper turn, including the
+ * answer they just submitted. Evidence quotes are checked against this, so the
+ * latest answer has to be in it — that is where the newest trigger came from.
+ */
+const getUserWrittenGoDeeperText = (input: GuidedReflectionGoDeeperInput) =>
+  [
+    ...input.promptAnswers.map((answer) => answer.answer),
+    ...(input.threadMessages || [])
+      .filter((message) => message.role === "user")
+      .map((message) => message.text),
+    input.currentText,
+  ].join(" ");
+
+/**
+ * Fold a turn's model output into the session's carried trigger state.
+ *
+ * Everything the client sent arrives untrusted, so the carried list is run back
+ * through the same merge as the new observations: a clinical label smuggled in
+ * by a modified client is dropped here, and an evidence quote is only kept if
+ * it appears in the user's own writing.
+ */
+const buildSessionSignals = ({
+  previousSignals,
+  observed,
+  activeTrigger,
+  triggerStage,
+  userWrittenText,
+}: {
+  previousSignals: SessionTrigger[] | undefined;
+  observed: Array<{
+    trigger: string;
+    emotionalResponse: string;
+    evidenceQuote: string;
+    confidence: number;
+  }>;
+  activeTrigger: string;
+  triggerStage: SessionSignals["triggerStage"];
+  userWrittenText: string;
+}): SessionSignals => {
+  const triggers = mergeSessionTriggers(
+    sanitizeTriggerEvidence(previousSignals || [], userWrittenText),
+    sanitizeTriggerEvidence(observed || [], userWrittenText)
+  );
+
+  return {
+    triggers,
+    // An activeTrigger naming something that did not survive validation would
+    // point the next turn's prompt at a trigger the model can no longer see.
+    activeTrigger: triggers.some(
+      (item) => item.trigger === activeTrigger.trim()
+    )
+      ? activeTrigger.trim()
+      : triggers[0]?.trigger || "",
+    triggerStage: triggers.length ? triggerStage : "none",
+  };
+};
+
+/**
+ * Carry the session's triggers forward on a path that never reaches the model.
+ *
+ * Still re-validates rather than passing the client's payload straight back:
+ * these paths are the *easiest* ones to force (send gibberish, or text that
+ * trips the safety detector, and the model is skipped entirely), so skipping
+ * the checks here would leave a hole that a modified client could drive a
+ * fabricated quote or a clinical label through.
+ */
+const carrySessionSignals = (
+  previousSignals: SessionTrigger[] | undefined,
+  userWrittenText: string
+): SessionSignals => {
+  const triggers = mergeSessionTriggers(
+    sanitizeTriggerEvidence(previousSignals || [], userWrittenText),
+    []
+  );
+  return {
+    triggers,
+    activeTrigger: triggers[0]?.trigger || "",
+    triggerStage: "none",
+  };
+};
+
+/**
+ * The carried triggers as the prompt sees them, shortest useful shape.
+ */
+const toCarriedTriggersPayload = (signals: SessionTrigger[]) =>
+  signals.slice(0, CARRIED_TRIGGERS_MAX).map((item) => ({
+    trigger: item.trigger,
+    emotionalResponse: item.emotionalResponse,
+    turnsSupported: item.sessionOccurrences,
+  }));
+
+/**
+ * What the graph already knows about the triggers this session is carrying.
+ *
+ * Passed *into* the prompt rather than only checked afterwards: a model that
+ * knows a trigger is on its third sighting writes prose that agrees with the
+ * count attached to the response. Told after the fact, it would have already
+ * guessed.
+ */
+const loadKnownTriggerStats = async (
+  userId: string,
+  triggers: Array<{ trigger: string; emotionalResponse: string }>
+) => {
+  const labels = triggers
+    .map((item) => toTriggerPatternLabel(item))
+    .filter(Boolean);
+
+  if (!labels.length) {
+    return [];
+  }
+
+  const stats = await getPatternNodeStatsByLabels(userId, labels);
+
+  return stats.map((stat) => ({
+    pattern: stat.label,
+    timesSeen: stat.occurrences,
+    firstSeen: stat.firstSeenAt.toISOString().slice(0, 10),
+    lastSeen: stat.lastSeenAt.toISOString().slice(0, 10),
+    status: classifyTriggerStatus({
+      occurrences: stat.occurrences,
+      confidence: stat.confidence,
+    }),
+  }));
+};
+
 const getSnippetFromSentence = (sentence: string, term: string) => {
   const words = sentence.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || [];
 
@@ -1344,7 +1591,7 @@ const buildNuancedDetails = (
       emotionalTone:
         "The tone turns inward toward identity and personal growth.",
       cognitivePattern:
-        "The reflection asks what this says about the user's inner narrative.",
+        "The reflection asks what this says about their inner narrative.",
     },
   };
 
@@ -1378,7 +1625,7 @@ const buildShortInsight = (
     conflict_attention: `This center captured mixed feelings, tension, or being pulled between signals ${phrase}.`,
     motivation_reward: `This center reflected momentum, progress, reward, or effort ${phrase}.`,
     relationships_perspective: `This center stood out through social perception, belonging, or another person's role ${phrase}.`,
-    self_reflection_identity: `This center reflected self-talk, values, identity, or who the user is becoming ${phrase}.`,
+    self_reflection_identity: `This center reflected self-talk, values, identity, or who they are becoming ${phrase}.`,
   };
 
   return insightByCenter[id];
@@ -1503,20 +1750,20 @@ const buildBrainSessionMapFromCenters = (
     centers: rankedCenters,
     neuroscienceSummary: normalizeText(
       fallbackSummary?.neuroscienceSummary ||
-        `Your reflection leaned most strongly toward ${dominantCenter.productName}. ${dominantCenter.shortInsight}${evidenceText} Secondary signals included ${secondaryNames}.`,
+        `The session leaned most strongly toward ${dominantCenter.productName}. ${dominantCenter.shortInsight}${evidenceText} Secondary signals included ${secondaryNames}.`,
       BRAIN_SESSION_SUMMARY_MAX_LENGTH
     ),
     mostNoticedText: normalizeText(
       `The strongest center in this session was ${
         dominantCenter.productName
-      }, because your writing most clearly returned to ${
+      }, because their writing most clearly returned to ${
         dominantCenter.evidence[0] || dominantCenter.productName.toLowerCase()
       }.`,
       BRAIN_SESSION_MOST_NOTICED_MAX_LENGTH
     ),
     mindMapSeedText:
       fallbackSummary?.mindMapSeedText ||
-      "Your first reflection has added its first signal to your Mind Map.",
+      "This first reflection has added its first signal to the Mind Map.",
   };
 };
 
@@ -1539,9 +1786,9 @@ const buildDefaultBrainSessionMap = (
 
   return buildBrainSessionMapFromCenters(centers, {
     neuroscienceSummary:
-      "This reflection has started building your personal Mind Map by capturing what you noticed, what challenged you, and what you want to carry forward.",
+      "This reflection has started building the Mind Map by capturing what they noticed, what challenged them, and what they want to carry forward.",
     mindMapSeedText:
-      "Your first reflection has added its first signal to your Mind Map.",
+      "This first reflection has added its first signal to the Mind Map.",
   });
 };
 
@@ -1671,9 +1918,9 @@ const normalizeBrainSessionMap = (
 const getSuggestionInstruction = (action?: GuidedSuggestionAction) => {
   switch (action) {
     case "gentle_prompt":
-      return "Return one gentle follow-up prompt and one short sentence explaining why it may help.";
+      return "Return one follow-up prompt and one short sentence saying plainly what it is for.";
     case "go_deeper":
-      return "Offer a deeper reflection based on the user's answers while staying grounded and non-diagnostic.";
+      return "Offer a deeper reflection based on the user's answers: name what their words show rather than circling it.";
     case "another_perspective":
       return "Offer one alternative perspective without invalidating the user's feelings.";
     case "small_next_step":
@@ -1685,19 +1932,12 @@ const getSuggestionInstruction = (action?: GuidedSuggestionAction) => {
   }
 };
 
-const canUseOnboardingOpenAi = () => isOpenAiConfigured();
-
 /**
- * Guided reflection is a premium (paid) experience. This gate requires an active
- * premium entitlement, except when GUIDED_REFLECTION_ALLOW_NON_PREMIUM is set
- * for development and testing. Flip the env off to enforce premium.
+ * Guided reflection is a premium experience. Development access follows the
+ * same global entitlement override as every other Premium surface.
  */
-const canUseGuidedReflectionAi = async (userId: string) => {
-  if (process.env.GUIDED_REFLECTION_ALLOW_NON_PREMIUM === "true") {
-    return canUseOnboardingOpenAi();
-  }
-  return canUseOpenAiForUser(userId);
-};
+const canUseGuidedReflectionAi = (userId: string) =>
+  canUseOpenAiForUser(userId);
 
 /**
  * Best-effort embedding of the user's own writing in this session, used to pull
@@ -1719,14 +1959,18 @@ const buildSafetyFirstSummary = (): FirstReflectionSummaryResponse => ({
     "This entry sounds like it may need real support before deeper reflection. Keep this simple and immediate: if anyone might be in danger, reach out to a trusted person or local emergency support now. Journal.IO can hold the words, but safety should come first.",
   followUpQuestion: "What safe step can you take outside the app?",
   takeaway: "Support first, reflection second.",
+  sessionSignals: EMPTY_SESSION_SIGNALS,
 });
 
-const buildSafetyFirstDeeperResponse =
-  (): GuidedReflectionGoDeeperResponse => ({
+const buildSafetyFirstDeeperResponse = (
+  previousSignals: SessionTrigger[] | undefined,
+  userWrittenText: string
+): GuidedReflectionGoDeeperResponse => ({
     reflection:
       "This is important enough to keep grounded in real-world support. If there is any chance of immediate harm, pause the reflection and contact a trusted person or local emergency support. You can come back to writing when things feel safer.",
     nextQuestion: "What safe step can you take outside the app?",
     canGoDeeper: false,
+    sessionSignals: carrySessionSignals(previousSignals, userWrittenText),
   });
 
 const buildLowSignalFirstSummary = (): FirstReflectionSummaryResponse => ({
@@ -1734,13 +1978,18 @@ const buildLowSignalFirstSummary = (): FirstReflectionSummaryResponse => ({
     "I do not have enough clear information yet to make a useful reflection. Journal.IO works best when you add a few specific words about what happened, what felt difficult, and what you want to carry into tomorrow. You can keep this simple and try again with one honest sentence per prompt.",
   followUpQuestion: "What specific moment from today can you name?",
   takeaway: "Add a little more detail so the reflection can stay useful.",
+  sessionSignals: EMPTY_SESSION_SIGNALS,
 });
 
-const buildLowSignalDeeperResponse = (): GuidedReflectionGoDeeperResponse => ({
+const buildLowSignalDeeperResponse = (
+  previousSignals: SessionTrigger[] | undefined,
+  userWrittenText: string
+): GuidedReflectionGoDeeperResponse => ({
   reflection:
     "There is not enough clear information to go deeper usefully yet. Add one specific moment, the feeling it brought up, and what you needed then. That detail will make the next reflection more grounded and practical, without forcing meaning that your words do not support.",
   nextQuestion: "What specific moment from today can you name?",
   canGoDeeper: true,
+  sessionSignals: carrySessionSignals(previousSignals, userWrittenText),
 });
 
 const hasSafetySignal = (
@@ -1781,7 +2030,31 @@ const buildFallbackSummary = ({
     followUpQuestion:
       "What made the difficult moment harder than it needed to be?",
     takeaway: "Face the friction clearly, then choose one grounded next step.",
+    sessionSignals: EMPTY_SESSION_SIGNALS,
   };
+};
+
+/**
+ * The rung question to fall back to when the model is unavailable.
+ *
+ * `requestStructuredOpenAi` returns null on *any* failure, and on a bad day
+ * that is every turn. Without this the session silently drops back to generic
+ * prompts and the trigger thread the user was mid-way through is abandoned —
+ * so the deterministic path walks the same ladder, just without the specificity
+ * only the model can add.
+ */
+const buildTriggerLadderQuestion = (
+  carried: SessionTrigger[]
+): string | null => {
+  const strongest = carried[0];
+  if (!strongest) {
+    return null;
+  }
+
+  if (strongest.sessionOccurrences >= 2) {
+    return "What does that reaction do for you in the moment?";
+  }
+  return "What was happening right before that feeling showed up?";
 };
 
 const buildFallbackDeeperResponse = ({
@@ -1789,8 +2062,13 @@ const buildFallbackDeeperResponse = ({
   currentText,
   suggestionAction,
   onboardingContext,
+  previousSignals,
 }: GuidedReflectionGoDeeperInput): GuidedReflectionGoDeeperResponse => {
   const note = normalizeText(currentText, 84);
+  const carriedSignals = carrySessionSignals(
+    previousSignals,
+    [...promptAnswers.map((answer) => answer.answer), currentText].join(" ")
+  );
   const good =
     normalizeText(getAnswer(promptAnswers, "good_exciting"), 64) ||
     "what went well";
@@ -1801,10 +2079,13 @@ const buildFallbackDeeperResponse = ({
     normalizeText(getAnswer(promptAnswers, "carry_tomorrow"), 64) ||
     "what you want to carry forward";
   const tone = getContextTone(onboardingContext);
+  // A live trigger thread outranks the generic tone question: abandoning a
+  // half-tested trigger is the exact failure this feature exists to fix.
   const nextQuestion =
-    tone === "direct"
+    buildTriggerLadderQuestion(carriedSignals.triggers) ||
+    (tone === "direct"
       ? "What is the clearest next action from here?"
-      : "What small change would make tomorrow feel more aligned?";
+      : "What small change would make tomorrow feel more aligned?");
 
   if (suggestionAction === "another_perspective") {
     return {
@@ -1813,6 +2094,7 @@ const buildFallbackDeeperResponse = ({
       ),
       nextQuestion,
       canGoDeeper: true,
+      sessionSignals: carriedSignals,
     };
   }
 
@@ -1823,6 +2105,7 @@ const buildFallbackDeeperResponse = ({
       ),
       nextQuestion: "Which action can you make smaller and more specific?",
       canGoDeeper: true,
+      sessionSignals: carriedSignals,
     };
   }
 
@@ -1833,6 +2116,7 @@ const buildFallbackDeeperResponse = ({
       ),
       nextQuestion: "What part of that summary feels most true?",
       canGoDeeper: false,
+      sessionSignals: carriedSignals,
     };
   }
 
@@ -1843,6 +2127,7 @@ const buildFallbackDeeperResponse = ({
       ),
       nextQuestion: "What did that part of the day need from you?",
       canGoDeeper: true,
+      sessionSignals: carriedSignals,
     };
   }
 
@@ -1852,20 +2137,40 @@ const buildFallbackDeeperResponse = ({
     ),
     nextQuestion,
     canGoDeeper: true,
+    sessionSignals: carriedSignals,
   };
 };
 
-const getSessionText = (input: GuidedReflectionSessionAnalysisInput) =>
+/**
+ * The whole session including Journal.IO's own words — the AI summary and every
+ * assistant turn.
+ *
+ * **This is not user writing.** It must never reach an evidence check, a
+ * "how much did they write" gate, or a prompt as the person's content: Jade's
+ * own 45-90 word reflection alone clears every signal threshold we have, which
+ * is exactly how a four-word session used to earn a confident analysis. Use
+ * `getUserWrittenSessionText` for anything that judges or quotes the user.
+ *
+ * It survives for safety detection, where scanning more text is the safer
+ * error, and for the goal-suggestion signal blob.
+ */
+const getSessionTextIncludingAppText = (
+  input: GuidedReflectionSessionAnalysisInput
+) =>
   [
     ...input.promptAnswers.map((answer) => answer.answer),
     input.aiSummary || "",
     ...(input.threadMessages || []).map((message) => message.text),
   ].join(" ");
 
+// Third person throughout, like every other analysis string: this is a report
+// about a session, not a message to the reader. Where the copy would otherwise
+// instruct the reader ("you can still save this"), it states the fact
+// impersonally rather than reaching for a pronoun.
 const LOW_SIGNAL_ANALYSIS_TEXT =
-  "There is not enough clear information in this session to form a useful insight yet. Journal.IO can notice patterns best when the entry includes a few specific details about what happened, what felt difficult, and what you want to carry forward. You can still save this entry, and future reflections will give the app more to work with.";
+  "This session does not carry enough clear information to name a trigger or a pattern yet. Journal.IO reads what set a feeling off best when an entry includes a few specific details: what happened, what felt difficult, and what came right before it. The entry can still be saved, and later sessions will give the app more to work with.";
 const LOW_SIGNAL_MAJOR_INSIGHT =
-  "Major insight: there is not enough clear detail yet to identify a reliable pattern.";
+  "Major insight: there is not enough clear detail yet to link a feeling to what set it off.";
 const LOW_SIGNAL_TRENDS = [
   "More detail needed",
   "Reflection started",
@@ -1878,6 +2183,8 @@ const buildLowSignalSessionAnalysis = (
   analysis: LOW_SIGNAL_ANALYSIS_TEXT,
   majorInsight: LOW_SIGNAL_MAJOR_INSIGHT,
   observedTrends: [...LOW_SIGNAL_TRENDS],
+  triggersObserved: [],
+  patternAssessment: [],
   topicsObserved: [...LOW_SIGNAL_TRENDS],
   detectedTopics: [],
   detectedMood: "okay",
@@ -1895,6 +2202,178 @@ const getSessionSentences = (value: string) =>
     .split(/(?<=[.!?])\s+|\n+/)
     .map((sentence) => normalizeText(sentence, 160))
     .filter((sentence) => sentence.split(" ").filter(Boolean).length >= 3);
+
+/**
+ * Replace any analysis text that slipped back into second person.
+ *
+ * The prompt states the rule six ways, but a model asked to change voice
+ * mid-product reverts under pressure — especially on the heavier sessions,
+ * which are exactly the ones where being addressed as "you" reads as advice
+ * rather than a report. Rather than reject the whole response (which would cost
+ * the brain map and the topics too), the offending field alone falls back to
+ * the deterministic third-person copy. Same containment `normalizeBrainSessionMap`
+ * already applies to summary text that fails its own check.
+ */
+const enforceThirdPersonField = (
+  value: string,
+  fallbackValue: string,
+  field: string
+): string => {
+  if (isThirdPersonVoice(value)) {
+    return value;
+  }
+
+  // Only ever the matched pronoun — the sentence around it is user-derived.
+  console.warn(
+    `Session analysis fell back to deterministic copy: ${field} used second person ("${findSecondPersonPronoun(
+      value
+    )}").`
+  );
+  return fallbackValue;
+};
+
+/**
+ * Third-person guard over the brain map's free text.
+ *
+ * These strings are rendered on the same screen as the analysis, so one "your
+ * reflection" there undoes the voice everywhere else.
+ */
+const enforceThirdPersonBrainMap = (
+  map: BrainSessionMap,
+  fallbackMap: BrainSessionMap
+): BrainSessionMap => ({
+  ...map,
+  neuroscienceSummary: enforceThirdPersonField(
+    map.neuroscienceSummary,
+    fallbackMap.neuroscienceSummary,
+    "neuroscienceSummary"
+  ),
+  mostNoticedText: enforceThirdPersonField(
+    map.mostNoticedText,
+    fallbackMap.mostNoticedText,
+    "mostNoticedText"
+  ),
+  mindMapSeedText: enforceThirdPersonField(
+    map.mindMapSeedText,
+    fallbackMap.mindMapSeedText,
+    "mindMapSeedText"
+  ),
+  dominantCenter: {
+    ...map.dominantCenter,
+    shortInsight: enforceThirdPersonField(
+      map.dominantCenter.shortInsight,
+      buildShortInsight(
+        map.dominantCenter.id,
+        map.dominantCenter.score,
+        map.dominantCenter.evidence
+      ),
+      "dominantCenter.shortInsight"
+    ),
+  },
+  centers: map.centers.map((center) => ({
+    ...center,
+    shortInsight: enforceThirdPersonField(
+      center.shortInsight,
+      buildShortInsight(center.id, center.score, center.evidence),
+      "center.shortInsight"
+    ),
+  })),
+  secondaryCenters: map.secondaryCenters.map((center) => ({
+    ...center,
+    shortInsight: enforceThirdPersonField(
+      center.shortInsight,
+      buildShortInsight(center.id, center.score, center.evidence),
+      "center.shortInsight"
+    ),
+  })),
+});
+
+/**
+ * Grade what the session surfaced against what the graph already knows.
+ *
+ * The model supplies the labels and the reasoning; the counts and the
+ * emerging/recurring/confirmed grade are attached here from the graph. A
+ * fabricated "this is the fourth time" is the one error this feature cannot
+ * afford, because that is precisely the claim a user would act on.
+ */
+const gradeSessionFindings = async ({
+  userId,
+  triggersObserved,
+  patternAssessment,
+  userWrittenText,
+}: {
+  userId: string;
+  triggersObserved: Array<{
+    trigger: string;
+    emotionalResponse: string;
+    evidenceQuote: string;
+    confidence: number;
+  }>;
+  patternAssessment: Array<{ label: string; basis: string }>;
+  userWrittenText: string;
+}): Promise<{
+  triggers: SessionAnalysisTrigger[];
+  patterns: SessionAnalysisPattern[];
+}> => {
+  const cleanTriggers = mergeSessionTriggers(
+    [],
+    sanitizeTriggerEvidence(triggersObserved || [], userWrittenText)
+  );
+
+  const triggerLabels = cleanTriggers
+    .map((item) => toTriggerPatternLabel(item))
+    .filter(Boolean);
+  const patternLabels = (patternAssessment || [])
+    .map((item) => item.label.trim())
+    .filter(Boolean);
+
+  const stats = await getPatternNodeStatsByLabels(userId, [
+    ...triggerLabels,
+    ...patternLabels,
+  ]);
+  const statByLabel = new Map(stats.map((stat) => [stat.requestedLabel, stat]));
+
+  const grade = (label: string, sessionConfidence: number) => {
+    const stat = statByLabel.get(label);
+    // A miss means the graph has never merged this label, so the only sighting
+    // is the one in front of us. Ingestion has not run for this session yet —
+    // it fires after the snapshot is persisted — so counting it here as 1 is
+    // what makes the first sighting read as "new" rather than "seen 0 times".
+    const occurrences = stat ? stat.occurrences : 1;
+    return {
+      occurrences,
+      status: classifyTriggerStatus({
+        occurrences,
+        confidence: stat ? stat.confidence : sessionConfidence,
+      }),
+    };
+  };
+
+  return {
+    triggers: cleanTriggers.map((item) => {
+      const graded = grade(toTriggerPatternLabel(item), item.confidence);
+      return {
+        trigger: item.trigger,
+        emotionalResponse: item.emotionalResponse,
+        evidenceQuote: item.evidenceQuote,
+        confidence: item.confidence,
+        status: graded.status,
+        occurrences: graded.occurrences,
+      };
+    }),
+    patterns: (patternAssessment || [])
+      .filter((item) => item.label.trim())
+      .map((item) => {
+        const graded = grade(item.label.trim(), 0.5);
+        return {
+          label: item.label.trim(),
+          basis: item.basis.trim(),
+          status: graded.status,
+          occurrences: graded.occurrences,
+        };
+      }),
+  };
+};
 
 const buildSessionAnalysisFallback = ({
   userId,
@@ -1935,7 +2414,7 @@ const buildSessionAnalysisFallback = ({
         `A broader pattern may be emerging around facing friction more directly while using existing strengths to support one specific action.`,
       ]
     : [
-        `The clearest signal in this entry sits around "${opening}", which suggests that is what currently carries the most weight for you.`,
+        `The clearest signal in this entry sits around "${opening}", which suggests that is what currently carries the most weight for them.`,
         closing && closing !== opening
           ? `Where the writing moves toward "${closing}", it reads as something still open rather than settled.`
           : `The rest of the entry stays close to that same thread rather than resolving it.`,
@@ -1944,9 +2423,14 @@ const buildSessionAnalysisFallback = ({
 
   return {
     analysis: compactSessionAnalysisText(analysisSentences.join(" ")),
+    // The deterministic path has no model read of the session, so it reports no
+    // triggers rather than guessing at one from keywords. A wrong trigger is
+    // worse than none: it would enter the graph and start accumulating.
+    triggersObserved: [],
+    patternAssessment: [],
     majorInsight: isGuidedShaped
       ? "Major insight: the strongest signal is the unresolved friction and the chance to meet it with one grounded action."
-      : "Major insight: the strongest signal is what you kept returning to in this entry.",
+      : "Major insight: the strongest signal is what they kept returning to in this entry.",
     observedTrends: isGuidedShaped
       ? ["Pressure", "Unresolved friction", "Steadiness", "Tomorrow"]
       : ["Unresolved thread", "Written reflection", "Tomorrow"],
@@ -2051,10 +2535,11 @@ const createFirstReflectionSummary = async (
     return {
       reflection: buildProductPrivacyReply(),
       followUpQuestion: "Would you like to continue your reflection now?",
+      sessionSignals: EMPTY_SESSION_SIGNALS,
     };
   }
 
-  if (looksLikeMostlyGibberishText(getSessionText(input))) {
+  if (looksLikeMostlyGibberishText(getUserWrittenSessionText(input))) {
     return buildLowSignalFirstSummary();
   }
 
@@ -2080,7 +2565,7 @@ const createFirstReflectionSummary = async (
     schema: guidedReflectionJsonSchema,
     parser: reflectionSummarySchema,
     model: GUIDED_REFLECTION_MODEL(),
-    maxOutputTokens: 360,
+    maxOutputTokens: 900,
     reasoningEffort: GUIDED_REFLECTION_REASONING_EFFORT(),
     messages: [
       {
@@ -2090,7 +2575,8 @@ const createFirstReflectionSummary = async (
       {
         role: "user",
         content: JSON.stringify({
-          task: "Open the guided reflection with 45-70 words. Give one grounded observation from the user's own words and one practical next step. Acknowledge anything heavy with care, but do not over-explain or claim therapeutic authority. Set followUpQuestion to one specific, curious question of 6-24 words and at most 160 characters that opens the thread most worth exploring — a short lead-in before the question is fine. Keep the question separate from reflection.",
+          task: "Open the guided reflection in up to 90 words. State the conclusion the user's own words support, then one specific next step they can take today. Acknowledge anything heavy with care, but do not over-explain or claim therapeutic authority. Set followUpQuestion to one specific, curious question of 6-24 words and at most 160 characters that opens the thread most worth exploring — a short lead-in before the question is fine. Keep the question separate from reflection.",
+          triggerTask: "This opening also starts the session's trigger thread. Where their answers name a feeling, aim followUpQuestion at what came right before it — the situation, person, time, or thought that set it off — and set triggerStage to surface. If they already named both the feeling and what preceded it, set triggerStage to test and ask whether that same situation has done this before. Record only what their words support in sessionSignals.triggers, copying evidenceQuote verbatim or leaving it empty, and return an empty list when nothing trigger-shaped is there yet. Write every field in English, inside hard limits that cut mid-word when exceeded: trigger 64 characters, emotionalResponse 64, evidenceQuote 180. Rewrite anything longer as a shorter English phrase — never abbreviate, truncate, or compress into another language or symbols; pick a shorter verbatim sentence when the quote will not fit.",
           promptAnswers: input.promptAnswers.map((answer) => ({
             questionId: answer.questionId,
             question: answer.question,
@@ -2112,6 +2598,15 @@ const createFirstReflectionSummary = async (
     reflection: aiResponse.reflection,
     followUpQuestion: aiResponse.followUpQuestion,
     ...(aiResponse.takeaway ? { takeaway: aiResponse.takeaway } : {}),
+    sessionSignals: buildSessionSignals({
+      previousSignals: [],
+      observed: aiResponse.sessionSignals.triggers,
+      activeTrigger: aiResponse.sessionSignals.activeTrigger,
+      triggerStage: aiResponse.sessionSignals.triggerStage,
+      userWrittenText: input.promptAnswers
+        .map((answer) => answer.answer)
+        .join(" "),
+    }),
   };
 };
 
@@ -2119,7 +2614,10 @@ const createGuidedReflectionGoDeeper = async (
   input: GuidedReflectionGoDeeperInput
 ): Promise<GuidedReflectionGoDeeperResponse> => {
   if (hasSafetySignal(input.promptAnswers, input.currentText)) {
-    return buildSafetyFirstDeeperResponse();
+    return buildSafetyFirstDeeperResponse(
+      input.previousSignals,
+      getUserWrittenGoDeeperText(input)
+    );
   }
 
   if (isProductPrivacyQuestion(input.currentText)) {
@@ -2127,11 +2625,18 @@ const createGuidedReflectionGoDeeper = async (
       reflection: buildProductPrivacyReply(),
       nextQuestion: "Would you like to continue your reflection now?",
       canGoDeeper: true,
+      sessionSignals: carrySessionSignals(
+        input.previousSignals,
+        getUserWrittenGoDeeperText(input)
+      ),
     };
   }
 
-  if (looksLikeMostlyGibberishText(getSessionText(input))) {
-    return buildLowSignalDeeperResponse();
+  if (looksLikeMostlyGibberishText(getUserWrittenGoDeeperText(input))) {
+    return buildLowSignalDeeperResponse(
+      input.previousSignals,
+      getUserWrittenGoDeeperText(input)
+    );
   }
 
   const {
@@ -2150,6 +2655,11 @@ const createGuidedReflectionGoDeeper = async (
     queryEmbedding,
   });
   const turnsSoFar = (input.previousDeeperReflections || []).length;
+  const carriedTriggers = mergeSessionTriggers(input.previousSignals, []);
+  const knownTriggers = await loadKnownTriggerStats(
+    input.userId,
+    carriedTriggers
+  );
 
   const aiResponse = await requestStructuredOpenAi({
     feature: "guided reflection go deeper",
@@ -2157,7 +2667,11 @@ const createGuidedReflectionGoDeeper = async (
     schema: goDeeperJsonSchema,
     parser: goDeeperResponseSchema,
     model: GUIDED_REFLECTION_MODEL(),
-    maxOutputTokens: 360,
+    // Raised from 360: the reflection and question are unchanged in length, but
+    // sessionSignals now rides along in the same response. Too tight a cap
+    // truncates the JSON, and a truncated payload costs the whole turn — the
+    // parser returns null and the user gets the deterministic fallback.
+    maxOutputTokens: 700,
     reasoningEffort: GUIDED_REFLECTION_REASONING_EFFORT(),
     messages: [
       {
@@ -2165,10 +2679,15 @@ const createGuidedReflectionGoDeeper = async (
         content: [
           SYSTEM_PROMPT,
           "This is a live, therapeutically informed deepening conversation. React to the user's latest answer specifically.",
-          "Write 45-70 words with one grounded observation and one practical next step. If they shared something heavy, acknowledge it with care first.",
+          "Write up to 90 words: the conclusion their words support, then one specific next step. If they shared something heavy, acknowledge it with care first.",
           "Then ask exactly one separate question of 6-24 words and at most 160 characters. It must build directly on their answer without sounding generic. You have room for a short lead-in before the question when it makes the question land more precisely.",
-          "Follow the probing ladder: when their answer reveals a behaviour, coping habit, avoidance, or contradiction, aim the question at its function or cost (how it helps or hurts them, what it protects them from, what need it meets, whether it is becoming a pattern) rather than moving to a new topic. Go one rung deeper than they went, without judging the behaviour.",
-          "Read whether they want to go deeper or simply be heard. If they are venting or emotionally full, keep the reflection validating and make the question soft and optional — never push. If there is a real thread to pull, invite them further in.",
+          "Your job across this session is to find what triggers this person's emotional responses — the specific situation, person, time, or thought that came right before a feeling — and then test whether it repeats. A feeling on its own is a mood; a feeling with what set it off is something they can act on.",
+          "Work one rung at a time and set triggerStage to the rung your nextQuestion is on. surface: they named a feeling but not what preceded it, so ask what was happening immediately before it, concretely — who was there, what was said, what they were doing. test: a candidate trigger has been named once but never checked, so ask whether that same situation has produced the same response at other times, or what was different when it did not. function: the trigger has held up, so ask what their response does for them — what it protects them from, what it costs, what would have to be true for them to respond differently.",
+          "Never skip a rung, and never move to a new topic while a candidate trigger is still untested. Set activeTrigger to the trigger your nextQuestion is aimed at, or an empty string when nothing trigger-shaped has surfaced yet and you are still opening the thread.",
+          "carriedTriggers lists what earlier turns in this same session already surfaced, with how many turns supported each. Advance the rung on the strongest carried trigger rather than restarting on a new one, unless the latest answer clearly opens something more important. knownTriggers lists what their earlier entries and sessions already established, with lifetime counts — when today echoes one of those, say so and check the connection rather than treating it as new.",
+          "Record in triggers only what their own words support: the trigger, the emotional response it appears to set off, their verbatim sentence as evidenceQuote, and a 0-1 confidence. Copy the quote exactly or leave it empty — never write one yourself. Return an empty list rather than inventing a trigger; small talk and venting genuinely have none. Name what they do and what set it off, and name the pattern it belongs to where their words support one. Write every field in English, inside hard limits that cut mid-word when exceeded: trigger 64 characters, emotionalResponse 64, evidenceQuote 180. Rewrite anything longer as a shorter English phrase — never abbreviate, truncate, or compress into another language or symbols; pick a shorter verbatim sentence when the quote will not fit.",
+          AI_EXTRACTION_BALANCE_GUIDANCE,
+          "Read whether they want to go deeper or simply be heard. If they are venting or emotionally full, acknowledge that first and make the question optional rather than insistent — but still say what you actually see. If there is a real thread to pull, take them further into it.",
           "Set canGoDeeper to false only when the reflection has reached a natural, resolved stopping point or the user clearly has nothing left to explore; otherwise true.",
           "Use longTermMemory actively: when today echoes a specific incident, relationship, or thread the user raised in a past session, name it and check the connection directly (e.g. 'a few entries back you mentioned X — does this feel connected?'). Prefer a concrete past detail over a vague 'you often…'. Never fabricate history; if memory is empty or unrelated, stay with today.",
           systemDirective,
@@ -2204,6 +2723,8 @@ const createGuidedReflectionGoDeeper = async (
               : null,
           })),
           currentText: normalizeText(input.currentText),
+          carriedTriggers: toCarriedTriggersPayload(carriedTriggers),
+          knownTriggers,
           longTermMemory: longTermMemory || "No prior sessions yet.",
           userProfile,
         }),
@@ -2219,25 +2740,42 @@ const createGuidedReflectionGoDeeper = async (
     reflection: aiResponse.reflection,
     nextQuestion: aiResponse.nextQuestion,
     canGoDeeper: aiResponse.canGoDeeper,
+    sessionSignals: buildSessionSignals({
+      previousSignals: input.previousSignals,
+      observed: aiResponse.sessionSignals.triggers,
+      activeTrigger: aiResponse.sessionSignals.activeTrigger,
+      triggerStage: aiResponse.sessionSignals.triggerStage,
+      userWrittenText: getUserWrittenGoDeeperText(input),
+    }),
   };
 };
 
 const createGuidedReflectionSessionAnalysis = async (
   input: GuidedReflectionSessionAnalysisInput
 ): Promise<GuidedReflectionSessionAnalysisResponse> => {
-  const sessionText = getSessionText(input);
-
-  if (looksLikeLowSignalText(sessionText)) {
+  // Judged on what this person wrote, not on what Journal.IO wrote back at
+  // them. A session where they typed four words holds four words of signal
+  // however long the reply was.
+  if (looksLikeLowSignalText(getUserWrittenSessionText(input))) {
     return buildLowSignalSessionAnalysis(input);
   }
 
-  if (hasSafetySignal(input.promptAnswers, sessionText)) {
+  // Safety deliberately keeps reading the full session, app text included. A
+  // false positive costs one generic analysis; a false negative costs more.
+  if (
+    hasSafetySignal(input.promptAnswers, getSessionTextIncludingAppText(input))
+  ) {
     return {
       analysis:
-        "This session includes signals that should be treated with care before deeper pattern-reading. The safest insight is to keep the next step grounded in support, stability, and one immediate action outside the app if anything feels urgent. Journal.IO can help organize the reflection, but it should not replace real-world support when safety may be involved.",
+        "This session includes signals that should be treated with care before any deeper pattern-reading. Reporting triggers and patterns is not the right response here; support, stability, and one immediate action outside the app come first if anything feels urgent. Journal.IO can help organize a reflection, but it does not replace real-world support when safety may be involved.",
       majorInsight:
-        "Major insight: prioritize safety and real-world support before deeper reflection.",
+        "Major insight: safety and real-world support come before deeper reflection.",
       observedTrends: ["Safety", "Support", "Grounding"],
+      // Deliberately empty: a session carrying a safety signal must not have
+      // its content mined into the pattern graph or reported back as a
+      // behavioural finding.
+      triggersObserved: [],
+      patternAssessment: [],
       topicsObserved: ["Safety", "Support", "Grounding"],
       detectedTopics: [],
       detectedMood: "terrible",
@@ -2261,28 +2799,52 @@ const createGuidedReflectionSessionAnalysis = async (
     queryEmbedding,
   });
 
+  const userWrittenText = getUserWrittenSessionText(input);
+  const userWordCount = userWrittenText.split(/\s+/).filter(Boolean).length;
+  const carriedSignals = mergeSessionTriggers(input.sessionSignals, []);
+  // Fed *into* the prompt, not only checked after it: a model that already
+  // knows a trigger is on its third sighting writes prose that agrees with the
+  // count attached to the response. Told afterwards, it would have guessed.
+  const knownPatterns = await loadKnownTriggerStats(
+    input.userId,
+    carriedSignals
+  );
+
   const aiResponse = await requestStructuredOpenAi({
     feature: "guided reflection session analysis",
     schemaName: "guided_reflection_session_analysis",
     schema: sessionAnalysisJsonSchema,
     parser: sessionAnalysisResponseSchema,
-    maxOutputTokens: 2400,
+    maxOutputTokens: 5000,
     model: SESSION_ANALYSIS_MODEL(),
     // High reasoning by default for nuanced reflective depth; env-tunable
-    // via OPENAI_GUIDED_REFLECTION_REASONING_EFFORT. maxOutputTokens stays at
-    // 2400 so the full 8-center brainSessionMap never truncates.
+    // via OPENAI_GUIDED_REFLECTION_REASONING_EFFORT. max_output_tokens covers
+    // reasoning *and* visible output, and this prompt's full 8-center
+    // brainSessionMap plus observedTrends runs past 2400 on its own, so the
+    // budget is 5000. Under-budgeting here is silent: the response comes back
+    // `incomplete`, requestStructuredOpenAi returns null, and the entry gets
+    // generic fallback copy with only a logged error to show for it.
     reasoningEffort: GUIDED_REFLECTION_REASONING_EFFORT(),
     messages: [
       {
         role: "system",
         content: [
           SYSTEM_PROMPT,
-          "For this task, write a session-level insight, not another reflective chat reply.",
-          "Read like a skilled, grounded reflection guide: surface the clearest behaviour-focused pattern and, where the writing shows it, name the trigger or the feeling it regulates (the behaviour AND what sets it off or what it soothes), because that link is usually what the user cannot see. Where longTermMemory supports it, connect this to a specific past detail and note how it may be recurring. Name the pattern and its cost or function; never label the behaviour good or bad, never moralise, never clinical, diagnostic, or authority-claiming.",
-          "Use behavior-focused language such as 'suggests', 'may show', 'appears connected to', and 'the clearest signal is'.",
+          "For this task you are writing a third-person report about a session. It is not a reflection, not a chat reply, and not addressed to the reader.",
+          "Never use 'you' or 'your' in any field. Refer to the person as 'they' and 'them' throughout — in analysis, majorInsight, observedTrends, and every part of brainSessionMap including neuroscienceSummary, mostNoticedText, mindMapSeedText and each center's shortInsight. Writing about the session itself rather than about a person is also fine where it reads more naturally.",
+          "Report from the outside what happened: what the session covered, what set off which emotional response, and which of those look like repeating patterns. Do not comfort, encourage, reassure, advise, or suggest a next step — none of that belongs in this report.",
+          "Lead with the trigger-to-response links their own words actually support. A trigger is the situation, person, time, or thought that came right before a feeling. State the order explicitly — what came before what — and never assert an order the writing does not show.",
+          "knownPatterns lists what this person's earlier entries and sessions already established, with how many times each has been seen. Use it to say plainly whether something here is showing for the first time, repeating, or already well established. Never state a count knownPatterns does not support, and never invent history. When knownPatterns is empty, treat everything in the session as new.",
+          "Only what is under userAuthored was written by this person. Everything under appAuthoredContext — the questions they were asked, Journal.IO's own reflections, and any writing prompt the app inserted into their entry — was written by the app. Use it only to understand what they were responding to.",
+          "Never quote appAuthoredContext, never attribute it to them, and never treat a question's subject as something they raised. That the app asked about tomorrow is not evidence they are thinking about tomorrow; only their own answer is. An observation that would still be true if they had written nothing is not an observation about them.",
+          "Every evidenceQuote and every brainSessionMap evidence chip must be copied from userAuthored text. If the only sentence that would support a point came from the app, the point is not supported.",
+          "userAuthored.wordCount is how much this person actually wrote. When it is small, the session genuinely holds less: say what their few words show and no more, and set hasEnoughSignal to false rather than filling the gap from the questions or from Journal.IO's replies.",
+          "Put every trigger the session evidences into triggersObserved, each with the emotional response it appears to set off and their verbatim sentence as evidenceQuote — copied exactly or left empty, never written by you. Put the behaviours worth tracking into patternAssessment with a one-line basis. Return empty lists rather than inventing either; a session about small things genuinely has none.",
+          "Write behaviour-focused findings as statements, not as suggestions: 'the criticism came first, then they went quiet', not 'the session suggests a possible link'. State the order and the link their words support, and say plainly when something is genuinely uncertain rather than hedging everything by default. You may name recognised psychological patterns — avoidance, numbing, rumination, attachment behaviour, burnout or depressive markers — as a description of what the session shows. Do not assert a formal disorder as an established medical fact, even if they used that word themselves.",
           "Apply the challenge-forward balance across the analysis, major insight, trends, detected topics, and reflection-center reasoning. Do not let an encouraging conclusion hide supported difficulty.",
           "If the writing is unclear or too sparse, say there is not enough information rather than inventing insight.",
-          "Keep it short but genuinely insightful: a precise 3-4 sentence analysis (no more than about 110 words), one bold-worthy major insight sentence without markdown, 2-4 short trend labels, and a brain-inspired reflection-center classification.",
+          "Keep it short but genuinely insightful: a precise 3-4 sentence analysis (no more than about 110 words) describing the session, one majorInsight sentence naming the single clearest trigger-to-response link without markdown, 2-4 short observedTrends labels naming triggers or patterns rather than moods, and a brain-inspired reflection-center classification.",
+          AI_EXTRACTION_BALANCE_GUIDANCE,
           `Return one to five genuine detectedTopics using only this taxonomy: ${ENTRY_TOPIC_TAXONOMY.join(
             ", "
           )}.`,
@@ -2294,6 +2856,11 @@ const createGuidedReflectionSessionAnalysis = async (
           "Classify by the overall meaning of the session, not shallow keyword matching.",
           "Evidence must come only from the user-authored prompt answers or user thread messages, not from assistant text. Keep up to three evidence chips short, usually 2-6 words, and do not invent facts.",
           "Use premium, concise, emotionally intelligent language. Do not sound robotic, clinical, or over-explain the neuroscience.",
+          // Without stated budgets the model writes to its natural length and
+          // generation is cut at the schema bound. It then tries to fit the
+          // remaining meaning into the last character or two, which is how
+          // "Getting out of bed despite low" acquired a Chinese 力 on the end.
+          "Write every field in English. Hard character limits, and anything longer is cut off mid-word: each observedTrends label 32 characters, majorInsight 180, analysis 680, each brain center shortInsight 180, each evidence chip 48, neuroscienceSummary 240, mostNoticedText 220, each triggersObserved trigger 64 and emotionalResponse 64 and evidenceQuote 180, each patternAssessment label 64 and basis 160. Aim comfortably inside each limit and finish the sentence — a label that needs more than its limit should be rewritten shorter, never abbreviated, truncated, or compressed into another language or symbols.",
           systemDirective,
         ]
           .filter(Boolean)
@@ -2302,7 +2869,7 @@ const createGuidedReflectionSessionAnalysis = async (
       {
         role: "user",
         content: JSON.stringify({
-          task: "Analyze the full reflection session. Identify meaningful behavior-focused patterns, what the user may be trying to carry forward, genuine detected topics, one five-value mood, and the required brainSessionMap. Do not diagnose, claim therapy, or invent facts.",
+          task: "Report on the full reflection session in the third person, using only what this person actually wrote. Identify what set off which emotional response, which behaviours look like repeating patterns and how established each already is, genuine detected topics, one five-value mood, and the required brainSessionMap. Do not address the reader, do not advise, do not diagnose, claim therapy, or invent facts.",
           brainReflectionCenters: BRAIN_CENTER_IDS.map((id) => ({
             id,
             productName: BRAIN_CENTER_DETAILS[id].productName,
@@ -2326,26 +2893,50 @@ const createGuidedReflectionSessionAnalysis = async (
             self_reflection_identity:
               "Self-talk, identity, values, purpose, personal growth, who the user is becoming, inner narrative.",
           },
-          promptAnswers: input.promptAnswers.map((answer) => ({
-            questionId: answer.questionId,
-            question: answer.question,
-            answer: normalizeText(answer.answer),
-          })),
-          userWritingOnly: normalizeText(
-            getUserWrittenSessionText(input),
-            1600
-          ),
+          // Authorship is split at the top level rather than interleaved, so
+          // there is no way to read an app-written question or reflection as
+          // something this person said. Everything under userAuthored is theirs;
+          // nothing under appAuthoredContext is.
+          userAuthored: {
+            answers: input.promptAnswers.map((answer) => ({
+              questionId: answer.questionId,
+              answer: normalizeText(answer.answer),
+            })),
+            messages: (input.threadMessages || [])
+              .filter((message) => message.role === "user")
+              .map((message) => normalizeText(message.text, 900))
+              .filter(Boolean),
+            fullText: normalizeText(userWrittenText, 1600),
+            wordCount: userWordCount,
+          },
+          appAuthoredContext: {
+            questionsAsked: [
+              ...input.promptAnswers
+                .map((answer) => normalizeText(answer.question, 180))
+                .filter(Boolean),
+              ...(input.threadMessages || [])
+                .map((message) =>
+                  message.promptQuestion
+                    ? normalizeText(message.promptQuestion, 180)
+                    : ""
+                )
+                .filter(Boolean),
+            ],
+            assistantReflections: [
+              input.aiSummary ? normalizeText(input.aiSummary, 900) : "",
+              ...(input.threadMessages || [])
+                .filter((message) => message.role === "assistant")
+                .map((message) => normalizeText(message.text, 900)),
+            ].filter(Boolean),
+            // Text the app inserted into a saved entry (writing prompts,
+            // guided section labels, its own earlier reflection).
+            insertedByApp: input.appAuthoredContext
+              ? normalizeText(input.appAuthoredContext, 900)
+              : "",
+          },
+          sessionTriggers: toCarriedTriggersPayload(carriedSignals),
+          knownPatterns,
           longTermMemory: longTermMemory || "No prior sessions yet.",
-          aiSummary: input.aiSummary ? normalizeText(input.aiSummary, 900) : "",
-          threadMessages: (input.threadMessages || []).map((message) => ({
-            role: message.role,
-            kind: normalizeText(message.kind, 80),
-            text: normalizeText(message.text, 900),
-            actionType: message.actionType || null,
-            promptQuestion: message.promptQuestion
-              ? normalizeText(message.promptQuestion, 100)
-              : null,
-          })),
           userProfile,
           fallbackStyleExample: fallback.analysis,
         }),
@@ -2357,9 +2948,12 @@ const createGuidedReflectionSessionAnalysis = async (
     return fallback;
   }
 
-  const brainSessionMap = normalizeBrainSessionMap(
-    aiResponse.brainSessionMap,
-    input,
+  const brainSessionMap = enforceThirdPersonBrainMap(
+    normalizeBrainSessionMap(
+      aiResponse.brainSessionMap,
+      input,
+      fallback.brainSessionMap
+    ),
     fallback.brainSessionMap
   );
 
@@ -2374,6 +2968,10 @@ const createGuidedReflectionSessionAnalysis = async (
       topicsObserved: normalizeDetectedTopics(aiResponse.detectedTopics),
       detectedTopics: normalizeDetectedTopics(aiResponse.detectedTopics),
       detectedMood: aiResponse.detectedMood,
+      // Too little to work with is exactly the case where a trigger would be
+      // invented, so nothing is reported and nothing reaches the graph.
+      triggersObserved: [],
+      patternAssessment: [],
       brainSessionMap,
       hasEnoughSignal: false,
       isFallback: false,
@@ -2390,13 +2988,36 @@ const createGuidedReflectionSessionAnalysis = async (
     : detectEntryMetadataHeuristically(getUserWrittenSessionText(input))
         .detectedTopics;
 
+  // The live turns and the end-of-session pass see different things: a trigger
+  // named on turn two can be buried by turn six. Union the two rather than
+  // letting the final call be the only witness.
+  const graded = await gradeSessionFindings({
+    userId: input.userId,
+    triggersObserved: mergeSessionTriggers(
+      carriedSignals,
+      aiResponse.triggersObserved
+    ),
+    patternAssessment: aiResponse.patternAssessment,
+    userWrittenText,
+  });
+
   return {
-    analysis: aiResponse.analysis,
-    majorInsight: `Major insight: ${aiResponse.majorInsight.replace(
-      /^major insight:\s*/i,
-      ""
-    )}`,
+    analysis: enforceThirdPersonField(
+      aiResponse.analysis,
+      fallback.analysis,
+      "analysis"
+    ),
+    majorInsight: enforceThirdPersonField(
+      `Major insight: ${aiResponse.majorInsight.replace(
+        /^major insight:\s*/i,
+        ""
+      )}`,
+      fallback.majorInsight,
+      "majorInsight"
+    ),
     observedTrends: aiResponse.observedTrends,
+    triggersObserved: graded.triggers,
+    patternAssessment: graded.patterns,
     topicsObserved: detectedTopics,
     detectedTopics,
     detectedMood: aiResponse.detectedMood,
@@ -2410,7 +3031,7 @@ const createGuidedReflectionGoalSuggestions = async (
   input: GuidedReflectionGoalSuggestionsInput
 ): Promise<GuidedReflectionGoalSuggestionsResponse> => {
   const sessionText = [
-    getSessionText(input),
+    getSessionTextIncludingAppText(input),
     input.sessionAnalysis?.analysis || "",
     input.sessionAnalysis?.majorInsight || "",
     ...(input.sessionAnalysis?.observedTrends || []),
@@ -2497,7 +3118,7 @@ const createGuidedReflectionGoalSuggestions = async (
           SYSTEM_PROMPT,
           "Suggest specific, doable goals that are clearly connected to what the user actually said.",
           AI_ACTION_BALANCE_GUIDANCE,
-          "Do not create medical, clinical, diagnostic, shame-based, or treatment-plan goals.",
+          "Do not create medical or treatment-plan goals, and do not prescribe anything that belongs to a clinician.",
           "Anchor goals in the user's real themes while allowing a broadly useful contextual action, such as a walk or change of setting, when it is a plausible experiment. Direct advice is welcome when the useful action is clear, but never state a speculative hidden cause as fact.",
           "Do not repeat or paraphrase existingGoals. Changing the duration, time, meal, or trigger does not make the same core action new. Return fewer goals rather than padding.",
           "Never return two goals that share the same core action. Merge them into one goal that keeps the specifics of both: a five-minute writing goal and a write-after-dinner goal become a single goal to write for five minutes after dinner.",
@@ -2515,7 +3136,7 @@ const createGuidedReflectionGoalSuggestions = async (
       {
         role: "user",
         content: JSON.stringify({
-          task: "Create one to four specific, doable, non-clinical goals grounded in concrete details from the session (and recurring themes in longTermMemory). A goal may address an adjacent life area the user actually mentioned. Keep titles under 30 characters and descriptions under 96 characters. Do not pad with generic advice. Goals are local suggestions only and will not be persisted yet.",
+          task: "Create one to four specific, doable goals grounded in concrete details from the session (and recurring themes in longTermMemory). A goal may address an adjacent life area the user actually mentioned. Keep titles under 30 characters and descriptions under 96 characters. Do not pad with generic advice. Goals are local suggestions only and will not be persisted yet.",
           promptAnswers: input.promptAnswers.map((answer) => ({
             questionId: answer.questionId,
             question: answer.question,

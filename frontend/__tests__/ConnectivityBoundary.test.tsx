@@ -66,6 +66,11 @@ describe('ConnectivityBoundary', () => {
 
     expect(root!.root.findByProps({ testID: 'connectivity-gate' })).toBeTruthy();
     expect(root!.root.findAllByProps({ testID: 'protected-content' })).toHaveLength(0);
+    // The gate is the brand mark now, not a spinner.
+    expect(root!.root.findAllByProps({ testID: 'connectivity-loader' })).toHaveLength(0);
+    expect(
+      root!.root.findByProps({ accessibilityLabel: 'Journal.IO' }),
+    ).toBeTruthy();
 
     await ReactTestRenderer.act(() => {
       useAppStore.setState({ hasBootstrappedAuthGate: true, stage: 'auth' });
@@ -134,5 +139,60 @@ describe('ConnectivityBoundary', () => {
     expect(root!.root.findAllByProps({ testID: 'connectivity-gate' })).toHaveLength(0);
     expect(root!.root.findByProps({ testID: 'offline-banner' })).toBeTruthy();
     root!.unmount();
+  });
+
+  // Regression: 'ask-jade' was missing from this file's copy of
+  // `isAuthenticatedAppStage`, so losing connection on Ask Jade threw the
+  // full-screen gate over a signed-in user instead of the banner.
+  test('treats ask-jade as an authenticated surface', async () => {
+    setCachedAuthenticatedSession();
+    useAppStore.setState({ stage: 'ask-jade' });
+    let root: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      root = renderBoundary();
+    });
+
+    expect(root!.root.findByProps({ testID: 'protected-content' })).toBeTruthy();
+    expect(root!.root.findAllByProps({ testID: 'connectivity-gate' })).toHaveLength(0);
+    expect(root!.root.findAllByProps({ testID: 'connectivity-overlay' })).toHaveLength(0);
+    root!.unmount();
+  });
+
+  test('holds the waiting copy back until the wait is genuinely long', async () => {
+    jest.useFakeTimers();
+
+    try {
+      let root: ReactTestRenderer.ReactTestRenderer;
+
+      await ReactTestRenderer.act(() => {
+        root = renderBoundary();
+      });
+
+      expect(
+        root!.root.findAllByProps({ testID: 'connectivity-waiting-copy' }),
+      ).toHaveLength(0);
+
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(5000);
+      });
+
+      expect(
+        root!.root.findByProps({ testID: 'connectivity-waiting-copy' }),
+      ).toBeTruthy();
+
+      // Reconnecting has to retract it, or a flapping link leaves "Waiting for
+      // connection" on screen while we are demonstrably online.
+      await ReactTestRenderer.act(async () => {
+        reportBackendReachable();
+      });
+
+      expect(
+        root!.root.findAllByProps({ testID: 'connectivity-waiting-copy' }),
+      ).toHaveLength(0);
+      root!.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

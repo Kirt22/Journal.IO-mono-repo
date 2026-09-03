@@ -10,17 +10,28 @@ import { Text } from '../infrastructure/reactNative';
 const WAVE_DELAY_MS = 220;
 const WAVE_OUT_DURATION_MS = 520;
 const WAVE_RETURN_DURATION_MS = 420;
+const EMPHASIS_SETTLE_DURATION_MS = 380;
+const DEFAULT_PEAK_SCALE = 1.22;
 
 type WavingHandIconProps = {
   size?: number;
   testID?: string;
+  /**
+   * Grows the hand while it waves and settles it back to its resting size once
+   * the wave finishes. Opt-in so inline usages stay a plain rotation.
+   */
+  emphasizeOnMount?: boolean;
+  peakScale?: number;
 };
 
 export default function WavingHandIcon({
   size = 24,
   testID,
+  emphasizeOnMount = false,
+  peakScale = DEFAULT_PEAK_SCALE,
 }: WavingHandIconProps) {
   const handWave = useRef(new Animated.Value(0)).current;
+  const handScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     let isActive = true;
@@ -31,6 +42,7 @@ export default function WavingHandIcon({
       animation?.stop();
       animation = null;
       handWave.setValue(0);
+      handScale.setValue(1);
     };
 
     const playWave = () => {
@@ -39,7 +51,7 @@ export default function WavingHandIcon({
       }
 
       handWave.setValue(0);
-      animation = Animated.sequence([
+      const waveSequence = Animated.sequence([
         Animated.delay(WAVE_DELAY_MS),
         Animated.timing(handWave, {
           toValue: 1,
@@ -54,6 +66,34 @@ export default function WavingHandIcon({
           useNativeDriver: true,
         }),
       ]);
+
+      if (!emphasizeOnMount) {
+        animation = waveSequence;
+      } else {
+        handScale.setValue(1);
+        animation = Animated.parallel([
+          waveSequence,
+          // Swells as the hand swings out, holds through the swing back, then
+          // eases down to the resting size the moment the wave is done.
+          Animated.sequence([
+            Animated.delay(WAVE_DELAY_MS),
+            Animated.timing(handScale, {
+              toValue: peakScale,
+              duration: WAVE_OUT_DURATION_MS,
+              easing: Easing.out(Easing.back(1.4)),
+              useNativeDriver: true,
+            }),
+            Animated.delay(WAVE_RETURN_DURATION_MS),
+            Animated.timing(handScale, {
+              toValue: 1,
+              duration: EMPHASIS_SETTLE_DURATION_MS,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+        ]);
+      }
+
       animation.start(() => {
         animation = null;
       });
@@ -97,7 +137,7 @@ export default function WavingHandIcon({
       subscription.remove();
       animation?.stop();
     };
-  }, [handWave]);
+  }, [emphasizeOnMount, handScale, handWave, peakScale]);
 
   return (
     <Animated.View
@@ -115,6 +155,7 @@ export default function WavingHandIcon({
                 outputRange: ['0deg', '-18deg', '16deg', '0deg'],
               }),
             },
+            { scale: handScale },
           ],
         },
       ]}

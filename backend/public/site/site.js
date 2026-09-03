@@ -121,15 +121,32 @@
     window.setTimeout(revealAll, 3500);
   }
 
-  /* ----------------------------------------------------------- parallax --- */
-  /* A slow drift on the device frames. Deliberately small — 40px total — so it
-     reads as depth rather than as an effect. */
+  /* ------------------------------------------------------ device motion --- */
+  /* Everything scroll-linked on the phone frames shares one rAF-throttled pass:
+     the hero device rising out of the horizon, and the drift + fade on the
+     rest. All of it is an enhancement — CSS alone leaves every frame in a
+     correct, fully visible resting state. */
 
   var parallaxed = Array.prototype.slice.call(document.querySelectorAll("[data-parallax]"));
+  var heroDevice = document.querySelector(".hero__device .device");
   var ticking = false;
 
-  function applyParallax() {
-    ticking = false;
+  /* px of scroll to take the hero phone from fully sunk below the line to
+     fully risen. Driven off scrollY rather than the line's viewport position
+     so the resting state at scroll 0 is the same on every viewport height. */
+  var RISE_RANGE = 420;
+
+  function applyRise() {
+    if (!heroDevice) return;
+    var p = Math.min(1, Math.max(0, window.scrollY / RISE_RANGE));
+    heroDevice.style.setProperty("--rise-p", (1 - p).toFixed(3));
+  }
+
+  /* A slow drift on the device frames. Deliberately small — 40px total — so it
+     reads as depth rather than as an effect. The fade alongside it is what
+     makes a frame feel like it arrives and leaves rather than just sitting
+     there; it is written to .device so the coral glow fades with the phone. */
+  function applyDrift() {
     var viewport = window.innerHeight;
 
     parallaxed.forEach(function (el) {
@@ -139,19 +156,48 @@
       // -1 when the element is entering from the bottom, 1 when leaving the top
       var progress = (viewport / 2 - (rect.top + rect.height / 2)) / viewport;
       el.style.transform = "translate3d(0," + (progress * -40).toFixed(2) + "px,0)";
+
+      // full opacity through the middle of the viewport, 0.4 at either edge
+      var distance = Math.min(1, Math.abs(progress) / 0.42);
+      el.style.opacity = (1 - distance * 0.6).toFixed(3);
     });
+  }
+
+  /* the drift is desktop-only, as it always has been; the rise runs everywhere,
+     since the hero fills the screen on a phone and that is where it reads best */
+  var drifting = parallaxed.length > 0 && window.innerWidth > 860;
+
+  function applyDeviceMotion() {
+    ticking = false;
+    applyRise();
+    if (drifting) applyDrift();
   }
 
   function onScroll() {
     if (ticking) return;
     ticking = true;
-    window.requestAnimationFrame(applyParallax);
+    window.requestAnimationFrame(applyDeviceMotion);
   }
 
-  if (!reduceMotion.matches && parallaxed.length && window.innerWidth > 860) {
-    applyParallax();
+  if (!reduceMotion.matches && (heroDevice || drifting)) {
+    applyDeviceMotion();
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll, { passive: true });
+    window.addEventListener(
+      "resize",
+      function () {
+        // crossing the breakpoint should start or stop the drift, not strand it
+        var wasDrifting = drifting;
+        drifting = parallaxed.length > 0 && window.innerWidth > 860;
+        if (wasDrifting && !drifting) {
+          parallaxed.forEach(function (el) {
+            el.style.transform = "";
+            el.style.opacity = "";
+          });
+        }
+        onScroll();
+      },
+      { passive: true }
+    );
   }
 
   /* ------------------------------------------------------------- themes --- */

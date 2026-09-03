@@ -30,6 +30,18 @@ export interface IJournal extends Document {
   entryKind?: "journal" | "quick_thought";
   title: string;
   aiPrompt: string | null;
+  /**
+   * The exact strings Journal.IO itself inserted into `content` — guided
+   * section labels, its own reflection, every follow-up question, and any
+   * writing prompt the user tapped to insert.
+   *
+   * `aiPrompt` only ever holds the last prompt used, which is not enough: a
+   * guided entry interleaves app and user text throughout, and an open-ended
+   * entry can carry several inserted prompts. Without this manifest the app's
+   * own words get read back as the person's writing — quoted as their evidence,
+   * and mined into pattern-graph nodes. See `helpers/journalAuthorship.helpers`.
+   */
+  appAuthoredSegments: string[];
   tags: string[];
   detectedTopics: EntryTopic[];
   detectedMood: DetectedMood | null;
@@ -60,6 +72,7 @@ const journalSchema = new mongoose.Schema<IJournal>(
     },
     title: { type: mongoose.Schema.Types.Mixed, default: "Untitled", required: true },
     aiPrompt: { type: mongoose.Schema.Types.Mixed, default: null },
+    appAuthoredSegments: { type: mongoose.Schema.Types.Mixed, default: [] },
     tags: { type: mongoose.Schema.Types.Mixed, default: [] },
     detectedTopics: {
       type: [String],
@@ -111,6 +124,9 @@ applyEncryptedSchemaPaths(journalSchema, [
   { path: "content" },
   { path: "title" },
   { path: "aiPrompt" },
+  // Encrypted alongside content: these are the questions the person was
+  // answering, which is user-adjacent context, not app configuration.
+  { path: "appAuthoredSegments" },
   { path: "tags" },
   { path: "images" },
 ]);

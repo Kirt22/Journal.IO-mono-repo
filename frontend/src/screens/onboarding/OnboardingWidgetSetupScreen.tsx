@@ -25,6 +25,7 @@ import { STREAK_WIDGET_KIND } from '../../services/widgetBridge';
 import { setWidgetEnabled } from '../../services/widgetService';
 import { useAppStore } from '../../store/appStore';
 import { useTheme } from '../../theme/provider';
+import { fontFamilies } from '../../theme/typography';
 
 type Props = {
   onActivated: (didEnableWidget: boolean) => void;
@@ -630,6 +631,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   hint: {
+    fontFamily: fontFamilies.ui.semibold,
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 19,
@@ -657,6 +659,7 @@ const styles = StyleSheet.create({
     paddingTop: 64,
   },
   title: {
+    fontFamily: fontFamilies.display.bold,
     fontSize: 24,
     fontWeight: '700',
     letterSpacing: -0.5,

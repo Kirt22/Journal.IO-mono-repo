@@ -107,7 +107,7 @@ test("buildUserProfilePayload includes premiumActivatedAt as an ISO string", () 
   });
 });
 
-test("buildUserProfilePayload projects effective development Pro access without mutating stored entitlement data", () => {
+test("buildUserProfilePayload projects effective development access without mutating stored entitlement data", () => {
   process.env.NODE_ENV = "development";
   process.env.DEV_PREMIUM_ACCESS_OVERRIDE = "pro";
 
@@ -148,9 +148,24 @@ test("buildUserProfilePayload projects effective development Pro access without 
   assert.equal(user.isPremium, false);
   assert.equal(user.premiumPlanKey, null);
   assert.equal(user.premiumSource, null);
+
+  process.env.DEV_PREMIUM_ACCESS_OVERRIDE = "free";
+  user.isPremium = true;
+  user.premiumPlanKey = "yearly";
+  user.premiumExpiresAt = new Date("2099-07-22T12:00:00.000Z");
+  user.premiumSource = "revenuecat_verified";
+
+  const freePayload = buildUserProfilePayload(user);
+
+  assert.equal(freePayload.isPremium, false);
+  assert.equal(freePayload.premiumPlanKey, "yearly");
+  assert.equal(freePayload.premiumSource, "revenuecat_verified");
+  assert.equal(user.isPremium, true);
+  assert.equal(user.premiumPlanKey, "yearly");
+  assert.equal(user.premiumSource, "revenuecat_verified");
 });
 
-test("buildAuthenticatedUserProfilePayload lazily migrates existing users with journal entries", async () => {
+test("buildAuthenticatedUserProfilePayload lazily migrates pre-v2 users with journal entries", async () => {
   journalTarget.exists = async () => ({ _id: "journal-1" });
   journalTarget.countDocuments = async () => 3;
   reminderTarget.exists = async () => null;
@@ -182,8 +197,8 @@ test("buildAuthenticatedUserProfilePayload lazily migrates existing users with j
     onboardingPayload: null,
     profilePic: null,
     onboardingContext: null,
-    createdAt: new Date("2026-07-01T00:00:00.000Z"),
-    updatedAt: new Date("2026-07-02T00:00:00.000Z"),
+    createdAt: new Date("2026-05-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-02T00:00:00.000Z"),
     save: async () => {
       saveCount += 1;
       return user;
@@ -249,4 +264,106 @@ test("buildAuthenticatedUserProfilePayload leaves genuinely new users incomplete
   assert.equal(payload.onboardingVersion, null);
   assert.equal(payload.hasJournalEntries, false);
   assert.equal(payload.journalCount, 0);
+});
+
+test("buildAuthenticatedUserProfilePayload does not complete onboarding for a new user mid-flow", async () => {
+  // The v2 flow saves a real journal entry at its first guided reflection and
+  // schedules a reminder a few steps later, both long before onboarding ends.
+  // Treating either as "this account predates v2" used to strand the user on
+  // Home with the rest of onboarding — and the paywall — silently skipped.
+  journalTarget.exists = async () => ({ _id: "journal-1" });
+  journalTarget.countDocuments = async () => 1;
+  reminderTarget.exists = async () => ({ _id: "reminder-1" });
+
+  let saveCount = 0;
+  const user = {
+    _id: {
+      toString: () => "user-3",
+    },
+    name: "Journal User",
+    phoneNumber: null,
+    email: "midflow@example.com",
+    isPremium: false,
+    premiumPlanKey: null,
+    premiumActivatedAt: null,
+    premiumProductId: null,
+    premiumExpiresAt: null,
+    premiumWillRenew: null,
+    premiumVerifiedAt: null,
+    premiumRevenueCatRequestDate: null,
+    revenueCatAppUserId: null,
+    premiumSource: null,
+    avatarColor: null,
+    journalingGoals: [],
+    profileSetupCompleted: false,
+    onboardingCompleted: false,
+    onboardingVersion: null,
+    onboardingCompletedAt: null,
+    onboardingPayload: null,
+    profilePic: null,
+    onboardingContext: null,
+    createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+    save: async () => {
+      saveCount += 1;
+      return user;
+    },
+  } as any;
+
+  const payload = await buildAuthenticatedUserProfilePayload(user);
+
+  assert.equal(saveCount, 0);
+  assert.equal(user.onboardingCompleted, false);
+  assert.equal(payload.onboardingCompleted, false);
+  assert.equal(payload.onboardingVersion, null);
+  // The journal metadata is still reported truthfully; only the inference is gone.
+  assert.equal(payload.hasJournalEntries, true);
+});
+
+test("buildAuthenticatedUserProfilePayload honours a stored completion at any age", async () => {
+  journalTarget.exists = async () => null;
+  journalTarget.countDocuments = async () => 0;
+  reminderTarget.exists = async () => null;
+
+  let saveCount = 0;
+  const user = {
+    _id: {
+      toString: () => "user-4",
+    },
+    name: "Finished User",
+    phoneNumber: null,
+    email: "finished@example.com",
+    isPremium: false,
+    premiumPlanKey: null,
+    premiumActivatedAt: null,
+    premiumProductId: null,
+    premiumExpiresAt: null,
+    premiumWillRenew: null,
+    premiumVerifiedAt: null,
+    premiumRevenueCatRequestDate: null,
+    revenueCatAppUserId: null,
+    premiumSource: null,
+    // An explicit boolean is a record, not a guess, so the cutoff never gates it.
+    onboardingCompleted: true,
+    avatarColor: null,
+    journalingGoals: [],
+    profileSetupCompleted: true,
+    onboardingVersion: null,
+    onboardingCompletedAt: null,
+    onboardingPayload: null,
+    profilePic: null,
+    onboardingContext: null,
+    createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+    save: async () => {
+      saveCount += 1;
+      return user;
+    },
+  } as any;
+
+  const payload = await buildAuthenticatedUserProfilePayload(user);
+
+  assert.equal(saveCount, 1);
+  assert.equal(payload.onboardingCompleted, true);
+  assert.equal(payload.onboardingVersion, 2);
 });

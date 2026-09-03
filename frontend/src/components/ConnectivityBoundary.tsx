@@ -4,15 +4,13 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import AuthInkBackdrop from './AuthInkBackdrop';
-import JournalLoader from './JournalLoader';
+import ConnectivitySplash from './ConnectivitySplash';
 import { useConnectivity } from '../hooks/useConnectivity';
 import {
   getConnectivitySnapshot,
-  probeBackendReadiness,
+  runConnectivityProbe,
 } from '../services/connectivityService';
 import { useAppStore } from '../store/appStore';
-import { useTheme } from '../theme/provider';
 import { getBackendReadinessUrl } from '../utils/apiClient';
 import type { FlowStage } from '../navigation/appFlow';
 
@@ -23,7 +21,13 @@ const isAuthenticatedAppStage = (stage: FlowStage) =>
   stage === 'main-app' ||
   stage === 'new-entry' ||
   stage === 'journal-detail' ||
-  stage === 'journal-edit';
+  stage === 'journal-edit' ||
+  // Must match `isAuthenticatedAppStage` in appStore.ts and
+  // `isWidgetReadyAppStage` in App.tsx. Omitting 'ask-jade' here put the
+  // full-screen gate over a signed-in user who lost connection on Ask Jade,
+  // which is the banner's job, and left the screen's own offline copy
+  // unreachable in exactly the case it was written for.
+  stage === 'ask-jade';
 
 function ConnectivityMonitor() {
   useEffect(() => {
@@ -33,7 +37,6 @@ function ConnectivityMonitor() {
 
     let isActive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let probeInFlight: Promise<boolean> | null = null;
 
     const clearProbeTimer = () => {
       if (timer) {
@@ -58,18 +61,14 @@ function ConnectivityMonitor() {
       }, delay);
     };
 
+    // Scheduling stays here; the in-flight dedupe lives in the service so the
+    // splash's retry button shares it instead of racing this loop.
     const runProbe = async () => {
-      if (probeInFlight) {
-        return probeInFlight;
-      }
-
       clearProbeTimer();
-      probeInFlight = probeBackendReadiness(getBackendReadinessUrl());
 
       try {
-        return await probeInFlight;
+        return await runConnectivityProbe(getBackendReadinessUrl());
       } finally {
-        probeInFlight = null;
         scheduleNextProbe();
       }
     };
@@ -94,31 +93,6 @@ function ConnectivityMonitor() {
   return null;
 }
 
-function ConnectivityGate({ overlay = false }: { overlay?: boolean }) {
-  const theme = useTheme();
-
-  return (
-    <View
-      accessibilityLabel="Waiting for connection"
-      accessibilityLiveRegion="polite"
-      accessibilityRole="progressbar"
-      testID={overlay ? 'connectivity-overlay' : 'connectivity-gate'}
-      style={[
-        styles.gate,
-        overlay && styles.overlay,
-        { backgroundColor: theme.colors.background },
-      ]}
-    >
-      <AuthInkBackdrop />
-      <JournalLoader
-        color={theme.colors.primary}
-        size="large"
-        testID="connectivity-loader"
-      />
-    </View>
-  );
-}
-
 function ConnectivityBoundary({ children }: { children: ReactNode }) {
   const { status } = useConnectivity();
   const stage = useAppStore(state => state.stage);
@@ -141,7 +115,7 @@ function ConnectivityBoundary({ children }: { children: ReactNode }) {
   }
 
   if (!hasMountedNavigatorRef.current) {
-    return <ConnectivityGate />;
+    return <ConnectivitySplash />;
   }
 
   const shouldCoverMountedFlow =
@@ -151,23 +125,12 @@ function ConnectivityBoundary({ children }: { children: ReactNode }) {
   return (
     <View style={styles.root}>
       {children}
-      {shouldCoverMountedFlow ? <ConnectivityGate overlay /> : null}
+      {shouldCoverMountedFlow ? <ConnectivitySplash overlay /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gate: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    elevation: 100,
-    zIndex: 100,
-  },
   root: {
     flex: 1,
   },

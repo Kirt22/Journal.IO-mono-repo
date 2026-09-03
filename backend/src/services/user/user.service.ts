@@ -171,14 +171,28 @@ const getExistingUserOnboardingSignals = async (
   };
 };
 
+/**
+ * This backfill exists to carry accounts that predate onboarding v2 over the
+ * upgrade without blocking them, so the inferred signals only ever apply to
+ * accounts old enough to need it.
+ *
+ * They used to be OR'd in flat, which quietly mis-fired on brand-new accounts:
+ * the v2 flow saves a real journal entry at its first guided reflection —
+ * roughly step two of fifteen — and schedules a reminder a few steps later. A
+ * user who closed the app anywhere after that came back with
+ * `onboardingCompleted: true`, landing on Home having skipped naming
+ * themselves, reminders, widget setup, the commitment, and the paywall, with
+ * their questionnaire answers never sent. The two explicit signals stay ungated:
+ * a stored version or a stored boolean is a record, not a guess.
+ */
 const shouldTreatAsExistingUser = (signals: ExistingUserOnboardingSignals) =>
   signals.hasCurrentOnboardingVersion ||
   signals.isLegacyOnboardingComplete ||
-  signals.hasJournalEntries ||
-  signals.isPremium ||
-  signals.hasLegacyOnboardingContext ||
-  signals.isCreatedBeforeReleaseCutoff ||
-  signals.hasReminderRecord;
+  (signals.isCreatedBeforeReleaseCutoff &&
+    (signals.hasJournalEntries ||
+      signals.isPremium ||
+      signals.hasLegacyOnboardingContext ||
+      signals.hasReminderRecord));
 
 const getLegacyCompletionDate = (user: IUser) =>
   user.onboardingCompletedAt || user.updatedAt || user.createdAt || new Date();

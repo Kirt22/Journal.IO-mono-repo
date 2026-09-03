@@ -3,6 +3,7 @@ import {
   PAYWALL_EVENT_TYPES,
 } from "../../schema/paywallEvent.schema";
 import { PAYWALL_OFFERING_KEYS } from "../../schema/paywallOffering.schema";
+import { PAYWALL_TEMPLATE_KEYS } from "../../schema/paywallTemplate.schema";
 
 const getPaywallConfigSchema = z.object({
   body: z.object({}).optional(),
@@ -20,7 +21,7 @@ const trackPaywallEventSchema = z.object({
     placementKey: z.string().min(1, "placementKey is required"),
     screenKey: z.string().min(1).optional(),
     eventType: z.enum(PAYWALL_EVENT_TYPES),
-    templateKey: z.string().min(1).optional(),
+    templateKey: z.enum(PAYWALL_TEMPLATE_KEYS).optional(),
     offeringKey: z.enum(PAYWALL_OFFERING_KEYS).optional(),
     wasInterruptive: z.boolean().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),

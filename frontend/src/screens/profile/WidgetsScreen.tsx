@@ -38,6 +38,7 @@ import {
   type WidgetStatus,
 } from '../../services/widgetBridge';
 import { useAppStore } from '../../store/appStore';
+import { shouldClaimRowSwipe } from '../../utils/rowSwipeGesture';
 import { ThemeTransitionOverlay, useTheme } from '../../theme/provider';
 import { ProfileSectionLayout, SectionCard } from './ProfileSectionLayout';
 
@@ -296,11 +297,17 @@ function ActiveWidgetCard({
   isBusy,
   reduceMotionEnabled,
   onRemove,
+  closeSignal,
 }: {
   definition: WidgetDefinition;
   isBusy: boolean;
   reduceMotionEnabled: boolean;
   onRemove: () => void;
+  /**
+   * Bumped by the parent whenever the page scrolls, so an open remove tray does
+   * not stay open behind content the user has scrolled past.
+   */
+  closeSignal?: number;
 }) {
   const theme = useTheme();
   const translateX = useRef(new Animated.Value(0)).current;
@@ -333,6 +340,17 @@ function ActiveWidgetCard({
     }).start();
   };
 
+  const settleRowRef = useRef(settleRow);
+  settleRowRef.current = settleRow;
+
+  useEffect(() => {
+    if (closeSignal === undefined || !isOpenRef.current) {
+      return;
+    }
+
+    settleRowRef.current(0);
+  }, [closeSignal]);
+
   const handleRemove = () => {
     if (busyRef.current) {
       return;
@@ -344,9 +362,7 @@ function ActiveWidgetCard({
   const [panResponder] = useState(() =>
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) =>
-        !busyRef.current &&
-        Math.abs(gestureState.dx) > 8 &&
-        Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2,
+        !busyRef.current && shouldClaimRowSwipe(gestureState),
       onPanResponderGrant: () => {
         translateX.stopAnimation(value => {
           gestureStartX.current = value;
@@ -608,6 +624,9 @@ export default function WidgetsScreen({
   const [status, setStatus] = useState<WidgetStatus>(emptyStatus);
   const [isLoading, setIsLoading] = useState(true);
   const [busyKind, setBusyKind] = useState<WidgetKind | null>(null);
+  // Bumped on scroll so an open remove tray closes itself.
+  const [rowCloseSignal, setRowCloseSignal] = useState(0);
+
   const [error, setError] = useState<string | null>(null);
   const [showInstructions, setShowInstructions] = useState(false);
 
@@ -689,9 +708,18 @@ export default function WidgetsScreen({
     widget => !status.enabledKinds.includes(widget.kind),
   );
 
+  const handleListScroll = useCallback(() => {
+    setRowCloseSignal(value => value + 1);
+  }, []);
+
   return (
     <>
-      <ProfileSectionLayout title="Widgets" onBack={onBack}>
+      <ProfileSectionLayout
+        title="Widgets"
+        onBack={onBack}
+        onScroll={handleListScroll}
+        scrollEventThrottle={16}
+      >
         <View style={styles.content}>
           <View style={styles.sectionHeading}>
             <Text
@@ -744,6 +772,7 @@ export default function WidgetsScreen({
                   isBusy={busyKind === definition.kind}
                   reduceMotionEnabled={reduceMotionEnabled}
                   onRemove={() => updateWidget(definition.kind, false)}
+                  closeSignal={rowCloseSignal}
                 />
               ))}
             </View>

@@ -39,6 +39,23 @@ const guidedThreadMessageSchema = z.object({
   promptQuestion: z.string().trim().min(1).max(100).optional(),
 });
 
+/**
+ * Trigger state the client echoes back between turns.
+ *
+ * Guided reflection keeps no server-side session, so this arrives from the
+ * client and is treated as untrusted: the caps here only bound the payload,
+ * while `mergeSessionTriggers` re-applies the clinical-label guard and
+ * `sanitizeTriggerEvidence` re-checks every quote against the user's own text
+ * before any of it reaches a prompt or the pattern graph.
+ */
+const guidedSessionTriggerSchema = z.object({
+  trigger: z.string().trim().min(1).max(64),
+  emotionalResponse: z.string().trim().min(1).max(64),
+  evidenceQuote: z.string().trim().max(180).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  sessionOccurrences: z.number().int().min(1).max(50).optional(),
+});
+
 const sessionAnalysisPayloadSchema = z
   .object({
     analysis: z.string().trim().max(1400).optional(),
@@ -66,6 +83,7 @@ const createGuidedReflectionGoDeeperSchema = z.object({
     threadMessages: z.array(guidedThreadMessageSchema).max(24).optional(),
     currentText: z.string().trim().min(2).max(900),
     suggestionAction: guidedSuggestionActionSchema.optional(),
+    previousSignals: z.array(guidedSessionTriggerSchema).max(8).optional(),
     onboardingContext: onboardingContextSchema,
   }),
   query: z.object({}).optional(),
@@ -78,6 +96,7 @@ const createGuidedReflectionSessionAnalysisSchema = z.object({
     promptAnswers: z.array(guidedReflectionPromptAnswerSchema).min(3).max(6),
     aiSummary: z.string().trim().max(1200).optional(),
     threadMessages: z.array(guidedThreadMessageSchema).max(24).optional(),
+    sessionSignals: z.array(guidedSessionTriggerSchema).max(8).optional(),
     onboardingContext: onboardingContextSchema,
   }),
   query: z.object({}).optional(),

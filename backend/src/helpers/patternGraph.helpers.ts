@@ -7,8 +7,9 @@ import { z } from "zod";
  * The graph is a materialized projection of `entry_insights.themes` (and the
  * themes mined from Ask Jade sessions): each theme is a behavioural pattern
  * node, and edges record how those patterns appear to relate for this one user.
- * Nothing here is a clinical construct — a node is a behaviour the user's own
- * writing keeps showing, never a condition they "have".
+ * A node is a pattern the user's own writing keeps showing. Labels may name a
+ * recognised psychological pattern directly; what they may never be is
+ * invented, since every node carries the user's own sentence as evidence.
  *
  * This module holds only pure functions and schema declarations so both the
  * graph service and its tests can use it without touching Mongo or OpenAI.
@@ -22,13 +23,18 @@ export type PatternNodeKind = (typeof PATTERN_NODE_KINDS)[number];
 export const PATTERN_NODE_STATUSES = ["active", "dormant", "merged"] as const;
 export type PatternNodeStatus = (typeof PATTERN_NODE_STATUSES)[number];
 
-export const PATTERN_SOURCE_KINDS = ["journal", "chat"] as const;
+/**
+ * Where an observation came from. Guided reflection is its own kind rather than
+ * folded into "journal": a guided answer is a direct response to a targeted
+ * probe, so it carries more signal than a chat aside but is still single-session
+ * self-report, and `toPatternObservation` weights the three differently.
+ */
+export const PATTERN_SOURCE_KINDS = ["journal", "chat", "guided"] as const;
 export type PatternSourceKind = (typeof PATTERN_SOURCE_KINDS)[number];
 
 /**
- * Edge types are deliberately behavioural and hedged. `co_occurs` is the only
- * undirected type — everything else reads "from -> to" and its key preserves
- * that order.
+ * Edge types are deliberately behavioural. `co_occurs` is the only undirected
+ * type — everything else reads "from -> to" and its key preserves that order.
  */
 export const PATTERN_EDGE_TYPES = [
   "co_occurs",
@@ -172,69 +178,6 @@ export const toPatternKey = (label: string): string => {
   return [...new Set(tokens)].sort().join("|").slice(0, PATTERN_KEY_MAX);
 };
 
-/**
- * Diagnostic and trait vocabulary that must never become a node or cluster
- * name. Two separate reasons:
- *   1. AGENTS.md §1 / AI_UI_UX_CONTEXT.md §11 — the product does not diagnose,
- *      and insight language stays non-clinical and uncertainty-aware.
- *   2. AI_ARCHITECTURE.md — behavioural patterns deliberately *replaced* the
- *      earlier Big Five / dark-triad trait framing. Trait nouns must not creep
- *      back in through the graph.
- *
- * Matches are dropped, never rewritten: silently renaming a clinical label
- * risks producing something that reads worse than what the model proposed.
- *
- * Adjectives that describe a moment ("anxious", "overwhelmed", "stressed") are
- * intentionally NOT here — they describe how something felt, which the entry
- * pipeline already does in `emotionalTone`. The harm is naming a condition the
- * user supposedly *has*, not naming a feeling they had.
- */
-const CLINICAL_PATTERN_TERMS = [
-  "anxiety",
-  "depression",
-  "depressive",
-  "bipolar",
-  "adhd",
-  "ocd",
-  "ptsd",
-  "bpd",
-  "psychosis",
-  "psychotic",
-  "mania",
-  "manic",
-  "schizophrenia",
-  "schizophrenic",
-  "addiction",
-  "addict",
-  "disorder",
-  "syndrome",
-  "diagnosis",
-  "diagnosed",
-  "anorexia",
-  "anorexic",
-  "bulimia",
-  "bulimic",
-  "narcissism",
-  "narcissist",
-  "narcissistic",
-  "sociopath",
-  "sociopathic",
-  "psychopath",
-  "psychopathic",
-  "neurosis",
-  "neurotic",
-  "neuroticism",
-  "conscientiousness",
-  "extraversion",
-  "extravert",
-  "introversion",
-  "agreeableness",
-  "machiavellian",
-  "machiavellianism",
-] as const;
-
-const CLINICAL_PATTERN_TERM_SET = new Set<string>(CLINICAL_PATTERN_TERMS);
-
 const tokenizeLabel = (label: string): string[] =>
   label
     .toLowerCase()
@@ -243,30 +186,21 @@ const tokenizeLabel = (label: string): string[] =>
     .filter(Boolean);
 
 /**
- * True when a label names a condition, diagnosis, or personality trait rather
- * than a behaviour. Applied to every node label and every umbrella label, so an
- * AI-proposed *theme* cannot smuggle one in either.
- */
-export const isClinicalPatternLabel = (label: string): boolean =>
-  tokenizeLabel(label).some(token => CLINICAL_PATTERN_TERM_SET.has(token));
-
-/**
- * God nodes ("umbrellas") are the riskiest thing in the graph: they are the
- * only place the model invents a *new* name for a group of behaviours, and the
- * obvious name for a cluster is almost always a condition ("anxiety").
+ * God nodes ("umbrellas") are the only place the model invents a *new* name for
+ * a group of behaviours, so the label still has to say something.
  *
- * A valid umbrella label describes what the person does — "bracing for things
- * going wrong", "soothing tension with screens" — so it must be non-clinical
- * and multi-word. A single-token label is nearly always a state noun, which is
- * exactly the framing we are avoiding.
+ * The multi-word rule is what remains of the old guard, and it is about
+ * specificity rather than clinical language: a single-token label is a bare
+ * state noun that describes nothing the person actually does. "work anxiety"
+ * and "bracing for things going wrong" both qualify; "anxiety" does not.
+ *
+ * The clinical-term filter that used to sit here was removed deliberately —
+ * naming a recognised pattern directly is now the product's voice, and
+ * filtering those labels out silently dropped the nodes instead of rewording
+ * them.
  */
-export const isValidUmbrellaLabel = (label: string): boolean => {
-  const tokens = tokenizeLabel(label);
-  if (tokens.length < 2) {
-    return false;
-  }
-  return !isClinicalPatternLabel(label);
-};
+export const isValidUmbrellaLabel = (label: string): boolean =>
+  tokenizeLabel(label).length >= 2;
 
 /**
  * Stable edge identity. Undirected types sort their endpoints so A|B and B|A

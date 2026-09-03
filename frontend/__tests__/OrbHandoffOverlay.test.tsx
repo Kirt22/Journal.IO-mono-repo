@@ -96,6 +96,50 @@ describe('OrbHandoffOverlay', () => {
     expect(travellingOrbs()).toHaveLength(0);
   });
 
+  it('adopts a second hand-off while the first is still settling', () => {
+    beginHandoff();
+    ReactTestRenderer.act(() => {
+      useAppStore.getState().reportOrbHandoffTarget(HOME_ORB);
+    });
+    expect(useAppStore.getState().orbHandoff).toBeNull();
+
+    // Sign out -> onboarding -> paywall -> dismiss, all inside the first
+    // hand-off's settle fade. The overlay used to skip its reset in this window
+    // and then refuse to travel, stranding Home's reveal blocks at opacity 0.
+    const secondPaywallOrb = { ...PAYWALL_ORB, size: 420 };
+    ReactTestRenderer.act(() => {
+      useAppStore.getState().beginOrbHandoff(secondPaywallOrb);
+    });
+
+    const orbs = travellingOrbs();
+    expect(orbs.length).toBeGreaterThan(0);
+    expect(orbs[0].props.size).toBe(secondPaywallOrb.size);
+
+    ReactTestRenderer.act(() => {
+      useAppStore.getState().reportOrbHandoffTarget(HOME_ORB);
+    });
+
+    expect(useAppStore.getState().orbHandoff).toBeNull();
+  });
+
+  it('releases on its own deadline even if nothing else ever lands', () => {
+    beginHandoff();
+    // Report a target, which disarms the no-target rescue timer, then wedge the
+    // store so only the absolute deadline can clear it.
+    ReactTestRenderer.act(() => {
+      useAppStore.getState().reportOrbHandoffTarget(HOME_ORB);
+      useAppStore.getState().beginOrbHandoff(PAYWALL_ORB);
+      useAppStore.getState().reportOrbHandoffTarget(HOME_ORB);
+    });
+
+    ReactTestRenderer.act(() => {
+      jest.advanceTimersByTime(5000);
+    });
+
+    expect(useAppStore.getState().orbHandoff).toBeNull();
+    expect(travellingOrbs()).toHaveLength(0);
+  });
+
   it('tears down when the hand-off is cleared from elsewhere', () => {
     beginHandoff();
 

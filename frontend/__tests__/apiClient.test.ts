@@ -37,9 +37,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://192.168.1.24:3001/api/v1',
       },
     }));
@@ -94,9 +92,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1/',
       },
     }));
@@ -151,9 +147,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: null,
       },
     }));
@@ -207,9 +201,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://192.168.1.236:3001/api/v1',
       },
     }));
@@ -269,9 +261,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'https://api.journalio.app/api/v1',
       },
     }));
@@ -328,9 +318,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));
@@ -386,9 +374,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));
@@ -443,9 +429,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'auth',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));
@@ -499,9 +483,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));
@@ -570,9 +552,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));
@@ -618,9 +598,7 @@ describe('apiClient', () => {
     jest.doMock('../src/utils/devLaunchConfig.json', () => ({
       __esModule: true,
       default: {
-        stage: 'onboarding',
-        activeTab: 'home',
-        email: null,
+        replayOnboarding: false,
         apiBaseUrl: 'http://127.0.0.1:5050/api/v1',
       },
     }));

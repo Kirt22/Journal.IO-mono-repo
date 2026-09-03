@@ -9,11 +9,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import BiometricLockScreen from '../src/screens/profile/BiometricLockScreen';
 
 jest.mock('../src/utils/devLaunchConfig.json', () => ({
-  stage: 'onboarding',
-  activeTab: 'home',
-  email: null,
+  replayOnboarding: false,
   apiBaseUrl: 'http://192.168.1.226:3001/api/v1',
-  enableBiometricLockForTesting: true,
 }));
 
 jest.mock('../src/services/privacyService', () => ({

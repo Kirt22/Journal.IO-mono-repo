@@ -74,6 +74,7 @@ import {
   type PaywallPlan,
 } from "./paywallShared";
 import { getPaywallContent } from "./paywallContent";
+import { fontFamilies } from "../../theme/typography";
 
 type PaywallScreenProps = {
   onBack: (reason?: "dismiss" | "continue") => void;
@@ -130,6 +131,12 @@ const AMBIENT_ORB_WIDTH_FACTOR = 1.5;
 const AMBIENT_ORB_CENTER_FACTOR = 0.3;
 /** Long enough to read as the content stepping aside for the orb, not a cut. */
 const DISMISS_FADE_MS = 160;
+/**
+ * How long to wait for the dismiss to actually navigate away before assuming it
+ * failed and restoring the screen. Generous next to `DISMISS_FADE_MS` so it only
+ * ever fires when something genuinely swallowed the transition.
+ */
+const DISMISS_RECOVERY_MS = 1200;
 /** Ink, not `foreground` — a light shadow on dark would halo, not deepen. */
 const PAYWALL_SHADOW_COLOR = "#000000";
 
@@ -172,6 +179,9 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
   // the overlay's copy appears and the two are never on screen together.
   const [isOrbHandedOff, setIsOrbHandedOff] = useState(false);
   const isDismissingRef = useRef(false);
+  const dismissRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   // Entrance animations: hero -> bullets -> footer slide-up.
   const heroAnim = useRef(new Animated.Value(0)).current;
@@ -380,6 +390,12 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     let animation: Animated.CompositeAnimation | null = null;
 
     const settle = () => {
+      // A late-resolving Reduce Motion probe must not snap the content back to
+      // full opacity on top of an in-flight dismiss, which would also stop that
+      // fade and lose the callback that navigates away.
+      if (isDismissingRef.current) {
+        return;
+      }
       animation?.stop();
       heroAnim.setValue(1);
       bulletsAnim.setValue(1);
@@ -395,7 +411,7 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       });
 
     const play = () => {
-      if (!isActive) {
+      if (!isActive || isDismissingRef.current) {
         return;
       }
       heroAnim.setValue(0);
@@ -428,6 +444,16 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       animation?.stop();
     };
   }, [bulletsAnim, footerAnim, heroAnim]);
+
+  useEffect(
+    () => () => {
+      if (dismissRecoveryTimerRef.current) {
+        clearTimeout(dismissRecoveryTimerRef.current);
+        dismissRecoveryTimerRef.current = null;
+      }
+    },
+    []
+  );
 
   const trackEvent = (
     eventType:
@@ -550,6 +576,11 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
     beginOrbHandoff(ambientOrbFrame);
 
     const finish = () => {
+      if (dismissRecoveryTimerRef.current) {
+        clearTimeout(dismissRecoveryTimerRef.current);
+        dismissRecoveryTimerRef.current = null;
+      }
+
       onBack("dismiss");
     };
 
@@ -557,6 +588,20 @@ export default function PaywallScreen({ onBack }: PaywallScreenProps) {
       finish();
       return;
     }
+
+    // Neither flag above is otherwise ever reset, and `onBack` is reachable only
+    // from the animation callback below — so if that callback is lost, or
+    // `resetRoot` no-ops because the navigation ref isn't ready, the user is
+    // stranded on a faded paywall whose close button early-returns on every tap.
+    // Hand the screen back to itself if the dismiss hasn't taken effect.
+    dismissRecoveryTimerRef.current = setTimeout(() => {
+      dismissRecoveryTimerRef.current = null;
+      isDismissingRef.current = false;
+      setIsOrbHandedOff(false);
+      heroAnim.setValue(1);
+      bulletsAnim.setValue(1);
+      footerAnim.setValue(1);
+    }, DISMISS_RECOVERY_MS);
 
     Animated.parallel(
       [heroAnim, bulletsAnim, footerAnim].map(value =>
@@ -1224,6 +1269,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   ctaText: {
+    fontFamily: fontFamilies.ui.bold,
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.2,

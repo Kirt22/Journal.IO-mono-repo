@@ -22,12 +22,24 @@ import {
   buildRegionTimeSeries,
   buildRegionFocus,
   MIND_MAP_SCORER_VERSION,
+  type RegionTrendInfo,
 } from "../mindmap/mindmap.service";
 import {
   loadEntryInsights,
   aggregateRecurringPatterns,
   buildUserReflectionMemory,
 } from "../mindmap/entryInsight.service";
+import { loadPatternGraph } from "../mindmap/patternGraph.service";
+import { extractJournalAuthorship } from "../../helpers/journalAuthorship.helpers";
+import { PATTERN_PROMPT_MIN_CONFIDENCE } from "../../helpers/patternGraph.helpers";
+import {
+  TRIGGER_RECURRING_MIN_OCCURRENCES,
+  TRIGGER_STATUSES,
+  classifyTriggerStatus,
+  toTriggerMergeKey,
+  toTriggerPatternLabel,
+  type TriggerStatus,
+} from "../../helpers/emotionalTrigger.helpers";
 import { analyzeJournalTextQuality } from "../../helpers/journalTextQuality.helpers";
 import {
   filterReservedJournalTags,
@@ -55,6 +67,7 @@ import {
   rankReflectionRegionScores,
   REFLECTION_REGION_DETAILS,
   REFLECTION_REGION_FOCUS_TIPS,
+  REFLECTION_REGION_PLAIN_MEANING,
   REFLECTION_REGION_IDS,
   type ReflectionRegionId,
   type ReflectionRegionScore,
@@ -101,8 +114,29 @@ type WeeklyJournalSnapshot = {
   content: string;
   aiPrompt?: string | null;
   tags: string[];
+  /**
+   * Taxonomy topics the session analysis detected, as distinct from the
+   * free-form `tags` the user typed. Folded into the weekly breakdown so an
+   * AI-detected topic reaches the weekly view, not only the all-time counts.
+   */
+  detectedTopics: string[];
+  /** "guided" entries interleave app and user text; see journalAuthorship.helpers. */
+  entryType?: string | null;
+  /** Exact strings the app inserted into `content`. */
+  appAuthoredSegments: string[];
   isFavorite: boolean;
   createdAt: Date;
+  /** Trigger -> response links this entry's session analysis reported. */
+  triggersObserved: WeeklyTriggerObservation[];
+};
+
+type WeeklyTriggerObservation = {
+  trigger: string;
+  emotionalResponse: string;
+  evidenceQuote: string;
+  confidence: number;
+  status: TriggerStatus;
+  occurrences: number;
 };
 
 type AnalyzedWeeklyJournalSnapshot = WeeklyJournalSnapshot & {
@@ -132,6 +166,15 @@ type MindMapJournalSnapshot = AnalyzedWeeklyJournalSnapshot & {
   sourceText: string;
 };
 
+/**
+ * The two per-region strings the Mind Map AI pass writes. `noticed` overrides
+ * the generic `buildShortInsight` template; null keeps it.
+ */
+type MindMapRegionCopy = {
+  actionStep: string;
+  noticed: string | null;
+};
+
 type ConfidenceLevel = "low" | "medium" | "high";
 
 type LeanJournalInsightsRow = {
@@ -141,6 +184,9 @@ type LeanJournalInsightsRow = {
   tags?: unknown;
   detectedTopics?: unknown;
   isFavorite?: unknown;
+  type?: unknown;
+  appAuthoredSegments?: unknown;
+  sessionAnalysisSnapshot?: unknown;
   createdAt: Date | string;
 };
 
@@ -170,34 +216,55 @@ const DEFAULT_PROMPTS = [
 ];
 const AI_ANALYSIS_WINDOW_DAYS = 7;
 const AI_ANALYSIS_MIN_ACTIVE_DAYS = 4;
-// Dev/testing: relax the Mind Map readiness thresholds so the "ready" panel
-// (tiers, hero, graph) can be reached with a single entry instead of 4 active
-// days. Triggered by the AI_ALLOW_NON_PREMIUM bypass, or by the dedicated
-// MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS flag (non-production only) so a real
-// premium account can bypass the active-days gate without also enabling the
-// non-premium AI path. Never set either in production.
-const MIND_MAP_DEV_BYPASS =
-  process.env.NODE_ENV !== "production" &&
-  process.env.MINDMAP_DEV_BYPASS_MIN_ACTIVE_DAYS === "true";
-const MIND_MAP_RELAX_THRESHOLDS =
-  process.env.AI_ALLOW_NON_PREMIUM === "true" || MIND_MAP_DEV_BYPASS;
-const MIND_MAP_MIN_ACTIVE_DAYS = MIND_MAP_RELAX_THRESHOLDS ? 1 : 4;
-const MIND_MAP_MIN_CLEAR_ENTRIES = MIND_MAP_RELAX_THRESHOLDS ? 1 : 2;
-const MIND_MAP_MIN_CLEAR_WORDS = MIND_MAP_RELAX_THRESHOLDS ? 10 : 40;
+const MIND_MAP_MIN_ACTIVE_DAYS = 4;
+const MIND_MAP_MIN_CLEAR_ENTRIES = 2;
+const MIND_MAP_MIN_CLEAR_WORDS = 40;
 // The all-time Mind Map is readiness-gated on entry count (day-independent):
 // N clear entries — written across any number of days — unlock the ranked map.
-const MIND_MAP_MIN_ENTRIES = MIND_MAP_RELAX_THRESHOLDS ? 1 : 5;
-// With a dev bypass active, render the premium "ready" panel as soon as there
-// is at least one clear entry in the window — skipping the active-days /
-// clear-entry / total-word minimums — so the premium Mind Map screens can be
-// exercised without days of writing. (getClearMindMapJournals is also relaxed
-// under the bypass so short / low-signal dev entries still count.) Requires ≥1
-// entry to avoid an empty, NaN-scored map.
-const mindMapForceReady = (clearEntryCount: number) =>
-  MIND_MAP_RELAX_THRESHOLDS && clearEntryCount >= 1;
-const isAiAnalysisDevEarlyReadyEnabled = () =>
-  process.env.NODE_ENV !== "production" &&
-  process.env.AI_INSIGHTS_EXPERIMENTAL_EARLY_READY === "true";
+const MIND_MAP_MIN_ENTRIES = 5;
+// Display bounds for the Patterns card. The strict JSON schema advertises
+// `*_SCHEMA_LIMIT` (these plus headroom) so the decoder never runs out of room
+// mid-word; the parser then trims to the display bound at a word boundary.
+const PATTERN_LABEL_LIMIT = 48;
+const PATTERN_INSIGHT_LIMIT = 240;
+const PATTERN_TRIGGER_LIMIT = 64;
+const PATTERN_EVIDENCE_LIMIT = 120;
+const PATTERN_NUDGE_LIMIT = 180;
+const PATTERN_SCHEMA_HEADROOM = 24;
+const patternSchemaLimit = (limit: number) => limit + PATTERN_SCHEMA_HEADROOM;
+
+// A hard `maxLength` in the strict JSON schema makes the decoder stop emitting
+// the moment it hits the bound, so a field that runs long arrives cut mid-word
+// ("what he won't say outl"). That reads as a bug on screen, and tightening the
+// bound only moves where the cut lands. Instead the JSON schema now carries
+// headroom above the display bound and the parse layer trims here, at the last
+// whole word, so overlong copy degrades to a clean ellipsis rather than to a
+// severed word or — when the bound was a rejecting `.max()` — to a dropped week
+// of analysis.
+const truncateAtWordBoundary = (value: string, limit: number): string => {
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  // Reserve one character for the ellipsis so the result still fits `limit`.
+  const window = trimmed.slice(0, limit - 1);
+  const lastBoundary = window.search(/\s+\S*$/);
+  const kept = (lastBoundary > 0 ? window.slice(0, lastBoundary) : window)
+    .replace(/[\s.,;:!?\u2013\u2014-]+$/, "")
+    .trimEnd();
+  return `${kept || window.trimEnd()}\u2026`;
+};
+
+// Display bound for a field the model writes and the app renders verbatim. The
+// model is told the same number in the prompt; this is the backstop for when it
+// writes past it anyway.
+const boundedProse = (limit: number, { allowEmpty = false } = {}) => {
+  const base = z.string().trim();
+  return (allowEmpty ? base : base.min(1)).transform((value) =>
+    truncateAtWordBoundary(value, limit)
+  );
+};
+
 const aiAnalysisEnhancementSchema = z.object({
   summary: z.object({
     headline: z.string().trim().min(1).max(90),
@@ -240,16 +307,26 @@ const aiAnalysisEnhancementSchema = z.object({
   patterns: z
     .array(
       z.object({
-        label: z.string().trim().min(1).max(48),
-        insight: z.string().trim().min(1).max(240),
-        evidence: z.array(z.string().trim().min(1).max(120)).min(1).max(3),
-        nudge: z.string().trim().min(1).max(180),
+        label: boundedProse(PATTERN_LABEL_LIMIT),
+        insight: boundedProse(PATTERN_INSIGHT_LIMIT),
+        /** What came right before the behaviour. May be "" when unknown. */
+        trigger: boundedProse(PATTERN_TRIGGER_LIMIT, { allowEmpty: true }),
+        status: z.enum(TRIGGER_STATUSES),
+        evidence: z
+          .array(boundedProse(PATTERN_EVIDENCE_LIMIT))
+          .min(1)
+          .max(3),
+        nudge: boundedProse(PATTERN_NUDGE_LIMIT),
         tone: z.enum(["coral", "blue", "sage", "amber", "slate"]),
       })
     )
     .min(1)
     .max(3),
 });
+// Every maxLength mirrors a .max() in aiAnalysisEnhancementSchema above; the
+// model can only respect a bound the schema states. `trigger` already carried
+// its 64 — the rest were left unbounded, so the parser threw away weeks of
+// otherwise good analysis whenever the model wrote at its natural length.
 const aiAnalysisEnhancementJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -266,8 +343,8 @@ const aiAnalysisEnhancementJsonSchema = {
       additionalProperties: false,
       required: ["headline", "narrative"],
       properties: {
-        headline: { type: "string" },
-        narrative: { type: "string" },
+        headline: { type: "string", maxLength: 90 },
+        narrative: { type: "string", maxLength: 340 },
       },
     },
     patternTags: {
@@ -279,7 +356,7 @@ const aiAnalysisEnhancementJsonSchema = {
         additionalProperties: false,
         required: ["label", "tone"],
         properties: {
-          label: { type: "string" },
+          label: { type: "string", maxLength: 32 },
           tone: {
             type: "string",
             enum: ["coral", "blue", "sage", "amber", "slate"],
@@ -292,7 +369,7 @@ const aiAnalysisEnhancementJsonSchema = {
       additionalProperties: false,
       required: ["headline", "steps"],
       properties: {
-        headline: { type: "string" },
+        headline: { type: "string", maxLength: 120 },
         steps: {
           type: "array",
           minItems: 2,
@@ -302,9 +379,9 @@ const aiAnalysisEnhancementJsonSchema = {
             additionalProperties: false,
             required: ["title", "description", "focus"],
             properties: {
-              title: { type: "string" },
-              description: { type: "string" },
-              focus: { type: "string" },
+              title: { type: "string", maxLength: 70 },
+              description: { type: "string", maxLength: 190 },
+              focus: { type: "string", maxLength: 36 },
             },
           },
         },
@@ -315,7 +392,7 @@ const aiAnalysisEnhancementJsonSchema = {
       additionalProperties: false,
       required: ["headline", "items"],
       properties: {
-        headline: { type: "string" },
+        headline: { type: "string", maxLength: 120 },
         items: {
           type: "array",
           minItems: 3,
@@ -325,8 +402,8 @@ const aiAnalysisEnhancementJsonSchema = {
             additionalProperties: false,
             required: ["title", "description"],
             properties: {
-              title: { type: "string" },
-              description: { type: "string" },
+              title: { type: "string", maxLength: 70 },
+              description: { type: "string", maxLength: 190 },
             },
           },
         },
@@ -339,17 +416,31 @@ const aiAnalysisEnhancementJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["label", "insight", "evidence", "nudge", "tone"],
+        required: [
+          "label",
+          "insight",
+          "trigger",
+          "status",
+          "evidence",
+          "nudge",
+          "tone",
+        ],
         properties: {
-          label: { type: "string" },
-          insight: { type: "string" },
+          // Headroom above the display bound on purpose: the decoder stops
+          // dead at `maxLength`, so a bound set to the display limit is what
+          // produces a word cut in half. Let it finish the word; the parser
+          // trims to the display bound at a word boundary.
+          label: { type: "string", maxLength: patternSchemaLimit(PATTERN_LABEL_LIMIT) },
+          insight: { type: "string", maxLength: patternSchemaLimit(PATTERN_INSIGHT_LIMIT) },
+          trigger: { type: "string", maxLength: patternSchemaLimit(PATTERN_TRIGGER_LIMIT) },
+          status: { type: "string", enum: [...TRIGGER_STATUSES] },
           evidence: {
             type: "array",
             minItems: 1,
             maxItems: 3,
-            items: { type: "string" },
+            items: { type: "string", maxLength: patternSchemaLimit(PATTERN_EVIDENCE_LIMIT) },
           },
-          nudge: { type: "string" },
+          nudge: { type: "string", maxLength: patternSchemaLimit(PATTERN_NUDGE_LIMIT) },
           tone: {
             type: "string",
             enum: ["coral", "blue", "sage", "amber", "slate"],
@@ -726,12 +817,77 @@ const serializeCountMap = (source: Map<string, number>) =>
     Array.from(source.entries()).map(([key, value]) => [key, Number(value) || 0])
   );
 
-const decryptInsightJournalRow = <T extends LeanJournalInsightsRow>(journal: T) =>
-  decryptLeanFields(journal, [
+const decryptInsightJournalRow = <T extends LeanJournalInsightsRow>(journal: T) => {
+  const row = decryptLeanFields(journal, [
     { encryptedPath: "content" },
     { encryptedPath: "aiPrompt" },
     { encryptedPath: "tags" },
+    { encryptedPath: "appAuthoredSegments" },
   ]);
+
+  const snapshot = row.sessionAnalysisSnapshot;
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return row;
+  }
+
+  // The session analysis body is encrypted as one blob, but it is declared on
+  // the *subdocument* schema, so the path sealed into its AAD is `analysis` —
+  // not `sessionAnalysisSnapshot.analysis`. `.lean()` skips the getters, so it
+  // has to be decrypted here, against the subdocument, or the auth tag never
+  // matches and the whole weekly read throws.
+  return {
+    ...row,
+    sessionAnalysisSnapshot: decryptLeanFields(
+      snapshot as Record<string, unknown>,
+      [{ encryptedPath: "analysis" }]
+    ),
+  };
+};
+
+/**
+ * Pull the reported triggers out of a stored session-analysis snapshot.
+ *
+ * Defensive on every field: snapshots written before this shape existed have no
+ * `triggersObserved` at all, and the blob is `Mixed` in Mongo, so nothing about
+ * its structure is guaranteed by the schema.
+ */
+const readSnapshotTriggers = (snapshot: unknown): WeeklyTriggerObservation[] => {
+  const analysis = (snapshot as { analysis?: unknown })?.analysis;
+  const raw = (analysis as { triggersObserved?: unknown })?.triggersObserved;
+
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((entry) => {
+      const item = entry as Record<string, unknown>;
+      return {
+        trigger: typeof item.trigger === "string" ? item.trigger : "",
+        emotionalResponse:
+          typeof item.emotionalResponse === "string"
+            ? item.emotionalResponse
+            : "",
+        evidenceQuote:
+          typeof item.evidenceQuote === "string" ? item.evidenceQuote : "",
+        confidence:
+          typeof item.confidence === "number" && Number.isFinite(item.confidence)
+            ? item.confidence
+            : 0.5,
+        status: (TRIGGER_STATUSES as readonly string[]).includes(
+          String(item.status)
+        )
+          ? (item.status as TriggerStatus)
+          : "emerging",
+        occurrences:
+          typeof item.occurrences === "number" && item.occurrences >= 1
+            ? Math.floor(item.occurrences)
+            : 1,
+      };
+    })
+    .filter((item) => item.trigger && item.emotionalResponse);
+};
 
 const toWeeklyJournalSnapshot = (
   journal: LeanJournalInsightsRow
@@ -747,8 +903,19 @@ const toWeeklyJournalSnapshot = (
         ? decryptedJournal.aiPrompt
         : null,
     tags: Array.isArray(decryptedJournal.tags) ? decryptedJournal.tags : [],
+    detectedTopics: Array.isArray(decryptedJournal.detectedTopics)
+      ? decryptedJournal.detectedTopics.map(String)
+      : [],
+    entryType:
+      typeof decryptedJournal.type === "string" ? decryptedJournal.type : null,
+    appAuthoredSegments: Array.isArray(decryptedJournal.appAuthoredSegments)
+      ? decryptedJournal.appAuthoredSegments.map(String)
+      : [],
     isFavorite: Boolean(decryptedJournal.isFavorite),
     createdAt: new Date(decryptedJournal.createdAt),
+    triggersObserved: readSnapshotTriggers(
+      decryptedJournal.sessionAnalysisSnapshot
+    ),
   };
 };
 
@@ -1025,11 +1192,30 @@ const analyzeWeeklyJournals = (
   journals: WeeklyJournalSnapshot[]
 ): AnalyzedWeeklyJournalSnapshot[] =>
   journals.map((journal) => {
+    // Split app text off first. A guided entry's `aiPrompt` is a label that
+    // never appears in its content, so the prompt-echo strip below cannot see
+    // Journal.IO's own reflections — and the weekly excerpt would quote them
+    // back as the week's writing.
+    const authorship = extractJournalAuthorship({
+      content: journal.content || "",
+      type: journal.entryType,
+      aiPrompt: journal.aiPrompt,
+      appAuthoredSegments: journal.appAuthoredSegments,
+    });
     const textQuality = analyzeJournalTextQuality({
+      content: authorship.userText,
+      aiPrompt: journal.aiPrompt,
+    });
+    // Prompt carryover has to be judged on the *original* entry. The authorship
+    // split above already removed the prompt, so the detector would never see
+    // the echo it exists to catch — and the "this reads like the prompt, not
+    // like you" copy would silently stop firing.
+    const rawQuality = analyzeJournalTextQuality({
       content: journal.content || "",
       aiPrompt: journal.aiPrompt,
     });
 
+    // Safety keeps reading the raw entry: scanning more is the safer error.
     const safetySignal = detectJournalSafetySignal(
       textQuality.analysisText || journal.content || ""
     );
@@ -1039,12 +1225,19 @@ const analyzeWeeklyJournals = (
       strippedText: textQuality.strippedText,
       analysisText: textQuality.analysisText,
       analysisWordCount: textQuality.analysisWordCount,
+      // Fold in detectedTopics alongside the user's own tags, the way
+      // `rebuildInsightsCache` already does for the all-time counts. Without
+      // this an AI-detected topic reached the overview tab but never the
+      // weekly breakdown, so a guided week could show no themes at all.
       reliableTags:
         textQuality.lowSignalDetected || hasJournalSafetySignal(safetySignal)
           ? []
-          : normalizeInsightTags(journal.tags),
+          : normalizeInsightTags([
+              ...(journal.tags || []),
+              ...(journal.detectedTopics || []),
+            ]),
       lowSignalDetected: textQuality.lowSignalDetected,
-      promptEchoDetected: textQuality.promptEchoDetected,
+      promptEchoDetected: rawQuality.promptEchoDetected,
       safetySignal,
     };
   });
@@ -1808,6 +2001,10 @@ const buildWeeklyAiAnalysis = ({
     .map((topic, index) => ({
       label: topic.label,
       insight: `${topic.label} kept returning across the week — when something resurfaces this often, it usually points to a thread that is still unresolved rather than a passing mention.`,
+      // A topic count is not a trigger. The deterministic path has no read of
+      // what preceded what, so it says so rather than guessing one.
+      trigger: "",
+      status: "emerging" as const,
       evidence: [`${topic.count} mentions`, `${topic.percentage}% of topics`],
       nudge:
         "Next time it comes up, note what happened right before and how it felt in your body — the trigger is usually hiding there.",
@@ -1899,7 +2096,9 @@ const buildWeeklyAiAnalysis = ({
 
 const mergeAiAnalysisEnhancement = (
   analysis: InsightsAiAnalysisReadyResponse,
-  enhancement: z.infer<typeof aiAnalysisEnhancementSchema>
+  enhancement: z.infer<typeof aiAnalysisEnhancementSchema>,
+  /** Labels the graph itself marks as confirmed, lowercased for comparison. */
+  confirmedLabels: Set<string> = new Set()
 ): InsightsAiAnalysisReadyResponse => {
   return {
     ...analysis,
@@ -1907,7 +2106,18 @@ const mergeAiAnalysisEnhancement = (
     patternTags: enhancement.patternTags,
     actionPlan: enhancement.actionPlan,
     appSupport: enhancement.appSupport,
-    patterns: enhancement.patterns,
+    patterns: enhancement.patterns.map((pattern) => ({
+      ...pattern,
+      // The model is told what the graph knows and asked to grade accordingly,
+      // but the grade it returns is advisory. Anything the graph has not
+      // actually established is demoted here, so "confirmed" can never be a
+      // claim the data does not carry.
+      status: confirmedLabels.has(pattern.label.trim().toLowerCase())
+        ? pattern.status
+        : pattern.status === "confirmed"
+          ? "recurring"
+          : pattern.status,
+    })),
   };
 };
 
@@ -2041,7 +2251,9 @@ const loadWindowSnapshots = async ({
       })
       .sort({ createdAt: -1 })
       .limit(40)
-      .select("content aiPrompt tags isFavorite createdAt")
+      .select(
+        "content aiPrompt appAuthoredSegments tags detectedTopics isFavorite type createdAt sessionAnalysisSnapshot"
+      )
       .lean()
       .exec(),
     moodCheckInModel
@@ -2072,13 +2284,11 @@ const getCollectingAiAnalysis = async ({
   insights,
   timeZone,
   today = new Date(),
-  allowEarlyReady = false,
 }: {
   userId: string;
   insights: IInsights;
   timeZone: string;
   today?: Date;
-  allowEarlyReady?: boolean;
 }) => {
   const { anchorDateKey } = await getAiAnalysisUserContext({
     userId,
@@ -2108,10 +2318,6 @@ const getCollectingAiAnalysis = async ({
     window: currentWindow,
   });
 
-  if (allowEarlyReady && windowMeta.activeDays > 0) {
-    return null;
-  }
-
   const progress = buildProgressSnapshot({
     window: windowMeta,
     activeDays: windowMeta.activeDays,
@@ -2129,6 +2335,99 @@ const getCollectingAiAnalysis = async ({
     window: windowMeta,
     progress,
   });
+};
+
+/**
+ * The distinct triggers this window's entries reported, with how many entries
+ * in the window each showed up in.
+ *
+ * Deduped by the same session-local key guided reflection uses, so "goes quiet
+ * after criticism" on Monday and "going quiet when criticised" on Thursday
+ * count as one trigger seen twice rather than two seen once — which is the
+ * whole basis for calling something a weekly pattern.
+ */
+const buildWindowTriggers = (journals: WeeklyJournalSnapshot[]) => {
+  const byKey = new Map<
+    string,
+    WeeklyTriggerObservation & { entriesInWindow: number }
+  >();
+
+  for (const journal of journals) {
+    for (const observation of journal.triggersObserved) {
+      const key = toTriggerMergeKey(
+        toTriggerPatternLabel(observation) || observation.trigger
+      );
+      const existing = byKey.get(key);
+
+      if (!existing) {
+        byKey.set(key, { ...observation, entriesInWindow: 1 });
+        continue;
+      }
+
+      byKey.set(key, {
+        ...(observation.confidence > existing.confidence
+          ? observation
+          : existing),
+        // Lifetime occurrences come from the graph and must not be summed here;
+        // only the in-window entry count is derived from this loop.
+        occurrences: Math.max(existing.occurrences, observation.occurrences),
+        entriesInWindow: existing.entriesInWindow + 1,
+      });
+    }
+  }
+
+  return [...byKey.values()]
+    .sort(
+      (left, right) =>
+        right.entriesInWindow - left.entriesInWindow ||
+        right.occurrences - left.occurrences
+    )
+    .slice(0, 6)
+    .map((item) => ({
+      trigger: item.trigger,
+      emotionalResponse: item.emotionalResponse,
+      evidence: item.evidenceQuote,
+      entriesThisWeek: item.entriesInWindow,
+      timesSeenOverall: item.occurrences,
+      status: item.status,
+    }));
+};
+
+/**
+ * The patterns this user's graph considers established, across every entry and
+ * chat, not just this window.
+ *
+ * This is what gives the weekly read continuity it has never had: without it
+ * every week re-invents its patterns from that week's text alone and can never
+ * say "third week running".
+ */
+const loadConfirmedPatterns = async (userId: string) => {
+  try {
+    const { nodes } = await loadPatternGraph({ userId, nodeLimit: 24 });
+
+    return nodes
+      .filter((node) => node.kind === "pattern")
+      .filter(
+        (node) =>
+          node.occurrences >= TRIGGER_RECURRING_MIN_OCCURRENCES &&
+          node.confidence >= PATTERN_PROMPT_MIN_CONFIDENCE
+      )
+      .slice(0, 8)
+      .map((node) => ({
+        pattern: node.label,
+        timesSeen: node.occurrences,
+        firstSeen: node.firstSeenAt.toISOString().slice(0, 10),
+        lastSeen: node.lastSeenAt.toISOString().slice(0, 10),
+        status: classifyTriggerStatus({
+          occurrences: node.occurrences,
+          confidence: node.confidence,
+        }),
+      }));
+  } catch (error) {
+    // The weekly analysis must still render without the graph.
+    console.error("Failed to load confirmed patterns for weekly analysis:", error);
+    return [];
+  }
 };
 
 const generateAiAnalysisEnhancement = async ({
@@ -2230,24 +2529,42 @@ const generateAiAnalysisEnhancement = async ({
     console.error("Failed to build weekly pattern material:", error);
   }
 
+  const windowTriggers = buildWindowTriggers(journals);
+  const confirmedPatterns = await loadConfirmedPatterns(userId);
+
   const personalization = await buildUserPersonalization(userId);
 
-  return requestStructuredOpenAi({
+  const enhancement = await requestStructuredOpenAi({
     feature: "weekly ai analysis",
     schemaName: "weekly_ai_analysis_enhancement",
     schema: aiAnalysisEnhancementJsonSchema,
     parser: aiAnalysisEnhancementSchema,
-    maxOutputTokens: 1500,
+    // The schema's own bounds add up past 1500: summary 430 chars, 4 tags, a
+    // 2-step action plan, 3 appSupport items and 3 patterns at 240 + 3x120
+    // evidence each. Sized from that worst case, not from a round number.
+    maxOutputTokens: 3000,
     messages: [
       {
         role: "system",
         content: [
-          "You write Journal.IO's weekly analysis. Read like a perceptive, grounded therapist who has been tracking this person over time — not a keyword counter. Keep everything non-clinical, uncertainty-aware, emotionally safe, and behaviour-focused. Never diagnose, pathologize, or claim certainty. Use a modern, soft Gen Z psychologist tone: warm, sharp, lightly conversational, never slang-heavy, never cringe. Be blunt and to the point everywhere: no filler, no hedging preamble ('it seems like', 'it's worth noting'), no restating the prompt — open every field with the actual observation.",
+          "You write Journal.IO's weekly analysis. Read like a perceptive, grounded therapist who has been tracking this person over time — not a keyword counter. Keep everything behaviour-focused and grounded in what they actually wrote. You may name recognised psychological patterns — avoidance, numbing, rumination, attachment behaviour, burnout or depressive markers — and apply them directly; do not assert a formal disorder as established medical fact. Use a modern, sharp, lightly conversational tone, never slang-heavy, never cringe. Be blunt and to the point everywhere: no filler, no hedging preamble ('it seems like', 'it's worth noting', 'this may suggest'), no restating the prompt — open every field with the actual observation and cite the day or the words behind it.",
           "summary.narrative is the primary weekly read: state plainly what happened this week, the concrete trends noticed, and how they moved across the week (built, faded, repeated, shifted). Ground it in the recent entries and themes provided, not generic encouragement.",
-          "The most important other output is patterns: 1-3 real behavioural patterns the week surfaced. For each, name the behaviour AND the trigger or feeling it connects to (the link the user usually cannot see themselves — e.g. a habit that spikes with anxiety, reassurance-seeking after conflict, scrolling to avoid a hard feeling). Put the concrete pattern in insight, back it with 1-3 short evidence phrases quoted or closely paraphrased from the provided entries/themes, and give one gentle, practical nudge. Be perceptive and precise, but never diagnose, label, or judge the behaviour as good or bad, never moralise, never shame — the goal is a genuine 'oh, I hadn't seen that' moment, not a clinical read.",
-          "Draw patterns from windowThemes and recurringPatterns first (those are already-extracted therapist themes), and use longTermMemory to connect this week to the user's longer arc when it genuinely fits (e.g. 'this is the third week work has shown up right before your mood dips'). Never invent history or a pattern the provided material does not support; when signal is thin, return fewer, softer patterns rather than forcing them.",
+          "The most important other output is patterns: 1-3 real behavioural patterns the week surfaced. For each, name the behaviour AND the trigger it connects to — the situation, person, time, or thought that came right before the response, which is the link the user usually cannot see themselves. Put the trigger itself in the `trigger` field and the concrete pattern in `insight`, back it with 1-3 short evidence phrases quoted or closely paraphrased from the provided material, and give one specific, practical next step. Be perceptive and precise, and state the pattern plainly rather than softening it — the goal is a genuine 'oh, I hadn't seen that' moment. You may name a recognised psychological pattern; do not assert a formal disorder as established medical fact.",
+          "Every pattern must be grounded in windowTriggers or confirmedPatterns. windowTriggers are the trigger-to-response links this week's own sessions already evidenced, with how many entries each appeared in. confirmedPatterns are what this person's whole history has established, with lifetime counts and the dates they span. Prefer those two over windowThemes and recurringPatterns, and fall back to inventing a pattern from recentEntries only when both are empty — then return fewer, softer patterns rather than forcing them.",
+          "Where confirmedPatterns supports it, say plainly how many times something has been seen and over what span (e.g. 'the fourth week running that work has shown up right before a dip'). Never state a count the provided data does not support, and never invent history. Set each pattern's `status` from what the data shows: emerging for something this week surfaced, recurring for something seen before, confirmed only for a pattern confirmedPatterns already marks as such.",
           "You may use the entry hours/weekdays and moodByDay to note time-of-day or day-of-week rhythms, but only as a soft observation, never a hard claim.",
           "Also refine summary, patternTags (short behavioural labels, not personality traits), actionPlan (exactly 2 concrete steps, the two that matter most this week), and appSupport (3 items). Keep every field concise enough for a mobile screen — no padding.",
+          // Stated here so the model composes something that ends where it
+          // means to. The pattern fields are now trimmed at a word boundary
+          // rather than severed, but a trimmed field still loses its last
+          // clause, so the targets stay and the model is asked to land inside
+          // them.
+          "Write every field in English. Hard character limits, and a field that runs over is trimmed back to the last whole word: summary.headline 90 characters, summary.narrative 340, each patternTag label 32, actionPlan.headline 120, each step title 70 and description 190 and focus 36, appSupport.headline 120, each item title 70 and description 190, each pattern label 48 and insight 240 and trigger 64 and nudge 180, and each evidence phrase 120. Aim for roughly 80% of each limit so the last sentence lands inside it — summary.narrative should be about 270 characters, not 340. Never abbreviate to fit; rewrite shorter.",
+          // The user reads every one of these fields about themselves. Without
+          // this the model narrates them in the third person ("uses the gym to
+          // regulate what he won't say"), which reads like a case note written
+          // about the user rather than a reflection addressed to them.
+          "Address the user directly, in the second person, in every field including each pattern label, insight, trigger, evidence phrase and nudge. Write \"you\" and \"your\", never \"he\", \"she\", \"they\", \"the user\", or a third-person description of their behaviour. Third-person pronouns are only ever for other people the user wrote about.",
           personalization?.systemDirective,
           AI_REFLECTION_BALANCE_GUIDANCE,
         ]
@@ -2270,6 +2587,8 @@ const generateAiAnalysisEnhancement = async ({
           longTermMemory: longTermMemory || "No prior sessions yet.",
           currentActionPlan: analysis.actionPlan,
           currentAppSupport: analysis.appSupport,
+          windowTriggers,
+          confirmedPatterns,
           moodSummary,
           moodByDay,
           recentEntries,
@@ -2277,6 +2596,19 @@ const generateAiAnalysisEnhancement = async ({
       },
     ],
   });
+
+  if (!enhancement) {
+    return null;
+  }
+
+  // Returned alongside so the merge can demote any "confirmed" the graph does
+  // not actually back — the count is the claim a user would act on.
+  return {
+    enhancement,
+    confirmedLabels: new Set(
+      confirmedPatterns.map((item) => item.pattern.trim().toLowerCase())
+    ),
+  };
 };
 
 const MIND_MAP_DISCLAIMER = {
@@ -2373,23 +2705,46 @@ const buildMindMapSupportFirstResponse = ({
   disclaimer: MIND_MAP_DISCLAIMER,
 });
 
+/**
+ * `sourceText` is the corpus the Mind Map quotes as evidence and falls back to
+ * for heuristic region scoring, so it must contain the person's words and
+ * nothing else.
+ *
+ * `strippedText` is not enough. It only removes a single `aiPrompt`, and a
+ * guided entry's prompt is a label that never appears in its content — so the
+ * section headers ("One good or exciting thing from today:") and Journal.IO's
+ * own reflection body both survived into it. That is how a region came to
+ * explain itself with evidence like "One good or", a fragment of our own
+ * question, and how our reflections were scored as if the user had written
+ * them. The weekly excerpt path already guards this the same way.
+ */
 const toMindMapJournalSnapshots = (
   journals: AnalyzedWeeklyJournalSnapshot[]
 ): MindMapJournalSnapshot[] =>
-  journals.map((journal) => ({
-    ...journal,
-    sourceText: journal.strippedText.trim() || journal.content.trim(),
-  }));
+  journals.map((journal) => {
+    const authorship = extractJournalAuthorship({
+      content: journal.content || "",
+      type: journal.entryType,
+      aiPrompt: journal.aiPrompt,
+      appAuthoredSegments: journal.appAuthoredSegments,
+    });
+
+    return {
+      ...journal,
+      sourceText:
+        authorship.userText.trim() ||
+        journal.strippedText.trim() ||
+        journal.content.trim(),
+    };
+  });
 
 const getClearMindMapJournals = (journals: MindMapJournalSnapshot[]) =>
   journals.filter(
     (journal) =>
       !hasJournalSafetySignal(journal.safetySignal) &&
       Boolean(journal.sourceText.trim()) &&
-      // Dev bypass: accept any safe, non-empty entry so short / low-signal test
-      // writing still counts. Otherwise require real clear writing.
-      (MIND_MAP_RELAX_THRESHOLDS ||
-        (!journal.lowSignalDetected && journal.analysisWordCount >= 4))
+      !journal.lowSignalDetected &&
+      journal.analysisWordCount >= 4
   );
 
 // Aggregates the persisted per-entry Mind Map scores (AI where available,
@@ -2543,7 +2898,7 @@ const buildMindMapReadyResponse = ({
     { trend: ReflectionRegionTrend; trendLabel: string }
   >;
   patterns: InsightsMindMapPattern[];
-  actionSteps: Map<ReflectionRegionId, string>;
+  actionSteps: Map<ReflectionRegionId, MindMapRegionCopy>;
 }): InsightsMindMapReadyResponse => {
   const strongestRegion = regions[0] as ReflectionRegionScore;
   const periodCopy =
@@ -2573,8 +2928,8 @@ const buildMindMapReadyResponse = ({
       confidence: region.confidence,
       rank: region.rank,
       intensity: region.intensity,
-      shortInsight: region.shortInsight,
-      actionStep: actionSteps.get(region.id) ?? region.actionStep,
+      shortInsight: actionSteps.get(region.id)?.noticed ?? region.shortInsight,
+      actionStep: actionSteps.get(region.id)?.actionStep ?? region.actionStep,
       evidenceSnippets: region.evidence,
       trend: regionTrend.trend,
       trendLabel: regionTrend.trendLabel,
@@ -2593,6 +2948,7 @@ const buildMindMapReadyResponse = ({
       id: region.id,
       signalScore: region.signalScore,
       trend: region.trend,
+      actionStep: region.actionStep,
     }))
   );
 
@@ -2653,23 +3009,52 @@ const loadMindMapPatterns = async ({
   }
 };
 
-// Turns the user's own writing into one practical, supportive next step per
-// region via a single structured call. Follows the AI contract: never throws,
-// and every region is guaranteed a step — any region the model omits (or the
-// whole map if AI is unavailable / returns null) falls back to the
-// deterministic REFLECTION_REGION_FOCUS_TIPS. Callers only ever reach the ready
-// path as premium + AI-opted-in users, but we still guard defensively.
+/**
+ * The Mind Map region copy directives, exported so a test can prove the
+ * personalisation rules survive a future edit. `noticed` replaces a fixed
+ * per-region template that read identically for every user.
+ */
+export const MIND_MAP_REGION_COPY_DIRECTIVES: readonly string[] = [
+  "You write the two lines under each area of Journal.IO's Mind Map: `noticed` (why this area lit up) and `actionStep` (one thing to do about it). Return both for every region id provided.",
+  "Talk like a friend who has read everything they wrote and is explaining their own data back to them over coffee. Everyday words, second person, contractions, short sentences. Not a therapist, not a report, not a coach.",
+  "Every `noticed` must explain the link, and the link is the whole point: the thing they keep writing about -> what this area is actually about -> so that is why it scored where it did. You are given `whatThisAreaIsAbout` for each region in plain words; use that phrasing rather than the region's formal name. Example shape: 'you're at the gym most days and you keep writing about sticking to the routine — that's all discipline and follow-through, which is why this one's near the top.'",
+  "Two sentences, at most 260 characters. First sentence: what they actually keep doing or saying, in their own terms — the gym, the late nights, the person they keep going quiet on. Second sentence: why that puts this area where it is, and what it's costing them or what to do differently.",
+  "No jargon. Never write 'recurring pattern', 'emotional regulation', 'avoidance behaviour', 'attachment', 'markers', 'presents as', 'indicative of', or 'this region'. Say the plain version instead: 'you go quiet when it gets hard', 'you're running on four hours' sleep'.",
+  "You may mention the brain area by name only if you explain it in the same breath — 'that's your prefrontal cortex doing the heavy lifting' is fine, dropping 'temporoparietal junction' on its own is not.",
+  "Never write the generic version. 'This region stood out through social perspective, belonging, or another person's role' is exactly the failure: it fits any user and says nothing. If you could paste your sentence into a stranger's Mind Map unchanged, rewrite it.",
+  "Be warm but do not cushion. If the score is high because something went badly and keeps going badly, say so the way a good friend would — straight, no lecture, no shame, no cheerleading. You may say plainly that they keep avoiding something or keep shutting down; do not label them with a condition or assert a formal diagnosis as fact.",
+  "You are given each region's signalScore, intensity, rank and trend. Use them to explain why it sits where it does, but never restate the trend on its own — the app already prints that sentence underneath you.",
+  "`actionStep` is one thing they could actually do this week, in the same friendly voice: what to do and when, concrete enough to picture. No treatment, no medication, no therapy-speak.",
+  "Ground both lines in the writing you are given. Never invent an event, a person, or a failing their entries do not record. If an area barely showed up, just say that plainly — 'this one barely came up this week' — instead of inventing a pattern to fill the space.",
+];
+
+// Turns the user's own writing into two strings per region via a single
+// structured call: `noticed` (what the app saw, replacing a fixed template that
+// read the same for every user) and `actionStep`. Follows the AI contract:
+// never throws, and every region is guaranteed a step — any region the model
+// omits (or the whole map if AI is unavailable / returns null) falls back to
+// deterministic REFLECTION_REGION_FOCUS_TIPS copy and, for `noticed`, to
+// buildShortInsight. Callers only ever reach the ready path as premium +
+// AI-opted-in users, but we still guard defensively.
 const buildMindMapActionSteps = async ({
   userId,
   regions,
   combinedWriting,
+  trends,
 }: {
   userId: string;
   regions: ReflectionRegionScore[];
   combinedWriting: string;
-}): Promise<Map<ReflectionRegionId, string>> => {
-  const steps = new Map<ReflectionRegionId, string>(
-    REFLECTION_REGION_IDS.map((id) => [id, REFLECTION_REGION_FOCUS_TIPS[id]])
+  trends: Map<ReflectionRegionId, RegionTrendInfo>;
+}): Promise<Map<ReflectionRegionId, MindMapRegionCopy>> => {
+  // `noticed: null` means "no AI copy" and leaves buildReflectionRegionScore's
+  // deterministic sentence in place, which is what free users and any failed
+  // call must still get.
+  const steps = new Map<ReflectionRegionId, MindMapRegionCopy>(
+    REFLECTION_REGION_IDS.map((id) => [
+      id,
+      { actionStep: REFLECTION_REGION_FOCUS_TIPS[id], noticed: null },
+    ])
   );
 
   const writing = combinedWriting.trim();
@@ -2685,14 +3070,22 @@ const buildMindMapActionSteps = async ({
       schemaName: "mind_map_action_steps",
       schema: mindMapActionStepsJsonSchema,
       parser: mindMapActionStepsSchema,
-      maxOutputTokens: 700,
+      // 8 regions x (260-char noticed + 220-char step) is roughly twice the old
+      // single-field payload, and reasoning tokens bill against this ceiling. A
+      // truncated response parses as null and silently drops every region back
+      // to the generic template — the exact thing this change removes.
+      maxOutputTokens: 2000,
       messages: [
         {
           role: "system",
           content: [
-            "You write Journal.IO's per-region action steps for a reflection Mind Map. For each of the 8 regions, suggest ONE practical, rational next step the user could try, grounded in their own writing. Keep each step to a single short sentence a person could act on this week. Stay non-clinical, supportive, and uncertainty-aware: offer something to try, never a directive, prescription, or diagnosis. Avoid clinical or therapy jargon. Return a step for every region id provided.",
+            // Ordering matters. The tone steer says "soften confrontation" for
+            // anyone whose onboarding tone is `gentle`, and when it came last it
+            // quietly undid the plain register for exactly those users. It still
+            // shapes vocabulary and examples; it no longer re-softens the panel.
             personalization?.systemDirective,
             AI_ACTION_BALANCE_GUIDANCE,
+            ...MIND_MAP_REGION_COPY_DIRECTIVES,
           ]
             .filter(Boolean)
             .join(" "),
@@ -2705,8 +3098,13 @@ const buildMindMapActionSteps = async ({
             regions: regions.map((region) => ({
               id: region.id,
               productName: region.productName,
+              // The plain-words description is what lets the copy explain why
+              // an area lit up instead of paraphrasing its formal name.
+              whatThisAreaIsAbout: REFLECTION_REGION_PLAIN_MEANING[region.id],
               signalScore: region.score,
               intensity: region.intensity,
+              rank: region.rank,
+              trend: trends.get(region.id)?.trend ?? "steady",
               evidence: region.evidence,
             })),
             writingExcerpt: writing.slice(0, 2600),
@@ -2717,10 +3115,14 @@ const buildMindMapActionSteps = async ({
 
     if (result) {
       for (const step of result.steps) {
-        const trimmed = step.actionStep.trim();
-        if (trimmed) {
-          steps.set(step.regionId, trimmed);
-        }
+        const current = steps.get(step.regionId);
+        const trimmedStep = step.actionStep.trim();
+        const trimmedNoticed = step.noticed.trim();
+        steps.set(step.regionId, {
+          actionStep: trimmedStep || current?.actionStep ||
+            REFLECTION_REGION_FOCUS_TIPS[step.regionId],
+          noticed: trimmedNoticed || current?.noticed || null,
+        });
       }
     }
   } catch (error) {
@@ -2820,42 +3222,6 @@ const refreshLatestWeekMindMapCache = async ({
       generatedAt: null,
     });
 
-    if (
-      mindMapForceReady(clearEntryCount) &&
-      !currentSnapshots.some((journal) =>
-        hasJournalSafetySignal(journal.safetySignal)
-      )
-    ) {
-      const { regions, regionMeans, combinedWriting } =
-        await buildMindMapRegions({
-          journals: currentSnapshots,
-          activeDays: progress.activeDays,
-        });
-      const trends = await buildRegionTrendMap({ userId });
-      const patterns = await loadMindMapPatterns({
-        userId,
-        startDate: dateKeyToBoundaryDate(currentWindow.startDateKey, "start"),
-        endDate: dateKeyToBoundaryDate(currentWindow.endDateKey, "end"),
-      });
-      const actionSteps = await buildMindMapActionSteps({
-        userId,
-        regions,
-        combinedWriting,
-      });
-      const generatedAt = new Date();
-      const response = buildMindMapReadyResponse({
-        range: "latest_week",
-        period: { ...period, generatedAt: generatedAt.toISOString() },
-        regions,
-        regionMeans,
-        trends,
-        patterns,
-        actionSteps,
-      });
-
-      return response;
-    }
-
     return buildMindMapBuildingResponse({
       period,
       summary: {
@@ -2919,10 +3285,9 @@ const refreshLatestWeekMindMapCache = async ({
       },
     });
   } else if (
-    !mindMapForceReady(clearEntryCount) &&
-    (activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
       clearEntryCount < MIND_MAP_MIN_CLEAR_ENTRIES ||
-      totalWords < MIND_MAP_MIN_CLEAR_WORDS)
+      totalWords < MIND_MAP_MIN_CLEAR_WORDS
   ) {
     const nextWindow = resolveWeeklyWindow({
       anchorDateKey,
@@ -2972,6 +3337,7 @@ const refreshLatestWeekMindMapCache = async ({
       userId,
       regions,
       combinedWriting,
+      trends,
     });
     response = buildMindMapReadyResponse({
       range: "latest_week",
@@ -3068,10 +3434,7 @@ const refreshAllTimeMindMapCache = async ({
         note: "Once there is enough safe writing to map, the all-reflections view can return without surfacing sensitive text.",
       },
     });
-  } else if (
-    !mindMapForceReady(clearJournals.length) &&
-    clearJournals.length < MIND_MAP_MIN_ENTRIES
-  ) {
+  } else if (clearJournals.length < MIND_MAP_MIN_ENTRIES) {
     response = buildMindMapBuildingResponse({
       period,
       summary: {
@@ -3097,6 +3460,7 @@ const refreshAllTimeMindMapCache = async ({
       userId,
       regions,
       combinedWriting,
+      trends,
     });
     response = buildMindMapReadyResponse({
       range: "all_time",
@@ -3216,10 +3580,9 @@ const refreshMonthlyMindMapCache = async ({
       },
     });
   } else if (
-    !mindMapForceReady(clearJournals.length) &&
-    (activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
+    activeDays < MIND_MAP_MIN_ACTIVE_DAYS ||
       clearJournals.length < MIND_MAP_MIN_CLEAR_ENTRIES ||
-      totalWords < MIND_MAP_MIN_CLEAR_WORDS)
+      totalWords < MIND_MAP_MIN_CLEAR_WORDS
   ) {
     response = buildMindMapBuildingResponse({
       period,
@@ -3245,6 +3608,7 @@ const refreshMonthlyMindMapCache = async ({
       userId,
       regions,
       combinedWriting,
+      trends,
     });
     response = buildMindMapReadyResponse({
       range: "monthly",
@@ -3543,7 +3907,7 @@ const getInsightsOverview = async (
 // summary drops `highlight` (folded into `narrative`, including the safety-path
 // crisis line), `patterns` capped at 3 (was 4), `actionPlan.steps` fixed at 2
 // (was 3) — mirrors the collapsed 4-card mobile Analysis tab.
-const WEEKLY_AI_ANALYSIS_VERSION = 3;
+const WEEKLY_AI_ANALYSIS_VERSION = 4;
 const buildAiAnalysisCacheKey = ({
   window,
   status,
@@ -3558,13 +3922,11 @@ const refreshAiAnalysisCache = async ({
   insights,
   window,
   today = new Date(),
-  allowEarlyReady = false,
 }: {
   userId: string;
   insights: IInsights;
   window: WeeklyWindowSnapshot;
   today?: Date;
-  allowEarlyReady?: boolean;
 }) => {
   const { journals, moods } = await loadWindowSnapshots({
     userId,
@@ -3576,10 +3938,7 @@ const refreshAiAnalysisCache = async ({
     window,
   });
 
-  if (
-    windowMeta.activeDays < AI_ANALYSIS_MIN_ACTIVE_DAYS &&
-    (!allowEarlyReady || windowMeta.activeDays <= 0)
-  ) {
+  if (windowMeta.activeDays < AI_ANALYSIS_MIN_ACTIVE_DAYS) {
     const nextWindow = resolveWeeklyWindow({
       anchorDateKey: window.startDateKey,
       windowIndex: 1,
@@ -3628,14 +3987,12 @@ const refreshAiAnalysisCache = async ({
     moods,
   });
   const analysis: InsightsAiAnalysisReadyResponse = analysisEnhancement
-    ? mergeAiAnalysisEnhancement(baselineAnalysis, analysisEnhancement)
+    ? mergeAiAnalysisEnhancement(
+        baselineAnalysis,
+        analysisEnhancement.enhancement,
+        analysisEnhancement.confirmedLabels
+      )
     : baselineAnalysis;
-
-  if (allowEarlyReady && windowMeta.activeDays < AI_ANALYSIS_MIN_ACTIVE_DAYS) {
-    analysis.freshness.confidence = "low";
-    analysis.freshness.confidenceLabel = "Dev preview";
-    analysis.freshness.note = `Development override is showing this AI analysis before the normal 4 active-day minimum is met. ${analysis.freshness.note}`;
-  }
 
   setEncryptedInsightsPayload(insights, "aiAnalysis", analysis);
   insights.aiAnalysisComputedAt = new Date();
@@ -3660,7 +4017,6 @@ const getInsightsAiAnalysis = async (
   await ensureAiAnalysisEnabled(userId);
 
   const insights = await getOrBuildInsightsCache(userId);
-  const allowEarlyReady = isAiAnalysisDevEarlyReadyEnabled();
 
   if (!insights) {
     throw new Error("We couldn't load your AI analysis right now.");
@@ -3673,7 +4029,6 @@ const getInsightsAiAnalysis = async (
     insights,
     timeZone,
     today,
-    allowEarlyReady,
   });
 
   if (collectingAnalysis) {
@@ -3708,7 +4063,7 @@ const getInsightsAiAnalysis = async (
   if (
     cachedAnalysis &&
     cachedStatus &&
-    (allowEarlyReady || !cachedEarlyReadyPreview) &&
+    !cachedEarlyReadyPreview &&
     !insights.aiAnalysisStale &&
     insights.aiAnalysisCacheKey ===
       buildAiAnalysisCacheKey({
@@ -3724,7 +4079,6 @@ const getInsightsAiAnalysis = async (
     insights,
     window: closedWindow,
     today,
-    allowEarlyReady,
   });
 };
 
@@ -3752,7 +4106,6 @@ const getInsightsMindMap = async (
       insights.mindMapAllTime as InsightsMindMapResponse | null;
 
     if (
-      !MIND_MAP_RELAX_THRESHOLDS &&
       cachedAllTime &&
       !insights.mindMapAllTimeStale &&
       insights.mindMapAllTimeCacheKey ===
@@ -3776,7 +4129,6 @@ const getInsightsMindMap = async (
       insights.mindMapMonthly as InsightsMindMapResponse | null;
 
     if (
-      !MIND_MAP_RELAX_THRESHOLDS &&
       cachedMonthly &&
       !insights.mindMapMonthlyStale &&
       insights.mindMapMonthlyCacheKey ===
@@ -3816,7 +4168,6 @@ const getInsightsMindMap = async (
       insights.mindMapLatestWeek as InsightsMindMapResponse | null;
 
     if (
-      !MIND_MAP_RELAX_THRESHOLDS &&
       cachedLatestWeek &&
       !insights.mindMapLatestWeekStale &&
       insights.mindMapLatestWeekCacheKey ===
@@ -3928,12 +4279,14 @@ const getInsightsMindMapRegionSeries = async (
 
 export {
   PremiumFeatureRequiredError,
+  aiAnalysisEnhancementSchema,
   buildWeeklyAiAnalysis,
   getInsightsOverview,
   getInsightsAiAnalysis,
   getInsightsMindMap,
   getInsightsMindMapRegionSeries,
   markUserMindMapStale,
+  buildWindowTriggers,
   mergeAiAnalysisEnhancement,
   rebuildInsightsCache,
   syncJournalCreatedInsights,

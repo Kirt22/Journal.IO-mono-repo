@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test, { afterEach } from "node:test";
 import { z } from "zod";
 import {
+  registerOpenAiCallAuditObserver,
   requestStructuredOpenAi,
   requestStructuredOpenAiDetailed,
 } from "./openai.helpers";
@@ -13,12 +14,54 @@ const originalConsoleError = console.error;
 afterEach(() => {
   globalThis.fetch = originalFetch;
   console.error = originalConsoleError;
+  registerOpenAiCallAuditObserver(null);
 
   if (typeof originalApiKey === "string") {
     process.env.OPENAI_API_KEY = originalApiKey;
   } else {
     delete process.env.OPENAI_API_KEY;
   }
+});
+
+test("OpenAI audit observer receives metadata but no prompt or output content", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  const events: unknown[] = [];
+  registerOpenAiCallAuditObserver(event => events.push(event));
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: "resp_demo_capture",
+        model: "gpt-test-snapshot",
+        output_text: JSON.stringify({ value: "sensitive output" }),
+      }),
+      { status: 200 }
+    )) as typeof fetch;
+
+  await requestStructuredOpenAi({
+    feature: "capture test",
+    schemaName: "capture_test",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["value"],
+      properties: { value: { type: "string" } },
+    },
+    parser: z.object({ value: z.string() }),
+    messages: [{ role: "user", content: "sensitive prompt" }],
+  });
+
+  assert.deepEqual(events, [
+    {
+      kind: "structured",
+      feature: "capture test",
+      schemaName: "capture_test",
+      model: "gpt-test-snapshot",
+      outcome: "success",
+      failure: null,
+      responseId: "resp_demo_capture",
+    },
+  ]);
+  assert.equal(JSON.stringify(events).includes("sensitive"), false);
 });
 
 test("requestStructuredOpenAi returns parsed structured output", async () => {
@@ -166,4 +209,75 @@ test("requestStructuredOpenAiDetailed distinguishes incomplete output", async ()
   });
 
   assert.deepEqual(result, { data: null, failure: "incomplete" });
+});
+
+test("a rate-limit 429 is retried", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  console.error = () => {};
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      return new Response(
+        JSON.stringify({
+          error: { type: "rate_limit_error", code: "rate_limit_exceeded" },
+        }),
+        { status: 429 }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        id: "resp_recovered",
+        output_text: JSON.stringify({ value: "ok" }),
+      }),
+      { status: 200 }
+    );
+  }) as typeof fetch;
+
+  const result = await requestStructuredOpenAi({
+    feature: "test feature",
+    schemaName: "test_schema",
+    schema: { type: "object" },
+    parser: z.object({ value: z.string() }),
+    messages: [{ role: "user", content: "hi" }],
+  });
+
+  console.warn = originalWarn;
+  assert.equal(attempts, 3);
+  assert.deepEqual(result, { value: "ok" });
+});
+
+test("an exhausted-credit 429 is not retried", async () => {
+  process.env.OPENAI_API_KEY = "test-key";
+  console.error = () => {};
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts += 1;
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "You have no credits remaining.",
+          type: "insufficient_quota",
+          code: "credit_balance_exhausted",
+        },
+      }),
+      { status: 429 }
+    );
+  }) as typeof fetch;
+
+  const result = await requestStructuredOpenAi({
+    feature: "test feature",
+    schemaName: "test_schema",
+    schema: { type: "object" },
+    parser: z.object({ value: z.string() }),
+    messages: [{ role: "user", content: "hi" }],
+  });
+
+  console.warn = originalWarn;
+  assert.equal(attempts, 1);
+  assert.equal(result, null);
 });

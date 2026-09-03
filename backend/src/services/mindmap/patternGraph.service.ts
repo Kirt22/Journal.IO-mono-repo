@@ -31,7 +31,6 @@ import {
   medianLagHours,
   computeEdgeStrength,
   computeNodeStrength,
-  isClinicalPatternLabel,
   isValidUmbrellaLabel,
   patternGraphRefinementJsonSchema,
   patternGraphRefinementSchema,
@@ -46,6 +45,7 @@ import {
   normalizeReflectionMapText,
   type ReflectionRegionId,
 } from "../../helpers/reflectionMap.helpers";
+import { toTriggerPatternLabel } from "../../helpers/emotionalTrigger.helpers";
 
 /**
  * The per-user pattern graph.
@@ -81,6 +81,20 @@ const NODE_MERGE_SIMILARITY = 0.9;
  * Ask Jade must never outrank one the user actually journaled about.
  */
 export const CHAT_CONFIDENCE_FACTOR = 0.8;
+
+/**
+ * A guided answer sits between the two: it is written in response to a direct,
+ * targeted question, so it is more considered than a chat turn — but it is
+ * still one session's self-report, not something the user returned to and wrote
+ * down on their own.
+ */
+export const GUIDED_CONFIDENCE_FACTOR = 0.9;
+
+const SOURCE_CONFIDENCE_FACTOR: Record<PatternSourceKind, number> = {
+  journal: 1,
+  guided: GUIDED_CONFIDENCE_FACTOR,
+  chat: CHAT_CONFIDENCE_FACTOR,
+};
 
 /** How many prior patterns a new one can be linked back to per entry. */
 const TEMPORAL_ANTECEDENT_LIMIT = 5;
@@ -278,7 +292,7 @@ export const toPatternObservation = (input: {
   observedAt: Date;
 }): PatternObservation | null => {
   const label = normalizeReflectionMapText(input.label, 64);
-  if (!label || isClinicalPatternLabel(label)) {
+  if (!label) {
     return null;
   }
 
@@ -288,10 +302,9 @@ export const toPatternObservation = (input: {
     label,
     rationale: normalizeReflectionMapText(input.rationale, 220),
     evidenceQuote: normalizeReflectionMapText(input.evidenceQuote, 180),
-    confidence:
-      input.sourceKind === "chat"
-        ? clampConfidence(confidence * CHAT_CONFIDENCE_FACTOR)
-        : confidence,
+    confidence: clampConfidence(
+      confidence * SOURCE_CONFIDENCE_FACTOR[input.sourceKind]
+    ),
     regionId: input.regionId,
     sourceKind: input.sourceKind,
     journalId: input.journalId,
@@ -383,7 +396,17 @@ const applyObservationToNode = (
       node.evidenceQuote = observation.evidenceQuote;
     }
   }
-  node.confidence = clampConfidence((node.confidence + observation.confidence) / 2);
+  // Never let more evidence make a node *less* certain.
+  //
+  // A plain running mean lets a node observed five times drift below
+  // PATTERN_PROMPT_MIN_CONFIDENCE — a string of hedged chat observations can
+  // drag down something the user has journaled about repeatedly, so the node
+  // stops being spoken about precisely as it becomes established. Taking the
+  // max against the existing value keeps the mean's smoothing on the way up
+  // while making repeated support monotonic.
+  node.confidence = clampConfidence(
+    Math.max(node.confidence, (node.confidence + observation.confidence) / 2)
+  );
 
   if (observation.evidenceQuote) {
     node.evidence = [
@@ -1167,7 +1190,12 @@ export const refinePatternGraph = async (userId: string): Promise<void> => {
       schema: patternGraphRefinementJsonSchema,
       parser: patternGraphRefinementSchema,
       model: PATTERN_GRAPH_MODEL(),
-      maxOutputTokens: 800,
+      // Sized from the schema's own worst case rather than a round number:
+      // 12 edges x (2 keys @64 + rationale @220 + evidenceQuote @180 + type +
+      // confidence) plus 4 umbrellas x (label @48 + rationale @220 + 8 member
+      // keys @64) is ~11k characters, roughly 3.7k tokens. At 1600 the response
+      // came back `incomplete` and the whole refinement was dropped silently.
+      maxOutputTokens: 4000,
       reasoningEffort: "low",
       messages: [
         { role: "system", content: REFINE_SYSTEM_PROMPT },
@@ -1645,5 +1673,152 @@ export const loadPatternGraph = async ({
   } catch (error) {
     console.error("Failed to load pattern graph:", error);
     return { nodes: [], edges: [] };
+  }
+};
+
+export type PatternNodeStats = {
+  /** The label as it was asked for, so callers can join back to their input. */
+  requestedLabel: string;
+  /** The node's own representative label, which may be worded differently. */
+  label: string;
+  occurrences: number;
+  confidence: number;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+};
+
+/**
+ * Look up what the graph already knows about a set of behaviour labels.
+ *
+ * This is how a session analysis can say "this is the third time" without the
+ * model inventing the number: the count comes from the graph, is attached
+ * server-side, and is fed *into* the prompt so the prose and the data agree.
+ *
+ * Resolution reuses the same cheap-first ladder as ingestion (exact slug ->
+ * alias -> canonical key), minus the embedding stage. A miss here means "not
+ * established yet", which is the correct read for a label the graph has never
+ * merged — and paying for an embedding to soften a read-only lookup is not
+ * worth it on a request path.
+ */
+export const getPatternNodeStatsByLabels = async (
+  userId: string,
+  labels: string[]
+): Promise<PatternNodeStats[]> => {
+  const wanted = [...new Set((labels || []).map(label => label.trim()).filter(Boolean))];
+  if (!wanted.length) {
+    return [];
+  }
+
+  try {
+    const stats: PatternNodeStats[] = [];
+
+    for (const requestedLabel of wanted) {
+      const node = await findExistingNode({
+        userId,
+        key: toThemeId(requestedLabel),
+        canonicalKey: toPatternKey(requestedLabel),
+      });
+
+      if (!node) {
+        continue;
+      }
+
+      stats.push({
+        requestedLabel,
+        label: node.label,
+        occurrences: node.occurrences,
+        confidence: node.confidence,
+        firstSeenAt: node.firstSeenAt,
+        lastSeenAt: node.lastSeenAt,
+      });
+    }
+
+    return stats;
+  } catch (error) {
+    console.error("Failed to load pattern node stats:", error);
+    return [];
+  }
+};
+
+/**
+ * Fold the triggers a guided session surfaced into the graph.
+ *
+ * Each trigger is composed into the graph's existing behaviour-tied-to-trigger
+ * phrasing first (`toTriggerPatternLabel`), so a trigger found in a guided
+ * session, one mined from an Ask Jade chat, and one extracted from a written
+ * entry all land on the *same* node rather than three that never meet. That
+ * shared identity is what makes "seen 3 times" mean anything.
+ *
+ * Fire-and-forget, like every other graph write: a failure here must never
+ * affect the analysis the user is waiting on.
+ */
+export const ingestSessionTriggersIntoGraph = async ({
+  userId,
+  journalId,
+  triggers,
+  observedAt,
+}: {
+  userId: string;
+  journalId: string | null;
+  triggers: Array<{
+    trigger: string;
+    emotionalResponse: string;
+    evidenceQuote: string;
+    confidence: number;
+  }>;
+  observedAt: Date;
+}): Promise<void> => {
+  try {
+    const observations = (triggers || [])
+      .map(entry => {
+        const label = toTriggerPatternLabel(entry);
+        if (!label) {
+          return null;
+        }
+
+        return toPatternObservation({
+          label,
+          // The rationale is what the graph shows back as "why this was
+          // noticed", so it states the link rather than restating the label.
+          rationale: `Their own account put "${entry.emotionalResponse}" right after ${entry.trigger}.`,
+          evidenceQuote: entry.evidenceQuote,
+          confidence: entry.confidence,
+          regionId: null,
+          sourceKind: "guided",
+          journalId,
+          sessionId: null,
+          observedAt,
+        });
+      })
+      .filter((observation): observation is PatternObservation => observation !== null);
+
+    if (!observations.length) {
+      return;
+    }
+
+    const nodes = await upsertPatternObservations({ userId, observations });
+
+    // Two triggers surfaced in one session are, by definition, present
+    // together — the same claim `updatePatternGraph` makes for two themes in
+    // one entry, so it uses the same deterministic edge type rather than
+    // inferring a mechanism nobody stated.
+    const pairs = buildCoOccurrencePairs(nodes.filter(Boolean));
+    for (const [from, to] of pairs) {
+      await upsertPatternEdge({
+        userId,
+        type: "co_occurs",
+        source: "co_occurrence",
+        fromNode: from,
+        toNode: to,
+        rationale: "",
+        confidence: Math.min(from.confidence, to.confidence),
+        observedAt,
+        journalId,
+        evidenceQuote: null,
+        lagHours: null,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to ingest session triggers into pattern graph:", error);
   }
 };

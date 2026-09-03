@@ -68,7 +68,16 @@ const createJournalController = async (
       return res.status(401).json(apiResponse(false, API_MESSAGES.unauthorized, {}));
     }
 
-    const { title, content, type, entryKind, aiPrompt, images, tags } = req.body;
+    const {
+      title,
+      content,
+      type,
+      entryKind,
+      aiPrompt,
+      appAuthoredSegments,
+      images,
+      tags,
+    } = req.body;
     const journal = await createJournal({
       userId,
       title,
@@ -76,6 +85,7 @@ const createJournalController = async (
       type,
       entryKind,
       aiPrompt,
+      appAuthoredSegments,
       tags,
       images,
     });

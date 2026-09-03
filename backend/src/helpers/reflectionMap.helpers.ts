@@ -122,6 +122,40 @@ export const REFLECTION_REGION_DETAILS: Record<
   },
 };
 
+/**
+ * What each region means in everyday words — the vocabulary the Mind Map copy
+ * uses to explain why an area lit up.
+ *
+ * Without this a prompt only ever sees `planning_self_control — Planning &
+ * Self-Control (Prefrontal Cortex)`, so the best it can do is paraphrase the
+ * label back ("this region stood out through direction, restraint, or
+ * next-step thinking"). That sentence fits everyone and tells nobody anything.
+ *
+ * Each line is drafted from that region's own entries in
+ * REFLECTION_REGION_SIGNAL_RULES below, so the explanation matches the writing
+ * that actually moves the score rather than a marketing description of it.
+ * Deliberately plain: no clinical vocabulary, because the whole point is that a
+ * person reads this and recognises their own week in it.
+ */
+export const REFLECTION_REGION_PLAIN_MEANING: Record<ReflectionRegionId, string> = {
+  emotional_intensity:
+    "how hard things are hitting you — stress, pressure, worry, anger, feeling overwhelmed",
+  planning_self_control:
+    "routines, discipline and self-control — sticking to habits, making decisions, working out what to do next",
+  memory_meaning:
+    "looking backwards — the past, old memories, things that keep happening again, working out what it all meant",
+  body_inner_signals:
+    "your body — sleep, tiredness, energy, hunger, tension, physical stuff you notice",
+  conflict_attention:
+    "being pulled two ways — feeling torn or stuck, guilt, doubt, two things that don't fit together",
+  motivation_reward:
+    "wanting things and chasing them — progress, wins, staying consistent, cravings, what feels worth the effort",
+  relationships_perspective:
+    "other people — family, friends, a partner, feeling judged or seen, how you show up for them",
+  self_reflection_identity:
+    "thinking about yourself — who you are, who you're turning into, your values, proving something",
+};
+
 const REFLECTION_REGION_SIGNAL_RULES: Record<
   ReflectionRegionId,
   Array<{ terms: string[]; weight: number }>
@@ -735,11 +769,18 @@ export const reflectionRegionIdSchema = z.enum([
 ]);
 
 const ENTRY_REGION_EVIDENCE_MAX_LENGTH = 60;
+// Same ceiling as the aggregate map's `noticed`, and for the same reason: the
+// string lands in `shortInsight`, which buildReflectionRegionScore caps at 260.
+// Empty is allowed here — a region that barely showed up in one entry should
+// fall back to the deterministic sentence rather than invent a pattern.
+const ENTRY_REGION_NOTICED_MAX_LENGTH = 260;
 
 export const entryRegionAiScoreSchema = z.object({
   id: reflectionRegionIdSchema,
   score: z.number().min(0).max(1),
   confidence: z.number().min(0).max(1),
+  /** Overrides the generic `buildShortInsight` template for this entry. */
+  noticed: z.string().trim().max(ENTRY_REGION_NOTICED_MAX_LENGTH),
   evidence: z
     .array(z.string().trim().min(1).max(ENTRY_REGION_EVIDENCE_MAX_LENGTH))
     .max(3),
@@ -759,6 +800,7 @@ const entryRegionAiScoreJsonSchema = {
     id: { type: "string", enum: REFLECTION_REGION_IDS },
     score: { type: "number", minimum: 0, maximum: 1 },
     confidence: { type: "number", minimum: 0, maximum: 1 },
+    noticed: { type: "string", maxLength: ENTRY_REGION_NOTICED_MAX_LENGTH },
     evidence: {
       type: "array",
       maxItems: 3,
@@ -769,7 +811,7 @@ const entryRegionAiScoreJsonSchema = {
       },
     },
   },
-  required: ["id", "score", "confidence", "evidence"],
+  required: ["id", "score", "confidence", "noticed", "evidence"],
 };
 
 export const entryRegionScoresJsonSchema = {
@@ -795,8 +837,18 @@ export const entryRegionScoresJsonSchema = {
 
 const MIND_MAP_ACTION_STEP_MAX_LENGTH = 220;
 
+/**
+ * Matches the cap `buildReflectionRegionScore` applies to `shortInsight`, and
+ * that cap is deliberately unchanged: the string renders both in the region
+ * sheet and in the unclamped selected-region card on the Mind Map screen, so
+ * the ceiling is a layout constraint, not just a prompt hint.
+ */
+const MIND_MAP_NOTICED_MAX_LENGTH = 260;
+
 export const mindMapActionStepAiSchema = z.object({
   regionId: reflectionRegionIdSchema,
+  /** Replaces the generic `buildShortInsight` template when the AI path runs. */
+  noticed: z.string().trim().min(1).max(MIND_MAP_NOTICED_MAX_LENGTH),
   actionStep: z.string().trim().min(1).max(MIND_MAP_ACTION_STEP_MAX_LENGTH),
 });
 
@@ -819,13 +871,18 @@ export const mindMapActionStepsJsonSchema = {
         additionalProperties: false,
         properties: {
           regionId: { type: "string", enum: REFLECTION_REGION_IDS },
+          noticed: {
+            type: "string",
+            minLength: 1,
+            maxLength: MIND_MAP_NOTICED_MAX_LENGTH,
+          },
           actionStep: {
             type: "string",
             minLength: 1,
             maxLength: MIND_MAP_ACTION_STEP_MAX_LENGTH,
           },
         },
-        required: ["regionId", "actionStep"],
+        required: ["regionId", "noticed", "actionStep"],
       },
     },
   },

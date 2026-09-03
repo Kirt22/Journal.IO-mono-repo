@@ -9,6 +9,7 @@ import { userModel } from "../../schema/user.schema";
 import { encryptFieldValue } from "../../helpers/fieldEncryption.helpers";
 import {
   CHAT_CONFIDENCE_FACTOR,
+  GUIDED_CONFIDENCE_FACTOR,
   buildCoOccurrencePairs,
   decryptPatternGraphEntryInsight,
   refinePatternGraph,
@@ -77,7 +78,6 @@ afterEach(() => {
   } else {
     delete process.env.OPENAI_API_KEY;
   }
-  delete process.env.AI_ALLOW_NON_PREMIUM;
   if (typeof originalFieldEncryptionMode === "string") {
     process.env.FIELD_ENCRYPTION_MODE = originalFieldEncryptionMode;
   } else {
@@ -157,7 +157,9 @@ test("buildCoOccurrencePairs pairs every theme once and never with itself", () =
   assert.equal(buildCoOccurrencePairs(["only"]).length, 0);
 });
 
-test("toPatternObservation drops labels that name a condition rather than a behaviour", () => {
+test("toPatternObservation keeps a clinical label and still drops an empty one", () => {
+  // The clinical-term filter was removed: dropping these lost the pattern
+  // outright instead of rewording it, so the observation never reached the graph.
   const clinical = toPatternObservation({
     label: "anxiety",
     rationale: "They mention worry often.",
@@ -170,7 +172,21 @@ test("toPatternObservation drops labels that name a condition rather than a beha
     observedAt: new Date(),
   });
 
-  assert.equal(clinical, null);
+  assert.equal(clinical?.label, "anxiety");
+
+  const empty = toPatternObservation({
+    label: "   ",
+    rationale: "Nothing usable.",
+    evidenceQuote: "",
+    confidence: 0.9,
+    regionId: null,
+    sourceKind: "journal",
+    journalId: "journal-1",
+    sessionId: null,
+    observedAt: new Date(),
+  });
+
+  assert.equal(empty, null);
 
   const behavioural = toPatternObservation({
     label: "eats while watching shows",
@@ -208,6 +224,59 @@ test("toPatternObservation discounts chat-mined patterns below journalled ones",
   // A chat turn is less considered than a written entry, so it must never
   // outrank one.
   assert.equal(fromChat?.confidence, Number((0.9 * CHAT_CONFIDENCE_FACTOR).toFixed(2)));
+});
+
+test("toPatternObservation ranks guided answers between journal and chat", () => {
+  const base = {
+    label: "goes quiet after criticism at work",
+    rationale: "Their own account put going quiet right after criticism.",
+    evidenceQuote: "I went quiet for the rest of the afternoon.",
+    confidence: 0.9,
+    regionId: null,
+    journalId: "journal-1",
+    sessionId: null,
+    observedAt: new Date(),
+  };
+
+  const journalled = toPatternObservation({ ...base, sourceKind: "journal" });
+  const guided = toPatternObservation({ ...base, sourceKind: "guided" });
+  const chatted = toPatternObservation({ ...base, sourceKind: "chat" });
+
+  // A guided answer responds to a targeted probe, so it beats a chat aside —
+  // but it is still one session's self-report, so it never outranks something
+  // the user sat down and wrote.
+  assert.ok(guided!.confidence < journalled!.confidence);
+  assert.ok(guided!.confidence > chatted!.confidence);
+  assert.equal(guided?.confidence, Number((0.9 * GUIDED_CONFIDENCE_FACTOR).toFixed(2)));
+});
+
+test("more evidence never makes an established node less confident", async () => {
+  // The regression this guards: a plain running mean lets a string of hedged
+  // observations drag a well-supported node below PATTERN_PROMPT_MIN_CONFIDENCE,
+  // so it stops being spoken about exactly as it becomes established — which
+  // would make "seen enough times to be a pattern" unreachable.
+  const existing = makeNode({ occurrences: 4, confidence: 0.82 });
+  nodeTarget.findOne = () => ({ exec: async () => existing });
+
+  const weak = toPatternObservation({
+    label: "eats while watching shows",
+    rationale: "Mentioned again in passing.",
+    evidenceQuote: "",
+    confidence: 0.1,
+    regionId: null,
+    sourceKind: "chat",
+    journalId: null,
+    sessionId: "session-9",
+    observedAt: new Date("2026-08-11T00:00:00.000Z"),
+  });
+
+  await upsertPatternObservations({ userId: "user-1", observations: [weak!] });
+
+  assert.equal(existing.occurrences, 5);
+  assert.ok(
+    existing.confidence >= 0.82,
+    `confidence fell to ${existing.confidence} on a repeat sighting`
+  );
 });
 
 test("upsertPatternEdge refuses to link a pattern to itself", async () => {
@@ -439,7 +508,7 @@ test("sanitizePatternGraphRefinement keeps only quotes the user actually wrote",
   );
 });
 
-test("sanitizePatternGraphRefinement rejects clusters named after a condition", () => {
+test("sanitizePatternGraphRefinement keeps multi-word clusters, including clinical ones", () => {
   const result = sanitizePatternGraphRefinement({
     refinement: {
       edges: [],
@@ -461,7 +530,11 @@ test("sanitizePatternGraphRefinement rejects clusters named after a condition", 
     nodes: refinementNodes,
   });
 
-  assert.deepEqual(result.umbrellas, [], "god nodes must never carry a diagnosis");
+  // "anxiety" is still rejected, but by the surviving multi-word rule rather
+  // than by a clinical-term list: a bare state noun names nothing the person
+  // does. "binge eating disorder" is specific enough and now survives.
+  assert.equal(result.umbrellas.length, 1);
+  assert.equal(result.umbrellas[0]?.label, "binge eating disorder");
 });
 
 test("sanitizePatternGraphRefinement accepts a behavioural cluster of established patterns", () => {

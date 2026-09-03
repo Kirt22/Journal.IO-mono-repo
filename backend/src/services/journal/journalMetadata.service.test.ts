@@ -30,6 +30,8 @@ const buildAnalysis = (
     analysis: `${label} analysis`,
     majorInsight: `${label} insight`,
     observedTrends: [label],
+    triggersObserved: [],
+    patternAssessment: [],
     detectedTopics: ["reflection"],
     detectedMood: "okay",
     brainSessionMap: {
@@ -101,7 +103,7 @@ test("persistJournalSessionAnalysisSnapshot returns the stored winner when anoth
   };
   assert.equal(update.$set.sessionAnalysisSnapshot.analysis, candidateAnalysis);
   assert.equal(update.$set.sessionAnalysisSnapshot.source, "legacy_backfill");
-  assert.equal(update.$set.sessionAnalysisSnapshot.version, 2);
+  assert.equal(update.$set.sessionAnalysisSnapshot.version, 3);
   assert.ok(update.$set.sessionAnalysisSnapshot.generatedAt instanceof Date);
 });
 
@@ -180,4 +182,20 @@ test("isStaleSessionAnalysisSnapshot only regenerates fallbacks and the broken o
   // Legacy snapshots predate `isFallback`, so a good one must be left alone
   // while the known-broken open-ended text is regenerated.
   assert.equal(isStaleSessionAnalysisSnapshot({ analysis: legacyBroken }), true);
+});
+
+test("a pre-v3 snapshot is stale because it was written in the second person", () => {
+  // The version number is not carried down to this check (callers pass the
+  // analysis body alone), so the absence of `triggersObserved` is the marker.
+  // A v3 analysis always sets it — to [] when it genuinely found none — so an
+  // empty list must NOT be mistaken for an old snapshot.
+  const preV3 = buildAnalysis("legacy");
+  delete (preV3 as { triggersObserved?: unknown }).triggersObserved;
+
+  assert.equal(isStaleSessionAnalysisSnapshot({ analysis: preV3 }), true);
+  assert.equal(
+    isStaleSessionAnalysisSnapshot({ analysis: buildAnalysis("current") }),
+    false,
+    "a v3 analysis that found no triggers must not regenerate forever"
+  );
 });

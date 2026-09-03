@@ -956,12 +956,13 @@ const createGoalSuggestions = async (
     schemaName: "journal_entry_goal_suggestions",
     schema: goalSuggestionsJsonSchema,
     parser: goalSuggestionsSchema,
-    maxOutputTokens: 320,
+    // Up to 4 suggestions, each carrying a title, description and focus.
+    maxOutputTokens: 900,
     messages: [
       {
         role: "system",
         content: [
-          "You write Journal.IO goal suggestions. Suggest small supportive non-clinical goals from this saved entry. Keep them practical, optional, and emotionally safe. Never diagnose, shame, or overstate certainty.",
+          "You write Journal.IO goal suggestions. Suggest small, concrete goals from this saved entry. Keep them practical and specific enough to act on — name what to do and when. Do not prescribe treatment or medication, and never invent a problem the entry does not show.",
           "Use the entry and longTermMemory as evidence, while allowing a broadly useful contextual action such as a walk, a change of setting, or a small routine when it is a plausible experiment. Direct advice is welcome when the useful action is clear, but never assert a speculative hidden cause as fact.",
           "Do not repeat or paraphrase anything in existingGoals. A changed duration, time of day, meal, or trigger does not make the same core action a new goal. Return fewer goals when only a few are genuinely new, and never pad.",
           "Never return two goals that share the same core action. Merge them into one goal that keeps the specifics of both: a five-minute writing goal and a write-after-dinner goal become a single goal to write for five minutes after dinner.",

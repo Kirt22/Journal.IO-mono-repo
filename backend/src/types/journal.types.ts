@@ -51,6 +51,8 @@ export type CreateJournalInput = {
   type?: JournalEntryMode;
   entryKind?: JournalEntryKind;
   aiPrompt?: string;
+  /** Exact strings the app inserted into `content`. See journalAuthorship.helpers. */
+  appAuthoredSegments?: string[];
   tags?: string[];
   images?: string[];
 };

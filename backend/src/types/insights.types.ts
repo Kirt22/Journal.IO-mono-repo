@@ -143,6 +143,13 @@ export type InsightsAiAnalysisReadyResponse = {
   patterns: {
     label: string;
     insight: string;
+    // What came right before the behaviour — the situation, person, time, or
+    // thought that set it off. Empty when the week's material never showed one.
+    trigger: string;
+    // How established the pattern is across this user's whole history, not just
+    // this week. Server-authoritative: the model proposes, the pattern graph
+    // decides, so a count is never something the model invented.
+    status: "emerging" | "recurring" | "confirmed";
     evidence: string[];
     nudge: string;
     tone: InsightTone;

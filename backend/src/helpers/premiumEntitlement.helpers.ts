@@ -5,7 +5,7 @@ type PremiumEntitlementSnapshot = {
   premiumSource?: string | null;
 };
 
-type DevelopmentPremiumAccessOverride = "auto" | "pro" | "free";
+type DevelopmentPremiumAccessOverride = "default" | "pro" | "free";
 
 const TIME_LIMITED_PREMIUM_PLANS = new Set([
   "weekly",
@@ -17,7 +17,7 @@ const getDevelopmentPremiumAccessOverride = (
   environment: NodeJS.ProcessEnv = process.env
 ): DevelopmentPremiumAccessOverride => {
   if (environment.NODE_ENV === "production") {
-    return "auto";
+    return "default";
   }
 
   const configuredOverride = environment.DEV_PREMIUM_ACCESS_OVERRIDE
@@ -26,7 +26,7 @@ const getDevelopmentPremiumAccessOverride = (
 
   return configuredOverride === "pro" || configuredOverride === "free"
     ? configuredOverride
-    : "auto";
+    : "default";
 };
 
 const parsePremiumExpiration = (value?: Date | string | null) => {
@@ -50,7 +50,7 @@ const hasActivePremiumEntitlement = (
   const developmentOverride =
     getDevelopmentPremiumAccessOverride(environment);
 
-  if (developmentOverride !== "auto") {
+  if (developmentOverride !== "default") {
     return developmentOverride === "pro";
   }
 

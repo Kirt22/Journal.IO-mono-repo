@@ -57,6 +57,7 @@ const createGuidedReflectionGoDeeperController = async (
       threadMessages: req.body.threadMessages,
       currentText: req.body.currentText,
       suggestionAction: req.body.suggestionAction,
+      previousSignals: req.body.previousSignals,
       onboardingContext: req.body.onboardingContext,
     });
 
@@ -101,6 +102,7 @@ const createGuidedReflectionSessionAnalysisController = async (
       promptAnswers: req.body.promptAnswers,
       aiSummary: req.body.aiSummary,
       threadMessages: req.body.threadMessages,
+      sessionSignals: req.body.sessionSignals,
       onboardingContext: req.body.onboardingContext,
     });
 

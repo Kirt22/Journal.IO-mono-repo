@@ -9,11 +9,13 @@ import {
   completeOnboardingSchema,
   createOnboardingDemoAnalysisSchema,
 } from "./onboarding.validators";
+import { publicDemoRateLimit } from "../../middleware/security.middleware";
 
 const onboardingRouter = Router();
 
 onboardingRouter.post(
   "/demo-analysis",
+  publicDemoRateLimit,
   validateRequest(createOnboardingDemoAnalysisSchema),
   createOnboardingDemoAnalysisController
 );

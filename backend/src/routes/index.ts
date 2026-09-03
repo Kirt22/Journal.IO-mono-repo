@@ -19,25 +19,11 @@ import paywallRouter from "../services/paywall/paywall.routes";
 import revenueCatRouter from "../services/revenuecat/revenuecat.routes";
 import widgetsRouter from "../services/widgets/widgets.routes";
 import { registerLegalRoutes } from "./legal.routes";
+import { unexpectedErrorHandler } from "../middleware/security.middleware";
 
 console.log("Initializing routes...");
 
 export const initializeRoutes = (app: Express): void => {
-  // Security middleware
-  //   app.use(helmet()); // Adds security headers
-
-  // Rate limiting (prevents brute-force attacks)
-  // const limiter = rateLimit({
-  //   windowMs: 15 * 60 * 1000, // 15 minutes
-  //   max: 100, // Limit each IP to 100 requests per window
-  //   message: {
-  //     status: 401,
-  //     message: "Too many requests, please try again later.",
-  //   },
-  // });
-
-  //app.use(limiter); // Apply rate limiting globally
-
   // **Global API Prefix Setup**
   const apiRouter = express.Router();
 
@@ -70,4 +56,6 @@ export const initializeRoutes = (app: Express): void => {
   app.use((_req, res) => {
     res.status(404).json(apiResponse(false, API_MESSAGES.routeNotFound, {}));
   });
+
+  app.use(unexpectedErrorHandler);
 };

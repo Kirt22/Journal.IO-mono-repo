@@ -4,14 +4,20 @@
   "private": true,
   "scripts": {
     "android": "react-native run-android",
-    "screen": "node scripts/run-screen.mjs",
+    "android:demo": "npm run demo:validate && DEMO_MODE_ENABLED=true APP_ENV=simulator react-native run-android",
+    "demo:capture": "npm --prefix ../backend run demo:capture --",
+    "demo:validate": "node scripts/validate-demo-fixtures.mjs",
+    "demo:verify-release": "npm run env:validate:ios && node scripts/verify-demo-release.mjs",
+    "env:validate:ios": "node scripts/validate-production-env.mjs",
     "ios": "APP_ENV=simulator react-native run-ios",
+    "ios:demo": "npm run demo:validate && DEMO_MODE_ENABLED=true APP_ENV=simulator react-native run-ios",
     "ios:clean": "xcrun simctl uninstall booted app.journalio || true; APP_ENV=simulator react-native run-ios",
     "ios:local": "APP_ENV=simulator react-native run-ios",
     "ios:local-debug": "APP_ENV=simulator react-native run-ios --no-packager",
     "ios:simulator": "APP_ENV=simulator react-native run-ios",
     "ios:simulator-debug": "APP_ENV=simulator react-native run-ios --no-packager",
     "ios:local-test": "APP_ENV=local react-native run-ios --no-packager",
+    "ios:demo:local-test": "npm run demo:validate && DEMO_MODE_ENABLED=true APP_ENV=local react-native run-ios --no-packager",
     "ios:local-prod-debug": "APP_ENV=production react-native run-ios --no-packager",
     "ios:prod-debug": "APP_ENV=production react-native run-ios --no-packager",
     "ios:local-prod": "APP_ENV=production BABEL_ENV=production react-native run-ios --mode Release",
@@ -20,11 +26,14 @@
     "start:local-prod-debug": "APP_ENV=production react-native start --host 0.0.0.0 --reset-cache",
     "start:prod-debug": "APP_ENV=production react-native start --host 0.0.0.0 --reset-cache",
     "start": "APP_ENV=simulator react-native start",
+    "start:demo": "npm run demo:validate && DEMO_MODE_ENABLED=true APP_ENV=simulator react-native start --reset-cache",
     "start:local": "APP_ENV=simulator react-native start",
     "start:local-debug": "APP_ENV=simulator react-native start --reset-cache",
     "start:local-test": "APP_ENV=local react-native start --host 0.0.0.0 --reset-cache",
+    "start:demo:local-test": "npm run demo:validate && DEMO_MODE_ENABLED=true APP_ENV=local react-native start --host 0.0.0.0 --reset-cache",
     "start:simulator": "APP_ENV=simulator react-native start --reset-cache",
-    "test": "jest --watchman=false"
+    "test": "jest --watchman=false",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@invertase/react-native-apple-authentication": "^2.5.1",
@@ -46,9 +55,11 @@
     "react-native-purchases-ui": "^9.15.2",
     "react-native-reanimated": "^4.3.3",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "^4.25.0-beta.1",
+    "react-native-screens": "4.25.0",
+    "react-native-share": "12.3.1",
     "react-native-svg": "^15.15.3",
     "react-native-video": "6.19.2",
+    "react-native-view-shot": "5.1.1",
     "react-native-webview": "^13.16.1",
     "react-native-worklets": "^0.8.3",
     "zustand": "^5.0.12"
@@ -57,9 +68,9 @@
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "20.0.0",
-    "@react-native-community/cli-platform-android": "20.0.0",
-    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native-community/cli": "20.0.2",
+    "@react-native-community/cli-platform-android": "20.0.2",
+    "@react-native-community/cli-platform-ios": "20.0.2",
     "@react-native/babel-preset": "0.82.1",
     "@react-native/eslint-config": "0.82.1",
     "@react-native/metro-config": "0.82.1",
@@ -75,6 +86,6 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.14.1 <25"
   }
 }

@@ -3,6 +3,7 @@ import * as journalController from "./journal.controllers";
 import * as journalValidators from "./journal.validators";
 import { verifyJwtToken } from "../../middleware/verifyJwtToken.middleware";
 import { validateRequest } from "../../middleware/validateRequest.middleware";
+import { authenticatedAiRateLimit } from "../../middleware/security.middleware";
 
 const journalRouter: Router = Router();
 
@@ -86,6 +87,7 @@ journalRouter.delete(
 journalRouter.post(
   "/suggest_tags",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(journalValidators.suggestJournalTagsSchema),
   journalController.suggestJournalTagsController
 );
@@ -93,6 +95,7 @@ journalRouter.post(
 journalRouter.post(
   "/quick_analysis",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(journalValidators.getJournalQuickAnalysisSchema),
   journalController.getJournalQuickAnalysisController
 );
@@ -100,6 +103,7 @@ journalRouter.post(
 journalRouter.post(
   "/session_analysis",
   verifyJwtToken,
+  authenticatedAiRateLimit,
   validateRequest(journalValidators.getJournalSessionAnalysisSchema),
   journalController.getJournalSessionAnalysisController
 );

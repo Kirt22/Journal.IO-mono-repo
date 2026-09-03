@@ -163,7 +163,8 @@
           </div>
 
           <div class="hero__device" data-reveal style="--reveal-delay: 320ms">
-            <div class="device" data-parallax>
+            <!-- no data-parallax here: the scroll-linked rise owns this transform -->
+            <div class="device">
               <img
                 src="/assets/site/img/home.webp"
                 alt="The Journal.IO home screen, showing today's greeting, a mood check-in, and the day's reflection prompt."
@@ -539,14 +540,16 @@
                 the controls are real ones, and they take effect immediately.
               </p>
             </div>
-            <div class="device" data-reveal style="--reveal-delay: 120ms">
-              <img
-                src="/assets/site/img/biometric.webp"
-                alt="The Journal.IO app lock screen, requesting Face ID before showing any entries."
-                width="633"
-                height="1309"
-                loading="lazy"
-              />
+            <div class="privacy__device" data-reveal style="--reveal-delay: 120ms">
+              <div class="device" data-parallax>
+                <img
+                  src="/assets/site/img/biometric.webp"
+                  alt="The Journal.IO app lock screen, requesting Face ID before showing any entries."
+                  width="633"
+                  height="1309"
+                  loading="lazy"
+                />
+              </div>
             </div>
           </div>
 

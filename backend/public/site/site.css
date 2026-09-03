@@ -478,11 +478,19 @@ body.menu-open .nav__burger span:last-child {
    Hero
    -------------------------------------------------------------------------- */
 
-/* No overflow clipping here — the device frame is meant to hang past the hero
-   into the strip below, so the hero has to sit above it in the stack instead. */
+/* The hero's bottom edge is the horizon: its gradient ends on #43261d exactly
+   where .trust picks the same colour up, so the seam reads as a drawn line.
+   Clipping here cuts the device frame on that seam — the negative margin on
+   .hero__device is what pushes the last 26% of the phone below it — so the
+   phone reads as rising out of the horizon rather than floating over the strip
+   below. The glow and drop shadow get cut on the same line, which is the point. */
 .hero {
   position: relative;
   z-index: 2;
+  overflow: hidden;
+  /* clip over hidden so no scroll container is created */
+  overflow: clip;
+  overflow-clip-margin: 0;
   padding: clamp(140px, 20vh, 200px) 0 0;
   background:
     radial-gradient(115% 82% at 50% 104%, rgba(232, 116, 95, 0.34), transparent 60%),
@@ -517,13 +525,24 @@ body.menu-open .nav__burger span:last-child {
 }
 
 .hero__device {
+  /* how far the frame overshoots the horizon, and so also how far it can rise.
+     One value for both keeps the resting state consistent at every width. */
+  --bleed: clamp(90px, 14vw, 160px);
   width: min(300px, 68vw);
   margin-top: clamp(48px, 7vw, 84px);
-  /* the frame deliberately bleeds into the section below */
-  margin-bottom: clamp(-160px, -14vw, -90px);
+  margin-bottom: calc(var(--bleed) * -1);
 }
+
+/* Scroll-linked rise: site.js drives --rise-p from 1 (sunk a second --bleed
+   below the horizon) to 0 (risen to its full height above it), and back on the
+   way up. The default of 0 matters — if site.js never runs, or Reduce Motion
+   is on, the phone renders fully risen and statically clipped, never stuck
+   sunk. */
 .hero__device .device {
+  --rise-p: 0;
   max-width: none;
+  transform: translate3d(0, calc(var(--rise-p) * var(--bleed)), 0);
+  will-change: transform;
 }
 
 /* The Home orb is alive in the app and frozen in a screenshot — this slow
@@ -930,8 +949,9 @@ body.menu-open .nav__burger span:last-child {
   color: var(--muted);
   max-width: 42ch;
 }
-.privacy__top .device {
+.privacy__top .privacy__device {
   max-width: 280px;
+  margin-inline: auto;
 }
 .privacy__top .device::before {
   background: radial-gradient(50% 50% at 52% 46%, rgba(232, 116, 95, 0.3), transparent 70%);
@@ -1409,7 +1429,7 @@ body.menu-open .nav__burger span:last-child {
   .privacy__top {
     grid-template-columns: 1fr;
   }
-  .privacy__top .device {
+  .privacy__top .privacy__device {
     order: -1;
   }
   .plans__grid {
@@ -1423,8 +1443,8 @@ body.menu-open .nav__burger span:last-child {
 
 @media (max-width: 560px) {
   .hero__device {
+    /* --bleed already clamps to 90px at this width; the rise follows it */
     width: min(250px, 72vw);
-    margin-bottom: -90px;
   }
   .trust {
     padding-top: 140px;

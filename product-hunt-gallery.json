@@ -1,0 +1,54 @@
+{
+  "device": {
+    "mode": "prerendered",
+    "placement": {
+      "x": 712,
+      "y": 72,
+      "height": 990
+    }
+  },
+  "slides": [
+    {
+      "headline": "Notice what keeps coming back.",
+      "subhead": "Turn daily writing into patterns you can actually see.",
+      "screenshot": "frontend/iphone ss with frame/iPhone 16 Pro Black Titanium - Home_thumb.png",
+      "background": "warm",
+      "wordmark": true
+    },
+    {
+      "headline": "Your entries, mapped.",
+      "subhead": "Every entry lands somewhere. Watch the map fill in as you write.",
+      "screenshot": "frontend/iphone ss with frame/iPhone 16 Pro Black Titanium - mind map_thumb.png",
+      "background": "solid",
+      "footerLabels": [
+        "prefrontal cortex",
+        "hippocampus"
+      ]
+    },
+    {
+      "headline": "Your thoughts stay yours.",
+      "subhead": "Face ID lock, hidden previews, and export or delete everything.",
+      "screenshot": "frontend/iphone ss with frame/iPhone 16 Pro Black Titanium - Biometric_thumb.png",
+      "background": "warm"
+    },
+    {
+      "layout": "summary",
+      "headline": "Everything you need to notice what keeps coming back.",
+      "background": "solid",
+      "columns": [
+        {
+          "title": "ask jade",
+          "body": "a private AI that has read your journal and nothing else"
+        },
+        {
+          "title": "the mind map",
+          "body": "see how your themes, people and moods connect over time"
+        },
+        {
+          "title": "guided reflection",
+          "body": "one question at a time, so you never face a blank page"
+        }
+      ]
+    }
+  ]
+}

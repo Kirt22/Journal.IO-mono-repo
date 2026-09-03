@@ -1,0 +1,17 @@
+{
+  "id": "sunday-collapse",
+  "label": "Holding together all week, collapsing Sunday",
+  "status": "draft",
+  "fictional": true,
+  "generatedAt": null,
+  "sourceModels": {},
+  "captureVersion": 1,
+  "inputHash": null,
+  "outputHash": null,
+  "entries": [],
+  "askJadeQuestions": [],
+  "askJadeFallbackQuestion": "What pattern stands out most across these entries?",
+  "filmingEntryDayOffset": 0,
+  "goalSourceDayOffset": -12,
+  "captured": null
+}

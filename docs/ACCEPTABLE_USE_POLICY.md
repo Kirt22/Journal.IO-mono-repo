@@ -27,8 +27,10 @@ Do not:
 ## 3. Support and Safety
 
 Journal.IO is not a medical, psychiatric, therapy, or crisis-response service.
-Its AI-supported features are intended to be supportive, non-clinical, and
-uncertainty-aware.
+Its AI-supported features speak directly and name behavioural and psychological
+patterns in what you write. They do not diagnose conditions, provide treatment,
+advise on medication, or replace professional care, and nothing they say is a
+clinical finding.
 
 For help with an account or the app, submit a request through:
 

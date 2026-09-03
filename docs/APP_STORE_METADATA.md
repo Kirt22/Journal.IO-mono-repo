@@ -134,7 +134,7 @@ Free forever: unlimited entries, daily mood check-ins and history, streaks, cale
 Premium adds: Ask Jade with saved conversations, guided reflection any time with Go deeper, weekly and per-entry analysis, your personal Mind Map, the Quick Thought and Mood Check-in widgets, and the Face ID app lock.
 
 NON-CLINICAL BY DESIGN
-Journal.IO is a reflection tool, not a medical one. Insights are supportive and behavior-focused. It does not diagnose conditions, give medical advice, or replace professional support.
+Journal.IO is a reflection tool, not a medical one. Insights are direct and behavior-focused: they name what your entries actually show. It does not diagnose conditions, give medical advice, or replace professional support.
 
 Start with today. One entry is enough to begin — the patterns turn up on their own.
 
